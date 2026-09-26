@@ -29,28 +29,10 @@ namespace Hidano.FacialControl.LipSync.Tests.EditMode.Adapters
         }
 
         [Test]
-        public void Constructor_UnknownPhonemeId_LogsWarningOnce()
-        {
-            using var provider = CreateProvider(new FakePhonemeWeightSource(), Snapshot("A", 1f, 0f, 0f));
-
-            LogAssert.Expect(LogType.Warning, new System.Text.RegularExpressions.Regex("Phoneme 'Unknown' is not registered"));
-            var source = new LipSyncPhonemeOverlayInputSource(
-                InputSourceId.Parse("lipsync-overlay:unknown"),
-                "Unknown",
-                provider,
-                BlendShapeCount);
-
-            var output = new float[BlendShapeCount];
-            Assert.That(source.TryWriteValues(output), Is.False);
-            Assert.That(source.TryWriteValues(output), Is.False);
-            LogAssert.NoUnexpectedReceived();
-        }
-
-        [Test]
         public void TryWriteValues_PhonemeNotRegistered_ReturnsFalse()
         {
             using var provider = CreateProvider(new FakePhonemeWeightSource(), Snapshot("A", 1f, 0f, 0f));
-            LogAssert.Expect(LogType.Warning, new System.Text.RegularExpressions.Regex("Phoneme 'Unknown' is not registered"));
+            LogAssert.Expect(LogType.Warning, new System.Text.RegularExpressions.Regex("'Unknown'"));
             var source = new LipSyncPhonemeOverlayInputSource(
                 InputSourceId.Parse("lipsync-overlay:unknown"),
                 "Unknown",

@@ -1,12 +1,10 @@
 using System;
 using System.Collections;
 using System.Collections.Generic;
-using System.Reflection;
 using Hidano.FacialControl.Adapters.AdapterBindings;
 using Hidano.FacialControl.Adapters.OSC;
 using Hidano.FacialControl.Adapters.Playable;
 using Hidano.FacialControl.Adapters.ScriptableObject.Serializable;
-using Hidano.FacialControl.Application.UseCases;
 using Hidano.FacialControl.Domain.Adapters;
 using Hidano.FacialControl.Domain.Models;
 using NUnit.Framework;
@@ -17,7 +15,7 @@ namespace Hidano.FacialControl.Tests.PlayMode.Integration
 {
     /// <summary>
     /// PlayMode E2E: FacialController の post-blend 出力を OSC loopback で送信し、
-    /// 受信側 LayerUseCase が OscReceiverAdapterBinding 経由で消費することを検証する。
+    /// 受信側 FacialController が OscReceiverAdapterBinding 経由で消費して Renderer に適用することを検証する。
     /// </summary>
     [TestFixture]
     public class OscSendReceiveE2ETests
@@ -75,7 +73,7 @@ namespace Hidano.FacialControl.Tests.PlayMode.Integration
         }
 
         [UnityTest]
-        public IEnumerator FacialControllerPostBlend_UdpLoopback_ReachesReceiverLayerUseCase()
+        public IEnumerator FacialControllerPostBlend_UdpLoopback_ReachesReceiverRenderer()
         {
             int port = AllocatePort();
             _sourceMesh = CreateMeshWithBlendShape("OscSendReceiveE2E_SourceMesh", BlendShapeName);
@@ -144,25 +142,18 @@ namespace Hidano.FacialControl.Tests.PlayMode.Integration
                 receiverBinding.OnFixedTick(0.02f);
                 yield return null;
 
-                LayerUseCase receiverLayerUseCase = ReadPrivateField<LayerUseCase>(
-                    receiverController,
-                    "_layerUseCase");
-                Assert.That(receiverLayerUseCase, Is.Not.Null, "受信側 LayerUseCase が構築されていること。");
-
-                float layerValue = receiverLayerUseCase.GetBlendedOutput()[0];
+                // 受信側の到達は FacialController が Renderer に書き込んだ BlendShape weight（公開 API）で観測する。
                 float rendererValue = receiverRenderer.GetBlendShapeWeight(0) / 100f;
-                if (layerValue > 0.01f || rendererValue > 0.01f)
+                if (rendererValue > 0.01f)
                 {
-                    Assert.That(layerValue, Is.EqualTo(SourceValue).Within(0.08f),
-                        "送信側 post-blend BlendShape 値が受信側 LayerUseCase に到達すること。");
                     Assert.That(rendererValue, Is.EqualTo(SourceValue).Within(0.08f),
-                        "受信側 FacialController が LayerUseCase 出力を Renderer に適用すること。");
+                        "送信側 post-blend BlendShape 値が受信側 FacialController 経由で Renderer に適用されること。");
                     reached = true;
                 }
             }
 
             Assert.That(reached, Is.True,
-                "FacialController → FacialOutputBus → OscSenderAdapterBinding → 実 UDP loopback → OscReceiverAdapterBinding → LayerUseCase の BlendShape 経路で値が到達すること。");
+                "FacialController → FacialOutputBus → OscSenderAdapterBinding → 実 UDP loopback → OscReceiverAdapterBinding → 受信側 Renderer の BlendShape 経路で値が到達すること。");
         }
 
         private static TestOscE2EProfileSO CreateProfileSo(
@@ -268,15 +259,6 @@ namespace Hidano.FacialControl.Tests.PlayMode.Integration
         {
             int next = System.Threading.Interlocked.Increment(ref s_portCounter);
             return LoopbackPortBase + next;
-        }
-
-        private static T ReadPrivateField<T>(object target, string fieldName) where T : class
-        {
-            FieldInfo field = target.GetType().GetField(
-                fieldName,
-                BindingFlags.Instance | BindingFlags.NonPublic);
-            Assert.That(field, Is.Not.Null, fieldName + " field が存在すること。");
-            return field.GetValue(target) as T;
         }
 
         private static void DeactivateAndDestroy(GameObject gameObject)

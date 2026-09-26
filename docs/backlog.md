@@ -229,6 +229,7 @@
 - **出典**: 2026-06-21 `/kiro:spec-run input-source-routing-graph-editor` 完了後のフル EditMode 検証で検出。**当該 spec とは無関係な pre-existing failure**（spec の 21 コミットがサンプル資産・`Samples~`・`StreamingAssets` を一切変更していないことを `git log 4b1f2cb..HEAD -- <sample paths>` が空であることで確認済み）。
 - **背景**: preview.2 移行の過程で `MultiSourceBlendDemo` のサンプル資産が 3 コピー（dev `Assets/StreamingAssets/`、package `Samples~/`、imported `Assets/Samples/...`）間で同期ずれを起こし、`SampleAssetsAreInSyncTests` が 4 件赤だった。**2026-08-25 に imported コピー（`Assets/Samples/` の dev ミラー）を削除**したことで、imported 起因の 3 件（旧 (1) (2) (4)）は解消（テストは対象ファイル不在時に skip-pass する実装）。実測 8 件中 passed=7 / failed=1。
 - **残る赤**: `ProfileJson_DevStreamingAssetsAndPackageSample_AreByteIdentical` — `profile.json` が dev(12313B) と package `Samples~`(10637B) で byte 非一致（index 38 で分岐）。
+- **2026-09-26 追記**: フル EditMode（1,922 件）で `SampleAssetsAreInSyncTests` は全件緑。残る赤も解消済みのため本項目はクローズ扱い。再発時のみ上記方針を参照。
 - **方針**: dev `Assets/StreamingAssets/FacialControl/MultiSourceBlendDemoCharacter/profile.json` を正本とし（既存テストの前提）、`Samples~/MultiSourceBlendDemo/StreamingAssets/` 側を再生成して byte 一致させる。
 - **トリガ**: preview.1 リリース前のサンプル最終確認 / サンプル Import 経路の動作確認時 / この赤が他 spec の `spec-run` バッチでノイズ（保守的 FAIL 判定）になっているとき
 - **影響範囲**: `Assets/StreamingAssets/FacialControl/MultiSourceBlendDemoCharacter/profile.json`、`Packages/com.hidano.facialcontrol.inputsystem/Samples~/MultiSourceBlendDemo/StreamingAssets/`、`Tests/EditMode/Editor/Inspector/SampleAssetsAreInSyncTests.cs`
@@ -250,6 +251,20 @@
 - **トリガ**: M-4 着手時に同時検討 / preview.2 の「人間的しぐさ」系（自動まばたき `IBlinkTrigger` 実装、`docs/technical-spec.md` §11）をまとめて拾うタイミング
 - **影響範囲**: `Runtime/Adapters/Bone/GazeBonePoseProvider.cs`, `Runtime/Adapters/Bone/GazeBoneBinding.cs`, `GazeChannel`（`gaze-channel-redesign` 後のデータモデル）, Inspector 目線タブ, JSON schema, PlayMode テスト
 - **関連**: M-4（多重 provider 合成 — 前提）、M-5（Vector3 ターゲット視線 / カメラ目線 — カメラ目線時こそ微細動が効く）、M-1 の自動まばたき（同じ「人間的しぐさ」カテゴリ）
+
+### M-32: FacialCharacterProfileSOInspector の pending overlay 編集機構のデッドコード整理
+- **出典**: 2026-09-26 テスト棚卸し（Editor UI テスト最小化パス）で判明。
+- **内容**: `FacialCharacterProfileSOInspector.RunOverlayEditDeferredOrImmediate` は現在 `editCore?.Invoke()` の即時実行のみで、`_pendingOverlayEdits` に積む経路が存在しない。`FlushPendingOverlayEdits` / `OnPlayModeStateChangedFlushOverlayEdits` の pending 処理と `_pendingOverlayEdits` フィールドは実質デッドコード。従来はこの機構を reflection で人工的に検証するテストがあったが、区分 D として削除済み。Play 遷移時に overlay 編集を遅延させる必要が本当に無いなら機構ごと削除し、必要なら積む経路を復活させて振る舞いテスト（Play 遷移前後で編集が失われない）を書く。
+- **トリガ**: Inspector 周辺の次回改修時 / 「Play 解除で overlay 設定が戻る」症状が再報告されたとき
+- **影響範囲**: `Editor/Inspector/FacialCharacterProfileSOInspector.cs`、`Tests/EditMode/Editor/Inspector/FacialCharacterProfileSOInspectorTests.cs`
+- **関連**: `docs/test-policy.md`（区分 D の扱い）
+
+### M-33: OscReceiverAdapterBinding の heartbeat 蓄積 reset 契機と uOSC 経路デッドコード
+- **出典**: 2026-09-26 テスト棚卸し（既知の赤 4 件の処置パス）で判明。同 timestamp 再送による名前の重複蓄積は `AccumulateHeartbeatBytes` に重複排除を入れて修正済み（`ContainsHeartbeatNameLocked`）。
+- **内容**: (1) heartbeat chunk の蓄積 reset は「bundle timestamp が変わったとき」のみ。bare メッセージ（timestamp key=1 固定）で heartbeat を送る外部送信元が**名前を減らした** heartbeat を再送しても、古い名前が scratch に残り続ける（重複排除は追加分しか救わない）。「処理済み後に同一 key の chunk が来たら reset」等の契機追加が必要だが、chunk が FixedTick を跨ぐ場合に部分 mapping になるリスクがあるため保留。(2) `HandleHeartbeatMessage(uOSC.Message)` 側の `_heartbeatScratch`(List) 経路は `SetMessageFilter` が未配線で処理からも読まれないデッドコード。M-16（uOSC 撤去）と合わせて削除する。
+- **トリガ**: bare メッセージで heartbeat を送る外部送信元（VRChat 以外の OSC ツール）対応時 / M-16 着手時
+- **影響範囲**: `Packages/com.hidano.facialcontrol.osc/Runtime/Adapters/AdapterBindings/OscReceiverAdapterBinding.cs`、`Tests/EditMode/Adapters/AdapterBindings/OscReceiverAdapterBindingTests.cs`
+- **関連**: M-16（uOSC vendor copy + zero-alloc fork）
 
 ---
 

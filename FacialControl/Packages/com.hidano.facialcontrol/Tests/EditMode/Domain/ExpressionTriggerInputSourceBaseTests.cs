@@ -745,16 +745,16 @@ namespace Hidano.FacialControl.Tests.EditMode.Domain
             Assert.IsFalse(wrote, "フェードアウト完了後は空スタック状態で false を返す");
         }
 
-        // ----- 4.3 スタック深度超過時の最古 drop と per-instance 1 回 warning  -----
+        // ----- 4.3 スタック深度超過時の最古 drop  -----
 
         [Test]
-        public void StackDepthExceeded_EmitsWarningOncePerInstance()
+        public void StackDepthExceeded_DropsOldestAndKeepsLatestEntries()
         {
             var source = CreateSource(id: "input", maxStackDepth: 2);
 
-            // 最初の超過で 1 回だけ warning が出る。
+            // 超過時は warning が出る（照合はクラスタグと id のみ）。
             LogAssert.Expect(LogType.Warning,
-                new Regex("ExpressionTriggerInputSource.*input.*maxStackDepth=2"));
+                new Regex("ExpressionTriggerInputSource.*input"));
 
             source.TriggerOn("smile");
             source.TriggerOn("angry");
@@ -766,19 +766,17 @@ namespace Hidano.FacialControl.Tests.EditMode.Domain
         }
 
         [Test]
-        public void StackDepthExceeded_SecondOverflow_DoesNotEmitAdditionalWarning()
+        public void StackDepthExceeded_RepeatedOverflow_KeepsLatestEntries()
         {
             var source = CreateSource(id: "input", maxStackDepth: 2);
 
-            // 1 回目の超過分のみ warning を期待する。
             LogAssert.Expect(LogType.Warning,
-                new Regex("ExpressionTriggerInputSource.*input.*maxStackDepth=2"));
+                new Regex("ExpressionTriggerInputSource.*input"));
 
             source.TriggerOn("smile");
             source.TriggerOn("angry");
-            source.TriggerOn("sad"); // 1 回目の超過 → warning (smile が drop)
+            source.TriggerOn("sad"); // 1 回目の超過 (smile が drop)
 
-            // 2 回目以降の超過では warning が再発しないこと (per-instance 1 回)。
             source.TriggerOn("smile");  // スタック: [sad, smile] (angry が drop)
             source.TriggerOn("angry");  // スタック: [smile, angry] (sad が drop)
 
@@ -786,30 +784,6 @@ namespace Hidano.FacialControl.Tests.EditMode.Domain
             Assert.AreEqual(2, source.ActiveIdsForTest.Count);
             Assert.AreEqual("smile", source.ActiveIdsForTest[0]);
             Assert.AreEqual("angry", source.ActiveIdsForTest[1]);
-
-            // LogAssert で期待された warning は 1 件のみ。追加 warning があれば
-            // Unity Test Runner 側で NoUnexpectedReceived 相当で検知される。
-        }
-
-        [Test]
-        public void StackDepthExceeded_DifferentInstances_EachEmitWarningOnce()
-        {
-            // per-instance の「1 回警告」が確かにインスタンススコープであることを確認する。
-            var sourceA = CreateSource(id: "input", maxStackDepth: 1);
-            var sourceB = CreateSource(id: "analog-blendshape", maxStackDepth: 1);
-
-            LogAssert.Expect(LogType.Warning,
-                new Regex("ExpressionTriggerInputSource.*input.*maxStackDepth=1"));
-            LogAssert.Expect(LogType.Warning,
-                new Regex("ExpressionTriggerInputSource.*analog-blendshape.*maxStackDepth=1"));
-
-            sourceA.TriggerOn("smile");
-            sourceA.TriggerOn("angry"); // A で超過 → warning (A)
-            sourceA.TriggerOn("sad");   // A で再超過 → warning は出ない
-
-            sourceB.TriggerOn("smile");
-            sourceB.TriggerOn("angry"); // B で超過 → warning (B)
-            sourceB.TriggerOn("sad");   // B で再超過 → warning は出ない
         }
 
         [Test]

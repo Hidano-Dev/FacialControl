@@ -68,6 +68,12 @@ JSON パースは `JsonUtility` ベース（System.Text.Json は使わない）�
 
 **命名**: クラス `{Target}Tests` / メソッド `{Method}_{Condition}_{Expected}`（例: `SetProfile_ValidJson_ReturnsProfileWithCorrectBlendShapes`）。
 
+**何を守るテストを書くか**は `docs/test-policy.md` に従う。要点:
+- テストファイルはテスト対象クラス単位。spec や task 単位でファイルを増やさず、既存の `{Target}Tests.cs` に追記する
+- private への reflection 到達とログ文言の完全一致は「実装のテスト」なので書かない（振る舞いを変えないリファクタで赤くなる）
+- Editor UI テストは生成・保存・破棄の smoke のみ
+- テスト名・コメントに Legacy / V2 / Phase / task 番号などの履歴語を入れない
+
 ## Development Environment
 
 ### Required Tools

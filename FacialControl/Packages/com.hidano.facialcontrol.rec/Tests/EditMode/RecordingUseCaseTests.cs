@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Text.RegularExpressions;
 using Hidano.FacialControl.Domain.Adapters;
 using Hidano.FacialControl.Rec.Application.UseCases;
 using Hidano.FacialControl.Rec.Domain.Interfaces;
@@ -63,7 +64,7 @@ namespace Hidano.FacialControl.Rec.Tests.EditMode
             using var useCase = new RecordingUseCase(bus, clock, sink);
             useCase.StartRecording(RecBaselineState.Empty);
 
-            LogAssert.Expect(LogType.Warning, "Recording is already active. StartRecording was ignored.");
+            LogAssert.Expect(LogType.Warning, new Regex("StartRecording"));
 
             useCase.StartRecording(RecBaselineState.Empty);
 
@@ -151,16 +152,16 @@ namespace Hidano.FacialControl.Rec.Tests.EditMode
             using var useCase = new RecordingUseCase(bus, clock, sink);
             useCase.StartRecording(RecBaselineState.Empty);
 
-            LogAssert.Expect(LogType.Warning, "Recording ignored a trigger event because sourceId was null or empty.");
+            LogAssert.Expect(LogType.Warning, new Regex("sourceId"));
             useCase.OnTriggerOn(null, "smile");
 
-            LogAssert.Expect(LogType.Warning, "Recording ignored a trigger event because expressionId was null or empty.");
+            LogAssert.Expect(LogType.Warning, new Regex("expressionId"));
             useCase.OnTriggerOff("input:trigger", string.Empty);
 
-            LogAssert.Expect(LogType.Warning, "Recording ignored an analog sample because sourceId was null or empty.");
+            LogAssert.Expect(LogType.Warning, new Regex("sourceId"));
             useCase.OnAnalogSample(string.Empty, new float[] { 0.1f });
 
-            LogAssert.Expect(LogType.Warning, "Recording ignored analog sample 'input:gaze' because axis count 0 was invalid.");
+            LogAssert.Expect(LogType.Warning, new Regex("'input:gaze'"));
             useCase.OnAnalogSample("input:gaze", ReadOnlySpan<float>.Empty);
 
             Assert.That(sink.AppendedEvents.Count, Is.EqualTo(0));

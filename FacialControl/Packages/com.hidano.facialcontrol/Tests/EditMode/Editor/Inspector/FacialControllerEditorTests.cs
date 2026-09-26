@@ -1,24 +1,22 @@
 using NUnit.Framework;
-using UnityEditor;
 using UnityEngine;
 using UnityEngine.UIElements;
 using Hidano.FacialControl.Adapters.Playable;
-using Hidano.FacialControl.Adapters.ScriptableObject.Serializable;
 using Hidano.FacialControl.Editor.Inspector;
 
 namespace Hidano.FacialControl.Tests.EditMode.Editor.Inspector
 {
     /// <summary>
-    /// <see cref="FacialControllerEditor"/> の概要表示が
-    /// 新モデル (Schema / Layer / Expression / Snapshot) に置き換わっており、
-    /// 旧 BonePose 概念由来の文字列が一切残っていないことを検証する。
+    /// <see cref="FacialControllerEditor"/> の smoke テスト。
+    /// Inspector が例外なく生成できること、および実機で発生した
+    /// 「FacialController 二重配置（親子階層に 2 つ）で同じ renderer を奪い合い表情が動かない」不具合を
+    /// Inspector 警告として検出できること（<see cref="FacialControllerEditor.FindHierarchyDuplicate"/>）を守る。
     /// </summary>
     [TestFixture]
     public class FacialControllerEditorTests
     {
         private GameObject _host;
         private FacialController _controller;
-        private FacialCharacterProfileSO _so;
         private UnityEditor.Editor _editor;
 
         [SetUp]
@@ -37,11 +35,6 @@ namespace Hidano.FacialControl.Tests.EditMode.Editor.Inspector
                 Object.DestroyImmediate(_editor);
                 _editor = null;
             }
-            if (_so != null)
-            {
-                Object.DestroyImmediate(_so);
-                _so = null;
-            }
             if (_host != null)
             {
                 Object.DestroyImmediate(_host);
@@ -59,66 +52,8 @@ namespace Hidano.FacialControl.Tests.EditMode.Editor.Inspector
             return root;
         }
 
-        [Test]
-        public void CreateInspectorGUI_DoesNotIncludeBonePoseTextAnywhere()
-        {
-            var root = BuildInspectorRoot();
-
-            // 全 Label の text に "BonePose" / "ボーンポーズ" 等の旧概念文字列が含まれないこと
-            root.Query<Label>().ForEach(label =>
-            {
-                StringAssert.DoesNotContain("BonePose", label.text,
-                    $"Label.text に 'BonePose' が残っています: '{label.text}'");
-                StringAssert.DoesNotContain("ボーンポーズ", label.text,
-                    $"Label.text に 'ボーンポーズ' が残っています: '{label.text}'");
-                StringAssert.DoesNotContain("BonePoses", label.text,
-                    $"Label.text に 'BonePoses' が残っています: '{label.text}'");
-            });
-
-            // Foldout の text 部分にも残っていないこと
-            root.Query<Foldout>().ForEach(foldout =>
-            {
-                StringAssert.DoesNotContain("BonePose", foldout.text,
-                    $"Foldout.text に 'BonePose' が残っています: '{foldout.text}'");
-                StringAssert.DoesNotContain("ボーンポーズ", foldout.text,
-                    $"Foldout.text に 'ボーンポーズ' が残っています: '{foldout.text}'");
-            });
-        }
-
-        [Test]
-        public void CreateInspectorGUI_ProvidesNewSummaryLabels()
-        {
-            var root = BuildInspectorRoot();
-
-            var schema = root.Q<Label>(name: FacialControllerEditor.SchemaVersionLabelName);
-            var layer = root.Q<Label>(name: FacialControllerEditor.LayerCountLabelName);
-            var expression = root.Q<Label>(name: FacialControllerEditor.ExpressionCountLabelName);
-            var snapshot = root.Q<Label>(name: FacialControllerEditor.SnapshotCountLabelName);
-
-            Assert.IsNotNull(schema, "Schema バージョン Label が見つかりません。");
-            Assert.IsNotNull(layer, "Layer 数 Label が見つかりません。");
-            Assert.IsNotNull(expression, "Expression 数 Label が見つかりません。");
-            Assert.IsNotNull(snapshot, "Snapshot 数 Label が見つかりません。");
-        }
-
-        [Test]
-        public void SummaryLabelFormatConstants_DoNotMentionBonePose()
-        {
-            // Refactor: 表示文字列を const 化。
-            // const 文字列レベルでも旧概念が残っていないことを検証する。
-            StringAssert.DoesNotContain("BonePose", FacialControllerEditor.SchemaVersionLabelFormat);
-            StringAssert.DoesNotContain("BonePose", FacialControllerEditor.LayerCountLabelFormat);
-            StringAssert.DoesNotContain("BonePose", FacialControllerEditor.ExpressionCountLabelFormat);
-            StringAssert.DoesNotContain("BonePose", FacialControllerEditor.SnapshotCountLabelFormat);
-
-            StringAssert.DoesNotContain("ボーンポーズ", FacialControllerEditor.SchemaVersionLabelFormat);
-            StringAssert.DoesNotContain("ボーンポーズ", FacialControllerEditor.LayerCountLabelFormat);
-            StringAssert.DoesNotContain("ボーンポーズ", FacialControllerEditor.ExpressionCountLabelFormat);
-            StringAssert.DoesNotContain("ボーンポーズ", FacialControllerEditor.SnapshotCountLabelFormat);
-        }
-
         // ================================================================
-        // 重複 FacialController の警告
+        // smoke: 生成できる（重複なし → 警告なし）
         // ================================================================
 
         [Test]
@@ -130,6 +65,10 @@ namespace Hidano.FacialControl.Tests.EditMode.Editor.Inspector
 
             Assert.IsNull(helpBox, "重複が無いのに警告 HelpBox が表示されています。");
         }
+
+        // ================================================================
+        // 重複 FacialController の警告（実機不具合: 二重配置で表情が動かない）
+        // ================================================================
 
         [Test]
         public void CreateInspectorGUI_DuplicateControllerInChild_ShowsWarning()

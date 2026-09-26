@@ -234,6 +234,7 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
         // /_facialcontrol/blendshape_names メッセージ (chunk) に分割されて届く。
         // 同一 heartbeat の chunk 群は同じ bundle timestamp を共有するため、
         // timestamp が同じ間は _heartbeatScratch へ accumulate し、新しい timestamp で reset する。
+        // 同じ timestamp で同一名が再度届いた場合は重複蓄積せず読み飛ばす（名前集合として扱う）。
         [NonSerialized]
         private ulong _heartbeatAccumulationTimestamp;
 
@@ -1514,6 +1515,15 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
                         break;
                     }
 
+                    // 同じ timestamp key で同一内容の heartbeat が再送された場合（bare メッセージは
+                    // bundle timestamp を持たず常に同じ key で届く）、reset されずに名前が重複蓄積され、
+                    // 内容が同じでもバイト列ハッシュが変わって mapping 再構築（確保あり）が走ってしまう。
+                    // 蓄積済みの名前と一致する chunk 要素は読み飛ばし、名前集合として重複を排除する。
+                    if (ContainsHeartbeatNameLocked(argument.Bytes))
+                    {
+                        continue;
+                    }
+
                     argument.Bytes.CopyTo(new Span<byte>(_heartbeatScratchBytes, _heartbeatScratchByteCount, argument.Bytes.Length));
                     _heartbeatScratchByteCount += argument.Bytes.Length;
                     _heartbeatScratchNameCount++;
@@ -1524,6 +1534,30 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
             // ProcessPendingHeartbeatMappings は dirty が立っていなければ即 return するため、
             // chunk を積むたびに必ず立てる（unchanged 判定はバイト列ハッシュ側で行う）。
             Volatile.Write(ref _heartbeatDirty, 1);
+        }
+
+        /// <summary>
+        /// 蓄積中の heartbeat scratch に同じバイト列の名前が既に含まれているかを返す（_heartbeatSync 保持下で呼ぶ）。
+        /// 長さ比較で大半を弾き、一致候補のみバイト列を比較する。ヒープ確保なし。
+        /// </summary>
+        private bool ContainsHeartbeatNameLocked(ReadOnlySpan<byte> nameBytes)
+        {
+            for (int i = 0; i < _heartbeatScratchNameCount; i++)
+            {
+                int start = _heartbeatScratchOffsets[i];
+                int length = _heartbeatScratchOffsets[i + 1] - start;
+                if (length != nameBytes.Length)
+                {
+                    continue;
+                }
+
+                if (new ReadOnlySpan<byte>(_heartbeatScratchBytes, start, length).SequenceEqual(nameBytes))
+                {
+                    return true;
+                }
+            }
+
+            return false;
         }
 
         private void HandleHeartbeatMessage(uOSC.Message message)

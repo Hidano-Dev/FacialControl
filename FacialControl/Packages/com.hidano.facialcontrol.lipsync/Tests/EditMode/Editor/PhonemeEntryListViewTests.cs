@@ -1,18 +1,19 @@
 using System;
 using System.Collections.Generic;
-using System.Reflection;
-using Hidano.FacialControl.Adapters.ScriptableObject.Serializable;
-using Hidano.FacialControl.Editor.Common;
 using Hidano.FacialControl.LipSync.Adapters.PhonemeEntries;
 using Hidano.FacialControl.LipSync.Editor.Inspector;
 using NUnit.Framework;
 using UnityEditor;
-using UnityEditor.UIElements;
 using UnityEngine;
 using UnityEngine.UIElements;
 
 namespace Hidano.FacialControl.LipSync.Tests.EditMode.Editor
 {
+    /// <summary>
+    /// <see cref="PhonemeEntryListView"/> のテスト。
+    /// UI ツリーは「生成できる」smoke のみ。残りは公開 API（AddEntry / SetEntryKind / MoveEntry / RemoveEntryAt）
+    /// が SerializedProperty へ正しく書き込むことを SerializedObject 経由で観測する（UI 非依存）。
+    /// </summary>
     public class PhonemeEntryListViewTests
     {
         private PhonemeEntryListViewTestAsset _asset;
@@ -38,51 +39,27 @@ namespace Hidano.FacialControl.LipSync.Tests.EditMode.Editor
             Undo.ClearAll();
         }
 
-        [Test]
-        public void Create_ArrayProperty_BuildsReorderableListWithStandardFooter()
-        {
-            var view = CreateView();
-            var listView = view.Q<ListView>(PhonemeEntryListView.ListViewName);
-
-            Assert.That(listView, Is.Not.Null);
-            Assert.That(listView.reorderable, Is.True);
-            Assert.That(listView.showAddRemoveFooter, Is.True);
-        }
+        // ====================================================================
+        // smoke: 生成できる
+        // ====================================================================
 
         [Test]
-        public void Create_ListView_ShowsAlternatingRowBackgrounds()
+        public void Construct_ArrayProperty_BuildsListViewWithoutThrowing()
         {
-            var view = CreateView();
-            var listView = view.Q<ListView>(PhonemeEntryListView.ListViewName);
+            _asset.Entries.Add(new BlendShapePhonemeEntry { PhonemeId = "A", BlendShapeName = string.Empty });
+            _asset.Entries.Add(new AnimationClipPhonemeEntry { PhonemeId = "O" });
+            _asset.Entries.Add(new ExpressionPhonemeEntry { PhonemeId = "I" });
+            _serializedObject.Update();
 
-            Assert.That(listView, Is.Not.Null);
-            Assert.That(
-                listView.showAlternatingRowBackgrounds,
-                Is.EqualTo(AlternatingRowBackground.ContentOnly),
-                "各音素エントリ行の境界を視認できるよう交互背景を表示する必要があります。");
+            PhonemeEntryListView view = null;
+            Assert.DoesNotThrow(() => view = CreateView());
+
+            Assert.That(view.Q<ListView>(PhonemeEntryListView.ListViewName), Is.Not.Null);
         }
 
-        [Test]
-        public void Create_SavedCollapsedFoldoutState_IsRestored()
-        {
-            string key = ListViewFoldoutStatePersistence.GetSessionStateKey(_entriesProperty);
-            try
-            {
-                SessionState.SetBool(key, false);
-
-                var view = CreateView();
-                var listView = view.Q<ListView>(PhonemeEntryListView.ListViewName);
-                var foldout = listView.Q<Foldout>(className: BaseListView.foldoutHeaderUssClassName);
-
-                Assert.That(foldout, Is.Not.Null);
-                Assert.That(foldout.value, Is.False,
-                    "音素エントリリストの折りたたみ状態が SessionState から復元される必要があります。");
-            }
-            finally
-            {
-                SessionState.EraseBool(key);
-            }
-        }
+        // ====================================================================
+        // 公開 API → SerializedProperty 書き込み
+        // ====================================================================
 
         [Test]
         public void AddEntry_BlendShapeAndAnimationClip_AppendsConcreteManagedReferences()
@@ -230,223 +207,9 @@ namespace Hidano.FacialControl.LipSync.Tests.EditMode.Editor
                 Is.InstanceOf<AnimationClipPhonemeEntry>());
         }
 
-        [Test]
-        public void BlendShapeRow_EmptyBlendShapeName_ShowsWarningHelpBox()
-        {
-            _asset.Entries.Add(new BlendShapePhonemeEntry
-            {
-                PhonemeId = "A",
-                BlendShapeName = string.Empty,
-                MaxWeight = 100f,
-            });
-            _serializedObject.Update();
-            var view = CreateView();
-
-            VisualElement row = view.CreateBoundRowForIndex(0);
-            var selector = row.Q<DropdownField>(PhonemeEntryListView.EntryTypeSelectorName);
-            var warning = row.Q<HelpBox>(PhonemeEntryListView.BlendShapeWarningName);
-
-            Assert.That(selector, Is.Not.Null);
-            Assert.That(selector.value, Is.EqualTo(PhonemeEntryListView.BlendShapeLabel));
-            Assert.That(warning, Is.Not.Null);
-            Assert.That(warning.style.display.value, Is.EqualTo(DisplayStyle.Flex));
-        }
-
-        [Test]
-        public void AnimationClipRow_RendersClipFieldAndNoBlendShapeWarning()
-        {
-            _asset.Entries.Add(new AnimationClipPhonemeEntry
-            {
-                PhonemeId = "O",
-                MaxWeight = 100f,
-            });
-            _serializedObject.Update();
-            var view = CreateView();
-
-            VisualElement row = view.CreateBoundRowForIndex(0);
-            var selector = row.Q<DropdownField>(PhonemeEntryListView.EntryTypeSelectorName);
-
-            Assert.That(selector, Is.Not.Null);
-            Assert.That(selector.value, Is.EqualTo(PhonemeEntryListView.AnimationClipLabel));
-            Assert.That(row.Q<ObjectField>(), Is.Not.Null);
-            Assert.That(row.Q<HelpBox>(PhonemeEntryListView.BlendShapeWarningName), Is.Null);
-        }
-
-        [Test]
-        public void ExpressionRow_WithProfileExpressions_RendersDropdownAndResolvesSelectionDisplayName()
-        {
-            var profileAsset = ScriptableObject.CreateInstance<PhonemeEntryListViewProfileAsset>();
-            SerializedObject serializedProfile = null;
-            try
-            {
-                profileAsset.Expressions.Add(new ExpressionSerializable { id = "expr-a", name = "A" });
-                profileAsset.Expressions.Add(new ExpressionSerializable { id = "expr-i", name = "I" });
-                profileAsset.Expressions.Add(new ExpressionSerializable { id = "expr-u", name = "U" });
-                profileAsset.Entries.Add(new ExpressionPhonemeEntry
-                {
-                    PhonemeId = "A",
-                    MaxWeight = 100f,
-                });
-
-                serializedProfile = new SerializedObject(profileAsset);
-                SerializedProperty entries =
-                    serializedProfile.FindProperty(nameof(PhonemeEntryListViewProfileAsset.Entries));
-                var view = new PhonemeEntryListView(entries);
-
-                VisualElement row = view.CreateBoundRowForIndex(0);
-                var dropdown = row.Q<DropdownField>(PhonemeEntryListView.ExpressionDropdownName);
-
-                Assert.That(dropdown, Is.Not.Null);
-                Assert.That(dropdown.choices, Has.Count.EqualTo(4));
-                Assert.That(dropdown.choices, Does.Contain(string.Empty));
-                Assert.That(dropdown.choices, Does.Contain("A (expr-a)"));
-                Assert.That(dropdown.choices, Does.Contain("I (expr-i)"));
-                Assert.That(dropdown.choices, Does.Contain("U (expr-u)"));
-
-                Assert.That(ResolveExpressionIdByDisplayNameForTest("I (expr-i)"), Is.EqualTo("expr-i"));
-            }
-            finally
-            {
-                serializedProfile?.Dispose();
-                UnityEngine.Object.DestroyImmediate(profileAsset);
-            }
-        }
-
-        [Test]
-        public void ExpressionRow_WithoutProfileExpressions_RendersTextFieldFallback()
-        {
-            _asset.Entries.Add(new ExpressionPhonemeEntry
-            {
-                PhonemeId = "A",
-                MaxWeight = 100f,
-            });
-            _serializedObject.Update();
-            var view = CreateView();
-
-            VisualElement row = null;
-            Assert.DoesNotThrow(() => row = view.CreateBoundRowForIndex(0));
-
-            Assert.That(row.Q<TextField>(PhonemeEntryListView.ExpressionTextFieldName), Is.Not.Null);
-            Assert.That(row.Q<DropdownField>(PhonemeEntryListView.ExpressionDropdownName), Is.Null);
-            Assert.That(row.Q<HelpBox>(PhonemeEntryListView.ExpressionWarningName), Is.Not.Null);
-        }
-
-        [Test]
-        public void BindRow_ExpressionWithoutId_ShowsWarningHelpBox()
-        {
-            _asset.Entries.Add(new ExpressionPhonemeEntry
-            {
-                PhonemeId = "A",
-                MaxWeight = 100f,
-            });
-            _serializedObject.Update();
-            var view = CreateView();
-
-            VisualElement row = view.CreateBoundRowForIndex(0);
-            var warning = row.Q<HelpBox>(PhonemeEntryListView.ExpressionWarningName);
-
-            Assert.That(warning, Is.Not.Null);
-            Assert.That(warning.messageType, Is.EqualTo(HelpBoxMessageType.Warning));
-            Assert.That(warning.text, Is.EqualTo("Expression 未割り当てです。リップシンクが動作しません"));
-            Assert.That(warning.style.display.value, Is.EqualTo(DisplayStyle.Flex));
-        }
-
-        [Test]
-        public void BindRow_ExpressionWithId_HidesWarningHelpBox()
-        {
-            _asset.Entries.Add(new ExpressionPhonemeEntry
-            {
-                PhonemeId = "A",
-                MaxWeight = 100f,
-            });
-            _serializedObject.Update();
-            var view = CreateView();
-
-            VisualElement rowBeforeAssignment = view.CreateBoundRowForIndex(0);
-            var warningBeforeAssignment =
-                rowBeforeAssignment.Q<HelpBox>(PhonemeEntryListView.ExpressionWarningName);
-            Assert.That(warningBeforeAssignment, Is.Not.Null);
-            Assert.That(warningBeforeAssignment.style.display.value, Is.EqualTo(DisplayStyle.Flex));
-
-            _entriesProperty.GetArrayElementAtIndex(0)
-                .FindPropertyRelative("_expressionId")
-                .stringValue = "expr-a";
-            _serializedObject.ApplyModifiedProperties();
-            _serializedObject.Update();
-
-            VisualElement rowAfterAssignment = view.CreateBoundRowForIndex(0);
-            var warningAfterAssignment =
-                rowAfterAssignment.Q<HelpBox>(PhonemeEntryListView.ExpressionWarningName);
-
-            Assert.That(warningAfterAssignment, Is.Not.Null);
-            Assert.That(warningAfterAssignment.style.display.value, Is.EqualTo(DisplayStyle.None));
-        }
-
-        [Test]
-        public void UndoAfterSetEntryKind_DisplaysSerializedPropertyCurrentValue()
-        {
-            _asset.Entries.Add(new BlendShapePhonemeEntry
-            {
-                PhonemeId = "A",
-                BlendShapeName = "Mouth_A",
-                MaxWeight = 100f,
-            });
-            _serializedObject.Update();
-            var view = CreateView();
-
-            Undo.RecordObject(_asset, "Change Phoneme Entry Kind");
-            view.SetEntryKind(0, PhonemeEntryListView.EntryKind.AnimationClip);
-            Undo.FlushUndoRecordObjects();
-
-            Assert.That(GetBoundEntryTypeSelectorValue(view), Is.EqualTo(PhonemeEntryListView.AnimationClipLabel));
-
-            Undo.PerformUndo();
-            InvokeUndoRedoPerformed(view);
-
-            _serializedObject.Update();
-            SerializedProperty entry = _entriesProperty.GetArrayElementAtIndex(0);
-            Assert.That(entry.managedReferenceValue, Is.InstanceOf<BlendShapePhonemeEntry>());
-            Assert.That(
-                GetBoundEntryTypeSelectorValue(view),
-                Is.EqualTo(PhonemeEntryListView.BlendShapeLabel));
-        }
-
-        [Test]
-        public void UndoRedoPerformed_WhenFiredRepeatedly_RebuildsWithoutStaleDisplay()
-        {
-            _asset.Entries.Add(new BlendShapePhonemeEntry
-            {
-                PhonemeId = "I",
-                BlendShapeName = "Mouth_I",
-                MaxWeight = 90f,
-            });
-            _serializedObject.Update();
-            var view = CreateView();
-
-            Undo.RecordObject(_asset, "Change Phoneme Entry Kind To AnimationClip");
-            view.SetEntryKind(0, PhonemeEntryListView.EntryKind.AnimationClip);
-            Undo.FlushUndoRecordObjects();
-
-            Undo.RecordObject(_asset, "Change Phoneme Entry Kind To BlendShape");
-            view.SetEntryKind(0, PhonemeEntryListView.EntryKind.BlendShape);
-            Undo.FlushUndoRecordObjects();
-
-            Undo.PerformUndo();
-            Assert.DoesNotThrow(() => InvokeUndoRedoPerformed(view));
-            Assert.That(
-                GetBoundEntryTypeSelectorValue(view),
-                Is.EqualTo(PhonemeEntryListView.AnimationClipLabel));
-
-            Undo.PerformUndo();
-            Assert.DoesNotThrow(() =>
-            {
-                InvokeUndoRedoPerformed(view);
-                InvokeUndoRedoPerformed(view);
-            });
-            Assert.That(
-                GetBoundEntryTypeSelectorValue(view),
-                Is.EqualTo(PhonemeEntryListView.BlendShapeLabel));
-        }
+        // ====================================================================
+        // ヘルパー
+        // ====================================================================
 
         private PhonemeEntryListView CreateView()
         {
@@ -454,23 +217,6 @@ namespace Hidano.FacialControl.LipSync.Tests.EditMode.Editor
             _entriesProperty =
                 _serializedObject.FindProperty(nameof(PhonemeEntryListViewTestAsset.Entries));
             return new PhonemeEntryListView(_entriesProperty);
-        }
-
-        private static void InvokeUndoRedoPerformed(PhonemeEntryListView view)
-        {
-            MethodInfo method = typeof(PhonemeEntryListView).GetMethod(
-                "OnUndoRedoPerformed",
-                BindingFlags.Instance | BindingFlags.NonPublic);
-            Assert.That(method, Is.Not.Null);
-            method.Invoke(view, null);
-        }
-
-        private static string GetBoundEntryTypeSelectorValue(PhonemeEntryListView view)
-        {
-            VisualElement row = view.CreateBoundRowForIndex(0);
-            var selector = row.Q<DropdownField>(PhonemeEntryListView.EntryTypeSelectorName);
-            Assert.That(selector, Is.Not.Null);
-            return selector.value;
         }
 
         private void SetPhonemeId(int index, string phonemeId)
@@ -487,40 +233,7 @@ namespace Hidano.FacialControl.LipSync.Tests.EditMode.Editor
                 .stringValue;
         }
 
-        private static string ResolveExpressionIdByDisplayNameForTest(string displayName)
-        {
-            Type choiceType = typeof(PhonemeEntryListView).GetNestedType(
-                "ExpressionChoice",
-                BindingFlags.NonPublic);
-            Assert.That(choiceType, Is.Not.Null);
-
-            Type listType = typeof(List<>).MakeGenericType(choiceType);
-            object choices = Activator.CreateInstance(listType);
-            ConstructorInfo constructor = choiceType.GetConstructor(
-                BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic,
-                null,
-                new[] { typeof(string), typeof(string) },
-                null);
-            Assert.That(constructor, Is.Not.Null);
-
-            listType.GetMethod("Add").Invoke(
-                choices,
-                new[] { constructor.Invoke(new object[] { "expr-i", "I (expr-i)" }) });
-
-            MethodInfo method = typeof(PhonemeEntryListView).GetMethod(
-                "FindExpressionIdByDisplayName",
-                BindingFlags.Static | BindingFlags.NonPublic);
-            Assert.That(method, Is.Not.Null);
-            return (string)method.Invoke(null, new[] { choices, displayName });
-        }
-
         private sealed class PhonemeEntryListViewTestAsset : ScriptableObject
-        {
-            [SerializeReference]
-            public List<PhonemeEntryBase> Entries = new List<PhonemeEntryBase>();
-        }
-
-        private sealed class PhonemeEntryListViewProfileAsset : FacialCharacterProfileSO
         {
             [SerializeReference]
             public List<PhonemeEntryBase> Entries = new List<PhonemeEntryBase>();

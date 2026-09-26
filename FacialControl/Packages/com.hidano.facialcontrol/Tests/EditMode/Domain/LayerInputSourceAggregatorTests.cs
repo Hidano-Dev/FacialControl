@@ -5,6 +5,7 @@ using System.Text.RegularExpressions;
 using NUnit.Framework;
 using UnityEngine;
 using UnityEngine.TestTools;
+using Hidano.FacialControl.Domain.Adapters;
 using Hidano.FacialControl.Domain.Interfaces;
 using Hidano.FacialControl.Domain.Models;
 using Hidano.FacialControl.Domain.Services;
@@ -13,10 +14,12 @@ using Hidano.FacialControl.Tests.Shared;
 namespace Hidano.FacialControl.Tests.EditMode.Domain
 {
     /// <summary>
-    /// LayerInputSourceAggregator の per-layer 加重和 + 最終クランプテスト 。
+    /// <see cref="LayerInputSourceAggregator"/> の per-layer 加重和と最終クランプ、
+    /// 空レイヤー警告、2 段パイプライン (AggregateAndBlend)、診断スナップショット、verbose ログのレート制限、
+    /// layer ContributeMask の OR 集約、および <see cref="ILayerSourceValueObserver"/> への値通知を検証する。
     /// </summary>
     /// <remarks>
-    /// 観測完了条件:
+    /// 加重和の観測完了条件:
     /// <list type="bullet">
     ///   <item><c>w1=0.5, w2=0.5, v1[k]=1, v2[k]=1</c> → <c>output[k]=1.0</c>。</item>
     ///   <item>Σw·v > 1 の場合でもクランプのみ 。</item>
@@ -376,12 +379,12 @@ namespace Hidano.FacialControl.Tests.EditMode.Domain
             }
         }
 
-        // ----- 5.3 空レイヤー検出とセッション 1 回 warning  -----
+        // ----- 空レイヤー（source 未登録 / 全 source 無効）の出力はゼロ -----
 
         [Test]
-        public void Aggregate_NoSourcesRegisteredForLayer_WarnsOnceAndOutputsZero()
+        public void Aggregate_NoSourcesRegisteredForLayer_OutputsZero()
         {
-            // source 登録ゼロのレイヤーはセッション 1 回だけ warning を出し、出力はゼロ。
+            // source 登録ゼロのレイヤーは warning を出し（照合はクラスタグとレイヤー番号のみ）、出力はゼロ。
             const int blendShapeCount = 3;
             var profile = BuildProfile(layerCount: 1);
             var bindings = new List<(int, int, IInputSource)>();
@@ -393,9 +396,8 @@ namespace Hidano.FacialControl.Tests.EditMode.Domain
             var aggregator = new LayerInputSourceAggregator(registry, weightBuffer, blendShapeCount);
             Span<LayerBlender.LayerInput> outputPerLayer = new LayerBlender.LayerInput[1];
 
-            // 複数フレーム Aggregate を回しても warning は 1 回のみ。
             LogAssert.Expect(LogType.Warning,
-                new Regex("LayerInputSourceAggregator.*layer 0.*no valid input source"));
+                new Regex("LayerInputSourceAggregator.*layer 0"));
 
             for (int frame = 0; frame < 5; frame++)
             {
@@ -411,9 +413,9 @@ namespace Hidano.FacialControl.Tests.EditMode.Domain
         }
 
         [Test]
-        public void Aggregate_AllSourcesInvalid_WarnsOnceAndOutputsZero()
+        public void Aggregate_AllSourcesInvalid_OutputsZero()
         {
-            // 全 source が IsValid=false のレイヤーもセッション 1 回だけ warning。
+            // 全 source が IsValid=false のレイヤーも空レイヤー扱いで出力はゼロ。
             const int blendShapeCount = 3;
             var profile = BuildProfile(layerCount: 1);
 
@@ -436,7 +438,7 @@ namespace Hidano.FacialControl.Tests.EditMode.Domain
             Span<LayerBlender.LayerInput> outputPerLayer = new LayerBlender.LayerInput[1];
 
             LogAssert.Expect(LogType.Warning,
-                new Regex("LayerInputSourceAggregator.*layer 0.*no valid input source"));
+                new Regex("LayerInputSourceAggregator.*layer 0"));
 
             for (int frame = 0; frame < 10; frame++)
             {
@@ -452,10 +454,10 @@ namespace Hidano.FacialControl.Tests.EditMode.Domain
         }
 
         [Test]
-        public void Aggregate_EmptyLayerCoexistsWithValidLayer_OnlyEmptyLayerWarns()
+        public void Aggregate_EmptyLayerCoexistsWithValidLayer_OnlyValidLayerContributes()
         {
             // 2 レイヤー構成: layer 0 は valid、layer 1 は全 source 無効。
-            // warning は layer 1 について 1 回だけ。layer 0 は warning 不要。
+            // layer 0 は通常どおり出力され、layer 1 はゼロ出力になる。
             const int blendShapeCount = 2;
             var profile = BuildProfile(layerCount: 2);
 
@@ -479,7 +481,7 @@ namespace Hidano.FacialControl.Tests.EditMode.Domain
             Span<LayerBlender.LayerInput> outputPerLayer = new LayerBlender.LayerInput[2];
 
             LogAssert.Expect(LogType.Warning,
-                new Regex("LayerInputSourceAggregator.*layer 1.*no valid input source"));
+                new Regex("LayerInputSourceAggregator.*layer 1"));
 
             for (int frame = 0; frame < 3; frame++)
             {
@@ -498,9 +500,9 @@ namespace Hidano.FacialControl.Tests.EditMode.Domain
         }
 
         [Test]
-        public void Aggregate_ValidSourceWithZeroWeight_DoesNotWarn()
+        public void Aggregate_ValidSourceWithZeroWeight_OutputsZero()
         {
-            // IsValid=true だが weight=0 のソースは「空レイヤー」ではない。warning を出してはならない。
+            // IsValid=true だが weight=0 のソースは「空レイヤー」ではなく、寄与 0 として扱われる。
             const int blendShapeCount = 2;
             var profile = BuildProfile(layerCount: 1);
 
@@ -515,7 +517,6 @@ namespace Hidano.FacialControl.Tests.EditMode.Domain
             var aggregator = new LayerInputSourceAggregator(registry, weightBuffer, blendShapeCount);
             Span<LayerBlender.LayerInput> outputPerLayer = new LayerBlender.LayerInput[1];
 
-            // LogAssert.Expect は何も記載しない。想定外 warning が出れば Unity Test Runner が検知する。
             for (int frame = 0; frame < 5; frame++)
             {
                 aggregator.Aggregate(deltaTime: 0f, outputPerLayer);
@@ -526,79 +527,6 @@ namespace Hidano.FacialControl.Tests.EditMode.Domain
             {
                 Assert.AreEqual(0f, values[k], 1e-6f,
                     $"weight=0 なので出力はゼロ (k={k})");
-            }
-        }
-
-        [Test]
-        public void Aggregate_LayerRecoversAfterBeingEmpty_DoesNotWarnAgain()
-        {
-            // セッション 1 回の契約: 一度 empty 警告が出たレイヤーは、後続フレームで valid に
-            // 戻っても再度 warning を出さない (per-layer per-session)。
-            const int blendShapeCount = 2;
-            var profile = BuildProfile(layerCount: 1);
-
-            // 途中から valid に切替可能なフェイク。
-            var source = new ToggleableValidSource("toggle", blendShapeCount, value: 1f, initialValid: false);
-            var bindings = new List<(int, int, IInputSource)> { (0, 0, source) };
-
-            using var registry = new LayerInputSourceRegistry(profile, blendShapeCount, bindings);
-            using var weightBuffer = new LayerInputSourceWeightBuffer(
-                registry.LayerCount, registry.MaxSourcesPerLayer);
-
-            weightBuffer.SetWeight(0, 0, 1f);
-
-            var aggregator = new LayerInputSourceAggregator(registry, weightBuffer, blendShapeCount);
-            Span<LayerBlender.LayerInput> outputPerLayer = new LayerBlender.LayerInput[1];
-
-            LogAssert.Expect(LogType.Warning,
-                new Regex("LayerInputSourceAggregator.*layer 0.*no valid input source"));
-
-            // 空状態で 1 フレーム → warning
-            aggregator.Aggregate(deltaTime: 0f, outputPerLayer);
-
-            // valid に切替後、復帰フレームでは warning が出ないこと。
-            source.IsValid = true;
-            aggregator.Aggregate(deltaTime: 0f, outputPerLayer);
-
-            // 再度空に戻しても、per-session 1 回契約により追加 warning は出ない。
-            source.IsValid = false;
-            aggregator.Aggregate(deltaTime: 0f, outputPerLayer);
-        }
-
-        /// <summary>IsValid を外部から切替できる <see cref="IInputSource"/> フェイク。</summary>
-        private sealed class ToggleableValidSource : IInputSource
-        {
-            private readonly float _value;
-
-            public ToggleableValidSource(string id, int blendShapeCount, float value, bool initialValid)
-            {
-                Id = id;
-                BlendShapeCount = blendShapeCount;
-                ContributeMask = ContributeMaskTestHelper.AllSetContributeMask(blendShapeCount);
-                _value = value;
-                IsValid = initialValid;
-            }
-
-            public string Id { get; }
-            public InputSourceType Type => InputSourceType.ValueProvider;
-            public int BlendShapeCount { get; }
-            public BitArray ContributeMask { get; }
-            public bool IsValid { get; set; }
-
-            public void Tick(float deltaTime) { }
-
-            public bool TryWriteValues(Span<float> output)
-            {
-                if (!IsValid)
-                {
-                    return false;
-                }
-                int len = Math.Min(output.Length, BlendShapeCount);
-                for (int i = 0; i < len; i++)
-                {
-                    output[i] = _value;
-                }
-                return true;
             }
         }
 
@@ -633,7 +561,7 @@ namespace Hidano.FacialControl.Tests.EditMode.Domain
                 new LayerInputSourceAggregator(registry, weightBuffer, blendShapeCount: -1));
         }
 
-        // ----- 5.4 2 段パイプライン: Aggregator → 既存 LayerBlender.Blend 接続 -----
+        // ----- 2 段パイプライン: Aggregator → LayerBlender.Blend 接続 -----
 
         [Test]
         public void Aggregate_WithPrioritiesAndLayerWeights_AppliesThemToLayerInputs()
@@ -891,7 +819,7 @@ namespace Hidano.FacialControl.Tests.EditMode.Domain
             });
         }
 
-        // ----- 5.5 診断スナップショット API (TryWriteSnapshot / GetSnapshot / 8.3) -----
+        // ----- 診断スナップショット API (TryWriteSnapshot / GetSnapshot) -----
 
         [Test]
         public void TryWriteSnapshot_AfterAggregate_ReflectsCurrentWeightsAndValidity()
@@ -1166,7 +1094,7 @@ namespace Hidano.FacialControl.Tests.EditMode.Domain
                 $"TryWriteSnapshot は 0-alloc であること (差分: {allocated} bytes)");
         }
 
-        // ----- 5.6 verbose logging の per-layer per-second レートリミッタ  -----
+        // ----- verbose logging の per-layer per-second レートリミッタ -----
 
         /// <summary>
         /// <see cref="LayerInputSourceAggregator.SetVerboseLogging(bool)"/> を true にしたうえで
@@ -1194,9 +1122,9 @@ namespace Hidano.FacialControl.Tests.EditMode.Domain
             // 時刻 0.0 で verbose ON。次回ログ可能時刻は 0.0 にリセットされる。
             aggregator.SetVerboseLogging(true);
 
-            // 1 回目: 時刻 0.0 でログ 1 回 (layer 0 について)。
+            // 1 回目: 時刻 0.0 でログ 1 回 (layer 0 について)。照合はクラスタグとレイヤー番号のみ。
             LogAssert.Expect(LogType.Log,
-                new Regex(@"\[LayerInputSourceAggregator\] layer 0: weights=\[osc=0\.5\]"));
+                new Regex(@"\[LayerInputSourceAggregator\] layer 0"));
 
             Span<LayerBlender.LayerInput> outputPerLayer = new LayerBlender.LayerInput[1];
 
@@ -1210,7 +1138,7 @@ namespace Hidano.FacialControl.Tests.EditMode.Domain
 
             // 2 回目のログは 1.0 秒後に許可される。
             LogAssert.Expect(LogType.Log,
-                new Regex(@"\[LayerInputSourceAggregator\] layer 0: weights=\[osc=0\.5\]"));
+                new Regex(@"\[LayerInputSourceAggregator\] layer 0"));
 
             time.UnscaledTimeSeconds = 1.0;
             aggregator.Aggregate(deltaTime: 0f, outputPerLayer);
@@ -1252,9 +1180,9 @@ namespace Hidano.FacialControl.Tests.EditMode.Domain
             aggregator.SetVerboseLogging(true);
 
             LogAssert.Expect(LogType.Log,
-                new Regex(@"\[LayerInputSourceAggregator\] layer 0: weights=\[osc=0\.25\]"));
+                new Regex(@"\[LayerInputSourceAggregator\] layer 0"));
             LogAssert.Expect(LogType.Log,
-                new Regex(@"\[LayerInputSourceAggregator\] layer 1: weights=\[lipsync=0\.75\]"));
+                new Regex(@"\[LayerInputSourceAggregator\] layer 1"));
 
             Span<LayerBlender.LayerInput> outputPerLayer = new LayerBlender.LayerInput[2];
 
@@ -1299,7 +1227,7 @@ namespace Hidano.FacialControl.Tests.EditMode.Domain
             time.UnscaledTimeSeconds = 10.0;
             aggregator.SetVerboseLogging(true);
             LogAssert.Expect(LogType.Log,
-                new Regex(@"\[LayerInputSourceAggregator\] layer 0: weights=\[osc=1\]"));
+                new Regex(@"\[LayerInputSourceAggregator\] layer 0"));
             aggregator.Aggregate(deltaTime: 0f, outputPerLayer);
 
             // OFF に戻すと以降ログは出ない。
@@ -1311,7 +1239,7 @@ namespace Hidano.FacialControl.Tests.EditMode.Domain
             }
         }
 
-        // ----- 10.9 診断ログ rate-limiter の長時間安定性の補助テスト  -----
+        // ----- 診断ログ rate-limiter の長時間安定性 -----
 
         /// <summary>
         /// verbose ログを 10 分間 ON にした状態で、想定レート
@@ -1410,6 +1338,335 @@ namespace Hidano.FacialControl.Tests.EditMode.Domain
                     $"layer {l}: 10 分間 (60,001 回 Aggregate) の verbose ログ件数が " +
                     $"想定レートからドリフトした (想定 {expectedLogsPerLayer} 件、実測 {layerLogCounts[l]} 件)");
             }
+        }
+
+        // ----- layer ContributeMask の OR 集約 -----
+
+        /// <summary>
+        /// 指定 index のみ contribute する <see cref="IInputSource"/> フェイク。値は常に 1.0 を書込む。
+        /// </summary>
+        private sealed class MaskedValueSource : IInputSource
+        {
+            private readonly bool _isValid;
+
+            public MaskedValueSource(string id, int blendShapeCount, bool isValid, params int[] contributeIndexes)
+            {
+                Id = id;
+                BlendShapeCount = blendShapeCount;
+                ContributeMask = new BitArray(blendShapeCount, false);
+                for (int i = 0; i < contributeIndexes.Length; i++)
+                {
+                    int index = contributeIndexes[i];
+                    if ((uint)index < (uint)blendShapeCount)
+                    {
+                        ContributeMask[index] = true;
+                    }
+                }
+                _isValid = isValid;
+            }
+
+            public string Id { get; }
+            public InputSourceType Type => InputSourceType.ValueProvider;
+            public int BlendShapeCount { get; }
+            public BitArray ContributeMask { get; }
+
+            public void Tick(float deltaTime) { }
+
+            public bool TryWriteValues(Span<float> output)
+            {
+                if (!_isValid)
+                {
+                    return false;
+                }
+
+                int len = Math.Min(output.Length, BlendShapeCount);
+                for (int i = 0; i < len; i++)
+                {
+                    output[i] = 1f;
+                }
+                return true;
+            }
+        }
+
+        private static LayerBlender.LayerInput[] AggregateSingleLayer(
+            int blendShapeCount,
+            IReadOnlyList<(int layerIdx, int sourceIdx, IInputSource source)> bindings)
+        {
+            var profile = BuildProfile(layerCount: 1);
+            using var registry = new LayerInputSourceRegistry(profile, blendShapeCount, bindings);
+            using var weightBuffer = new LayerInputSourceWeightBuffer(
+                registry.LayerCount,
+                Math.Max(1, registry.MaxSourcesPerLayer));
+
+            for (int sourceIdx = 0; sourceIdx < registry.GetSourceCountForLayer(0); sourceIdx++)
+            {
+                weightBuffer.SetWeight(0, sourceIdx, 1f);
+            }
+
+            var aggregator = new LayerInputSourceAggregator(registry, weightBuffer, blendShapeCount);
+            var outputPerLayer = new LayerBlender.LayerInput[registry.LayerCount];
+            aggregator.Aggregate(deltaTime: 0f, outputPerLayer);
+            return outputPerLayer;
+        }
+
+        [Test]
+        public void Aggregate_MultipleSourcesContributeSameIndex_OrsMaskIndexToTrue()
+        {
+            const int blendShapeCount = 4;
+            var source0 = new MaskedValueSource("source0", blendShapeCount, true, 1);
+            var source1 = new MaskedValueSource("source1", blendShapeCount, true, 1, 2);
+
+            var outputPerLayer = AggregateSingleLayer(
+                blendShapeCount,
+                new List<(int, int, IInputSource)>
+                {
+                    (0, 0, source0),
+                    (0, 1, source1),
+                });
+
+            BitArray mask = outputPerLayer[0].ContributeMask;
+            Assert.That(mask, Is.Not.Null,
+                "Aggregator は layer ごとの OR 集約済み ContributeMask を LayerInput に渡す必要がある。");
+            Assert.That(mask[1], Is.True,
+                "複数 source が同じ index に contribute する場合、layer mask は OR で true になること。");
+        }
+
+        [Test]
+        public void Aggregate_AllSourcesDoNotContributeIndex_LeavesMaskIndexFalse()
+        {
+            const int blendShapeCount = 4;
+            var source0 = new MaskedValueSource("source0", blendShapeCount, true, 0);
+            var source1 = new MaskedValueSource("source1", blendShapeCount, true, 2);
+
+            var outputPerLayer = AggregateSingleLayer(
+                blendShapeCount,
+                new List<(int, int, IInputSource)>
+                {
+                    (0, 0, source0),
+                    (0, 1, source1),
+                });
+
+            BitArray mask = outputPerLayer[0].ContributeMask;
+            Assert.That(mask, Is.Not.Null,
+                "Aggregator は全 false を表現できる layer mask 参照を渡す必要がある。");
+            Assert.That(mask[1], Is.False,
+                "どの valid source も contribute しない index は false のまま残ること。");
+            Assert.That(mask[3], Is.False,
+                "全 source が非 contribute の index は OR 集約後も false のままであること。");
+        }
+
+        [Test]
+        public void Aggregate_InvalidSourceHasMask_ExcludesMaskFromOrAggregation()
+        {
+            const int blendShapeCount = 3;
+            var valid = new MaskedValueSource("valid", blendShapeCount, true, 0);
+            var invalid = new MaskedValueSource("invalid", blendShapeCount, false, 1);
+
+            var outputPerLayer = AggregateSingleLayer(
+                blendShapeCount,
+                new List<(int, int, IInputSource)>
+                {
+                    (0, 0, valid),
+                    (0, 1, invalid),
+                });
+
+            BitArray mask = outputPerLayer[0].ContributeMask;
+            Assert.That(mask, Is.Not.Null);
+            Assert.That(mask[0], Is.True,
+                "valid source の contribute index は layer mask に含まれること。");
+            Assert.That(mask[1], Is.False,
+                "TryWriteValues が false の source の mask は OR 集約対象外であること。");
+        }
+
+        [Test]
+        public void Aggregate_NoSourcesRegistered_CreatesAllFalseLayerMask()
+        {
+            const int blendShapeCount = 3;
+
+            LogAssert.Expect(LogType.Warning,
+                new Regex("LayerInputSourceAggregator.*layer 0"));
+
+            var outputPerLayer = AggregateSingleLayer(
+                blendShapeCount,
+                new List<(int, int, IInputSource)>());
+
+            BitArray mask = outputPerLayer[0].ContributeMask;
+            Assert.That(mask, Is.Not.Null,
+                "source 0 本の layer でも全 false の layer mask を渡す必要がある。");
+            Assert.That(mask.Length, Is.EqualTo(blendShapeCount));
+            for (int i = 0; i < blendShapeCount; i++)
+            {
+                Assert.That(mask[i], Is.False,
+                    $"source 0 本の layer mask は全 false であること (index={i})。");
+            }
+        }
+
+        // ----- ILayerSourceValueObserver への pre-weight 値通知 -----
+
+        /// <summary>観測された source 値をそのまま記録する <see cref="ILayerSourceValueObserver"/>。</summary>
+        private sealed class RecordingObserver : ILayerSourceValueObserver
+        {
+            public readonly List<Call> Calls = new List<Call>();
+
+            public void OnSourceValuesObserved(
+                int layerIdx,
+                int sourceIdx,
+                InputSourceId sourceId,
+                bool isValid,
+                ReadOnlySpan<float> preWeightValues)
+            {
+                var copy = new float[preWeightValues.Length];
+                preWeightValues.CopyTo(copy);
+                Calls.Add(new Call(layerIdx, sourceIdx, sourceId.Value, isValid, copy));
+            }
+
+            public readonly struct Call
+            {
+                public Call(int layerIdx, int sourceIdx, string sourceId, bool isValid, float[] values)
+                {
+                    LayerIdx = layerIdx;
+                    SourceIdx = sourceIdx;
+                    SourceId = sourceId;
+                    IsValid = isValid;
+                    Values = values;
+                }
+
+                public int LayerIdx { get; }
+                public int SourceIdx { get; }
+                public string SourceId { get; }
+                public bool IsValid { get; }
+                public float[] Values { get; }
+            }
+        }
+
+        /// <summary>
+        /// index ごとに異なる固定値を書込む <see cref="IInputSource"/> フェイク。
+        /// BlendShapeCount は渡した値配列の長さで決まる。
+        /// </summary>
+        private sealed class PerIndexValueSource : IInputSource
+        {
+            private readonly float[] _values;
+            private readonly bool _isValid;
+
+            public PerIndexValueSource(string id, bool isValid, params float[] values)
+            {
+                Id = id;
+                _isValid = isValid;
+                _values = values ?? Array.Empty<float>();
+                BlendShapeCount = _values.Length;
+                ContributeMask = new BitArray(BlendShapeCount, true);
+            }
+
+            public string Id { get; }
+            public InputSourceType Type => InputSourceType.ValueProvider;
+            public int BlendShapeCount { get; }
+            public BitArray ContributeMask { get; }
+
+            public void Tick(float deltaTime) { }
+
+            public bool TryWriteValues(Span<float> output)
+            {
+                if (!_isValid)
+                {
+                    return false;
+                }
+
+                _values.AsSpan().CopyTo(output);
+                return true;
+            }
+        }
+
+        [Test]
+        public void Aggregate_WithObserver_ReportsPreWeightValuesPerSource()
+        {
+            const int blendShapeCount = 3;
+            var profile = BuildProfile(layerCount: 1);
+            var source0 = new PerIndexValueSource("osc", isValid: true, 0.2f, 0.4f, 0.6f);
+            var source1 = new PerIndexValueSource("lipsync", isValid: true, 0.9f, 0.1f, 0.3f);
+
+            var bindings = new List<(int, int, IInputSource)>
+            {
+                (0, 0, source0),
+                (0, 1, source1),
+            };
+
+            using var registry = new LayerInputSourceRegistry(profile, blendShapeCount, bindings);
+            using var weightBuffer = new LayerInputSourceWeightBuffer(registry.LayerCount, registry.MaxSourcesPerLayer);
+            weightBuffer.SetWeight(0, 0, 0.25f);
+            weightBuffer.SetWeight(0, 1, 0.75f);
+
+            var aggregator = new LayerInputSourceAggregator(registry, weightBuffer, blendShapeCount);
+            var observer = new RecordingObserver();
+            aggregator.SetSourceValueObserver(observer);
+
+            Span<LayerBlender.LayerInput> outputPerLayer = new LayerBlender.LayerInput[1];
+            aggregator.Aggregate(deltaTime: 0f, outputPerLayer);
+
+            Assert.That(observer.Calls.Count, Is.EqualTo(2));
+            Assert.That(observer.Calls[0].LayerIdx, Is.EqualTo(0));
+            Assert.That(observer.Calls[0].SourceIdx, Is.EqualTo(0));
+            Assert.That(observer.Calls[0].SourceId, Is.EqualTo("osc"));
+            Assert.That(observer.Calls[0].IsValid, Is.True);
+            Assert.That(observer.Calls[0].Values, Is.EqualTo(new[] { 0.2f, 0.4f, 0.6f }));
+
+            Assert.That(observer.Calls[1].LayerIdx, Is.EqualTo(0));
+            Assert.That(observer.Calls[1].SourceIdx, Is.EqualTo(1));
+            Assert.That(observer.Calls[1].SourceId, Is.EqualTo("lipsync"));
+            Assert.That(observer.Calls[1].IsValid, Is.True);
+            Assert.That(observer.Calls[1].Values, Is.EqualTo(new[] { 0.9f, 0.1f, 0.3f }));
+        }
+
+        [Test]
+        public void Aggregate_InvalidSource_ObserverSeesFalseAndZeroedScratch()
+        {
+            const int blendShapeCount = 2;
+            var profile = BuildProfile(layerCount: 1);
+            var invalid = new PerIndexValueSource("invalid", isValid: false, 1f, 1f);
+
+            var bindings = new List<(int, int, IInputSource)>
+            {
+                (0, 0, invalid),
+            };
+
+            using var registry = new LayerInputSourceRegistry(profile, blendShapeCount, bindings);
+            using var weightBuffer = new LayerInputSourceWeightBuffer(registry.LayerCount, registry.MaxSourcesPerLayer);
+            weightBuffer.SetWeight(0, 0, 1f);
+
+            var aggregator = new LayerInputSourceAggregator(registry, weightBuffer, blendShapeCount);
+            var observer = new RecordingObserver();
+            aggregator.SetSourceValueObserver(observer);
+
+            Span<LayerBlender.LayerInput> outputPerLayer = new LayerBlender.LayerInput[1];
+            aggregator.Aggregate(deltaTime: 0f, outputPerLayer);
+
+            Assert.That(observer.Calls.Count, Is.EqualTo(1));
+            Assert.That(observer.Calls[0].SourceId, Is.EqualTo("invalid"));
+            Assert.That(observer.Calls[0].IsValid, Is.False);
+            Assert.That(observer.Calls[0].Values, Is.EqualTo(new[] { 0f, 0f }));
+        }
+
+        [Test]
+        public void Aggregate_WithoutObserver_StillAggregatesNormally()
+        {
+            const int blendShapeCount = 2;
+            var profile = BuildProfile(layerCount: 1);
+            var source = new PerIndexValueSource("osc", isValid: true, 0.5f, 1f);
+
+            var bindings = new List<(int, int, IInputSource)>
+            {
+                (0, 0, source),
+            };
+
+            using var registry = new LayerInputSourceRegistry(profile, blendShapeCount, bindings);
+            using var weightBuffer = new LayerInputSourceWeightBuffer(registry.LayerCount, registry.MaxSourcesPerLayer);
+            weightBuffer.SetWeight(0, 0, 0.5f);
+
+            var aggregator = new LayerInputSourceAggregator(registry, weightBuffer, blendShapeCount);
+
+            Span<LayerBlender.LayerInput> outputPerLayer = new LayerBlender.LayerInput[1];
+            aggregator.Aggregate(deltaTime: 0f, outputPerLayer);
+
+            Assert.That(outputPerLayer[0].BlendShapeValues.Span.ToArray(), Is.EqualTo(new[] { 0.25f, 0.5f }));
         }
     }
 }

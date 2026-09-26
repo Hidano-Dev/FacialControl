@@ -15,14 +15,15 @@ namespace Hidano.FacialControl.Rec.Tests.EditMode
     [TestFixture]
     public class RecAnalogInjectorTests
     {
+        // ログ文言の完全一致は避け、文言改善で変わらない sourceId のみ照合する。
         private static readonly Regex RegisteredLogPattern =
-            new Regex("Playback registered analog source 'input:gaze' because no live source was resolved\\.", RegexOptions.CultureInvariant);
+            new Regex("analog.*'input:gaze'", RegexOptions.CultureInvariant);
 
         private static readonly Regex OccupiedLogPattern =
-            new Regex("Playback skipped analog injection for sourceId 'input:analog' because another injected source already occupies it\\.", RegexOptions.CultureInvariant);
+            new Regex("analog.*'input:analog'", RegexOptions.CultureInvariant);
 
         private static readonly Regex RestoreMismatchLogPattern =
-            new Regex("Playback skipped restoring analog source 'input:analog' because the current registry entry is no longer owned by this playback injector\\.", RegexOptions.CultureInvariant);
+            new Regex("analog.*'input:analog'", RegexOptions.CultureInvariant);
 
         [Test]
         public void BeginInjection_WithRegisteredOriginal_ReplacesSourceAndSeedsBaselineAxes()

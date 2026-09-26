@@ -32,7 +32,7 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
             TimelineAsset timeline = null;
             try
             {
-                LogAssert.Expect(LogType.Warning, "[RecToTimelineExporter] Missing expression 'missing' at 0.6s. The clip is exported to layer 'emotion'.");
+                LogAssert.Expect(LogType.Warning, new System.Text.RegularExpressions.Regex(@"\[RecToTimelineExporter\].*'missing'"));
 
                 timeline = Editor.RecToTimelineExporter.CreateTimelineAsset(sequence, CreateProfile());
 
@@ -78,7 +78,7 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
             TimelineAsset timeline = null;
             try
             {
-                LogAssert.Expect(LogType.Warning, "[RecToTimelineExporter] Gaze source 'live:gaze-bad' has non-2D samples. It is exported as Analog instead.");
+                LogAssert.Expect(LogType.Warning, new System.Text.RegularExpressions.Regex(@"\[RecToTimelineExporter\].*'live:gaze-bad'"));
 
                 timeline = Editor.RecToTimelineExporter.CreateTimelineAsset(
                     sequence,

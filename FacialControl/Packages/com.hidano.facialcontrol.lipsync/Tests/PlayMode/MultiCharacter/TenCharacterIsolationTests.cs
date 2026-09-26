@@ -25,6 +25,10 @@ namespace Hidano.FacialControl.LipSync.Tests.PlayMode.MultiCharacter
         // 音量・音素ウェイトの SmoothDamp は uLipSync 公式へ委譲済み。
         // 旧 provider の「初回フレーム即時 snap」は廃止されたため、定常値まで収束させる投入回数。
         private const int SettleFrameCount = 256;
+        // uLipSync 公式の SmoothDamp は Time.deltaTime に依存する。batchmode(-nographics) では
+        // 1 フレームが 1ms 未満になり得て、同じ投入回数でも収束量が実行ごとに変わる
+        // （過去の赤: 0.4 期待に対し 0.32 / 0.2846）。captureDeltaTime で 60 FPS 相当に固定し決定的にする。
+        private const float FixedDeltaTimeSeconds = 1f / 60f;
         private const double FrameBudgetMs = 16.6;
         private const string Slug = "ulipsync";
         private const string OverlayASlug = "lipsync-overlay:a";
@@ -37,6 +41,8 @@ namespace Hidano.FacialControl.LipSync.Tests.PlayMode.MultiCharacter
         [TearDown]
         public void TearDown()
         {
+            Time.captureDeltaTime = 0f;
+
             for (int i = 0; i < _characters.Length; i++)
             {
                 _characters[i]?.Dispose();
@@ -54,6 +60,12 @@ namespace Hidano.FacialControl.LipSync.Tests.PlayMode.MultiCharacter
         [UnityTest]
         public IEnumerator TenIndependentBindings_OneSwap_DoesNotAffectOthers()
         {
+            // captureDeltaTime は次フレームから Time.deltaTime に反映されるため、1 フレーム進めてから投入を始める。
+            Time.captureDeltaTime = FixedDeltaTimeSeconds;
+            yield return null;
+            Assert.That(Time.deltaTime, Is.EqualTo(FixedDeltaTimeSeconds).Within(1e-6f),
+                "SmoothDamp の収束を決定的にするため Time.deltaTime は固定されているべき。");
+
             _profile = CreateAnalyzerProfile();
             _characters = CreateCharacters(_profile);
 

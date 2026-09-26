@@ -1,14 +1,20 @@
 using System;
 using System.Collections.Generic;
-using System.Reflection;
 using NUnit.Framework;
+using Hidano.FacialControl.Adapters.InputSources;
+using Hidano.FacialControl.Application.UseCases;
 using Hidano.FacialControl.Domain.Interfaces;
 using Hidano.FacialControl.Domain.Models;
 using Hidano.FacialControl.Domain.Services;
-using Hidano.FacialControl.Application.UseCases;
 
 namespace Hidano.FacialControl.Tests.EditMode.Application
 {
+    /// <summary>
+    /// <see cref="LayerUseCase"/> の基本契約を検証する: レイヤー weight、遷移補間、GetBlendedOutput / BlendedOutputSpan、
+    /// LayerOverrideMask による他レイヤー抑制、additional IInputSource / late-bind 経路、
+    /// および ExpressionTrigger ソースの検索。
+    /// 3 レイヤー（emotion / lipsync / eye）の既定プロファイルを SetUp で構築する。
+    /// </summary>
     [TestFixture]
     public class LayerUseCaseTests
     {
@@ -50,37 +56,6 @@ namespace Hidano.FacialControl.Tests.EditMode.Application
                 "1.0",
                 layers ?? CreateDefaultLayers(),
                 expressions ?? Array.Empty<Expression>());
-        }
-
-        private static Dictionary<string, List<Expression>> GetGroupedByLayerBuffer(LayerUseCase useCase)
-        {
-            var field = typeof(LayerUseCase).GetField(
-                "_groupedByLayer",
-                BindingFlags.Instance | BindingFlags.NonPublic);
-
-            Assert.IsNotNull(field, "_groupedByLayer field was not found.");
-            return (Dictionary<string, List<Expression>>)field.GetValue(useCase);
-        }
-
-        private static List<string> GetActiveGroupedLayerKeys(LayerUseCase useCase)
-        {
-            var field = typeof(LayerUseCase).GetField(
-                "_activeGroupedLayerKeys",
-                BindingFlags.Instance | BindingFlags.NonPublic);
-
-            Assert.IsNotNull(field, "_activeGroupedLayerKeys field was not found.");
-            return (List<string>)field.GetValue(useCase);
-        }
-
-        private static Dictionary<string, List<Expression>> InvokeGroupByLayer(
-            LayerUseCase useCase, List<Expression> expressions)
-        {
-            var method = typeof(LayerUseCase).GetMethod(
-                "GroupByLayer",
-                BindingFlags.Instance | BindingFlags.NonPublic);
-
-            Assert.IsNotNull(method, "GroupByLayer method was not found.");
-            return (Dictionary<string, List<Expression>>)method.Invoke(useCase, new object[] { expressions });
         }
 
         private LayerUseCase _useCase;
@@ -259,88 +234,6 @@ namespace Hidano.FacialControl.Tests.EditMode.Application
         public void UpdateWeights_NoActiveExpressions_DoesNotThrow()
         {
             Assert.DoesNotThrow(() => _useCase.UpdateWeights(0.016f));
-        }
-
-        [Test]
-        public void UpdateWeights_GroupedByLayerBuffer_ReusesAndClearsListsAcrossFrames()
-        {
-            var emotionExpr = CreateExpression(
-                id: "emotion-expr",
-                layer: "emotion",
-                transitionDuration: 0f,
-                blendShapeValues: new[] { new BlendShapeMapping("bs_smile", 1.0f) });
-            var eyeExpr = CreateExpression(
-                id: "eye-expr",
-                layer: "eye",
-                transitionDuration: 0f,
-                blendShapeValues: new[] { new BlendShapeMapping("bs_blink", 1.0f) });
-
-            _expressionUseCase.Activate(emotionExpr);
-            _useCase.UpdateWeights(0.001f);
-
-            var grouped = GetGroupedByLayerBuffer(_useCase);
-            var emotionList = grouped["emotion"];
-            var eyeList = grouped["eye"];
-
-            Assert.AreEqual(1, emotionList.Count);
-            Assert.AreEqual("emotion-expr", emotionList[0].Id);
-            Assert.AreEqual(0, eyeList.Count);
-
-            _expressionUseCase.Deactivate(emotionExpr);
-            _expressionUseCase.Activate(eyeExpr);
-            _useCase.UpdateWeights(0.001f);
-
-            Assert.AreSame(grouped, GetGroupedByLayerBuffer(_useCase));
-            Assert.AreSame(emotionList, grouped["emotion"]);
-            Assert.AreSame(eyeList, grouped["eye"]);
-            Assert.AreEqual(0, emotionList.Count);
-            Assert.AreEqual(1, eyeList.Count);
-            Assert.AreEqual("eye-expr", eyeList[0].Id);
-        }
-
-        [Test]
-        public void UpdateWeights_GroupedByLayerBuffer_EmptyPreallocatedLayerDoesNotMarkLayerActive()
-        {
-            _useCase.UpdateWeights(0.001f);
-
-            var grouped = GetGroupedByLayerBuffer(_useCase);
-
-            Assert.AreEqual(0, grouped["emotion"].Count);
-            Assert.AreEqual(0, grouped["lipsync"].Count);
-            Assert.AreEqual(0, grouped["eye"].Count);
-            Assert.AreEqual(0, _useCase.GetBlendedOutput()[2], 0.001f);
-        }
-
-        [Test]
-        public void GroupByLayer_EffectiveLayerNotPreallocated_SkipsWithoutAddingKey()
-        {
-            // 事前確保辞書（_groupedByLayer = profile.Layers 名で確保）に存在しないレイヤー名が
-            // effectiveLayer として来ても、新規 List を確保・キー追加せずスキップする（設計 OQ2）。
-            // 実機では Layers.Span.Length==0 時に GetEffectiveLayer が宣言外名を返す経路に相当する。
-            var grouped = GetGroupedByLayerBuffer(_useCase);
-
-            // "eye" を事前確保辞書から取り除き「未確保レイヤー名」状況を作る。
-            // profile には "eye" 層が宣言されているため GetEffectiveLayer は "eye" を返すが、
-            // 辞書には "eye" キーが無い、というエッジを再現する。
-            grouped.Remove("eye");
-            GetActiveGroupedLayerKeys(_useCase).Clear();
-            int keyCountBefore = grouped.Count;
-
-            var eyeExpr = CreateExpression(
-                id: "eye-expr",
-                layer: "eye",
-                transitionDuration: 0f,
-                blendShapeValues: new[] { new BlendShapeMapping("bs_blink", 1.0f) });
-
-            var result = InvokeGroupByLayer(_useCase, new List<Expression> { eyeExpr });
-
-            Assert.AreSame(grouped, result);
-            Assert.IsFalse(
-                result.ContainsKey("eye"),
-                "未確保レイヤー名のキーが新規追加されてはならない（毎フレ確保の防止）。");
-            Assert.AreEqual(
-                keyCountBefore, result.Count,
-                "辞書のキー数が増えてはならない（新規 List を確保していないこと）。");
         }
 
         [Test]
@@ -1076,6 +969,910 @@ namespace Hidano.FacialControl.Tests.EditMode.Application
             var output = useCase.GetBlendedOutput();
             Assert.AreEqual(0.2f, output[0], 1e-4f,
                 "指定 id のみ除去し、残存 source の寄与は維持すること");
+        }
+    }
+
+    /// <summary>
+    /// ベース表情 (<see cref="FacialProfile.BaseExpression"/>) を持つプロファイルで、
+    /// <see cref="LayerUseCase.UpdateWeights"/> の出力初期値としてベース表情が適用されることを検証する。
+    /// どのレイヤーも contribute しない BlendShape index にはベース表情の値が残り、
+    /// contribute する index はレイヤー出力で上書きされる。
+    /// </summary>
+    [TestFixture]
+    public class LayerUseCaseWithBaseExpressionTests
+    {
+        private static readonly string[] BlendShapeNames = { "bs_a", "bs_b" };
+
+        private static FacialProfile CreateProfile(
+            BlendShapeSnapshot[] baseExpression,
+            params Expression[] expressions)
+        {
+            var layers = new[]
+            {
+                new LayerDefinition("emotion", 0, ExclusionMode.LastWins),
+            };
+
+            return new FacialProfile(
+                "1.0",
+                layers,
+                expressions ?? Array.Empty<Expression>(),
+                baseExpression: baseExpression);
+        }
+
+        private static Expression CreateSmile()
+        {
+            return new Expression(
+                "smile", "smile", "emotion", 0.1f, TransitionCurve.Linear,
+                new[] { new BlendShapeMapping("bs_a", 1f, null) });
+        }
+
+        private static BlendShapeSnapshot[] CreateBaseExpression()
+        {
+            return new[]
+            {
+                new BlendShapeSnapshot(string.Empty, "bs_a", 0.25f),
+                new BlendShapeSnapshot(string.Empty, "bs_b", 0.75f),
+            };
+        }
+
+        [Test]
+        public void UpdateWeights_NoActiveExpression_KeepsBaseExpressionValues()
+        {
+            var profile = CreateProfile(CreateBaseExpression());
+            var expressionUseCase = new ExpressionUseCase(profile);
+            var useCase = new LayerUseCase(profile, expressionUseCase, BlendShapeNames);
+
+            useCase.UpdateWeights(1f);
+            var output = useCase.GetBlendedOutput();
+
+            Assert.That(output[0], Is.EqualTo(0.25f).Within(1e-5f), "表情非活性時は base 値が残る");
+            Assert.That(output[1], Is.EqualTo(0.75f).Within(1e-5f), "表情非活性時は base 値が残る");
+        }
+
+        [Test]
+        public void UpdateWeights_LayerContributesSubset_KeepsBaseOnNonContributingIndex()
+        {
+            var smile = CreateSmile();
+            var profile = CreateProfile(CreateBaseExpression(), smile);
+            var expressionUseCase = new ExpressionUseCase(profile);
+            var useCase = new LayerUseCase(profile, expressionUseCase, BlendShapeNames);
+
+            expressionUseCase.Activate(smile);
+            useCase.UpdateWeights(1f);
+            var output = useCase.GetBlendedOutput();
+
+            Assert.That(output[0], Is.EqualTo(1f).Within(1e-5f), "contribute する index は表情値で上書きされる");
+            Assert.That(output[1], Is.EqualTo(0.75f).Within(1e-5f), "contribute しない index は base 値が残る");
+        }
+
+        [Test]
+        public void UpdateWeights_NoBaseExpression_InitializesOutputToZero()
+        {
+            var smile = CreateSmile();
+            var profile = CreateProfile(baseExpression: null, expressions: smile);
+            var expressionUseCase = new ExpressionUseCase(profile);
+            var useCase = new LayerUseCase(profile, expressionUseCase, BlendShapeNames);
+
+            expressionUseCase.Activate(smile);
+            useCase.UpdateWeights(1f);
+            var output = useCase.GetBlendedOutput();
+
+            Assert.That(output[0], Is.EqualTo(1f).Within(1e-5f));
+            Assert.That(output[1], Is.EqualTo(0f).Within(1e-5f), "base 未設定時は全 0 初期化（現状互換）");
+        }
+
+        [Test]
+        public void UpdateWeights_BaseExpressionUnknownBlendShapeName_IsIgnored()
+        {
+            var baseExpression = new[]
+            {
+                new BlendShapeSnapshot(string.Empty, "bs_not_on_this_model", 1f),
+                new BlendShapeSnapshot(string.Empty, "bs_b", 0.4f),
+            };
+            var profile = CreateProfile(baseExpression);
+            var expressionUseCase = new ExpressionUseCase(profile);
+            var useCase = new LayerUseCase(profile, expressionUseCase, BlendShapeNames);
+
+            Assert.DoesNotThrow(() => useCase.UpdateWeights(1f));
+            var output = useCase.GetBlendedOutput();
+
+            Assert.That(output[0], Is.EqualTo(0f).Within(1e-5f), "モデルに無い BlendShape 名は無視される");
+            Assert.That(output[1], Is.EqualTo(0.4f).Within(1e-5f));
+        }
+
+        [Test]
+        public void UpdateWeights_BaseExpressionValueOutOfRange_IsClampedTo01()
+        {
+            var baseExpression = new[]
+            {
+                new BlendShapeSnapshot(string.Empty, "bs_a", 1.5f),
+                new BlendShapeSnapshot(string.Empty, "bs_b", -0.5f),
+            };
+            var profile = CreateProfile(baseExpression);
+            var expressionUseCase = new ExpressionUseCase(profile);
+            var useCase = new LayerUseCase(profile, expressionUseCase, BlendShapeNames);
+
+            useCase.UpdateWeights(1f);
+            var output = useCase.GetBlendedOutput();
+
+            Assert.That(output[0], Is.EqualTo(1f).Within(1e-5f));
+            Assert.That(output[1], Is.EqualTo(0f).Within(1e-5f));
+        }
+
+        [Test]
+        public void UpdateWeights_CalledRepeatedly_ReappliesBaseExpressionEachFrame()
+        {
+            var smile = CreateSmile();
+            var profile = CreateProfile(CreateBaseExpression(), smile);
+            var expressionUseCase = new ExpressionUseCase(profile);
+            var useCase = new LayerUseCase(profile, expressionUseCase, BlendShapeNames);
+
+            expressionUseCase.Activate(smile);
+            useCase.UpdateWeights(1f);
+            expressionUseCase.Deactivate(smile);
+            useCase.UpdateWeights(1f);
+            useCase.UpdateWeights(1f);
+
+            var output = useCase.GetBlendedOutput();
+
+            Assert.That(output[0], Is.EqualTo(0.25f).Within(1e-5f),
+                "表情が rest に戻った index は base 値へ戻る（前フレーム値の残留も base の二重適用も起きない）");
+            Assert.That(output[1], Is.EqualTo(0.75f).Within(1e-5f));
+        }
+
+        [Test]
+        public void SetProfile_NewBaseExpression_ReplacesBaseValues()
+        {
+            var profile = CreateProfile(CreateBaseExpression());
+            var expressionUseCase = new ExpressionUseCase(profile);
+            var useCase = new LayerUseCase(profile, expressionUseCase, BlendShapeNames);
+
+            useCase.UpdateWeights(1f);
+
+            var newProfile = CreateProfile(new[]
+            {
+                new BlendShapeSnapshot(string.Empty, "bs_a", 0.1f),
+            });
+            useCase.SetProfile(newProfile, BlendShapeNames);
+            useCase.UpdateWeights(1f);
+            var output = useCase.GetBlendedOutput();
+
+            Assert.That(output[0], Is.EqualTo(0.1f).Within(1e-5f));
+            Assert.That(output[1], Is.EqualTo(0f).Within(1e-5f), "新プロファイルに無い index は 0 に戻る");
+        }
+    }
+
+    /// <summary>
+    /// emotion + overlay の 2 レイヤー構成で、overlay レイヤーの <see cref="OverlayInputSource"/> が
+    /// active な Expression の slot / snapshot binding（inline overlay スキーマ）から blink overlay を解決することを検証する。
+    /// overlay レイヤーの weight は <see cref="LayerUseCase.SetLayerWeight"/> で直接与えるか、
+    /// アナログ入力値（<see cref="FakeScalarSource"/>）から転写して与える。
+    /// </summary>
+    [TestFixture]
+    public class LayerUseCaseWithOverlayLayerTests
+    {
+        private const string BlinkSlot = "blink";
+        private const string EmotionLayer = "emotion";
+        private const string OverlayLayer = "overlay";
+        private const string BrowName = "bs_brow";
+        private const string EyeMakeupName = "bs_eye_lift";
+        private const string EyeBlinkName = "bs_eye_blink";
+        private const string MouthName = "bs_mouth";
+
+        private static (FacialProfile profile, string[] blendShapeNames) BuildProfile()
+        {
+            var blendShapeNames = new[] { BrowName, EyeMakeupName, EyeBlinkName, MouthName };
+            var layers = new[]
+            {
+                new LayerDefinition(EmotionLayer, 0, ExclusionMode.LastWins),
+                new LayerDefinition(OverlayLayer, 1, ExclusionMode.LastWins),
+            };
+
+            var smileBlinkSnapshot = LayerUseCaseTestSupport.CreateSnapshot(
+                "smile_blink_snapshot",
+                new BlendShapeSnapshot(string.Empty, EyeMakeupName, 0.0f),
+                new BlendShapeSnapshot(string.Empty, EyeBlinkName, 1.0f));
+
+            var defaultBlinkSnapshot = LayerUseCaseTestSupport.CreateSnapshot(
+                "default_blink_snapshot",
+                new BlendShapeSnapshot(string.Empty, EyeMakeupName, 0.0f),
+                new BlendShapeSnapshot(string.Empty, EyeBlinkName, 1.0f));
+
+            var smile = new Expression(
+                id: "smile",
+                name: "Smile",
+                layer: EmotionLayer,
+                transitionDuration: 0f,
+                transitionCurve: TransitionCurve.Linear,
+                blendShapeValues: new[]
+                {
+                    new BlendShapeMapping(BrowName, 1.0f),
+                    new BlendShapeMapping(EyeMakeupName, 1.0f),
+                    new BlendShapeMapping(MouthName, 0.5f),
+                },
+                overlays: new[]
+                {
+                    new OverlaySlotBinding(BlinkSlot, suppress: false, snapshot: smileBlinkSnapshot),
+                });
+
+            var smileClosedEye = new Expression(
+                id: "smile_closed_eye",
+                name: "SmileClosedEye",
+                layer: EmotionLayer,
+                transitionDuration: 0f,
+                transitionCurve: TransitionCurve.Linear,
+                blendShapeValues: new[]
+                {
+                    new BlendShapeMapping(EyeMakeupName, 0.75f),
+                    new BlendShapeMapping(EyeBlinkName, 1.0f),
+                    new BlendShapeMapping(MouthName, 0.5f),
+                },
+                overlays: new[]
+                {
+                    new OverlaySlotBinding(BlinkSlot, suppress: true, snapshot: null),
+                });
+
+            var neutral = new Expression(
+                id: "neutral",
+                name: "Neutral",
+                layer: EmotionLayer,
+                transitionDuration: 0f,
+                transitionCurve: TransitionCurve.Linear,
+                blendShapeValues: new[]
+                {
+                    new BlendShapeMapping(EyeMakeupName, 1.0f),
+                    new BlendShapeMapping(MouthName, 0.25f),
+                });
+
+            var inputSources = new[]
+            {
+                new[] { new InputSourceDeclaration("input", 1f, null) },
+                new[] { new InputSourceDeclaration("input:overlay:blink", 1f, null) },
+            };
+
+            var profile = new FacialProfile(
+                schemaVersion: "1.0",
+                layers: layers,
+                expressions: new[] { smile, smileClosedEye, neutral },
+                rendererPaths: null,
+                layerInputSources: inputSources,
+                defaultOverlays: new[]
+                {
+                    new OverlaySlotBinding(BlinkSlot, suppress: false, snapshot: defaultBlinkSnapshot),
+                },
+                slots: new[] { BlinkSlot });
+
+            return (profile, blendShapeNames);
+        }
+
+        private static (LayerUseCase useCase, ExpressionUseCase exprUseCase, FakeScalarSource trigger)
+            BuildPipeline(FacialProfile profile, string[] blendShapeNames)
+        {
+            var exprUseCase = new ExpressionUseCase(profile);
+            var trigger = new FakeScalarSource("trigger");
+
+            var overlayInputSource = new OverlayInputSource(
+                id: InputSourceId.Parse("overlay:blink"),
+                slot: BlinkSlot,
+                blendShapeCount: blendShapeNames.Length,
+                blendShapeNames: blendShapeNames,
+                profile: profile,
+                activeProvider: exprUseCase,
+                emotionLayerName: EmotionLayer);
+
+            var additional = new List<(int layerIdx, IInputSource source, float weight)>
+            {
+                (1, overlayInputSource, 1f),
+            };
+            var useCase = new LayerUseCase(profile, exprUseCase, blendShapeNames, additional);
+            return (useCase, exprUseCase, trigger);
+        }
+
+        private static void Activate(ExpressionUseCase exprUseCase, FacialProfile profile, string expressionId)
+        {
+            var expression = profile.FindExpressionById(expressionId);
+            Assert.IsTrue(expression.HasValue, $"テスト profile に '{expressionId}' が存在すること。");
+            exprUseCase.Activate(expression.Value);
+        }
+
+        private static void ApplyAnalogOverlayWeight(LayerUseCase useCase, FakeScalarSource trigger)
+        {
+            Assert.IsTrue(trigger.TryReadScalar(out float value));
+            useCase.SetLayerWeight(OverlayLayer, value);
+        }
+
+        [Test]
+        public void BuildProfile_UsesInlineOverlaySchema()
+        {
+            var (profile, _) = BuildProfile();
+
+            Assert.AreEqual(1, profile.Slots.Length);
+            Assert.AreEqual(BlinkSlot, profile.Slots.Span[0]);
+            Assert.AreEqual(3, profile.Expressions.Length);
+            Assert.IsFalse(profile.FindExpressionById("blink_overlay").HasValue);
+
+            var smile = profile.FindExpressionById("smile").Value;
+            Assert.IsTrue(smile.TryGetOverlay(BlinkSlot, out var smileBinding));
+            Assert.IsFalse(smileBinding.Suppress);
+            Assert.IsTrue(smileBinding.Snapshot.HasValue);
+            Assert.AreEqual("smile_blink_snapshot", smileBinding.Snapshot.Value.Id);
+
+            var smileClosedEye = profile.FindExpressionById("smile_closed_eye").Value;
+            Assert.IsTrue(smileClosedEye.TryGetOverlay(BlinkSlot, out var closedEyeBinding));
+            Assert.IsTrue(closedEyeBinding.Suppress);
+            Assert.IsFalse(closedEyeBinding.Snapshot.HasValue);
+        }
+
+        // --- overlay weight を SetLayerWeight で直接与える ---
+
+        [Test]
+        public void SmileHold_FullTrigger_InlineOverlayReplacesEyeBlendShapes()
+        {
+            var (profile, bsNames) = BuildProfile();
+            var (useCase, exprUseCase, _) = BuildPipeline(profile, bsNames);
+            using (useCase)
+            {
+                exprUseCase.Activate(profile.FindExpressionById("smile").Value);
+                useCase.SetLayerWeight("overlay", 1f);
+                useCase.UpdateWeights(1f);
+
+                var output = useCase.GetBlendedOutput();
+
+                Assert.AreEqual(1.0f, output[0], 1e-3f);
+                Assert.AreEqual(0.0f, output[1], 1e-3f);
+                Assert.AreEqual(1.0f, output[2], 1e-3f);
+                Assert.AreEqual(0.5f, output[3], 1e-3f);
+            }
+        }
+
+        [Test]
+        public void SmileHold_HalfTrigger_InlineOverlayInterpolatesLinearly()
+        {
+            var (profile, bsNames) = BuildProfile();
+            var (useCase, exprUseCase, _) = BuildPipeline(profile, bsNames);
+            using (useCase)
+            {
+                exprUseCase.Activate(profile.FindExpressionById("smile").Value);
+                useCase.SetLayerWeight("overlay", 0.5f);
+                useCase.UpdateWeights(1f);
+
+                var output = useCase.GetBlendedOutput();
+
+                Assert.AreEqual(1.0f, output[0], 1e-3f);
+                Assert.AreEqual(0.5f, output[1], 1e-3f);
+                Assert.AreEqual(0.5f, output[2], 1e-3f);
+                Assert.AreEqual(0.5f, output[3], 1e-3f);
+            }
+        }
+
+        [Test]
+        public void SmileClosedEyeHold_FullTrigger_OverlaySuppressed()
+        {
+            var (profile, bsNames) = BuildProfile();
+            var (useCase, exprUseCase, _) = BuildPipeline(profile, bsNames);
+            using (useCase)
+            {
+                exprUseCase.Activate(profile.FindExpressionById("smile_closed_eye").Value);
+                useCase.SetLayerWeight("overlay", 1f);
+                useCase.UpdateWeights(1f);
+
+                var output = useCase.GetBlendedOutput();
+
+                Assert.AreEqual(0.75f, output[1], 1e-3f);
+                Assert.AreEqual(1.0f, output[2], 1e-3f);
+                Assert.AreEqual(0.5f, output[3], 1e-3f);
+            }
+        }
+
+        [Test]
+        public void NoActiveExpression_FullTrigger_DefaultBlinkFires()
+        {
+            var (profile, bsNames) = BuildProfile();
+            var (useCase, _, _) = BuildPipeline(profile, bsNames);
+            using (useCase)
+            {
+                useCase.SetLayerWeight("overlay", 1f);
+                useCase.UpdateWeights(1f);
+
+                var output = useCase.GetBlendedOutput();
+
+                Assert.AreEqual(0.0f, output[0], 1e-3f);
+                Assert.AreEqual(0.0f, output[1], 1e-3f);
+                Assert.AreEqual(1.0f, output[2], 1e-3f);
+                Assert.AreEqual(0.0f, output[3], 1e-3f);
+            }
+        }
+
+        [Test]
+        public void NeutralHold_FullTrigger_FallsBackToDefaultBlink()
+        {
+            var (profile, bsNames) = BuildProfile();
+            var (useCase, exprUseCase, _) = BuildPipeline(profile, bsNames);
+            using (useCase)
+            {
+                exprUseCase.Activate(profile.FindExpressionById("neutral").Value);
+                useCase.SetLayerWeight("overlay", 1f);
+                useCase.UpdateWeights(1f);
+
+                var output = useCase.GetBlendedOutput();
+
+                Assert.AreEqual(0.0f, output[1], 1e-3f);
+                Assert.AreEqual(1.0f, output[2], 1e-3f);
+                Assert.AreEqual(0.25f, output[3], 1e-3f);
+            }
+        }
+
+        // --- overlay weight をアナログ入力値から転写する ---
+
+        [Test]
+        public void AnalogZero_SmileInlineOverlayDoesNotAffectBaseExpression()
+        {
+            var (profile, blendShapeNames) = BuildProfile();
+            var (useCase, exprUseCase, trigger) = BuildPipeline(profile, blendShapeNames);
+            using (useCase)
+            {
+                Activate(exprUseCase, profile, "smile");
+                trigger.Value = 0f;
+                ApplyAnalogOverlayWeight(useCase, trigger);
+
+                useCase.UpdateWeights(1f);
+                var output = useCase.GetBlendedOutput();
+
+                Assert.AreEqual(1.0f, output[0], 1e-4f);
+                Assert.AreEqual(1.0f, output[1], 1e-4f);
+                Assert.AreEqual(0.0f, output[2], 1e-4f);
+                Assert.AreEqual(0.5f, output[3], 1e-4f);
+            }
+        }
+
+        [Test]
+        public void AnalogHalf_SmileInlineOverlayInterpolatesBlinkSlot()
+        {
+            var (profile, blendShapeNames) = BuildProfile();
+            var (useCase, exprUseCase, trigger) = BuildPipeline(profile, blendShapeNames);
+            using (useCase)
+            {
+                Activate(exprUseCase, profile, "smile");
+                trigger.Value = 0.5f;
+                ApplyAnalogOverlayWeight(useCase, trigger);
+
+                useCase.UpdateWeights(1f);
+                var output = useCase.GetBlendedOutput();
+
+                Assert.AreEqual(1.0f, output[0], 1e-4f);
+                Assert.AreEqual(0.5f, output[1], 1e-4f);
+                Assert.AreEqual(0.5f, output[2], 1e-4f);
+                Assert.AreEqual(0.5f, output[3], 1e-4f);
+            }
+        }
+
+        [Test]
+        public void AnalogFull_SmileInlineOverlayReplacesBlinkSlot()
+        {
+            var (profile, blendShapeNames) = BuildProfile();
+            var (useCase, exprUseCase, trigger) = BuildPipeline(profile, blendShapeNames);
+            using (useCase)
+            {
+                Activate(exprUseCase, profile, "smile");
+                trigger.Value = 1f;
+                ApplyAnalogOverlayWeight(useCase, trigger);
+
+                useCase.UpdateWeights(1f);
+                var output = useCase.GetBlendedOutput();
+
+                Assert.AreEqual(1.0f, output[0], 1e-4f);
+                Assert.AreEqual(0.0f, output[1], 1e-4f);
+                Assert.AreEqual(1.0f, output[2], 1e-4f);
+                Assert.AreEqual(0.5f, output[3], 1e-4f);
+            }
+        }
+
+        [Test]
+        public void AnalogFull_SmileClosedEyeSuppressesOverlay()
+        {
+            var (profile, blendShapeNames) = BuildProfile();
+            var (useCase, exprUseCase, trigger) = BuildPipeline(profile, blendShapeNames);
+            using (useCase)
+            {
+                Activate(exprUseCase, profile, "smile_closed_eye");
+                trigger.Value = 1f;
+                ApplyAnalogOverlayWeight(useCase, trigger);
+
+                useCase.UpdateWeights(1f);
+                var output = useCase.GetBlendedOutput();
+
+                Assert.AreEqual(0.0f, output[0], 1e-4f);
+                Assert.AreEqual(0.75f, output[1], 1e-4f);
+                Assert.AreEqual(1.0f, output[2], 1e-4f);
+                Assert.AreEqual(0.5f, output[3], 1e-4f);
+            }
+        }
+
+        [Test]
+        public void AnalogSweep_SmileInlineOverlayFollowsTriggerLinearly()
+        {
+            var (profile, blendShapeNames) = BuildProfile();
+            var (useCase, exprUseCase, trigger) = BuildPipeline(profile, blendShapeNames);
+            using (useCase)
+            {
+                Activate(exprUseCase, profile, "smile");
+                useCase.UpdateWeights(1f);
+
+                foreach (var t in new[] { 0f, 0.25f, 0.5f, 0.75f, 1.0f })
+                {
+                    trigger.Value = t;
+                    ApplyAnalogOverlayWeight(useCase, trigger);
+                    useCase.UpdateWeights(0.016f);
+                    var output = useCase.GetBlendedOutput();
+
+                    Assert.AreEqual(1.0f, output[0], 1e-4f, $"Trigger={t} で Brow が smile の値を維持すること。");
+                    Assert.AreEqual(1f - t, output[1], 1e-4f, $"Trigger={t} で EyeMakeup が線形に blend out すること。");
+                    Assert.AreEqual(t, output[2], 1e-4f, $"Trigger={t} に Blink が線形追従すること。");
+                    Assert.AreEqual(0.5f, output[3], 1e-4f, $"Trigger={t} で Mouth が smile の値を維持すること。");
+                }
+            }
+        }
+    }
+
+    /// <summary>
+    /// emotion レイヤー内でアナログ入力により加算される Expression（<see cref="AnalogExpressionInputSource"/>）と、
+    /// 同じアナログ値で weight 付けされる overlay レイヤー（<see cref="OverlayInputSource"/>）が共存する構成の回帰テスト。
+    /// アナログ加算表情と inline overlay がともにトリガー値へ線形に追従することを検証する。
+    /// </summary>
+    [TestFixture]
+    public class LayerUseCaseWithAnalogExpressionAdditionTests
+    {
+        private const string BlinkSlot = "blink";
+        private const string EmotionLayer = "emotion";
+        private const string OverlayLayer = "overlay";
+        private const string BrowName = "bs_brow";
+        private const string EyeMakeupName = "bs_eye_lift";
+        private const string EyeBlinkName = "bs_eye_blink";
+        private const string MouthName = "bs_mouth";
+        private const string CheekName = "bs_cheek";
+        private const string AnalogExpressionId = "analog_cheek";
+
+        private static (FacialProfile profile, string[] blendShapeNames) BuildProfile()
+        {
+            var blendShapeNames = new[] { BrowName, EyeMakeupName, EyeBlinkName, MouthName, CheekName };
+            var layers = new[]
+            {
+                new LayerDefinition(EmotionLayer, 0, ExclusionMode.LastWins),
+                new LayerDefinition(OverlayLayer, 1, ExclusionMode.LastWins),
+            };
+
+            var smileBlinkSnapshot = LayerUseCaseTestSupport.CreateSnapshot(
+                "smile_blink_snapshot",
+                new BlendShapeSnapshot(string.Empty, EyeMakeupName, 0.0f),
+                new BlendShapeSnapshot(string.Empty, EyeBlinkName, 1.0f));
+
+            var defaultBlinkSnapshot = LayerUseCaseTestSupport.CreateSnapshot(
+                "default_blink_snapshot",
+                new BlendShapeSnapshot(string.Empty, EyeMakeupName, 0.0f),
+                new BlendShapeSnapshot(string.Empty, EyeBlinkName, 1.0f));
+
+            var smile = new Expression(
+                id: "smile",
+                name: "Smile",
+                layer: EmotionLayer,
+                transitionDuration: 0f,
+                transitionCurve: TransitionCurve.Linear,
+                blendShapeValues: new[]
+                {
+                    new BlendShapeMapping(BrowName, 1.0f),
+                    new BlendShapeMapping(EyeMakeupName, 1.0f),
+                    new BlendShapeMapping(MouthName, 0.5f),
+                },
+                overlays: new[]
+                {
+                    new OverlaySlotBinding(BlinkSlot, suppress: false, snapshot: smileBlinkSnapshot),
+                });
+
+            var smileClosedEye = new Expression(
+                id: "smile_closed_eye",
+                name: "SmileClosedEye",
+                layer: EmotionLayer,
+                transitionDuration: 0f,
+                transitionCurve: TransitionCurve.Linear,
+                blendShapeValues: new[]
+                {
+                    new BlendShapeMapping(EyeMakeupName, 0.75f),
+                    new BlendShapeMapping(EyeBlinkName, 1.0f),
+                    new BlendShapeMapping(MouthName, 0.5f),
+                },
+                overlays: new[]
+                {
+                    new OverlaySlotBinding(BlinkSlot, suppress: true, snapshot: null),
+                });
+
+            var analogCheek = new Expression(
+                id: AnalogExpressionId,
+                name: "AnalogCheek",
+                layer: EmotionLayer,
+                transitionDuration: 0f,
+                transitionCurve: TransitionCurve.Linear,
+                blendShapeValues: new[]
+                {
+                    new BlendShapeMapping(CheekName, 1.0f),
+                });
+
+            var neutral = new Expression(
+                id: "neutral",
+                name: "Neutral",
+                layer: EmotionLayer,
+                transitionDuration: 0f,
+                transitionCurve: TransitionCurve.Linear,
+                blendShapeValues: new[]
+                {
+                    new BlendShapeMapping(EyeMakeupName, 1.0f),
+                    new BlendShapeMapping(MouthName, 0.25f),
+                });
+
+            var profile = new FacialProfile(
+                schemaVersion: "1.0",
+                layers: layers,
+                expressions: new[] { smile, smileClosedEye, analogCheek, neutral },
+                rendererPaths: null,
+                layerInputSources: null,
+                defaultOverlays: new[]
+                {
+                    new OverlaySlotBinding(BlinkSlot, suppress: false, snapshot: defaultBlinkSnapshot),
+                },
+                slots: new[] { BlinkSlot });
+
+            return (profile, blendShapeNames);
+        }
+
+        private static (LayerUseCase useCase, ExpressionUseCase exprUseCase, FakeScalarSource trigger)
+            BuildPipeline(FacialProfile profile, string[] blendShapeNames)
+        {
+            var exprUseCase = new ExpressionUseCase(profile);
+            var trigger = new FakeScalarSource("trigger");
+
+            var sources = new Dictionary<string, IAnalogInputSource>(StringComparer.Ordinal)
+            {
+                { trigger.Id, trigger },
+            };
+            var bindings = new[]
+            {
+                new AnalogExpressionBinding(
+                    sourceId: trigger.Id,
+                    sourceAxis: 0,
+                    expressionId: AnalogExpressionId,
+                    scale: 1f),
+            };
+
+            var analogExpression = new AnalogExpressionInputSource(
+                id: InputSourceId.Parse(AnalogExpressionInputSource.ReservedId),
+                blendShapeCount: blendShapeNames.Length,
+                blendShapeNames: blendShapeNames,
+                profile: profile,
+                sources: sources,
+                bindings: bindings);
+
+            var overlayInputSource = new OverlayInputSource(
+                id: InputSourceId.Parse("overlay:blink"),
+                slot: BlinkSlot,
+                blendShapeCount: blendShapeNames.Length,
+                blendShapeNames: blendShapeNames,
+                profile: profile,
+                activeProvider: exprUseCase,
+                emotionLayerName: EmotionLayer);
+
+            var additional = new List<(int layerIdx, IInputSource source, float weight)>
+            {
+                (0, analogExpression, 1f),
+                (1, overlayInputSource, 1f),
+            };
+
+            var useCase = new LayerUseCase(profile, exprUseCase, blendShapeNames, additional);
+            return (useCase, exprUseCase, trigger);
+        }
+
+        private static void Activate(ExpressionUseCase exprUseCase, FacialProfile profile, string expressionId)
+        {
+            var expression = profile.FindExpressionById(expressionId);
+            Assert.IsTrue(expression.HasValue, $"Test profile must contain '{expressionId}'.");
+            exprUseCase.Activate(expression.Value);
+        }
+
+        private static void ApplyAnalogOverlayWeight(LayerUseCase useCase, FakeScalarSource trigger)
+        {
+            Assert.IsTrue(trigger.TryReadScalar(out float value));
+            useCase.SetLayerWeight(OverlayLayer, value);
+        }
+
+        [Test]
+        public void BuildProfile_UsesInlineOverlaySchema()
+        {
+            var (profile, _) = BuildProfile();
+
+            Assert.AreEqual(1, profile.Slots.Length);
+            Assert.AreEqual(BlinkSlot, profile.Slots.Span[0]);
+            Assert.IsFalse(profile.FindExpressionById("blink_overlay").HasValue);
+            Assert.IsEmpty(profile.ValidateSlotReferences());
+
+            var smile = profile.FindExpressionById("smile").Value;
+            Assert.IsTrue(smile.TryGetOverlay(BlinkSlot, out var smileBinding));
+            Assert.IsFalse(smileBinding.Suppress);
+            Assert.IsTrue(smileBinding.Snapshot.HasValue);
+            Assert.AreEqual("smile_blink_snapshot", smileBinding.Snapshot.Value.Id);
+
+            var smileClosedEye = profile.FindExpressionById("smile_closed_eye").Value;
+            Assert.IsTrue(smileClosedEye.TryGetOverlay(BlinkSlot, out var closedEyeBinding));
+            Assert.IsTrue(closedEyeBinding.Suppress);
+            Assert.IsFalse(closedEyeBinding.Snapshot.HasValue);
+        }
+
+        [Test]
+        public void TriggerZero_KeepsExpressionAndLeavesAnalogPathsInactive()
+        {
+            var (profile, blendShapeNames) = BuildProfile();
+            var (useCase, exprUseCase, trigger) = BuildPipeline(profile, blendShapeNames);
+            using (useCase)
+            {
+                Activate(exprUseCase, profile, "smile");
+                trigger.Value = 0f;
+                ApplyAnalogOverlayWeight(useCase, trigger);
+
+                useCase.UpdateWeights(1f);
+                var output = useCase.GetBlendedOutput();
+
+                Assert.AreEqual(1.0f, output[0], 1e-4f);
+                Assert.AreEqual(1.0f, output[1], 1e-4f);
+                Assert.AreEqual(0.0f, output[2], 1e-4f);
+                Assert.AreEqual(0.5f, output[3], 1e-4f);
+                Assert.AreEqual(0.0f, output[4], 1e-4f);
+            }
+        }
+
+        [Test]
+        public void TriggerHalf_AddsAnalogExpressionAndInterpolatesInlineOverlay()
+        {
+            var (profile, blendShapeNames) = BuildProfile();
+            var (useCase, exprUseCase, trigger) = BuildPipeline(profile, blendShapeNames);
+            using (useCase)
+            {
+                Activate(exprUseCase, profile, "smile");
+                trigger.Value = 0.5f;
+                ApplyAnalogOverlayWeight(useCase, trigger);
+
+                useCase.UpdateWeights(1f);
+                var output = useCase.GetBlendedOutput();
+
+                Assert.AreEqual(1.0f, output[0], 1e-4f);
+                Assert.AreEqual(0.5f, output[1], 1e-4f);
+                Assert.AreEqual(0.5f, output[2], 1e-4f);
+                Assert.AreEqual(0.5f, output[3], 1e-4f);
+                Assert.AreEqual(0.5f, output[4], 1e-4f);
+            }
+        }
+
+        [Test]
+        public void TriggerFull_AddsAnalogExpressionAndReplacesBlinkSlot()
+        {
+            var (profile, blendShapeNames) = BuildProfile();
+            var (useCase, exprUseCase, trigger) = BuildPipeline(profile, blendShapeNames);
+            using (useCase)
+            {
+                Activate(exprUseCase, profile, "smile");
+                trigger.Value = 1f;
+                ApplyAnalogOverlayWeight(useCase, trigger);
+
+                useCase.UpdateWeights(1f);
+                var output = useCase.GetBlendedOutput();
+
+                Assert.AreEqual(1.0f, output[0], 1e-4f);
+                Assert.AreEqual(0.0f, output[1], 1e-4f);
+                Assert.AreEqual(1.0f, output[2], 1e-4f);
+                Assert.AreEqual(0.5f, output[3], 1e-4f);
+                Assert.AreEqual(1.0f, output[4], 1e-4f);
+            }
+        }
+
+        [Test]
+        public void TriggerFull_SuppressedOverlayStillAddsAnalogExpression()
+        {
+            var (profile, blendShapeNames) = BuildProfile();
+            var (useCase, exprUseCase, trigger) = BuildPipeline(profile, blendShapeNames);
+            using (useCase)
+            {
+                Activate(exprUseCase, profile, "smile_closed_eye");
+                trigger.Value = 1f;
+                ApplyAnalogOverlayWeight(useCase, trigger);
+
+                useCase.UpdateWeights(1f);
+                var output = useCase.GetBlendedOutput();
+
+                Assert.AreEqual(0.0f, output[0], 1e-4f);
+                Assert.AreEqual(0.75f, output[1], 1e-4f);
+                Assert.AreEqual(1.0f, output[2], 1e-4f);
+                Assert.AreEqual(0.5f, output[3], 1e-4f);
+                Assert.AreEqual(1.0f, output[4], 1e-4f);
+            }
+        }
+
+        [Test]
+        public void TriggerSweep_AnalogExpressionAndInlineOverlayFollowTriggerLinearly()
+        {
+            var (profile, blendShapeNames) = BuildProfile();
+            var (useCase, exprUseCase, trigger) = BuildPipeline(profile, blendShapeNames);
+            using (useCase)
+            {
+                Activate(exprUseCase, profile, "smile");
+                trigger.Value = 0f;
+                ApplyAnalogOverlayWeight(useCase, trigger);
+                useCase.UpdateWeights(1f);
+
+                foreach (var t in new[] { 0f, 0.25f, 0.5f, 0.75f, 1.0f })
+                {
+                    trigger.Value = t;
+                    ApplyAnalogOverlayWeight(useCase, trigger);
+                    useCase.UpdateWeights(0.016f);
+                    var output = useCase.GetBlendedOutput();
+
+                    Assert.AreEqual(1.0f, output[0], 1e-4f, $"Trigger={t} should keep brow from smile.");
+                    Assert.AreEqual(1f - t, output[1], 1e-4f, $"Trigger={t} should blend eye makeup out.");
+                    Assert.AreEqual(t, output[2], 1e-4f, $"Trigger={t} should blend blink in.");
+                    Assert.AreEqual(0.5f, output[3], 1e-4f, $"Trigger={t} should keep mouth from smile.");
+                    Assert.AreEqual(t, output[4], 1e-4f, $"Trigger={t} should add analog cheek expression.");
+                }
+            }
+        }
+    }
+
+    /// <summary>
+    /// <see cref="LayerUseCase"/> テスト共用の補助。overlay slot に割り当てる
+    /// <see cref="ExpressionSnapshot"/> を最小引数で生成する。
+    /// </summary>
+    internal static class LayerUseCaseTestSupport
+    {
+        public static ExpressionSnapshot CreateSnapshot(
+            string id,
+            params BlendShapeSnapshot[] blendShapes)
+        {
+            return new ExpressionSnapshot(
+                id,
+                transitionDuration: Expression.DefaultTransitionDuration,
+                transitionCurvePreset: TransitionCurvePreset.Linear,
+                blendShapes: blendShapes,
+                bones: null,
+                rendererPaths: null);
+        }
+    }
+
+    /// <summary>
+    /// スカラー値を外部から設定できる <see cref="IAnalogInputSource"/> フェイク。
+    /// 常に valid で、1 軸の値をそのまま返す。
+    /// </summary>
+    internal sealed class FakeScalarSource : IAnalogInputSource
+    {
+        public FakeScalarSource(string id) { Id = id; }
+
+        public string Id { get; }
+        public bool IsValid => true;
+        public int AxisCount => 1;
+        public float Value { get; set; }
+
+        public void Tick(float deltaTime) { }
+
+        public bool TryReadScalar(out float value)
+        {
+            value = Value;
+            return true;
+        }
+
+        public bool TryReadVector2(out float x, out float y)
+        {
+            x = Value;
+            y = 0f;
+            return true;
+        }
+
+        public bool TryReadAxes(Span<float> output)
+        {
+            if (output.Length >= 1) output[0] = Value;
+            return true;
         }
     }
 }

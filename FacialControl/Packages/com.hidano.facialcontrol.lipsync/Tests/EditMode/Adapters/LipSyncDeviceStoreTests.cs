@@ -143,6 +143,41 @@ namespace Hidano.FacialControl.LipSync.Tests.EditMode.Adapters
         }
 
         [Test]
+        public void Load_OnlyDeviceNameKeyPresent_ReturnsZeroDisambiguator()
+        {
+            _backend.SetString(LipSyncDeviceStore.KeyName, "OnlyName");
+
+            var descriptor = LipSyncDeviceStore.Load();
+
+            Assert.That(descriptor.DeviceName, Is.EqualTo("OnlyName"));
+            Assert.That(descriptor.DisambiguatorIndex, Is.EqualTo(0));
+        }
+
+        [Test]
+        public void Load_OnlyDisambiguatorKeyPresent_ReturnsEmptyDeviceName()
+        {
+            _backend.SetInt(LipSyncDeviceStore.KeyDisambiguator, 11);
+
+            var descriptor = LipSyncDeviceStore.Load();
+
+            Assert.That(descriptor.DeviceName, Is.EqualTo(string.Empty));
+            Assert.That(descriptor.DisambiguatorIndex, Is.EqualTo(11));
+        }
+
+        [Test]
+        public void SetBackend_ReplacesActiveBackend_SaveTargetsNewBackendOnly()
+        {
+            var replacement = new FakePlayerPrefsBackend();
+            LipSyncDeviceStore.SetBackend(replacement);
+
+            LipSyncDeviceStore.Save(new DeviceDescriptor { DeviceName = "After-Replace", DisambiguatorIndex = 6 });
+
+            Assert.That(replacement.ContainsStringKey(LipSyncDeviceStore.KeyName), Is.True);
+            Assert.That(replacement.GetString(LipSyncDeviceStore.KeyName, "fallback"), Is.EqualTo("After-Replace"));
+            Assert.That(_backend.ContainsStringKey(LipSyncDeviceStore.KeyName), Is.False);
+        }
+
+        [Test]
         public void SetBackend_Null_FallsBackToDefaultBackend()
         {
             LipSyncDeviceStore.SetBackend(null);

@@ -98,7 +98,7 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
                     dialogMessage = message;
                 };
 
-                LogAssert.Expect(LogType.Warning, new System.Text.RegularExpressions.Regex(@"\[FacialTimelineReceiver\] Bake hash mismatch\..*"));
+                LogAssert.Expect(LogType.Warning, new System.Text.RegularExpressions.Regex(@"\[FacialTimelineReceiver\].*hash mismatch"));
                 receiver.BeginPlaybackSession(fixture.Profile.BuildFallbackProfile(), fixture.Timeline);
 
                 RepairRunResult result = TimelineBakeDirtyWatcher.HandleEnteredEditModeNow();

@@ -38,7 +38,7 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
                     Array.Empty<(string sub, TimelineAnalogInputSource sink)>(),
                     Array.Empty<(string sub, TimelineGazeInputSource sink, string takeoverSourceId)>());
 
-                LogAssert.Expect(LogType.Warning, "[FacialTimelineReceiver] BakeAsset is missing. Value playback is disabled, state playback continues.");
+                LogAssert.Expect(LogType.Warning, new System.Text.RegularExpressions.Regex(@"\[FacialTimelineReceiver\].*BakeAsset"));
 
                 receiver.BeginPlaybackSession(profile, timeline);
 
@@ -73,7 +73,7 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
                     Array.Empty<(string sub, TimelineAnalogInputSource sink)>(),
                     Array.Empty<(string sub, TimelineGazeInputSource sink, string takeoverSourceId)>());
 
-                LogAssert.Expect(LogType.Warning, new System.Text.RegularExpressions.Regex(@"\[FacialTimelineReceiver\] Bake hash mismatch\..*"));
+                LogAssert.Expect(LogType.Warning, new System.Text.RegularExpressions.Regex(@"\[FacialTimelineReceiver\].*hash mismatch"));
 
                 receiver.BeginPlaybackSession(profile, timeline);
 
@@ -114,7 +114,7 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
                     Array.Empty<(string sub, TimelineGazeInputSource sink, string takeoverSourceId)>());
 
                 FacialTimelineReceiver.BakeIssueDetected += Capture;
-                LogAssert.Expect(LogType.Warning, new System.Text.RegularExpressions.Regex(@"\[FacialTimelineReceiver\] Bake hash mismatch\..*"));
+                LogAssert.Expect(LogType.Warning, new System.Text.RegularExpressions.Regex(@"\[FacialTimelineReceiver\].*hash mismatch"));
 
                 receiver.BeginPlaybackSession(profile, timeline);
 
@@ -249,7 +249,7 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
 
             try
             {
-                LogAssert.Expect(LogType.Warning, "[FacialTimelineReceiver] Gaze takeover source 'live:gaze' is already occupied by another injected source. The channel is disabled.");
+                LogAssert.Expect(LogType.Warning, new System.Text.RegularExpressions.Regex(@"\[FacialTimelineReceiver\].*'live:gaze'"));
 
                 receiver.BeginPlaybackSession(CreateProfile(), timeline: null);
 
@@ -285,7 +285,7 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
                 receiver.BeginPlaybackSession(CreateProfile(), timeline: null);
                 registry.Replace(AdapterSlug.Parse("live"), "gaze", otherOwner);
 
-                LogAssert.Expect(LogType.Warning, "[FacialTimelineReceiver] Gaze takeover source 'live:gaze' is no longer owned by this receiver. Restoration is skipped.");
+                LogAssert.Expect(LogType.Warning, new System.Text.RegularExpressions.Regex(@"\[FacialTimelineReceiver\].*'live:gaze'"));
 
                 receiver.ReleaseAll();
 
@@ -321,7 +321,7 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
                 receiver.BeginPlaybackSession(CreateProfile(), timeline: null);
                 registry.Unregister(AdapterSlug.Parse("live"), "gaze");
 
-                LogAssert.Expect(LogType.Warning, "[FacialTimelineReceiver] Gaze takeover source 'live:gaze' was not found during restoration. Cleanup is skipped.");
+                LogAssert.Expect(LogType.Warning, new System.Text.RegularExpressions.Regex(@"\[FacialTimelineReceiver\].*'live:gaze'"));
 
                 receiver.ReleaseAll();
 

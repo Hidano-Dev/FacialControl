@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
+using System.Text.RegularExpressions;
 using System.Threading;
 using Hidano.FacialControl.Rec.Adapters.FileSystem;
 using Hidano.FacialControl.Rec.Adapters.Recording;
@@ -99,7 +100,7 @@ namespace Hidano.FacialControl.Rec.Tests.EditMode
 
             Assert.That(enteredBlockedWrite.Wait(TimeSpan.FromSeconds(2d)), Is.True, "The writer thread never reached the blocked write.");
 
-            LogAssert.Expect(LogType.Error, $"REC writer timed out while finalizing '{filePath}'.");
+            LogAssert.Expect(LogType.Error, new Regex("timed out"));
 
             var stopwatch = Stopwatch.StartNew();
             writer.Complete(0.1d, 1);

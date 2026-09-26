@@ -122,11 +122,14 @@ namespace Hidano.FacialControl.Tests.PlayMode.Performance
 
             OscInputSource inputSource = _binding.InputSource;
             OscDoubleBuffer buffer = _binding.Buffer;
+            IReadOnlyList<OscMapping> mappings = _binding.RuntimeMappings;
             uint heartbeatHash = _binding.LastHeartbeatHash;
 
             Assert.That(inputSource, Is.Not.Null);
             Assert.That(registry.TryResolve(Slug, out IInputSource source), Is.True);
             Assert.That(source, Is.SameAs(inputSource));
+            Assert.That(heartbeatHash, Is.EqualTo(HeartbeatHashHelper.ComputeFnv1a(new[] { "smile", "frown" })),
+                "初回 heartbeat のハッシュは受信した名前列そのもののハッシュであるべき。");
 
             for (int i = 0; i < 16; i++)
             {
@@ -149,9 +152,14 @@ namespace Hidano.FacialControl.Tests.PlayMode.Performance
 
             long gcAllocBytes = recorder.LastValue;
 
+            // 同一 heartbeat（同じ timestamp key の bare メッセージ）を再送し続けても、
+            // ハッシュ・InputSource・runtime mapping は初回のまま不変であること（再構築なし）。
             Assert.That(_binding.InputSource, Is.SameAs(inputSource));
             Assert.That(_binding.Buffer, Is.SameAs(buffer));
-            Assert.That(_binding.LastHeartbeatHash, Is.EqualTo(heartbeatHash));
+            Assert.That(_binding.LastHeartbeatHash, Is.EqualTo(heartbeatHash),
+                "同一 heartbeat の再送でハッシュが変わってはならない。");
+            Assert.That(_binding.RuntimeMappings, Is.SameAs(mappings),
+                "同一 heartbeat の再送で runtime mapping が再構築されてはならない。");
             Assert.That(_binding.RuntimeMappings.Count, Is.EqualTo(2));
             Assert.That(gcAllocBytes, Is.EqualTo(0L),
                 "heartbeat hash unchanged OnFixedTick hot path reported GC.Alloc: " + gcAllocBytes + " bytes.");

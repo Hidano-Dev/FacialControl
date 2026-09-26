@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Text.RegularExpressions;
 using Hidano.FacialControl.Application.UseCases;
 using Hidano.FacialControl.Domain.Adapters;
 using Hidano.FacialControl.Domain.Interfaces;
@@ -43,7 +44,7 @@ namespace Hidano.FacialControl.Rec.Tests.EditMode
             var useCase = new PlaybackUseCase(triggerPort, analogPort);
             useCase.Load(CreateTimelineWithMissingExpression(), CreateProfileWithoutMissingExpression());
 
-            LogAssert.Expect(LogType.Warning, "Playback skipped missing expressionId 'missing'.");
+            LogAssert.Expect(LogType.Warning, new Regex("'missing'"));
 
             bool started = useCase.StartPlayback();
 
@@ -66,7 +67,7 @@ namespace Hidano.FacialControl.Rec.Tests.EditMode
             useCase.Load(CreateSimpleTimeline(), CreateFullProfile());
             useCase.StartPlayback();
 
-            LogAssert.Expect(LogType.Warning, "Playback is already active. StartPlayback was ignored.");
+            LogAssert.Expect(LogType.Warning, new Regex("StartPlayback"));
 
             bool started = useCase.StartPlayback();
 

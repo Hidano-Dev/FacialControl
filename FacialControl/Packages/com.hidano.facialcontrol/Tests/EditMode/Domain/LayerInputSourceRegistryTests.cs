@@ -444,7 +444,7 @@ namespace Hidano.FacialControl.Tests.EditMode.Domain
             using var registry = new LayerInputSourceRegistry(profile, blendShapeCount: 4, bindings);
 
             LogAssert.Expect(LogType.Warning,
-                new Regex("LayerInputSourceRegistry.*TryAddSource.*osc.*既に登録"));
+                new Regex("LayerInputSourceRegistry.*TryAddSource.*osc"));
 
             var dup = new FakeInputSource("osc", InputSourceType.ValueProvider, 4);
             Assert.IsFalse(registry.TryAddSource(0, dup),
@@ -527,7 +527,7 @@ namespace Hidano.FacialControl.Tests.EditMode.Domain
             using var registry = new LayerInputSourceRegistry(profile, blendShapeCount: 4, bindings);
 
             LogAssert.Expect(LogType.Warning,
-                new Regex("LayerInputSourceRegistry.*TryRemoveSource.*x-missing.*見つかりません"));
+                new Regex("LayerInputSourceRegistry.*TryRemoveSource.*x-missing"));
 
             Assert.IsFalse(registry.TryRemoveSource(0, InputSourceId.Parse("x-missing")),
                 "存在しない id の削除は false を返すこと");

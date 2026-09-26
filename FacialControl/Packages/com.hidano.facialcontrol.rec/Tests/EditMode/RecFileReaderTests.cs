@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Text.RegularExpressions;
 using Hidano.FacialControl.Rec.Adapters.FileSystem;
 using Hidano.FacialControl.Rec.Domain.Models;
 using Hidano.FacialControl.Rec.Domain.Services;
@@ -57,7 +58,7 @@ namespace Hidano.FacialControl.Rec.Tests.EditMode
             Array.Resize(ref bytes, bytes.Length - 2);
             string filePath = WriteRecordingFile(bytes);
 
-            LogAssert.Expect(LogType.Warning, $"REC load recovered a truncated tail for '{filePath}'.");
+            LogAssert.Expect(LogType.Warning, new Regex("truncated"));
 
             bool success = RecFileReader.TryRead(filePath, out RecBinaryFormat.ReadResult result);
 
@@ -73,7 +74,7 @@ namespace Hidano.FacialControl.Rec.Tests.EditMode
         {
             string filePath = Path.Combine(_tempDirectory, "missing.fcrec");
 
-            LogAssert.Expect(LogType.Error, $"REC load failed because file '{filePath}' did not exist.");
+            LogAssert.Expect(LogType.Error, new Regex("REC load failed"));
 
             bool success = RecFileReader.TryRead(filePath, out RecBinaryFormat.ReadResult result);
 
@@ -89,7 +90,7 @@ namespace Hidano.FacialControl.Rec.Tests.EditMode
             bytes[5] = 0;
             string filePath = WriteRecordingFile(bytes);
 
-            LogAssert.Expect(LogType.Error, $"REC load failed for '{filePath}': Unsupported REC format version 2. Expected 1.");
+            LogAssert.Expect(LogType.Error, new Regex("REC load failed.*version"));
 
             bool success = RecFileReader.TryRead(filePath, out RecBinaryFormat.ReadResult result);
 

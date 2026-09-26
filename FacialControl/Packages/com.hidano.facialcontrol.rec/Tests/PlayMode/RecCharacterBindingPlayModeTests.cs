@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Reflection;
+using System.Text.RegularExpressions;
 using Hidano.FacialControl.Adapters.InputSources;
 using Hidano.FacialControl.Adapters.Playable;
 using Hidano.FacialControl.Adapters.ScriptableObject.Serializable;
@@ -200,7 +201,7 @@ namespace Hidano.FacialControl.Rec.Tests.PlayMode
 
             LogAssert.Expect(
                 LogType.Warning,
-                "Playback skipped analog injection for sourceId 'input:occupied' because another injected source already occupies it.");
+                new Regex("analog.*'input:occupied'"));
 
             injector.BeginInjection(baseline);
             yield return null;
@@ -229,7 +230,7 @@ namespace Hidano.FacialControl.Rec.Tests.PlayMode
 
             LogAssert.Expect(
                 LogType.Warning,
-                "Playback skipped restoring analog source 'input:analog' because the current registry entry is no longer owned by this playback injector.");
+                new Regex("analog.*'input:analog'"));
 
             injectorA.EndInjection();
             yield return null;
@@ -313,6 +314,10 @@ namespace Hidano.FacialControl.Rec.Tests.PlayMode
                 });
         }
 
+        /// <summary>
+        /// FacialController の初期化済み状態を公開 API だけで再現する手段（CharacterSO からの実初期化を
+        /// 伴わない差し替え）が無いため、テスト準備としてのみ private フィールドを注入する。assert は公開 API の観測結果に限る。
+        /// </summary>
         private static void SetControllerPrivateField(FacialController controller, string fieldName, object value)
         {
             FieldInfo field = typeof(FacialController).GetField(fieldName, BindingFlags.Instance | BindingFlags.NonPublic);

@@ -1,5 +1,4 @@
 using System.Collections;
-using System.Reflection;
 using NUnit.Framework;
 using UnityEngine;
 using UnityEngine.TestTools;
@@ -148,45 +147,6 @@ namespace Hidano.FacialControl.Tests.PlayMode.Integration
             controller.Activate(profile.Expressions.Span[0]);
 
             yield return null;
-
-            var renderers = _gameObject.GetComponentsInChildren<SkinnedMeshRenderer>();
-            Assert.That(renderers, Has.Length.EqualTo(2));
-            Assert.That(renderers[0].GetBlendShapeWeight(0), Is.GreaterThan(0f));
-            Assert.That(renderers[1].GetBlendShapeWeight(0), Is.EqualTo(renderers[0].GetBlendShapeWeight(0)).Within(0.0001f));
-        }
-
-        [UnityTest]
-        public IEnumerator MultipleRenderers_ActivateOneFrame_OutputMatchesWithoutGraphBindings()
-        {
-            _gameObject = new GameObject("DeadGraphRemovalTest");
-            _gameObject.AddComponent<Animator>();
-
-            CreateRendererWithBlendShapeMesh(_gameObject.transform, "Face", "smile");
-            CreateRendererWithBlendShapeMesh(_gameObject.transform, "Teeth", "smile");
-
-            var controller = _gameObject.AddComponent<FacialController>();
-            var profile = CreateProfileWithExpressions();
-            controller.InitializeWithProfile(profile);
-            controller.Activate(profile.Expressions.Span[0]);
-
-            yield return null;
-
-            var controllerType = typeof(FacialController);
-            Assert.That(
-                controllerType.GetField("_graphBuildResult", BindingFlags.Instance | BindingFlags.NonPublic),
-                Is.Null);
-            Assert.That(
-                controllerType.GetMethod("ApplyExpressionToPlayable", BindingFlags.Instance | BindingFlags.NonPublic),
-                Is.Null);
-            Assert.That(
-                controllerType.GetMethod("RemoveExpressionFromPlayable", BindingFlags.Instance | BindingFlags.NonPublic),
-                Is.Null);
-            Assert.That(
-                controllerType.GetMethod("ExpandBlendShapeValues", BindingFlags.Instance | BindingFlags.NonPublic),
-                Is.Null);
-            Assert.That(
-                controllerType.GetMethod("FindBlendShapeIndex", BindingFlags.Instance | BindingFlags.NonPublic),
-                Is.Null);
 
             var renderers = _gameObject.GetComponentsInChildren<SkinnedMeshRenderer>();
             Assert.That(renderers, Has.Length.EqualTo(2));

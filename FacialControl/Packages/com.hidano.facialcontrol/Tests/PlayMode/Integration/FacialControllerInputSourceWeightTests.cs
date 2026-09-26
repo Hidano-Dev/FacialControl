@@ -1,7 +1,6 @@
 using System;
 using System.Collections;
 using System.Collections.Generic;
-using System.Reflection;
 using System.Threading.Tasks;
 using NUnit.Framework;
 using UnityEngine;
@@ -29,6 +28,7 @@ namespace Hidano.FacialControl.Tests.PlayMode.Integration
     public class FacialControllerInputSourceWeightTests
     {
         private GameObject _gameObject;
+        private Mesh _mesh;
 
         [TearDown]
         public void TearDown()
@@ -37,6 +37,12 @@ namespace Hidano.FacialControl.Tests.PlayMode.Integration
             {
                 UnityEngine.Object.DestroyImmediate(_gameObject);
                 _gameObject = null;
+            }
+
+            if (_mesh != null)
+            {
+                UnityEngine.Object.DestroyImmediate(_mesh);
+                _mesh = null;
             }
         }
 
@@ -151,40 +157,20 @@ namespace Hidano.FacialControl.Tests.PlayMode.Integration
         }
 
         // ================================================================
-        // FacialController 経由 API の forwarding と未初期化時の振る舞い
+        // FacialController 経由 API の forwarding（最終 BlendShape 出力で観測）
+        //
+        // 1 BlendShape ("bs_a") を持つ renderer と、常に 1.0 を書き込む mock source を
+        // 宣言 weight=0 で layer に登録する。weight を変更すると次フレームの LateUpdate
+        // （Aggregate → 出力ライター）で renderer の BlendShape weight (0..100) に反映される。
         // ================================================================
 
-        [Test]
-        public void FacialController_SetInputSourceWeight_BeforeInitialization_LogsWarning()
-        {
-            _gameObject = CreateGameObjectWithAnimator();
-            var controller = _gameObject.AddComponent<FacialController>();
-
-            LogAssert.Expect(LogType.Warning,
-                "FacialController が初期化されていません。SetInputSourceWeight は無視されます。");
-            controller.SetInputSourceWeight(0, 1, 0.5f);
-        }
-
-        [Test]
-        public void FacialController_BeginInputSourceWeightBatch_BeforeInitialization_LogsWarning()
-        {
-            _gameObject = CreateGameObjectWithAnimator();
-            var controller = _gameObject.AddComponent<FacialController>();
-
-            LogAssert.Expect(LogType.Warning,
-                "FacialController が初期化されていません。BeginInputSourceWeightBatch は no-op スコープを返します。");
-            using (controller.BeginInputSourceWeightBatch())
-            {
-                // no-op スコープ: SetWeight しても何も起きない、Dispose も安全に呼べる。
-            }
-        }
-
         [UnityTest]
-        public IEnumerator FacialController_SetInputSourceWeight_FromBackgroundThread_ForwardsToWeightBuffer()
+        public IEnumerator FacialController_SetInputSourceWeight_FromBackgroundThread_ReflectedInRendererWeight()
         {
-            _gameObject = CreateGameObjectWithAnimatorAndRenderer();
+            _gameObject = CreateGameObjectWithAnimatorAndBlendShapeRenderer("bs_a");
+            var renderer = _gameObject.GetComponentInChildren<SkinnedMeshRenderer>();
             var controller = _gameObject.AddComponent<FacialController>();
-            var so = CreateSOWithBindingDeclaration("mock");
+            var so = CreateSOWithBindingDeclaration("mock", declaredWeight: 0f);
             controller.CharacterSO = so;
             controller.Initialize();
 
@@ -192,6 +178,8 @@ namespace Hidano.FacialControl.Tests.PlayMode.Integration
             {
                 yield return null;
                 Assert.IsTrue(controller.IsInitialized);
+                Assert.AreEqual(0f, renderer.GetBlendShapeWeight(0), 1e-3f,
+                    "前提: 宣言 weight=0 のため mock source の寄与は BlendShape 出力に出ないこと。");
 
                 int mainThreadId = System.Threading.Thread.CurrentThread.ManagedThreadId;
                 int? backgroundThreadId = null;
@@ -201,23 +189,14 @@ namespace Hidano.FacialControl.Tests.PlayMode.Integration
                     controller.SetInputSourceWeight(0, sourceIdx: 1, weight: 0.42f);
                 });
                 task.Wait();
-                Assert.AreNotEqual(mainThreadId, backgroundThreadId.Value);
+                Assert.IsNotNull(backgroundThreadId);
+                Assert.AreNotEqual(mainThreadId, backgroundThreadId.Value,
+                    "前提: SetInputSourceWeight は実際にメインスレッド外で呼ばれていること。");
 
                 yield return null;
 
-                // FacialController は内部で LayerUseCase → WeightBuffer に委譲する。
-                // テスト用レンダラーは BlendShape を持たないため bsCount=0 となり
-                // LayerUseCase.UpdateWeights は早期 return する。そのため WeightBuffer.SwapIfDirty を
-                // 直接発火し、次 Aggregate と同じ契約（Volatile 観測）で readBuffer に反映される
-                // ことを検証する。
-                var layerUseCase = GetPrivateField<LayerUseCase>(controller, "_layerUseCase");
-                Assert.IsNotNull(layerUseCase);
-                var weightBuffer = GetPrivateField<LayerInputSourceWeightBuffer>(layerUseCase, "_weightBuffer");
-                Assert.IsNotNull(weightBuffer);
-
-                weightBuffer.SwapIfDirty();
-                Assert.AreEqual(0.42f, weightBuffer.GetWeight(0, 1), 1e-4f,
-                    "FacialController.SetInputSourceWeight の forwarding が次 SwapIfDirty で観測されること。");
+                Assert.AreEqual(42f, renderer.GetBlendShapeWeight(0), 1e-2f,
+                    "FacialController.SetInputSourceWeight が次フレームの BlendShape 出力 (1.0 * 0.42 → 42) に反映されること。");
             }
             finally
             {
@@ -226,11 +205,12 @@ namespace Hidano.FacialControl.Tests.PlayMode.Integration
         }
 
         [UnityTest]
-        public IEnumerator FacialController_BeginInputSourceWeightBatch_AfterInit_ForwardsBulkScope()
+        public IEnumerator FacialController_BeginInputSourceWeightBatch_AfterInit_ReflectedInRendererWeight()
         {
-            _gameObject = CreateGameObjectWithAnimatorAndRenderer();
+            _gameObject = CreateGameObjectWithAnimatorAndBlendShapeRenderer("bs_a");
+            var renderer = _gameObject.GetComponentInChildren<SkinnedMeshRenderer>();
             var controller = _gameObject.AddComponent<FacialController>();
-            var so = CreateSOWithBindingDeclaration("mock");
+            var so = CreateSOWithBindingDeclaration("mock", declaredWeight: 0f);
             controller.CharacterSO = so;
             controller.Initialize();
 
@@ -238,17 +218,18 @@ namespace Hidano.FacialControl.Tests.PlayMode.Integration
             {
                 yield return null;
                 Assert.IsTrue(controller.IsInitialized);
+                Assert.AreEqual(0f, renderer.GetBlendShapeWeight(0), 1e-3f,
+                    "前提: 宣言 weight=0 のため mock source の寄与は BlendShape 出力に出ないこと。");
 
                 using (var batch = controller.BeginInputSourceWeightBatch())
                 {
                     batch.SetWeight(0, 1, 0.55f);
                 }
 
-                var layerUseCase = GetPrivateField<LayerUseCase>(controller, "_layerUseCase");
-                var weightBuffer = GetPrivateField<LayerInputSourceWeightBuffer>(layerUseCase, "_weightBuffer");
-                weightBuffer.SwapIfDirty();
-                Assert.AreEqual(0.55f, weightBuffer.GetWeight(0, 1), 1e-4f,
-                    "FacialController.BeginInputSourceWeightBatch の BulkScope 経由書込が反映されること。");
+                yield return null;
+
+                Assert.AreEqual(55f, renderer.GetBlendShapeWeight(0), 1e-2f,
+                    "FacialController.BeginInputSourceWeightBatch 経由の書込が次フレームの BlendShape 出力 (1.0 * 0.55 → 55) に反映されること。");
             }
             finally
             {
@@ -306,15 +287,18 @@ namespace Hidano.FacialControl.Tests.PlayMode.Integration
 
         /// <summary>
         /// 単一 layer + Mock binding 1 個（slug = <paramref name="slug"/>）の <see cref="FacialCharacterProfileSO"/>
-        /// を構築する。layer.inputSources[0] には slug をそのまま id として宣言し、
-        /// FacialController が child scope の <see cref="IInputSourceRegistry"/> 経由で sourceIdx=1 として登録するようにする。
+        /// を構築する。layer.inputSources[0] には slug をそのまま id として宣言 weight
+        /// <paramref name="declaredWeight"/> で宣言し、FacialController が child scope の
+        /// <see cref="IInputSourceRegistry"/> 経由で sourceIdx=1 として登録するようにする。
+        /// mock source は全 BlendShape に 1.0 を書き込むため、出力値 = 宣言/ランタイム weight となる。
         /// </summary>
-        private static MockBindingProfileSO CreateSOWithBindingDeclaration(string slug)
+        private static MockBindingProfileSO CreateSOWithBindingDeclaration(string slug, float declaredWeight)
         {
             var so = ScriptableObject.CreateInstance<MockBindingProfileSO>();
             so.LayerName = "emotion";
             so.LayerInputSourceId = slug;
-            so.WritableAdapterBindings.Add(new ZeroValueAdapterBinding(slug, blendShapeCount: 0)
+            so.LayerInputSourceWeight = declaredWeight;
+            so.WritableAdapterBindings.Add(new ConstantValueAdapterBinding(slug, blendShapeCount: 1, value: 1.0f)
             {
                 Slug = slug
             });
@@ -328,6 +312,7 @@ namespace Hidano.FacialControl.Tests.PlayMode.Integration
         {
             public string LayerName = "emotion";
             public string LayerInputSourceId;
+            public float LayerInputSourceWeight = 1.0f;
 
             public List<AdapterBindingBase> WritableAdapterBindings => _adapterBindings;
 
@@ -341,7 +326,7 @@ namespace Hidano.FacialControl.Tests.PlayMode.Integration
                 {
                     new InputSourceDeclaration[]
                     {
-                        new InputSourceDeclaration(LayerInputSourceId, 1.0f, null)
+                        new InputSourceDeclaration(LayerInputSourceId, LayerInputSourceWeight, null)
                     }
                 };
                 return new FacialProfile("2.0", layers, null, null, layerInputSources);
@@ -349,66 +334,66 @@ namespace Hidano.FacialControl.Tests.PlayMode.Integration
         }
 
         /// <summary>
-        /// <see cref="OnStart"/> で slug を primary id として <see cref="ZeroValueInputSource"/> を
-        /// <see cref="IInputSourceRegistry"/> に登録する Mock binding。本テストでは
-        /// 入力値そのものは観測対象外で、sourceIdx=1 が確保されることのみを目的とする。
+        /// <see cref="OnStart"/> で slug を primary id として <see cref="ConstantValueInputSource"/> を
+        /// <see cref="IInputSourceRegistry"/> に登録する Mock binding。
         /// </summary>
         [Serializable]
-        public sealed class ZeroValueAdapterBinding : AdapterBindingBase
+        public sealed class ConstantValueAdapterBinding : AdapterBindingBase
         {
             [NonSerialized] private readonly string _id;
             [NonSerialized] private readonly int _blendShapeCount;
+            [NonSerialized] private readonly float _value;
 
-            public ZeroValueAdapterBinding(string id, int blendShapeCount)
+            public ConstantValueAdapterBinding(string id, int blendShapeCount, float value)
             {
                 _id = id;
                 _blendShapeCount = blendShapeCount;
+                _value = value;
             }
 
             public override void OnStart(in AdapterBuildContext ctx)
             {
                 var slug = AdapterSlug.Parse(Slug);
                 ctx.InputSourceRegistry.Register(
-                    slug, new ZeroValueInputSource(_id, _blendShapeCount));
+                    slug, new ConstantValueInputSource(_id, _blendShapeCount, _value));
             }
         }
 
-        private sealed class ZeroValueInputSource : ValueProviderInputSourceBase
+        /// <summary>全 BlendShape index に固定値を書き込む値提供型フェイク。</summary>
+        private sealed class ConstantValueInputSource : ValueProviderInputSourceBase
         {
-            public ZeroValueInputSource(string id, int blendShapeCount)
+            private readonly float _value;
+
+            public ConstantValueInputSource(string id, int blendShapeCount, float value)
                 : base(InputSourceId.Parse(id), blendShapeCount)
             {
+                _value = value;
             }
 
             public override bool TryWriteValues(Span<float> output)
             {
+                for (int i = 0; i < output.Length; i++)
+                {
+                    output[i] = _value;
+                }
                 return true;
             }
         }
 
-        private static GameObject CreateGameObjectWithAnimator()
-        {
-            var go = new GameObject("FacialControllerInputSourceWeightTest");
-            go.AddComponent<Animator>();
-            return go;
-        }
-
-        private static GameObject CreateGameObjectWithAnimatorAndRenderer()
+        private GameObject CreateGameObjectWithAnimatorAndBlendShapeRenderer(string blendShapeName)
         {
             var go = new GameObject("FacialControllerInputSourceWeightTest");
             go.AddComponent<Animator>();
             var childObj = new GameObject("Mesh");
             childObj.transform.SetParent(go.transform);
-            childObj.AddComponent<SkinnedMeshRenderer>();
-            return go;
-        }
+            var renderer = childObj.AddComponent<SkinnedMeshRenderer>();
 
-        private static T GetPrivateField<T>(object target, string fieldName) where T : class
-        {
-            var field = target.GetType().GetField(
-                fieldName,
-                BindingFlags.Instance | BindingFlags.NonPublic);
-            return field?.GetValue(target) as T;
+            _mesh = new Mesh();
+            _mesh.vertices = new[] { Vector3.zero, Vector3.right, Vector3.up };
+            _mesh.triangles = new[] { 0, 1, 2 };
+            _mesh.AddBlendShapeFrame(blendShapeName, 100f, new Vector3[3], null, null);
+            renderer.sharedMesh = _mesh;
+            return go;
         }
     }
 }

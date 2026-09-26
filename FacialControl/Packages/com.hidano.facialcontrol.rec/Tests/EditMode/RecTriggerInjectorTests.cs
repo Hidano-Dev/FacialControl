@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Text.RegularExpressions;
 using Hidano.FacialControl.Domain.Models;
 using Hidano.FacialControl.Domain.Services;
 using Hidano.FacialControl.Rec.Adapters.Playback;
@@ -71,7 +72,7 @@ namespace Hidano.FacialControl.Rec.Tests.EditMode
                 },
                 null);
 
-            LogAssert.Expect(LogType.Warning, "Playback skipped trigger injection because sourceId 'missing:trigger' could not be resolved.");
+            LogAssert.Expect(LogType.Warning, new Regex("trigger.*'missing:trigger'"));
 
             injector.BeginInjection(baseline);
 
@@ -170,19 +171,6 @@ namespace Hidano.FacialControl.Rec.Tests.EditMode
             injector.EndInjection();
 
             Assert.That(source.IsTriggerInputSuspended, Is.False);
-        }
-
-        [Test]
-        public void InjectTriggerEvents_WhenSourceMissing_LogsDistinctWarningAndSkips()
-        {
-            var injector = CreateInjector(
-                _ => null,
-                () => Array.Empty<TestTriggerSource>());
-
-            LogAssert.Expect(LogType.Warning, "Playback skipped trigger injection because sourceId 'missing:trigger' could not be resolved.");
-
-            injector.InjectTriggerOn("missing:trigger", "smile");
-            injector.InjectTriggerOff("missing:trigger", "smile");
         }
 
         private static RecTriggerInjector CreateInjector(

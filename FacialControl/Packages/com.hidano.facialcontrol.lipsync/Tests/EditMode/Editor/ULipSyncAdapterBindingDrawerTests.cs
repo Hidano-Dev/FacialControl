@@ -1,6 +1,5 @@
 using System;
 using System.Reflection;
-using Hidano.FacialControl.Editor.Inspector.AdapterBindings;
 using Hidano.FacialControl.LipSync.Adapters;
 using Hidano.FacialControl.LipSync.Adapters.Devices;
 using Hidano.FacialControl.LipSync.Adapters.PhonemeEntries;
@@ -8,12 +7,17 @@ using Hidano.FacialControl.LipSync.Editor.Inspector;
 using Hidano.FacialControl.LipSync.Tests.Shared;
 using NUnit.Framework;
 using UnityEditor;
-using UnityEditor.UIElements;
 using UnityEngine;
 using UnityEngine.UIElements;
 
 namespace Hidano.FacialControl.LipSync.Tests.EditMode.Editor
 {
+    /// <summary>
+    /// <see cref="ULipSyncAdapterBindingDrawer"/> の smoke テスト。
+    /// 「CreatePropertyGUI が例外なく生成できる」「PhonemeEntry 追加がアセット保存まで往復する」
+    /// 「デバイス選択が <see cref="LipSyncDeviceStore"/> と往復する（デバイス未選択でリップシンクが
+    /// 全滅する実機症状の入口）」だけを守る。
+    /// </summary>
     public class ULipSyncAdapterBindingDrawerTests
     {
         private const string TempFolderParent = "Assets";
@@ -77,43 +81,100 @@ namespace Hidano.FacialControl.LipSync.Tests.EditMode.Editor
             PlayerPrefs.DeleteKey(LipSyncDeviceStore.KeyDisambiguator);
         }
 
-        [Test]
-        public void CreatePropertyGUI_BindingProperty_RendersIntegratedSections()
-        {
-            VisualElement root = CreateDrawerRoot();
+        // ====================================================================
+        // smoke 1: 生成できる
+        // ====================================================================
 
-            Assert.That(root.ClassListContains(ULipSyncAdapterBindingDrawer.RootClassName), Is.True);
-            Assert.That(
-                root.Q<AdapterBindingSlugField>(ULipSyncAdapterBindingDrawer.SlugPropertyFieldName),
-                Is.Not.Null);
-            Assert.That(root.Q<DeviceDescriptorPopup>(), Is.Not.Null);
-            Assert.That(
-                root.Q<HelpBox>(ULipSyncAdapterBindingDrawer.DeviceDescriptorHelpBoxName),
-                Is.Not.Null);
-            Assert.That(
-                root.Q<ObjectField>(ULipSyncAdapterBindingDrawer.AnalyzerProfileObjectFieldName),
-                Is.Not.Null);
+        [Test]
+        public void CreatePropertyGUI_BindingProperty_ReturnsRootWithoutThrowing()
+        {
+            VisualElement root = null;
+            Assert.DoesNotThrow(() => root = CreateDrawerRoot());
+
+            Assert.That(root, Is.Not.Null);
             Assert.That(root.Q<PhonemeEntryListView>(), Is.Not.Null);
-            Assert.That(
-                root.Q<FloatField>(ULipSyncAdapterBindingDrawer.MaxWeightScaleFieldName),
-                Is.Not.Null);
+            Assert.That(root.Q<DeviceDescriptorPopup>(), Is.Not.Null);
+        }
+
+        // ====================================================================
+        // smoke 2: 保存が通る（PhonemeEntry 追加 → アセット往復）
+        // ====================================================================
+
+        [Test]
+        public void AddPhonemeEntry_SaveAndReload_RoundTripsSerializedValues()
+        {
+            VisualElement root = CreateDrawerRoot();
+            var phonemeEntries = root.Q<PhonemeEntryListView>();
+
+            phonemeEntries.AddEntry(PhonemeEntryListView.EntryKind.BlendShape);
+
+            _serializedObject.Update();
+            SerializedProperty entries = _bindingProperty.FindPropertyRelative("_phonemeEntries");
+            Assert.That(entries.arraySize, Is.EqualTo(1));
+            Assert.That(entries.GetArrayElementAtIndex(0).managedReferenceValue,
+                Is.InstanceOf<BlendShapePhonemeEntry>());
+
+            AssetDatabase.CreateAsset(_asset, _assetPath);
+            AssetDatabase.SaveAssets();
+            Resources.UnloadAsset(_asset);
+            _asset = null;
+
+            var loaded = AssetDatabase.LoadAssetAtPath<ULipSyncAdapterBindingDrawerTestAsset>(_assetPath);
+            Assert.That(loaded, Is.Not.Null);
+
+            using (var serialized = new SerializedObject(loaded))
+            {
+                SerializedProperty loadedEntries = serialized
+                    .FindProperty(nameof(ULipSyncAdapterBindingDrawerTestAsset.Binding))
+                    .FindPropertyRelative("_phonemeEntries");
+
+                Assert.That(loadedEntries.arraySize, Is.EqualTo(1));
+                Assert.That(loadedEntries.GetArrayElementAtIndex(0).managedReferenceValue,
+                    Is.InstanceOf<BlendShapePhonemeEntry>());
+            }
+        }
+
+        // ====================================================================
+        // Inspector で binding を新規追加した直後のプリセット（ApplyInitialDefaults）
+        // ====================================================================
+
+        [Test]
+        public void ApplyInitialDefaults_EmptyEntries_SerializesFiveExpressionPhonemeEntriesInAiueoOrder()
+        {
+            ((ULipSyncAdapterBinding)_asset.Binding).ApplyInitialDefaults();
+
+            _serializedObject.Update();
+            SerializedProperty entries = _bindingProperty.FindPropertyRelative("_phonemeEntries");
+
+            Assert.That(entries.arraySize, Is.EqualTo(5));
+            string[] expectedIds = { "A", "I", "U", "E", "O" };
+            for (int i = 0; i < expectedIds.Length; i++)
+            {
+                object entry = entries.GetArrayElementAtIndex(i).managedReferenceValue;
+                Assert.That(entry, Is.InstanceOf<ExpressionPhonemeEntry>(), $"index {i}");
+                Assert.That(((PhonemeEntryBase)entry).PhonemeId, Is.EqualTo(expectedIds[i]), $"index {i}");
+            }
         }
 
         [Test]
-        public void AnalyzerProfile_Null_ShowsPackagedDefaultPlaceholder()
+        public void ApplyInitialDefaults_ExistingEntries_KeepsExistingEntriesUnchanged()
         {
             VisualElement root = CreateDrawerRoot();
+            root.Q<PhonemeEntryListView>().AddEntry(PhonemeEntryListView.EntryKind.BlendShape);
+            _serializedObject.Update();
 
-            var placeholder = root.Q<HelpBox>(
-                ULipSyncAdapterBindingDrawer.DefaultAnalyzerProfilePlaceholderName);
-            Assert.That(placeholder, Is.Not.Null);
-            Assert.That(placeholder.text, Does.Contain("パッケージ同梱既定"));
-            Assert.That(placeholder.style.display.value, Is.EqualTo(DisplayStyle.Flex));
+            ((ULipSyncAdapterBinding)_asset.Binding).ApplyInitialDefaults();
 
-            Assert.That(
-                root.Q<ObjectField>(ULipSyncAdapterBindingDrawer.AnalyzerProfileObjectFieldName).objectType,
-                Is.EqualTo(typeof(uLipSync.Profile)));
+            _serializedObject.Update();
+            SerializedProperty entries = _bindingProperty.FindPropertyRelative("_phonemeEntries");
+            Assert.That(entries.arraySize, Is.EqualTo(1));
+            Assert.That(entries.GetArrayElementAtIndex(0).managedReferenceValue,
+                Is.InstanceOf<BlendShapePhonemeEntry>());
         }
+
+        // ====================================================================
+        // デバイス選択と LipSyncDeviceStore の往復
+        // ====================================================================
 
         [Test]
         public void DeviceDescriptorPopup_InitialState_LoadsFromDeviceStore()
@@ -130,32 +191,10 @@ namespace Hidano.FacialControl.LipSync.Tests.EditMode.Editor
         }
 
         [Test]
-        public void DeviceDescriptorPopup_DeviceNameMissing_ShowsHelpBox()
-        {
-            VisualElement root = CreateDrawerRoot();
-
-            var helpBox = root.Q<HelpBox>(ULipSyncAdapterBindingDrawer.DeviceDescriptorHelpBoxName);
-
-            Assert.That(helpBox, Is.Not.Null);
-            Assert.That(helpBox.style.display.value, Is.EqualTo(DisplayStyle.Flex));
-        }
-
-        [Test]
-        public void DeviceDescriptorPopup_DeviceNamePresent_HidesHelpBox()
-        {
-            _backend.SetString(LipSyncDeviceStore.KeyName, "Active Mic");
-
-            VisualElement root = CreateDrawerRoot();
-
-            var helpBox = root.Q<HelpBox>(ULipSyncAdapterBindingDrawer.DeviceDescriptorHelpBoxName);
-
-            Assert.That(helpBox, Is.Not.Null);
-            Assert.That(helpBox.style.display.value, Is.EqualTo(DisplayStyle.None));
-        }
-
-        [Test]
         public void DeviceDescriptorPopup_ManualOverrideChanged_PersistsToDeviceStore()
         {
+            // panel 未接続では TextField の value 代入で ChangeEvent が発火しないため、
+            // 変更ハンドラを直接呼び出して DeviceStore への到達を確認する。
             VisualElement root = CreateDrawerRoot();
             var popup = root.Q<DeviceDescriptorPopup>();
 
@@ -164,67 +203,6 @@ namespace Hidano.FacialControl.LipSync.Tests.EditMode.Editor
             Assert.That(_backend.GetString(LipSyncDeviceStore.KeyName, string.Empty),
                 Is.EqualTo("Disconnected Mic"));
             Assert.That(_backend.SaveCallCount, Is.GreaterThanOrEqualTo(1));
-        }
-
-        [Test]
-        public void DeviceDescriptorPopup_DisambiguatorIndexChanged_PersistsToDeviceStore()
-        {
-            VisualElement root = CreateDrawerRoot();
-            var popup = root.Q<DeviceDescriptorPopup>();
-
-            InvokePrivate(popup, "ApplyDisambiguatorIndex", 5);
-
-            Assert.That(_backend.GetInt(LipSyncDeviceStore.KeyDisambiguator, 0), Is.EqualTo(5));
-            Assert.That(_backend.SaveCallCount, Is.GreaterThanOrEqualTo(1));
-        }
-
-        [Test]
-        public void EditedFields_ApplyModifiedProperties_RoundTripsSerializedValues()
-        {
-            VisualElement root = CreateDrawerRoot();
-
-            var phonemeEntries = root.Q<PhonemeEntryListView>();
-
-            InvokePrivateStatic(
-                typeof(ULipSyncAdapterBindingDrawer),
-                "SetFloat",
-                _bindingProperty,
-                "_maxWeightScale",
-                1.5f);
-            phonemeEntries.AddEntry(PhonemeEntryListView.EntryKind.BlendShape);
-
-            _serializedObject.Update();
-            SerializedProperty entries = _bindingProperty.FindPropertyRelative("_phonemeEntries");
-
-            Assert.That(
-                _bindingProperty.FindPropertyRelative("_maxWeightScale").floatValue,
-                Is.EqualTo(1.5f).Within(1e-6f));
-            Assert.That(entries.arraySize, Is.EqualTo(1));
-            Assert.That(entries.GetArrayElementAtIndex(0).managedReferenceValue,
-                Is.InstanceOf<BlendShapePhonemeEntry>());
-
-            AssetDatabase.CreateAsset(_asset, _assetPath);
-            AssetDatabase.SaveAssets();
-            Resources.UnloadAsset(_asset);
-            _asset = null;
-
-            var loaded = AssetDatabase.LoadAssetAtPath<ULipSyncAdapterBindingDrawerTestAsset>(_assetPath);
-            Assert.That(loaded, Is.Not.Null);
-
-            using (var serialized = new SerializedObject(loaded))
-            {
-                SerializedProperty loadedBinding =
-                    serialized.FindProperty(nameof(ULipSyncAdapterBindingDrawerTestAsset.Binding));
-                SerializedProperty loadedEntries =
-                    loadedBinding.FindPropertyRelative("_phonemeEntries");
-
-                Assert.That(
-                    loadedBinding.FindPropertyRelative("_maxWeightScale").floatValue,
-                    Is.EqualTo(1.5f).Within(1e-6f));
-                Assert.That(loadedEntries.arraySize, Is.EqualTo(1));
-                Assert.That(loadedEntries.GetArrayElementAtIndex(0).managedReferenceValue,
-                    Is.InstanceOf<BlendShapePhonemeEntry>());
-            }
         }
 
         private VisualElement CreateDrawerRoot()
@@ -246,18 +224,6 @@ namespace Hidano.FacialControl.LipSync.Tests.EditMode.Editor
                 BindingFlags.Instance | BindingFlags.NonPublic);
             Assert.That(method, Is.Not.Null);
             method.Invoke(popup, args);
-        }
-
-        private static void InvokePrivateStatic(
-            Type type,
-            string methodName,
-            params object[] args)
-        {
-            MethodInfo method = type.GetMethod(
-                methodName,
-                BindingFlags.Static | BindingFlags.NonPublic);
-            Assert.That(method, Is.Not.Null);
-            method.Invoke(null, args);
         }
     }
 }

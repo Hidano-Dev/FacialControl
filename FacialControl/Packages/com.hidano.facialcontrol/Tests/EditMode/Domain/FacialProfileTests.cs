@@ -4,6 +4,12 @@ using Hidano.FacialControl.Domain.Models;
 
 namespace Hidano.FacialControl.Tests.EditMode.Domain
 {
+    /// <summary>
+    /// <see cref="FacialProfile"/> の構築・バリデーション・防御的コピー・検索 API を検証する。
+    /// レイヤー参照のフォールバック、RendererPaths、
+    /// ベース表情 (<see cref="FacialProfile.BaseExpression"/>) の保持契約、
+    /// および Slots 宣言と overlay 参照の整合性検証 (<see cref="FacialProfile.ValidateSlotReferences"/>) を含む。
+    /// </summary>
     [TestFixture]
     public class FacialProfileTests
     {
@@ -19,12 +25,44 @@ namespace Hidano.FacialControl.Tests.EditMode.Domain
             };
         }
 
+        private static LayerDefinition[] CreateEmotionOnlyLayers()
+        {
+            return new[]
+            {
+                new LayerDefinition("emotion", 0, ExclusionMode.LastWins),
+            };
+        }
+
         private static Expression CreateExpression(
             string id = "expr-1",
             string name = "smile",
             string layer = "emotion")
         {
             return new Expression(id, name, layer);
+        }
+
+        private static Expression CreateExpressionWithOverlay(string slot)
+        {
+            return new Expression(
+                id: "smile",
+                name: "Smile",
+                layer: "emotion",
+                transitionDuration: Expression.DefaultTransitionDuration,
+                transitionCurve: default,
+                blendShapeValues: null,
+                overlays: new[]
+                {
+                    new OverlaySlotBinding(slot, suppress: false, snapshot: null),
+                });
+        }
+
+        private static void AssertInvalidReference(
+            InvalidSlotReference reference,
+            string slot,
+            string reason)
+        {
+            Assert.AreEqual(slot, reference.Slot);
+            Assert.AreEqual(reason, reference.Reason);
         }
 
         // --- 正常系: 構築 ---
@@ -455,6 +493,146 @@ namespace Hidano.FacialControl.Tests.EditMode.Domain
             Assert.AreEqual(3, profile.Layers.Length);
             Assert.AreEqual(1, profile.Expressions.Length);
             Assert.AreEqual(0, profile.RendererPaths.Length);
+        }
+
+        // --- BaseExpression ---
+        //
+        // ベース表情は「どのレイヤーも contribute しない BlendShape index に残す初期値」であり、
+        // JSON / SO からランタイム合成パイプラインへ運ぶ担体を Domain 層が持つ必要がある。
+
+        [Test]
+        public void Constructor_BaseExpressionSnapshots_ExposesBaseExpression()
+        {
+            var baseExpression = new[]
+            {
+                new BlendShapeSnapshot("Body", "Brow_Angry", 0.645f),
+                new BlendShapeSnapshot("Face", "Eye_Narrow", 0.2825f),
+            };
+
+            var profile = new FacialProfile(
+                "1.0",
+                CreateEmotionOnlyLayers(),
+                baseExpression: baseExpression);
+
+            Assert.That(profile.BaseExpression.Length, Is.EqualTo(2));
+            Assert.That(profile.BaseExpression.Span[0].Name, Is.EqualTo("Brow_Angry"));
+            Assert.That(profile.BaseExpression.Span[0].Value, Is.EqualTo(0.645f).Within(1e-6f));
+            Assert.That(profile.BaseExpression.Span[1].Name, Is.EqualTo("Eye_Narrow"));
+            Assert.That(profile.BaseExpression.Span[1].Value, Is.EqualTo(0.2825f).Within(1e-6f));
+        }
+
+        [Test]
+        public void Constructor_NullBaseExpression_ExposesEmptyBaseExpression()
+        {
+            var profile = new FacialProfile("1.0", CreateEmotionOnlyLayers());
+
+            Assert.That(profile.BaseExpression.Length, Is.EqualTo(0));
+        }
+
+        [Test]
+        public void Constructor_BaseExpression_CopiesDefensively()
+        {
+            var baseExpression = new[]
+            {
+                new BlendShapeSnapshot("Body", "Brow_Angry", 0.5f),
+            };
+
+            var profile = new FacialProfile(
+                "1.0",
+                CreateEmotionOnlyLayers(),
+                baseExpression: baseExpression);
+
+            // 呼出側の配列を書き換えてもプロファイル側は不変であること。
+            baseExpression[0] = new BlendShapeSnapshot("Body", "Mutated", 1f);
+
+            Assert.That(profile.BaseExpression.Span[0].Name, Is.EqualTo("Brow_Angry"));
+            Assert.That(profile.BaseExpression.Span[0].Value, Is.EqualTo(0.5f).Within(1e-6f));
+        }
+
+        [Test]
+        public void Constructor_EmptyBaseExpression_ExposesEmptyBaseExpression()
+        {
+            var profile = new FacialProfile(
+                "1.0",
+                CreateEmotionOnlyLayers(),
+                baseExpression: Array.Empty<BlendShapeSnapshot>());
+
+            Assert.That(profile.BaseExpression.Length, Is.EqualTo(0));
+        }
+
+        // --- Slots ---
+
+        [Test]
+        public void Constructor_NullSlots_InitializesEmptySlots()
+        {
+            var profile = new FacialProfile("1.0", slots: null);
+
+            Assert.AreEqual(0, profile.Slots.Length);
+        }
+
+        [Test]
+        public void ValidateSlotReferences_DuplicateSlots_ReturnsDuplicateReference()
+        {
+            var profile = new FacialProfile(
+                "1.0",
+                slots: new[] { "blink", "blink" });
+
+            var invalidRefs = profile.ValidateSlotReferences();
+
+            Assert.AreEqual(1, invalidRefs.Count);
+            AssertInvalidReference(
+                invalidRefs[0],
+                "blink",
+                InvalidSlotReference.DuplicateReason);
+        }
+
+        [Test]
+        public void ValidateSlotReferences_ExpressionOverlayUndeclaredSlot_ReturnsUndeclaredReference()
+        {
+            var expression = CreateExpressionWithOverlay("mouth");
+            var profile = new FacialProfile(
+                "1.0",
+                expressions: new[] { expression },
+                slots: new[] { "blink" });
+
+            var invalidRefs = profile.ValidateSlotReferences();
+
+            Assert.AreEqual(1, invalidRefs.Count);
+            AssertInvalidReference(
+                invalidRefs[0],
+                "mouth",
+                InvalidSlotReference.UndeclaredReason);
+        }
+
+        [Test]
+        public void ValidateSlotReferences_DefaultOverlayUndeclaredSlot_ReturnsUndeclaredReference()
+        {
+            var profile = new FacialProfile(
+                "1.0",
+                defaultOverlays: new[]
+                {
+                    new OverlaySlotBinding("mouth", suppress: false, snapshot: null),
+                },
+                slots: new[] { "blink" });
+
+            var invalidRefs = profile.ValidateSlotReferences();
+
+            Assert.AreEqual(1, invalidRefs.Count);
+            AssertInvalidReference(
+                invalidRefs[0],
+                "mouth",
+                InvalidSlotReference.UndeclaredReason);
+        }
+
+        [Test]
+        public void Slots_IsDefensiveCopy_OriginalArrayModificationDoesNotAffect()
+        {
+            var slots = new[] { "blink" };
+            var profile = new FacialProfile("1.0", slots: slots);
+
+            slots[0] = "mouth";
+
+            Assert.AreEqual("blink", profile.Slots.Span[0]);
         }
     }
 }

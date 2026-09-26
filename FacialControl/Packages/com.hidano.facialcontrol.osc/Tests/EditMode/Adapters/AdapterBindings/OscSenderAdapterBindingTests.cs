@@ -1,8 +1,6 @@
 using System;
-using System.Collections;
 using System.Collections.Generic;
 using System.Reflection;
-using System.Text;
 using System.Text.RegularExpressions;
 using Hidano.FacialControl.Adapters.AdapterBindings;
 using Hidano.FacialControl.Adapters.InputSources;
@@ -294,132 +292,11 @@ namespace Hidano.FacialControl.Tests.EditMode.Adapters.AdapterBindings
         }
 
         [Test]
-        public void OnStart_MixedPresetEndpoints_BuildsPresetAddressesAndReusesUtf8Cache()
-        {
-            var bus = new RecordingFacialOutputBus();
-            var binding = new OscSenderAdapterBinding { Slug = "osc-sender" };
-            binding.ConfigureEndpoints(new[]
-            {
-                new OscSenderEndpointConfig("127.0.0.1", AllocatePort(), preset: AddressPresetKind.VRChat),
-                new OscSenderEndpointConfig("127.0.0.1", AllocatePort(), preset: AddressPresetKind.ARKit),
-                new OscSenderEndpointConfig("127.0.0.1", AllocatePort(), preset: AddressPresetKind.ARKit)
-            });
-            var host = new GameObject("OscSenderAdapterBindingPresetAddressTests");
-
-            try
-            {
-                binding.OnStart(CreateContext(bus, host, new[] { "eyeBlinkLeft" }));
-
-                Assert.That(binding.IsStarted, Is.True);
-                Assert.That(binding.HelperSenderCount, Is.EqualTo(3));
-
-                string[] vrchatAddresses = GetPrivateField<string[]>(
-                    binding.GetHelperSender(0),
-                    "_oscAddresses");
-                string[] arkitAddresses = GetPrivateField<string[]>(
-                    binding.GetHelperSender(1),
-                    "_oscAddresses");
-                byte[][] vrchatBytes = GetPrivateField<byte[][]>(
-                    binding.GetHelperSender(0),
-                    "_oscAddressUtf8");
-                byte[][] firstArKitBytes = GetPrivateField<byte[][]>(
-                    binding.GetHelperSender(1),
-                    "_oscAddressUtf8");
-                byte[][] secondArKitBytes = GetPrivateField<byte[][]>(
-                    binding.GetHelperSender(2),
-                    "_oscAddressUtf8");
-
-                Assert.That(vrchatAddresses[0], Is.EqualTo("/avatar/parameters/eyeBlinkLeft"));
-                Assert.That(arkitAddresses[0], Is.EqualTo("/ARKit/eyeBlinkLeft"));
-                Assert.That(Encoding.UTF8.GetString(vrchatBytes[0]), Is.EqualTo(vrchatAddresses[0]));
-                Assert.That(Encoding.UTF8.GetString(firstArKitBytes[0]), Is.EqualTo(arkitAddresses[0]));
-                Assert.That(firstArKitBytes[0], Is.SameAs(secondArKitBytes[0]));
-                Assert.That(firstArKitBytes[0], Is.Not.SameAs(vrchatBytes[0]));
-            }
-            finally
-            {
-                binding.Dispose();
-                UnityEngine.Object.DestroyImmediate(host);
-            }
-        }
-
-        [Test]
-        public void OnStart_VRChatGazeExpressionIds_BuildsXAndYGazeAddresses()
-        {
-            var bus = new RecordingFacialOutputBus();
-            var binding = new OscSenderAdapterBinding { Slug = "osc-sender" };
-            binding.ConfigureEndpoints(new[]
-            {
-                new OscSenderEndpointConfig("127.0.0.1", AllocatePort(), preset: AddressPresetKind.VRChat)
-            });
-            binding.ConfigureGazeChannels(new[] { "eyeLook" });
-            var host = new GameObject("OscSenderAdapterBindingVrchatGazeAddressTests");
-
-            try
-            {
-                binding.OnStart(CreateContext(bus, host, new[] { "smile" }));
-
-                Assert.That(binding.IsStarted, Is.True);
-                string[] addresses = GetPrivateField<string[]>(
-                    binding.HelperSender,
-                    "_oscAddresses");
-
-                CollectionAssert.AreEqual(
-                    new[]
-                    {
-                        "/avatar/parameters/smile",
-                        "/avatar/parameters/eyeLookX",
-                        "/avatar/parameters/eyeLookY"
-                    },
-                    addresses);
-            }
-            finally
-            {
-                binding.Dispose();
-                UnityEngine.Object.DestroyImmediate(host);
-            }
-        }
-
-        [Test]
-        public void OnStart_GazeExpressionIds_PrebuildsPresetSpecificAdvertisementPairsPerSlot()
-        {
-            var bus = new RecordingFacialOutputBus();
-            var binding = new OscSenderAdapterBinding { Slug = "osc-sender" };
-            binding.ConfigureEndpoints(new[]
-            {
-                new OscSenderEndpointConfig("127.0.0.1", AllocatePort(), preset: AddressPresetKind.VRChat),
-                new OscSenderEndpointConfig("127.0.0.1", AllocatePort(), preset: AddressPresetKind.ARKit)
-            });
-            binding.ConfigureGazeChannels(new[] { "eyeLook", "brow" });
-            var host = new GameObject("OscSenderAdapterBindingGazeAdvertisementPairTests");
-
-            try
-            {
-                binding.OnStart(CreateContext(bus, host, new[] { "smile" }));
-
-                IList slots = GetPrivateField<IList>(binding, "_sendSlots");
-                object vrchatSlot = slots[0];
-                object arkitSlot = slots[1];
-                CollectionAssert.AreEqual(
-                    new[] { "eyeLook", "VRChat_XY", "brow", "VRChat_XY" },
-                    GetPrivateField<string[]>(vrchatSlot, "GazeAdvertisementPairs"));
-                CollectionAssert.AreEqual(
-                    new[] { "eyeLook", "ARKit_8BS", "brow", "ARKit_8BS" },
-                    GetPrivateField<string[]>(arkitSlot, "GazeAdvertisementPairs"));
-                Assert.That(GetPrivateField<int>(vrchatSlot, "GazeAdvertisementPairCount"), Is.EqualTo(2));
-            }
-            finally
-            {
-                binding.Dispose();
-                UnityEngine.Object.DestroyImmediate(host);
-            }
-        }
-
-        [Test]
         public void OnStart_CustomPresetWithGaze_SkipsGazeAndContinuesBinding()
         {
             var bus = new RecordingFacialOutputBus();
             var binding = new OscSenderAdapterBinding { Slug = "osc-sender" };
+            int vrchatPort = AllocatePort();
             binding.ConfigureEndpoints(new[]
             {
                 new OscSenderEndpointConfig(
@@ -428,7 +305,7 @@ namespace Hidano.FacialControl.Tests.EditMode.Adapters.AdapterBindings
                     preset: AddressPresetKind.Custom),
                 new OscSenderEndpointConfig(
                     "127.0.0.1",
-                    AllocatePort(),
+                    vrchatPort,
                     preset: AddressPresetKind.VRChat)
             });
             binding.BlendShapeNames.Add("smile");
@@ -444,149 +321,9 @@ namespace Hidano.FacialControl.Tests.EditMode.Adapters.AdapterBindings
 
                 Assert.That(binding.IsStarted, Is.True);
                 Assert.That(binding.HelperSenderCount, Is.EqualTo(1));
-                string[] addresses = GetPrivateField<string[]>(binding.HelperSender, "_oscAddresses");
-                CollectionAssert.AreEqual(
-                    new[]
-                    {
-                        "/avatar/parameters/smile",
-                        "/avatar/parameters/eyeLookX",
-                        "/avatar/parameters/eyeLookY"
-                    },
-                    addresses);
+                Assert.That(binding.HelperSender.Port, Is.EqualTo(vrchatPort),
+                    "Custom preset の endpoint は gaze 付きでは skip され、VRChat preset の endpoint だけが起動するべき。");
                 Assert.That(bus.Observer, Is.SameAs(binding));
-            }
-            finally
-            {
-                binding.Dispose();
-                UnityEngine.Object.DestroyImmediate(host);
-            }
-        }
-
-        [Test]
-        public void OnStart_ARKitGazeExpressionIds_BuildsPerfectSyncEyeLookAddresses()
-        {
-            var bus = new RecordingFacialOutputBus();
-            var binding = new OscSenderAdapterBinding { Slug = "osc-sender" };
-            binding.ConfigureEndpoints(new[]
-            {
-                new OscSenderEndpointConfig("127.0.0.1", AllocatePort(), preset: AddressPresetKind.ARKit)
-            });
-            binding.ConfigureGazeChannels(new[] { "eyeLook" });
-            var host = new GameObject("OscSenderAdapterBindingArKitGazeAddressTests");
-
-            try
-            {
-                binding.OnStart(CreateContext(bus, host, new[] { "smile" }));
-
-                Assert.That(binding.IsStarted, Is.True);
-                string[] addresses = GetPrivateField<string[]>(
-                    binding.HelperSender,
-                    "_oscAddresses");
-
-                Assert.That(addresses.Length, Is.EqualTo(1 + PerfectSyncEyeLook.Count));
-                Assert.That(addresses[0], Is.EqualTo("/ARKit/smile"));
-                for (int i = 0; i < PerfectSyncEyeLook.Count; i++)
-                {
-                    Assert.That(
-                        addresses[i + 1],
-                        Is.EqualTo(PerfectSyncEyeLook.ArKitAddressPrefix + PerfectSyncEyeLook.Names[i]));
-                }
-            }
-            finally
-            {
-                binding.Dispose();
-                UnityEngine.Object.DestroyImmediate(host);
-            }
-        }
-
-        [Test]
-        public void OnFacialOutputPublished_VRChatGazeSnapshot_WritesXAndYToScratchFrame()
-        {
-            var bus = new RecordingFacialOutputBus();
-            var binding = new OscSenderAdapterBinding { Slug = "osc-sender" };
-            binding.ConfigureEndpoints(new[]
-            {
-                new OscSenderEndpointConfig("127.0.0.1", AllocatePort(), preset: AddressPresetKind.VRChat)
-            });
-            binding.ConfigureGazeChannels(new[] { "eyeLook" });
-            var host = new GameObject("OscSenderAdapterBindingVrchatGazeScratchTests");
-
-            try
-            {
-                binding.OnStart(CreateContext(bus, host, new[] { "smile" }));
-
-                bus.Publish(
-                    new[] { 0.25f },
-                    new[]
-                    {
-                        new GazeSnapshot("eyeLook", -0.4f, 0.6f),
-                        new GazeSnapshot("ignored", 1f, 1f)
-                    });
-
-                IList slots = GetPrivateField<IList>(binding, "_sendSlots");
-                object slot = slots[0];
-                int count = GetPrivateField<int>(slot, "ScratchFloatCount");
-                byte[][] addresses = GetPrivateField<byte[][]>(slot, "ScratchAddressUtf8");
-                float[] values = GetPrivateField<float[]>(slot, "ScratchFloatValues");
-
-                Assert.That(count, Is.EqualTo(3));
-                Assert.That(Encoding.UTF8.GetString(addresses[0]), Is.EqualTo("/avatar/parameters/smile"));
-                Assert.That(Encoding.UTF8.GetString(addresses[1]), Is.EqualTo("/avatar/parameters/eyeLookX"));
-                Assert.That(Encoding.UTF8.GetString(addresses[2]), Is.EqualTo("/avatar/parameters/eyeLookY"));
-                Assert.That(values[0], Is.EqualTo(0.25f).Within(0.0001f));
-                Assert.That(values[1], Is.EqualTo(-0.4f).Within(0.0001f));
-                Assert.That(values[2], Is.EqualTo(0.6f).Within(0.0001f));
-            }
-            finally
-            {
-                binding.Dispose();
-                UnityEngine.Object.DestroyImmediate(host);
-            }
-        }
-
-        [Test]
-        public void OnFacialOutputPublished_ARKitGazeSnapshot_WritesPerfectSyncEyeLookToScratchFrame()
-        {
-            var bus = new RecordingFacialOutputBus();
-            var binding = new OscSenderAdapterBinding { Slug = "osc-sender" };
-            binding.ConfigureEndpoints(new[]
-            {
-                new OscSenderEndpointConfig("127.0.0.1", AllocatePort(), preset: AddressPresetKind.ARKit)
-            });
-            binding.ConfigureGazeChannels(new[] { "eyeLook" });
-            var host = new GameObject("OscSenderAdapterBindingArKitGazeScratchTests");
-
-            try
-            {
-                binding.OnStart(CreateContext(bus, host, new[] { "smile" }));
-
-                bus.Publish(
-                    new[] { 0.25f },
-                    new[]
-                    {
-                        new GazeSnapshot("eyeLook", -0.4f, 0.6f),
-                        new GazeSnapshot("ignored", 1f, 1f)
-                    });
-
-                IList slots = GetPrivateField<IList>(binding, "_sendSlots");
-                object slot = slots[0];
-                int count = GetPrivateField<int>(slot, "ScratchFloatCount");
-                byte[][] addresses = GetPrivateField<byte[][]>(slot, "ScratchAddressUtf8");
-                float[] values = GetPrivateField<float[]>(slot, "ScratchFloatValues");
-
-                Assert.That(count, Is.EqualTo(1 + PerfectSyncEyeLook.Count));
-                Assert.That(Encoding.UTF8.GetString(addresses[0]), Is.EqualTo("/ARKit/smile"));
-                Assert.That(values[0], Is.EqualTo(0.25f).Within(0.0001f));
-
-                var expected = new float[PerfectSyncEyeLook.Count];
-                PerfectSyncEyeLook.Compose(new Vector2(-0.4f, 0.6f), new Vector2(-0.4f, 0.6f), expected);
-                for (int i = 0; i < PerfectSyncEyeLook.Count; i++)
-                {
-                    Assert.That(
-                        Encoding.UTF8.GetString(addresses[i + 1]),
-                        Is.EqualTo(PerfectSyncEyeLook.ArKitAddressPrefix + PerfectSyncEyeLook.Names[i]));
-                    Assert.That(values[i + 1], Is.EqualTo(expected[i]).Within(0.0001f));
-                }
             }
             finally
             {
@@ -611,7 +348,7 @@ namespace Hidano.FacialControl.Tests.EditMode.Adapters.AdapterBindings
 
             LogAssert.Expect(
                 LogType.Warning,
-                $"[OscSenderAdapterBinding] Duplicate endpoint '127.0.0.1:{port}' was normalized to one send slot.");
+                new Regex(@"\[OscSenderAdapterBinding\] Duplicate endpoint '127\.0\.0\.1:" + port + "'"));
 
             try
             {
@@ -646,10 +383,10 @@ namespace Hidano.FacialControl.Tests.EditMode.Adapters.AdapterBindings
 
             LogAssert.Expect(
                 LogType.Warning,
-                $"[OscSenderAdapterBinding] Endpoint '127.0.0.1:{port}' matches an OSC receiver in the same child scope and was suppressed.");
+                new Regex(@"\[OscSenderAdapterBinding\] Endpoint '127\.0\.0\.1:" + port + "'.*suppressed"));
             LogAssert.Expect(
                 LogType.Warning,
-                "[OscSenderAdapterBinding] All endpoints were suppressed by loopback policy. OSC Sender remains live without sending.");
+                new Regex(@"\[OscSenderAdapterBinding\] All endpoints were suppressed"));
 
             try
             {
@@ -722,7 +459,7 @@ namespace Hidano.FacialControl.Tests.EditMode.Adapters.AdapterBindings
             });
             var host = new GameObject("OscSenderAdapterBindingNoEndpointTests");
 
-            LogAssert.Expect(LogType.Warning, "[OscSenderAdapterBinding] No enabled endpoints. OSC Sender will not start.");
+            LogAssert.Expect(LogType.Warning, new Regex(@"\[OscSenderAdapterBinding\] No enabled endpoints"));
 
             try
             {
@@ -747,7 +484,7 @@ namespace Hidano.FacialControl.Tests.EditMode.Adapters.AdapterBindings
             binding.Configure("127.0.0.1", AllocatePort());
             var host = new GameObject("OscSenderAdapterBindingInvalidSlugTests");
 
-            LogAssert.Expect(LogType.Warning, "[OscSenderAdapterBinding] Slug '' is invalid. OSC Sender will not start.");
+            LogAssert.Expect(LogType.Warning, new Regex(@"\[OscSenderAdapterBinding\] Slug '' is invalid"));
 
             try
             {
@@ -810,13 +547,6 @@ namespace Hidano.FacialControl.Tests.EditMode.Adapters.AdapterBindings
         private static int AllocatePort()
         {
             return PortBase + System.Threading.Interlocked.Increment(ref s_portCounter);
-        }
-
-        private static T GetPrivateField<T>(object target, string fieldName)
-        {
-            FieldInfo field = target.GetType().GetField(fieldName, BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public);
-            Assert.That(field, Is.Not.Null);
-            return (T)field.GetValue(target);
         }
 
         private sealed class RecordingFacialOutputBus : IFacialOutputBus

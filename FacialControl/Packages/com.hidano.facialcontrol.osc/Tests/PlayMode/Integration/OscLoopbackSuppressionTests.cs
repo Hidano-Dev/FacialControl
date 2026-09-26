@@ -1,6 +1,7 @@
 using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.Text.RegularExpressions;
 using Hidano.FacialControl.Adapters.AdapterBindings;
 using Hidano.FacialControl.Adapters.InputSources;
 using Hidano.FacialControl.Adapters.OSC;
@@ -67,10 +68,10 @@ namespace Hidano.FacialControl.Tests.PlayMode.Integration
 
             LogAssert.Expect(
                 LogType.Warning,
-                $"[OscSenderAdapterBinding] Endpoint '127.0.0.1:{port}' matches an OSC receiver in the same child scope and was suppressed.");
+                new Regex(@"\[OscSenderAdapterBinding\] Endpoint '127\.0\.0\.1:" + port + "'.*suppressed"));
             LogAssert.Expect(
                 LogType.Warning,
-                "[OscSenderAdapterBinding] All endpoints were suppressed by loopback policy. OSC Sender remains live without sending.");
+                new Regex(@"\[OscSenderAdapterBinding\] All endpoints were suppressed"));
 
             StartBinding(sender, CreateContext(registry, outputBus, host, sameScopeBindings));
 

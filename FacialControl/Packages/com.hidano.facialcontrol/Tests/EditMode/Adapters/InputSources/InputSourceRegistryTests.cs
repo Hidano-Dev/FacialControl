@@ -22,7 +22,7 @@ namespace Hidano.FacialControl.Tests.EditMode.Adapters.InputSources
             new Regex("InputSourceRegistry.*replaced", RegexOptions.IgnoreCase);
 
         private static readonly Regex ReentrantMutationLogPattern =
-            new Regex("InputSourceRegistry.*mutation during subscription notification", RegexOptions.IgnoreCase);
+            new Regex("InputSourceRegistry.*mutation", RegexOptions.IgnoreCase);
 
         private class StubInputSource : IInputSource
         {

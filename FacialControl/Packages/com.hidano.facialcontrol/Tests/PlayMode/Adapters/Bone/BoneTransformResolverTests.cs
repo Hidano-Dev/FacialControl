@@ -233,23 +233,6 @@ namespace Hidano.FacialControl.Tests.PlayMode.Adapters.Bone
             Assert.IsNotNull(resolver.Resolve("Head"));
         }
 
-        [Test]
-        public void Prime_DedupesRepeatedWarningForSameMissingBone()
-        {
-            // 同名 missing は一度しか warning しない（dedupe）。
-            // Prime と Resolve のどちらの経路でも一度警告したら抑制される。
-            _root = BuildHierarchy("Root", "Hips", "Head");
-            var resolver = new BoneTransformResolver(_root.transform);
-
-            // 1 回目の警告のみ宣言（2 回目以降は dedupe で発生しない）
-            LogAssert.Expect(LogType.Warning, new Regex("MissingBone"));
-
-            resolver.Prime(new List<string> { "MissingBone" });
-            // 2 回目以降は warning が出ないことを LogAssert.NoUnexpectedReceived 相当で検証
-            _ = resolver.Resolve("MissingBone");
-            _ = resolver.Resolve("MissingBone");
-        }
-
         // ================================================================
         // 同名 Transform が複数: 最初の発見を採用 + 警告 (M-7)
         // ================================================================
@@ -276,8 +259,8 @@ namespace Hidano.FacialControl.Tests.PlayMode.Adapters.Bone
 
             var resolver = new BoneTransformResolver(_root.transform);
 
-            // M-7: 同名複数衝突時は警告を 1 回だけ発火する。Eye / 複数 / 2 件 を含むメッセージ。
-            LogAssert.Expect(LogType.Warning, new Regex("Eye.*複数"));
+            // M-7: 同名複数衝突時は警告を発火する（照合は衝突したボーン名のみ）。
+            LogAssert.Expect(LogType.Warning, new Regex("Eye"));
 
             var result = resolver.Resolve("Eye");
 
@@ -333,7 +316,7 @@ namespace Hidano.FacialControl.Tests.PlayMode.Adapters.Bone
         }
 
         [Test]
-        public void Resolve_RelativePath_NonExistent_LogsWarning()
+        public void Resolve_RelativePath_NonExistent_ReturnsNull()
         {
             _root = BuildHierarchy("Root", "Hips", "Head");
             var resolver = new BoneTransformResolver(_root.transform);
@@ -426,7 +409,7 @@ namespace Hidano.FacialControl.Tests.PlayMode.Adapters.Bone
 
             var resolver = new BoneTransformResolver(_root.transform);
 
-            LogAssert.Expect(LogType.Warning, new Regex("2 件"));
+            LogAssert.Expect(LogType.Warning, new Regex("Eye"));
 
             var result = resolver.Resolve("Rig/Eye");
 

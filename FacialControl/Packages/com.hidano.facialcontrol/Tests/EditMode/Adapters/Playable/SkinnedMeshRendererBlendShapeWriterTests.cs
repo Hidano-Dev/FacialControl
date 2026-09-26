@@ -1,6 +1,4 @@
-using System;
 using System.Collections.Generic;
-using System.Reflection;
 using Hidano.FacialControl.Adapters.Playable;
 using NUnit.Framework;
 using UnityEngine;
@@ -28,17 +26,19 @@ namespace Hidano.FacialControl.Tests.EditMode.Adapters.Playable
         }
 
         [Test]
-        public void Write_LegacyCollectedBlendShapeNames_BuildsEquivalentRendererMapping()
+        public void Write_SharedNamesAcrossRenderers_MapsEachRendererByBlendShapeName()
         {
+            // 複数 renderer で重複する BlendShape 名（JawOpen / Smile）を持つ場合、
+            // 名前の出現順で重複排除した名前配列を渡すと、各 renderer は自身の index に
+            // 名前一致で値が書き込まれる（rendererPath / index 順ではなく名前ベース）。
             var face = CreateRenderer("Face", CreateMeshWithShapes("Smile", "Blink", "JawOpen"));
             var teeth = CreateRenderer("Teeth", CreateMeshWithShapes("JawOpen", "Smile"));
-            var legacyNames = CollectLegacyBlendShapeNames(face, teeth);
+            var names = new[] { "Smile", "Blink", "JawOpen" };
 
-            using var writer = new SkinnedMeshRendererBlendShapeWriter(new[] { face, teeth }, legacyNames);
+            using var writer = new SkinnedMeshRendererBlendShapeWriter(new[] { face, teeth }, names);
 
             writer.Write(new[] { 0.15f, 0.35f, 0.55f });
 
-            CollectionAssert.AreEqual(new[] { "Smile", "Blink", "JawOpen" }, legacyNames);
             Assert.That(face.GetBlendShapeWeight(0), Is.EqualTo(15f).Within(0.0001f));
             Assert.That(face.GetBlendShapeWeight(1), Is.EqualTo(35f).Within(0.0001f));
             Assert.That(face.GetBlendShapeWeight(2), Is.EqualTo(55f).Within(0.0001f));
@@ -56,20 +56,6 @@ namespace Hidano.FacialControl.Tests.EditMode.Adapters.Playable
             writer.Write(new[] { 0.42f });
 
             Assert.That(face.GetBlendShapeWeight(0), Is.EqualTo(42f).Within(0.0001f));
-        }
-
-        private string[] CollectLegacyBlendShapeNames(params SkinnedMeshRenderer[] renderers)
-        {
-            var host = Track(new GameObject("FacialControllerHost"));
-            host.AddComponent<Animator>();
-            var controller = host.AddComponent<FacialController>();
-            var method = typeof(FacialController).GetMethod(
-                "CollectBlendShapeNames",
-                BindingFlags.Instance | BindingFlags.NonPublic);
-
-            Assert.That(method, Is.Not.Null, "FacialController.CollectBlendShapeNames が見つかりません。");
-
-            return (string[])method.Invoke(controller, new object[] { renderers });
         }
 
         private SkinnedMeshRenderer CreateRenderer(string name, Mesh mesh)

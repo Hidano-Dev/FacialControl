@@ -1,14 +1,25 @@
 using System;
+using System.Collections.Generic;
 using System.Text.RegularExpressions;
 using NUnit.Framework;
+using Hidano.FacialControl.Adapters.DependencyInjection;
 using Hidano.FacialControl.Adapters.InputSources;
+using Hidano.FacialControl.Domain.Adapters;
 using Hidano.FacialControl.Domain.Interfaces;
 using Hidano.FacialControl.Domain.Models;
+using Hidano.FacialControl.Domain.Services;
+using Hidano.FacialControl.Tests.Shared;
 using UnityEngine;
 using UnityEngine.TestTools;
+using VContainer.Unity;
 
 namespace Hidano.FacialControl.Tests.EditMode.Adapters.InputSources
 {
+    /// <summary>
+    /// <see cref="OverlayInputSource"/> の契約テスト。
+    /// active 表情の overlay 3 状態（snapshot override / suppress / default fallback）の出力と ContributeMask、
+    /// active 切替時のクロスフェード、予約音素 slot の静的出力禁止、未宣言 slot の警告を検証する。
+    /// </summary>
     [TestFixture]
     public class OverlayInputSourceTests
     {
@@ -453,6 +464,126 @@ namespace Hidano.FacialControl.Tests.EditMode.Adapters.InputSources
                 blendShapes: blendShapes,
                 bones: null,
                 rendererPaths: new[] { "Face" });
+        }
+    }
+
+    /// <summary>
+    /// <see cref="AdapterBindingHost"/> の Initialize 経由で、profile の slots に宣言された
+    /// 予約音素 slot（a / i / u / e / o）ごとに <see cref="OverlayInputSource"/> が
+    /// <see cref="InputSourceRegistry"/> へ登録されることを検証する。
+    /// Host 用の GameObject を要するため、直接構築する上記 fixture とは分離している。
+    /// </summary>
+    [TestFixture]
+    public class OverlayInputSourceHostRegistrationTests
+    {
+        private sealed class NoopAdapterBinding : AdapterBindingBase
+        {
+            public int OnStartCount;
+
+            public override void OnStart(in AdapterBuildContext ctx)
+            {
+                OnStartCount++;
+            }
+        }
+
+        private GameObject _hostGameObject;
+
+        [TearDown]
+        public void TearDown()
+        {
+            if (_hostGameObject != null)
+            {
+                UnityEngine.Object.DestroyImmediate(_hostGameObject);
+                _hostGameObject = null;
+            }
+        }
+
+        [Test]
+        public void Initialize_PhonemeSlotsDeclared_RegistersOverlayInputSourcePerSlot()
+        {
+            var registry = new InputSourceRegistry();
+            var binding = new NoopAdapterBinding();
+            var host = new AdapterBindingHost(
+                binding,
+                CreateContext(registry, new[] { "a", "i", "u", "e", "o" }));
+
+            ((IInitializable)host).Initialize();
+
+            CollectionAssert.AreEqual(
+                new[] { "overlay:a", "overlay:i", "overlay:u", "overlay:e", "overlay:o" },
+                registry.RegisteredIds);
+            AssertOverlaySource(registry, "overlay:a");
+            AssertOverlaySource(registry, "overlay:i");
+            AssertOverlaySource(registry, "overlay:u");
+            AssertOverlaySource(registry, "overlay:e");
+            AssertOverlaySource(registry, "overlay:o");
+            Assert.AreEqual(1, binding.OnStartCount);
+        }
+
+        [Test]
+        public void Initialize_PhonemeSlotNotDeclared_DoesNotRegister()
+        {
+            var registry = new InputSourceRegistry();
+            var host = new AdapterBindingHost(
+                new NoopAdapterBinding(),
+                CreateContext(registry, new[] { "blink" }));
+
+            ((IInitializable)host).Initialize();
+
+            Assert.IsFalse(registry.TryResolve("overlay:a", out var resolved));
+            Assert.IsNull(resolved);
+            Assert.AreEqual(0, registry.RegisteredIds.Count);
+        }
+
+        [Test]
+        public void Initialize_NonPhonemeSlot_NotAffected()
+        {
+            var registry = new InputSourceRegistry();
+            var host = new AdapterBindingHost(
+                new NoopAdapterBinding(),
+                CreateContext(registry, new[] { "a", "blink" }));
+
+            ((IInitializable)host).Initialize();
+
+            CollectionAssert.AreEqual(new[] { "overlay:a" }, registry.RegisteredIds);
+            AssertOverlaySource(registry, "overlay:a");
+            Assert.IsFalse(registry.TryResolve("overlay:blink", out var blink));
+            Assert.IsNull(blink);
+        }
+
+        [Test]
+        public void Initialize_MultipleHosts_DoNotDuplicatePhonemeOverlaySources()
+        {
+            var registry = new InputSourceRegistry();
+            var context = CreateContext(registry, new[] { "a", "i" });
+            var hostA = new AdapterBindingHost(new NoopAdapterBinding(), context);
+            var hostB = new AdapterBindingHost(new NoopAdapterBinding(), context);
+
+            ((IInitializable)hostA).Initialize();
+            ((IInitializable)hostB).Initialize();
+
+            CollectionAssert.AreEqual(new[] { "overlay:a", "overlay:i" }, registry.RegisteredIds);
+        }
+
+        private AdapterBuildContext CreateContext(
+            IInputSourceRegistry registry,
+            string[] slots)
+        {
+            _hostGameObject = new GameObject("OverlayInputSourceHostRegistrationTestsHost");
+            return new AdapterBuildContext(
+                new FacialProfile("1.0", slots: slots),
+                new List<string> { "JawOpen", "MouthSmile" },
+                registry,
+                new FacialOutputBus(),
+                new ManualTimeProvider(),
+                _hostGameObject,
+                lipSyncProvider: null);
+        }
+
+        private static void AssertOverlaySource(InputSourceRegistry registry, string id)
+        {
+            Assert.IsTrue(registry.TryResolve(id, out var source), id + " must be registered.");
+            Assert.IsInstanceOf<OverlayInputSource>(source);
         }
     }
 }

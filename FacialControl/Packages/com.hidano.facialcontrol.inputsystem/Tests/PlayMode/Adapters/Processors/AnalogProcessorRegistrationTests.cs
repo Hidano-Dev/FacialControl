@@ -1,20 +1,18 @@
 using System;
-using System.Reflection;
 using NUnit.Framework;
-using UnityEngine.InputSystem;
 using Hidano.FacialControl.Adapters.Processors;
 
 namespace Hidano.FacialControl.InputSystem.Tests.PlayMode.Adapters.Processors
 {
     /// <summary>
-    //: <see cref="AnalogProcessorRegistration"/> が 6 種の
-    /// <see cref="InputProcessor{TValue}"/> を Editor / Runtime 双方の初期化フェーズで
-    /// <see cref="InputSystem.RegisterProcessor{T}(string)"/> 経由で登録していることを検証する。
+    /// <see cref="AnalogProcessorRegistration"/> が 6 種の
+    /// <see cref="UnityEngine.InputSystem.InputProcessor{TValue}"/> を Editor / Runtime 双方の初期化フェーズで
+    /// <see cref="UnityEngine.InputSystem.InputSystem.RegisterProcessor{T}(string)"/> 経由で登録していることを検証する。
     /// </summary>
     /// <remarks>
-    /// PlayMode 開始時に <see cref="RuntimeInitializeOnLoadMethodAttribute"/> によって
+    /// PlayMode 開始時に <see cref="UnityEngine.RuntimeInitializeOnLoadMethodAttribute"/> によって
     /// <c>AnalogProcessorRegistration.Register()</c> が走るため、テスト到達時点で全 6 processor が
-    /// <c>UnityEngine.InputSystem.InputProcessor.s_Processors</c> に登録済みである必要がある。
+    /// 公開 API <see cref="UnityEngine.InputSystem.InputSystem.TryGetProcessor(string)"/> で名前解決できる必要がある。
     /// </remarks>
     [TestFixture]
     public class AnalogProcessorRegistrationTests
@@ -89,34 +87,12 @@ namespace Hidano.FacialControl.InputSystem.Tests.PlayMode.Adapters.Processors
         // ============================================================
 
         /// <summary>
-        /// InputSystem の <c>InputProcessor.s_Processors</c>（<c>TypeTable</c>）に対して
-        /// 指定名で <c>LookupTypeRegistration</c> を呼び、登録された CLR <see cref="Type"/> を返す。
-        /// 公開 API では登録一覧を取得できないため、リフレクションで検証する（PlayMode テスト限定）。
+        /// InputSystem の公開 API <see cref="UnityEngine.InputSystem.InputSystem.TryGetProcessor(string)"/> で
+        /// 指定名に登録された CLR <see cref="Type"/> を返す（未登録なら null）。
         /// </summary>
         private static Type LookupRegisteredProcessor(string name)
         {
-            var inputProcessorType = typeof(InputProcessor);
-            var sProcessorsField = inputProcessorType.GetField(
-                "s_Processors",
-                BindingFlags.NonPublic | BindingFlags.Static);
-            Assume.That(sProcessorsField, Is.Not.Null,
-                "Reflection failed: UnityEngine.InputSystem.InputProcessor.s_Processors not found. " +
-                "InputSystem の internal レイアウトが変わった可能性があります。");
-
-            var typeTable = sProcessorsField.GetValue(null);
-            Assume.That(typeTable, Is.Not.Null,
-                "Reflection failed: InputProcessor.s_Processors value is null.");
-
-            var lookupMethod = typeTable.GetType().GetMethod(
-                "LookupTypeRegistration",
-                BindingFlags.Public | BindingFlags.Instance,
-                binder: null,
-                types: new[] { typeof(string) },
-                modifiers: null);
-            Assume.That(lookupMethod, Is.Not.Null,
-                "Reflection failed: TypeTable.LookupTypeRegistration(string) not found.");
-
-            return (Type)lookupMethod.Invoke(typeTable, new object[] { name });
+            return UnityEngine.InputSystem.InputSystem.TryGetProcessor(name);
         }
     }
 }

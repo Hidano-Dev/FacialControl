@@ -12,6 +12,13 @@ using Hidano.FacialControl.Domain.Models;
 
 namespace Hidano.FacialControl.Tests.PlayMode.Adapters.Playable
 {
+    /// <summary>
+    /// 実機不具合の再発防止: LateUpdate における「BlendShape writer → FacialOutputBus publish → bone writer」の
+    /// 順序が崩れると、出力バスの購読者（OSC 送信等）が 1 フレーム古い BlendShape 値を受け取り、
+    /// かつ publish 時点で目ボーン回転が先行適用される症状が出た。
+    /// 順序を観測するために private な <c>_outputWriter</c> を reflection で差し替えているが、
+    /// 検証対象は「購読者が観測する値と順序」という公開契約である。
+    /// </summary>
     [TestFixture]
     public class FacialControllerOutputPipelineRegressionTests
     {
