@@ -2,11 +2,13 @@
 
 ## 概要
 
-FacialControl の 7 パッケージを npmjs.com に公開するための手順書。すべてのパッケージは `com.hidano` スコープの scoped registry（`https://registry.npmjs.org`）経由で Unity Package Manager から解決される。
+FacialControl の 9 パッケージを npmjs.com に公開するための手順書。すべてのパッケージは `com.hidano` スコープの scoped registry（`https://registry.npmjs.org`）経由で Unity Package Manager から解決される。
 
 | パッケージ | 依存する com.hidano.* |
 |---|---|
-| `com.hidano.facialcontrol` | `com.hidano.scene-view-style-camera-controller` |
+| `com.hidano.facialcontrol` | なし（VContainer は OpenUPM から手動追加） |
+| `com.hidano.facialcontrol.expression-creator` | core, `com.hidano.scene-view-style-camera-controller` |
+| `com.hidano.facialcontrol.routing-editor` | core |
 | `com.hidano.facialcontrol.osc` | core, `com.hidano.uosc` |
 | `com.hidano.facialcontrol.rec` | core |
 | `com.hidano.facialcontrol.inputsystem` | core |
@@ -23,11 +25,11 @@ FacialControl の 7 パッケージを npmjs.com に公開するための手順�
    - `com.hidano.scene-view-style-camera-controller` 1.0.0
    - `com.hidano.ulipsync-asio` 3.1.5-custom.2
 4. 開発プロジェクトで CI（EditMode / PlayMode）が通過していること
-5. 7 パッケージの `package.json` の `version` と、相互依存の `dependencies` に書かれたバージョンが一致していること
+5. 9 パッケージの `package.json` の `version` と、相互依存の `dependencies` に書かれたバージョンが一致していること
 
 ## リリース前チェックリスト
 
-- [ ] 7 パッケージの `package.json` の `version` が同じリリース番号になっている
+- [ ] 9 パッケージの `package.json` の `version` が同じリリース番号になっている
 - [ ] 各パッケージの `dependencies` 内の `com.hidano.facialcontrol*` が同じリリース番号を指している
 - [ ] 各パッケージに `README.md` / `CHANGELOG.md` / `LICENSE.md`（と `.meta`）が揃っている
 - [ ] `CHANGELOG.md` にリリース番号と日付の見出しがある
@@ -46,6 +48,8 @@ cd FacialControl/Packages
 (cd com.hidano.facialcontrol && npm publish)
 
 # 2. core のみに依存するもの
+(cd com.hidano.facialcontrol.expression-creator && npm publish)
+(cd com.hidano.facialcontrol.routing-editor && npm publish)
 (cd com.hidano.facialcontrol.osc && npm publish)
 (cd com.hidano.facialcontrol.rec && npm publish)
 (cd com.hidano.facialcontrol.inputsystem && npm publish)
@@ -60,7 +64,7 @@ cd FacialControl/Packages
 
 ## バージョンアップ時の手順
 
-1. 7 パッケージの `package.json` の `version` を上げる
+1. 9 パッケージの `package.json` の `version` を上げる
 2. 依存側の `dependencies` に書かれた `com.hidano.facialcontrol*` のバージョンを合わせる
 3. `CHANGELOG.md` に新しい見出しを追加する
 4. `SampleAssetsAreInSyncTests.cs` のサンプルパスを更新する

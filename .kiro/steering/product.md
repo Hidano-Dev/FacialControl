@@ -2,7 +2,7 @@
 
 FacialControl は、3D キャラクターの表情をリアルタイムに制御する **Unity 向け開発者アセット**（ライブラリ）。Unity Package Manager（UPM）経由で配布し、最終的には npmjs.com の `com.hidano` スコープに公開する。エンドユーザー向けツールではなく、Unity エンジニアが組み込むためのライブラリである。
 
-- **パッケージ ID**: `com.hidano.facialcontrol`（コア） / `com.hidano.facialcontrol.osc`（OSC 拡張） / `com.hidano.facialcontrol.inputsystem`（InputSystem 連携）
+- **パッケージ ID**: `com.hidano.facialcontrol`（コア） / `com.hidano.facialcontrol.osc`（OSC 拡張） / `com.hidano.facialcontrol.inputsystem`（InputSystem 連携） / ほか `lipsync` / `ifacialmocap` / `rec` / `timeline` と、Editor ツールのみの `expression-creator` / `routing-editor`
 - **ライセンス**: MIT
 - **開発体制**: 2 名（Hidano: メイン開発、Junki Hiroi: レビュー・サポート）
 

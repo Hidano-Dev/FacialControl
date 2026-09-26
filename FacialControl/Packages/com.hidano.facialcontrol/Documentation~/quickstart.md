@@ -9,6 +9,8 @@ FacialControl で 3D キャラクターの表情をリアルタイム制御す�
 | パッケージ | 役割 | 必須依存 |
 |---|---|---|
 | `com.hidano.facialcontrol` | コア | `jp.hadashikick.vcontainer`（OpenUPM） |
+| `com.hidano.facialcontrol.expression-creator` | Expression 作成ツール（Editor のみ） | `com.hidano.scene-view-style-camera-controller` |
+| `com.hidano.facialcontrol.routing-editor` | ルーティングエディタ（Editor のみ） | なし |
 | `com.hidano.facialcontrol.inputsystem` | キーボード / コントローラ入力 | `com.unity.inputsystem` |
 | `com.hidano.facialcontrol.osc` | OSC 送受信（VRChat / ARKit 互換） | `com.hidano.uosc` |
 | `com.hidano.facialcontrol.lipsync` | uLipSync 連携（Windows） | `com.hidano.ulipsync-asio` |
@@ -24,7 +26,7 @@ FacialControl で 3D キャラクターの表情をリアルタイム制御す�
 2. Inspector 上部の **参照モデル** にキャラクター prefab を割り当てる。BlendShape 名の候補表示と、目ボーンの自動解決に使う
 3. **表情ライブラリ** タブで Expression を追加する
    - **id**（スクリプトや入力 binding から参照する文字列）、**名前**、**所属レイヤー**、**AnimationClip**、**遷移時間** を設定
-   - AnimationClip は **Tools → FacialControl → Expression 作成** で、モデルを見ながら BlendShape スライダーを動かしてベイクできる
+   - AnimationClip は `com.hidano.facialcontrol.expression-creator` の **Tools → FacialControl → Expression 作成** で、モデルを見ながら BlendShape スライダーを動かしてベイクできる
    - まばたきや音素を重ねたい場合は **Slots** を宣言し、**Default Overlays** と各 Expression の **Overlays** で Default / Suppress / Override を選ぶ
 4. **レイヤー** タブでレイヤー名・優先度・排他モード・入力源 id を確認する。サブパッケージの binding を Add すると既定レイヤーが自動追加されるので、通常は手で書く必要はない
 5. **Adapter Bindings** タブで **Add** から入力源を追加し、slug と設定を埋める（例: `Input System` → InputActionAsset とキーバインディング）
@@ -98,7 +100,7 @@ public class MyExpressionController : MonoBehaviour
 ## トラブルシューティング
 
 - **表情が変化しない**: `FacialController` の Character SO が空でないか、モデルの BlendShape 名が Expression の Clip と一致しているか、ルートに `Animator` があるかを確認
-- **入力源 id の警告が出る**: レイヤーの `inputSources[].id` と binding の slug（`<slug>` / `<slug>:<sub>`）が一致していない。Adapter Bindings タブの slug か、ルーティングエディタで配線を確認
+- **入力源 id の警告が出る**: レイヤーの `inputSources[].id` と binding の slug（`<slug>` / `<slug>:<sub>`）が一致していない。Adapter Bindings タブの slug か、ルーティングエディタ（`com.hidano.facialcontrol.routing-editor`）で配線を確認
 - **同じモデルに `FacialController` が 2 つ付いている**: 祖先側だけが有効になり、他方は警告付きで無効化される。Inspector にも警告が出る
 - **目線が動かない**: 目線タブで目ボーン path が入っているか、入力ソースが binding の宣言と一致しているかを確認
 

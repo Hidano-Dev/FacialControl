@@ -4,6 +4,7 @@ using System.IO;
 using System.Reflection;
 using Hidano.FacialControl.Adapters.ScriptableObject.Serializable;
 using Hidano.FacialControl.Editor.Inspector;
+using Hidano.FacialControl.Editor.Windows.Routing;
 using NUnit.Framework;
 using UnityEditor;
 using UnityEditor.UIElements;
@@ -84,6 +85,46 @@ namespace Hidano.FacialControl.Tests.EditMode.Editor.Inspector
 
             Assert.That(root, Is.Not.Null);
             Assert.That(root.Q<TabView>(FacialCharacterProfileSOInspector.TabViewName), Is.Not.Null);
+        }
+
+        // ルーティングエディタ本体は com.hidano.facialcontrol.routing-editor にあり、
+        // core は RoutingEditorLauncher への登録有無でボタンの表示を切り替える。
+        [Test]
+        public void CreateInspectorGUI_RoutingEditorUnavailable_OmitsRoutingButton()
+        {
+            Func<ScriptableObject, EditorWindow> previous = RoutingEditorLauncher.OpenHandler;
+            try
+            {
+                RoutingEditorLauncher.OpenHandler = null;
+                _so = CreateProfileWithSlots(BlinkSlotName);
+
+                VisualElement root = BuildInspectorRoot();
+
+                Assert.That(root.Q<Button>(FacialCharacterProfileSOInspector.RoutingEditorOpenButtonName), Is.Null);
+            }
+            finally
+            {
+                RoutingEditorLauncher.OpenHandler = previous;
+            }
+        }
+
+        [Test]
+        public void CreateInspectorGUI_RoutingEditorAvailable_ShowsRoutingButton()
+        {
+            Func<ScriptableObject, EditorWindow> previous = RoutingEditorLauncher.OpenHandler;
+            try
+            {
+                RoutingEditorLauncher.OpenHandler = _ => null;
+                _so = CreateProfileWithSlots(BlinkSlotName);
+
+                VisualElement root = BuildInspectorRoot();
+
+                Assert.That(root.Q<Button>(FacialCharacterProfileSOInspector.RoutingEditorOpenButtonName), Is.Not.Null);
+            }
+            finally
+            {
+                RoutingEditorLauncher.OpenHandler = previous;
+            }
         }
 
         // ====================================================================

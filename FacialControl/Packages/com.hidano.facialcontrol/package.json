@@ -2,7 +2,7 @@
     "name": "com.hidano.facialcontrol",
     "version": "1.0.0",
     "displayName": "FacialControl",
-    "description": "3D キャラクターの表情をリアルタイムに制御する Unity 向けライブラリ。表情プロファイル (FacialCharacterProfileSO) のマルチレイヤー合成・遷移補間・Overlay slot・Gaze チャネル・Adapter Binding 拡張点・UI Toolkit Inspector を提供する。OSC / InputSystem / uLipSync / iFacialMocap / REC / Timeline 連携は com.hidano.facialcontrol.* サブパッケージを別途追加する。",
+    "description": "3D キャラクターの表情をリアルタイムに制御する Unity 向けライブラリ。表情プロファイル (FacialCharacterProfileSO) のマルチレイヤー合成・遷移補間・Overlay slot・Gaze チャネル・Adapter Binding 拡張点・UI Toolkit Inspector を提供する。OSC / InputSystem / uLipSync / iFacialMocap / REC / Timeline 連携と、Expression 作成ツール / ルーティングエディタは com.hidano.facialcontrol.* サブパッケージを別途追加する。",
     "unity": "6000.3",
     "license": "MIT",
     "author": {
@@ -20,9 +20,7 @@
     "documentationUrl": "https://github.com/NHidano/FacialControl/blob/main/FacialControl/Packages/com.hidano.facialcontrol/README.md",
     "changelogUrl": "https://github.com/NHidano/FacialControl/blob/main/FacialControl/Packages/com.hidano.facialcontrol/CHANGELOG.md",
     "licensesUrl": "https://github.com/NHidano/FacialControl/blob/main/FacialControl/Packages/com.hidano.facialcontrol/LICENSE.md",
-    "dependencies": {
-        "com.hidano.scene-view-style-camera-controller": "1.0.0"
-    },
+    "dependencies": {},
     "keywords": [
         "facial",
         "blendshape",

@@ -4,7 +4,14 @@
       "version": "file:com.hidano.facialcontrol",
       "depth": 0,
       "source": "embedded",
+      "dependencies": {}
+    },
+    "com.hidano.facialcontrol.expression-creator": {
+      "version": "file:com.hidano.facialcontrol.expression-creator",
+      "depth": 0,
+      "source": "embedded",
       "dependencies": {
+        "com.hidano.facialcontrol": "1.0.0",
         "com.hidano.scene-view-style-camera-controller": "1.0.0"
       }
     },
@@ -46,6 +53,14 @@
     },
     "com.hidano.facialcontrol.rec": {
       "version": "file:com.hidano.facialcontrol.rec",
+      "depth": 0,
+      "source": "embedded",
+      "dependencies": {
+        "com.hidano.facialcontrol": "1.0.0"
+      }
+    },
+    "com.hidano.facialcontrol.routing-editor": {
+      "version": "file:com.hidano.facialcontrol.routing-editor",
       "depth": 0,
       "source": "embedded",
       "dependencies": {

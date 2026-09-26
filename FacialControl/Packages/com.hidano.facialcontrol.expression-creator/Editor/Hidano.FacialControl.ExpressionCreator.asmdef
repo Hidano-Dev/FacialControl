@@ -1,11 +1,12 @@
 {
-    "name": "Hidano.FacialControl.Editor",
-    "rootNamespace": "Hidano.FacialControl.Editor",
+    "name": "Hidano.FacialControl.ExpressionCreator",
+    "rootNamespace": "Hidano.FacialControl.ExpressionCreator",
     "references": [
         "Hidano.FacialControl.Domain",
         "Hidano.FacialControl.Application",
         "Hidano.FacialControl.Adapters",
-        "VContainer"
+        "Hidano.FacialControl.Editor",
+        "SceneViewStyleCameraController"
     ],
     "includePlatforms": [
         "Editor"

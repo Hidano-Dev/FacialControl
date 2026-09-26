@@ -6,7 +6,9 @@
 
 | パッケージ | 役割 | 追加の依存 |
 |---|---|---|
-| `com.hidano.facialcontrol` | コア。表情プロファイル・マルチレイヤー合成・遷移・Overlay・Gaze・Editor ツール | `jp.hadashikick.vcontainer`（OpenUPM） |
+| `com.hidano.facialcontrol` | コア。表情プロファイル・マルチレイヤー合成・遷移・Overlay・Gaze・Profile Inspector | `jp.hadashikick.vcontainer`（OpenUPM） |
+| `com.hidano.facialcontrol.expression-creator` | Expression 作成ツール（BlendShape スライダーで AnimationClip をベイク、プレビュー PNG 書き出し） | `com.hidano.scene-view-style-camera-controller` |
+| `com.hidano.facialcontrol.routing-editor` | 入力源とレイヤーの配線を編集するノードグラフ（Profile Inspector から起動） | なし |
 | `com.hidano.facialcontrol.inputsystem` | Unity InputSystem 経由のキーボード / コントローラ入力 | `com.unity.inputsystem` |
 | `com.hidano.facialcontrol.osc` | OSC 送受信（VRChat / ARKit 互換、自動マッピング） | `com.hidano.uosc` |
 | `com.hidano.facialcontrol.lipsync` | uLipSync 連携（Windows） | `com.hidano.ulipsync-asio` |
@@ -14,7 +16,7 @@
 | `com.hidano.facialcontrol.rec` | 入力の記録・再生 | なし |
 | `com.hidano.facialcontrol.timeline` | Timeline トラックからの表情駆動、REC の Timeline 書き出し | `com.unity.timeline`, `.rec` |
 
-すべてのサブパッケージは **Adapter Binding** として `FacialCharacterProfileSO` の Inspector から Add する。Scene に追加の MonoBehaviour を置く必要はない（REC のみ `RecCharacterBinding` を Add Component する）。
+入力・出力系のサブパッケージは **Adapter Binding** として `FacialCharacterProfileSO` の Inspector から Add する。Scene に追加の MonoBehaviour を置く必要はない（REC のみ `RecCharacterBinding` を Add Component する）。`expression-creator` / `routing-editor` は Editor ツールのみのパッケージで、ランタイムには何も追加しない。
 
 ## 動作要件
 
@@ -58,7 +60,7 @@ Git URL で直接取り込む場合はモノレポのサブディレクトリを
 ### ゼロから作る
 
 1. **Create → FacialControl → Facial Character Profile** で Profile を作り、参照モデルを割り当てる
-2. **Tools → FacialControl → Expression 作成** で BlendShape スライダーから AnimationClip をベイクし、表情ライブラリタブに登録
+2. `com.hidano.facialcontrol.expression-creator` の **Tools → FacialControl → Expression 作成** で BlendShape スライダーから AnimationClip をベイクし、表情ライブラリタブに登録
 3. Adapter Bindings タブで入力源（Input System / OSC Receiver / uLipSync / iFacialMocap Receiver / Timeline）を Add
 4. キャラクターに **Add Component → FacialControl → Facial Controller** を付けて Profile を結線し、Play
 
@@ -92,6 +94,8 @@ FacialController（LateUpdate）──── 入力源を集約 → レイヤー
 | 内容 | 場所 |
 |---|---|
 | コア README / クイックスタート / JSON スキーマ | [`com.hidano.facialcontrol`](FacialControl/Packages/com.hidano.facialcontrol/README.md) |
+| Expression 作成ツール | [`com.hidano.facialcontrol.expression-creator`](FacialControl/Packages/com.hidano.facialcontrol.expression-creator/README.md) |
+| ルーティングエディタ | [`com.hidano.facialcontrol.routing-editor`](FacialControl/Packages/com.hidano.facialcontrol.routing-editor/README.md) |
 | InputSystem | [`com.hidano.facialcontrol.inputsystem`](FacialControl/Packages/com.hidano.facialcontrol.inputsystem/README.md) |
 | OSC | [`com.hidano.facialcontrol.osc`](FacialControl/Packages/com.hidano.facialcontrol.osc/README.md) |
 | uLipSync | [`com.hidano.facialcontrol.lipsync`](FacialControl/Packages/com.hidano.facialcontrol.lipsync/README.md) |

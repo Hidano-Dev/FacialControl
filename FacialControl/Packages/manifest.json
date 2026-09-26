@@ -18,11 +18,13 @@
   ],
   "dependencies": {
     "com.hidano.facialcontrol": "file:com.hidano.facialcontrol",
+    "com.hidano.facialcontrol.expression-creator": "file:com.hidano.facialcontrol.expression-creator",
     "com.hidano.facialcontrol.ifacialmocap": "file:com.hidano.facialcontrol.ifacialmocap",
     "com.hidano.facialcontrol.inputsystem": "file:com.hidano.facialcontrol.inputsystem",
     "com.hidano.facialcontrol.lipsync": "file:com.hidano.facialcontrol.lipsync",
     "com.hidano.facialcontrol.osc": "file:com.hidano.facialcontrol.osc",
     "com.hidano.facialcontrol.rec": "file:com.hidano.facialcontrol.rec",
+    "com.hidano.facialcontrol.routing-editor": "file:com.hidano.facialcontrol.routing-editor",
     "com.hidano.facialcontrol.timeline": "file:com.hidano.facialcontrol.timeline",
     "com.hidano.scene-view-style-camera-controller": "1.0.0",
     "com.hidano.ulipsync-asio": "3.1.5-custom.2",
