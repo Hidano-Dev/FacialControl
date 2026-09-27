@@ -364,7 +364,9 @@ namespace Hidano.FacialControl.Rec.Adapters.Recording
 
         private static Stream CreateFileStream(string filePath)
         {
-            return new FileStream(filePath, FileMode.Create, FileAccess.Write, FileShare.Read);
+            // 既存の録画を絶対に上書きしない。呼び出し側が RecSidecarPath.ResolveUniqueFilePath で
+            // 衝突を避けている前提だが、競合した場合も CreateNew が失敗してファイルを守る。
+            return new FileStream(filePath, FileMode.CreateNew, FileAccess.Write, FileShare.Read);
         }
 
         private static Action CreatePostFinalizeAction()

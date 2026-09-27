@@ -2,6 +2,14 @@
 
 [Keep a Changelog](https://keepachangelog.com/ja/1.1.0/) の形式に準拠し、[セマンティックバージョニング](https://semver.org/lang/ja/) に従う。
 
+## [Unreleased]
+
+### Changed
+
+- 同名の録画がすでにある場合は上書きせず、`{名前}-2`, `{名前}-3`… と連番を付けて保存するようにした。実際に保存したパスは `LastRecordingPath` と Inspector の Path 表示に反映される。`RecStreamWriter` も既存ファイルを開かない（`FileMode.CreateNew`）
+- `RecCharacterBinding` の Default Recording Name の初期値を `take` から空にし、Recording Name / Default Recording Name の両方が空なら `take-yyyyMMdd-HHmmss` で命名する（README の記述と実装を一致させた）
+- 録画名の解決ロジックを `RecRecordingNaming` に切り出した
+
 ## [1.0.0] - 2026-09-25
 
 初回リリース。

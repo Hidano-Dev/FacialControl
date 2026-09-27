@@ -13,15 +13,15 @@ OSC / InputSystem / LipSync / iFacialMocap パッケージには依存しない�
 ## 使い方
 
 1. `FacialController` を持つ GameObject に **Add Component → FacialControl → REC Character Binding** を追加する（`RecCharacterBinding`。同 GameObject の `FacialController` を自動で拾う）
-2. Play 中に Inspector の **Start Recording** を押す。Recording Name を空にすると `take-yyyyMMdd-HHmmss` 形式で命名される
-3. **Stop Recording** で `.fcrec` ファイルが確定する。保存先は `StreamingAssets/FacialControl/{キャラクター名}/recordings/{名前}.fcrec`
+2. Play 中に Inspector の **Start Recording** を押す。Recording Name を空にすると Default Recording Name（初期値は空）が使われ、それも空なら `take-yyyyMMdd-HHmmss` 形式で命名される
+3. **Stop Recording** で `.fcrec` ファイルが確定する。保存先は `StreamingAssets/FacialControl/{キャラクター名}/recordings/{名前}.fcrec`。同名の録画がすでにある場合は上書きせず、`{名前}-2`, `{名前}-3`… と連番を付けて保存する（実際のパスは Inspector の Path 表示と `LastRecordingPath` で確認できる）。明示的に上書きする手段は API にも Inspector にも用意していない
 4. **Load Recording → Start Playback** で再生する。再生中は live の表情トリガーとアナログ入力が遮断され、記録された値だけが反映される
 
 スクリプトからは同じ操作を `RecCharacterBinding` の API で行える。
 
 ```csharp
 var rec = GetComponent<RecCharacterBinding>();
-rec.StartRecording("take01");
+rec.StartRecording("take01");   // take01.fcrec が既にあれば take01-2.fcrec に保存される
 rec.StopRecording();
 rec.LoadRecording("take01");
 rec.StartPlayback();     // 完了時は rec.Completed イベント

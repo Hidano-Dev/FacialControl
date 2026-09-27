@@ -29,7 +29,8 @@ namespace Hidano.FacialControl.Rec.Adapters.Playable
         private FacialController _facialController;
 
         [SerializeField]
-        private string _defaultRecordingName = "take";
+        [Tooltip("Recording Name を省略したときの既定名。空のままなら take-yyyyMMdd-HHmmss で命名する。")]
+        private string _defaultRecordingName = string.Empty;
 
         private FacialController _runtimeController;
         private PlaybackUseCase _playbackUseCase;
@@ -89,11 +90,18 @@ namespace Hidano.FacialControl.Rec.Adapters.Playable
             StopPlayback();
 
             string assetName = ResolveAssetName(controller);
-            string resolvedRecordingName = ResolveRecordingName(recordingName);
-            if (!RecSidecarPath.TryBuildRecordingFilePath(assetName, resolvedRecordingName, out string filePath, out string error))
+            string resolvedRecordingName = RecRecordingNaming.Resolve(recordingName, _defaultRecordingName, DateTime.Now);
+            if (!RecSidecarPath.TryBuildRecordingFilePath(assetName, resolvedRecordingName, out string requestedFilePath, out string error))
             {
                 UnityEngine.Debug.LogWarning($"REC recording start was ignored because the output path was invalid: {error}");
                 return false;
+            }
+
+            // 同名テイクは上書きせず連番を付与して保存する（REC データは代替が効かない）。
+            string filePath = RecSidecarPath.ResolveUniqueFilePath(requestedFilePath);
+            if (!string.Equals(filePath, requestedFilePath, StringComparison.Ordinal))
+            {
+                UnityEngine.Debug.Log($"REC recording '{resolvedRecordingName}' already exists. Saving as '{System.IO.Path.GetFileNameWithoutExtension(filePath)}' instead.");
             }
 
             RecBaselineState baseline = CaptureBaseline(profile, controller.InputSourceRegistry);
@@ -304,21 +312,6 @@ namespace Hidano.FacialControl.Rec.Adapters.Playable
             }
 
             return controller.gameObject.name;
-        }
-
-        private string ResolveRecordingName(string recordingName)
-        {
-            if (!string.IsNullOrWhiteSpace(recordingName))
-            {
-                return recordingName.Trim();
-            }
-
-            if (!string.IsNullOrWhiteSpace(_defaultRecordingName))
-            {
-                return _defaultRecordingName.Trim();
-            }
-
-            return "take-" + DateTime.Now.ToString("yyyyMMdd-HHmmss");
         }
 
         private static RecBaselineState CaptureBaseline(FacialProfile profile, IInputSourceRegistry registry)

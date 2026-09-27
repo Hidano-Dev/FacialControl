@@ -1,3 +1,4 @@
+using System;
 using System.IO;
 using Hidano.FacialControl.Adapters.ScriptableObject.Serializable;
 using Hidano.FacialControl.Rec.Adapters.Recording;
@@ -49,6 +50,71 @@ namespace Hidano.FacialControl.Rec.Tests.EditMode
                 RecSidecarPath.TryBuildRecordingFilePath("Miku", "..\\session", out _, out string recordingError),
                 Is.False);
             Assert.That(recordingError, Does.Contain("recordingName"));
+        }
+
+        [Test]
+        public void ResolveUniqueFilePath_FileDoesNotExist_ReturnsSamePath()
+        {
+            string directory = CreateTempDirectory();
+            try
+            {
+                string filePath = Path.Combine(directory, "take01" + RecSidecarPath.FileExtension);
+
+                string resolved = RecSidecarPath.ResolveUniqueFilePath(filePath);
+
+                Assert.That(resolved, Is.EqualTo(filePath));
+            }
+            finally
+            {
+                Directory.Delete(directory, true);
+            }
+        }
+
+        [Test]
+        public void ResolveUniqueFilePath_FileExists_AppendsSequenceSuffixInsteadOfOverwriting()
+        {
+            string directory = CreateTempDirectory();
+            try
+            {
+                string filePath = Path.Combine(directory, "take01" + RecSidecarPath.FileExtension);
+                File.WriteAllText(filePath, "original");
+
+                string resolved = RecSidecarPath.ResolveUniqueFilePath(filePath);
+
+                Assert.That(resolved, Is.EqualTo(Path.Combine(directory, "take01-2" + RecSidecarPath.FileExtension)));
+                Assert.That(File.ReadAllText(filePath), Is.EqualTo("original"));
+            }
+            finally
+            {
+                Directory.Delete(directory, true);
+            }
+        }
+
+        [Test]
+        public void ResolveUniqueFilePath_SuffixedFileAlsoExists_IncrementsUntilFree()
+        {
+            string directory = CreateTempDirectory();
+            try
+            {
+                string filePath = Path.Combine(directory, "take01" + RecSidecarPath.FileExtension);
+                File.WriteAllText(filePath, "1");
+                File.WriteAllText(Path.Combine(directory, "take01-2" + RecSidecarPath.FileExtension), "2");
+
+                string resolved = RecSidecarPath.ResolveUniqueFilePath(filePath);
+
+                Assert.That(resolved, Is.EqualTo(Path.Combine(directory, "take01-3" + RecSidecarPath.FileExtension)));
+            }
+            finally
+            {
+                Directory.Delete(directory, true);
+            }
+        }
+
+        private static string CreateTempDirectory()
+        {
+            string directory = Path.Combine(Path.GetTempPath(), "FacialControlRecSidecarPathTests", Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(directory);
+            return directory;
         }
     }
 }

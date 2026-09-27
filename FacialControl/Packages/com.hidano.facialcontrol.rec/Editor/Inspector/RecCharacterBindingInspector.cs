@@ -47,6 +47,7 @@ namespace Hidano.FacialControl.Rec.Editor.Inspector
             {
                 name = RecordingNameFieldName,
                 value = serializedObject.FindProperty("_defaultRecordingName").stringValue,
+                tooltip = "空のままなら Default Recording Name、それも空なら take-yyyyMMdd-HHmmss で命名する。同名の録画がある場合は上書きせず -2, -3… を付与して保存する。",
             };
             root.Add(recordingNameField);
 
@@ -134,6 +135,12 @@ namespace Hidano.FacialControl.Rec.Editor.Inspector
 
         private static string ResolveDisplayPath(RecCharacterBinding binding)
         {
+            // 録画中は実際に保存しているパス（連番付与後）を優先して表示する。
+            if (binding.IsRecording && !string.IsNullOrWhiteSpace(binding.LastRecordingPath))
+            {
+                return binding.LastRecordingPath;
+            }
+
             if (!string.IsNullOrWhiteSpace(binding.LoadedRecordingPath))
             {
                 return binding.LoadedRecordingPath;

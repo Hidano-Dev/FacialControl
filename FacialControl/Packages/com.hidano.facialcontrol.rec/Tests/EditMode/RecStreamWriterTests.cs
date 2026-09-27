@@ -80,6 +80,25 @@ namespace Hidano.FacialControl.Rec.Tests.EditMode
         }
 
         [Test]
+        public void Open_WhenFileAlreadyExists_LeavesExistingFileUntouched()
+        {
+            string filePath = Path.Combine(_tempDirectory, "existing.fcrec");
+            byte[] original = { 1, 2, 3, 4 };
+            File.WriteAllBytes(filePath, original);
+
+            LogAssert.Expect(LogType.Error, new Regex("REC writer I/O failed"));
+
+            using (var writer = new RecStreamWriter(filePath))
+            {
+                writer.Open(RecBaselineState.Empty);
+                writer.AppendEvent(RecEvent.CreateTriggerOn(0.1d, 0, 0), ReadOnlySpan<float>.Empty);
+                writer.Complete(0.1d, 1);
+            }
+
+            Assert.That(File.ReadAllBytes(filePath), Is.EqualTo(original));
+        }
+
+        [Test]
         public void Complete_WhenWriterThreadIsBlocked_ReturnsAfterTimeout()
         {
             string filePath = Path.Combine(_tempDirectory, "slow-finalize.fcrec");
