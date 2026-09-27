@@ -2,6 +2,7 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.IO;
 using Hidano.FacialControl.Adapters.InputSources;
 using Hidano.FacialControl.Adapters.Playable;
 using Hidano.FacialControl.Adapters.ScriptableObject.Serializable;
@@ -41,6 +42,7 @@ namespace Hidano.FacialControl.Rec.Adapters.Playable
         private RecTimeline _loadedTimeline;
         private string _loadedRecordingName;
         private string _loadedRecordingPath;
+        private string _lastRecordingName;
         private string _lastRecordingPath;
 
         public bool IsRecording => _recordingUseCase != null && _recordingUseCase.IsRecording;
@@ -62,6 +64,10 @@ namespace Hidano.FacialControl.Rec.Adapters.Playable
             }
         }
 
+        /// <summary>直近の録画で実際に保存したテイク名（同名衝突時の連番付与後）。<see cref="LoadRecording"/> にそのまま渡せる。</summary>
+        public string LastRecordingName => _lastRecordingName;
+
+        /// <summary>直近の録画で実際に保存したファイルパス（同名衝突時の連番付与後）。</summary>
         public string LastRecordingPath => _lastRecordingPath;
 
         public string LoadedRecordingPath => _loadedRecordingPath;
@@ -99,9 +105,10 @@ namespace Hidano.FacialControl.Rec.Adapters.Playable
 
             // 同名テイクは上書きせず連番を付与して保存する（REC データは代替が効かない）。
             string filePath = RecSidecarPath.ResolveUniqueFilePath(requestedFilePath);
+            string savedRecordingName = Path.GetFileNameWithoutExtension(filePath);
             if (!string.Equals(filePath, requestedFilePath, StringComparison.Ordinal))
             {
-                UnityEngine.Debug.Log($"REC recording '{resolvedRecordingName}' already exists. Saving as '{System.IO.Path.GetFileNameWithoutExtension(filePath)}' instead.");
+                UnityEngine.Debug.Log($"REC recording '{resolvedRecordingName}' already exists. Saving as '{savedRecordingName}' instead.");
             }
 
             RecBaselineState baseline = CaptureBaseline(profile, controller.InputSourceRegistry);
@@ -111,6 +118,14 @@ namespace Hidano.FacialControl.Rec.Adapters.Playable
                 new StopwatchRecClock(),
                 _streamWriter);
             _recordingUseCase.StartRecording(baseline);
+            if (!_streamWriter.IsOutputAvailable)
+            {
+                UnityEngine.Debug.LogWarning($"REC recording start was ignored because the output file could not be created: {filePath}");
+                DisposeRecordingSession();
+                return false;
+            }
+
+            _lastRecordingName = savedRecordingName;
             _lastRecordingPath = filePath;
             return true;
         }
@@ -120,11 +135,25 @@ namespace Hidano.FacialControl.Rec.Adapters.Playable
             DisposeRecordingSession();
         }
 
-        public bool LoadRecording(string recordingName)
+        /// <summary>
+        /// 指定したテイクを読み込む。<paramref name="recordingName"/> が空なら直近に録画したテイク
+        /// （<see cref="LastRecordingName"/>。連番付与後の名前）を読み込む。
+        /// </summary>
+        public bool LoadRecording(string recordingName = null)
         {
             if (!TryEnsureReady(out FacialController controller, out FacialProfile profile))
             {
                 return false;
+            }
+
+            if (string.IsNullOrWhiteSpace(recordingName))
+            {
+                recordingName = _lastRecordingName;
+                if (string.IsNullOrWhiteSpace(recordingName))
+                {
+                    UnityEngine.Debug.LogWarning("REC load was ignored because no recording name was given and nothing has been recorded yet.");
+                    return false;
+                }
             }
 
             StopRecording();

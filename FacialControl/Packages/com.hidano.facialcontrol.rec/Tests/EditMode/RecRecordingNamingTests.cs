@@ -34,7 +34,7 @@ namespace Hidano.FacialControl.Rec.Tests.EditMode
         }
 
         [Test]
-        public void BuildTimestampName_UsesTakePrefixAndYearMonthDayHourMinuteSecond()
+        public void BuildTimestampName_FixedDateTime_ReturnsTakePrefixedYyyyMmddHhmmss()
         {
             string name = RecRecordingNaming.BuildTimestampName(new DateTime(2026, 1, 2, 3, 4, 5));
 

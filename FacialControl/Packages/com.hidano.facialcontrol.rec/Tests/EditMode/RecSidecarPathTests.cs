@@ -51,70 +51,64 @@ namespace Hidano.FacialControl.Rec.Tests.EditMode
                 Is.False);
             Assert.That(recordingError, Does.Contain("recordingName"));
         }
+    }
+
+    /// <summary>
+    /// 一時ディレクトリを前提にする <see cref="RecSidecarPath.ResolveUniqueFilePath"/> の fixture。
+    /// </summary>
+    [TestFixture]
+    public class RecSidecarPathResolveUniqueFilePathTests
+    {
+        private string _tempDirectory;
+
+        [SetUp]
+        public void SetUp()
+        {
+            _tempDirectory = Path.Combine(Path.GetTempPath(), "FacialControlRecSidecarPathTests", Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(_tempDirectory);
+        }
+
+        [TearDown]
+        public void TearDown()
+        {
+            if (!string.IsNullOrEmpty(_tempDirectory) && Directory.Exists(_tempDirectory))
+            {
+                Directory.Delete(_tempDirectory, true);
+            }
+        }
 
         [Test]
         public void ResolveUniqueFilePath_FileDoesNotExist_ReturnsSamePath()
         {
-            string directory = CreateTempDirectory();
-            try
-            {
-                string filePath = Path.Combine(directory, "take01" + RecSidecarPath.FileExtension);
+            string filePath = Path.Combine(_tempDirectory, "take01" + RecSidecarPath.FileExtension);
 
-                string resolved = RecSidecarPath.ResolveUniqueFilePath(filePath);
+            string resolved = RecSidecarPath.ResolveUniqueFilePath(filePath);
 
-                Assert.That(resolved, Is.EqualTo(filePath));
-            }
-            finally
-            {
-                Directory.Delete(directory, true);
-            }
+            Assert.That(resolved, Is.EqualTo(filePath));
         }
 
         [Test]
         public void ResolveUniqueFilePath_FileExists_AppendsSequenceSuffixInsteadOfOverwriting()
         {
-            string directory = CreateTempDirectory();
-            try
-            {
-                string filePath = Path.Combine(directory, "take01" + RecSidecarPath.FileExtension);
-                File.WriteAllText(filePath, "original");
+            string filePath = Path.Combine(_tempDirectory, "take01" + RecSidecarPath.FileExtension);
+            File.WriteAllText(filePath, "original");
 
-                string resolved = RecSidecarPath.ResolveUniqueFilePath(filePath);
+            string resolved = RecSidecarPath.ResolveUniqueFilePath(filePath);
 
-                Assert.That(resolved, Is.EqualTo(Path.Combine(directory, "take01-2" + RecSidecarPath.FileExtension)));
-                Assert.That(File.ReadAllText(filePath), Is.EqualTo("original"));
-            }
-            finally
-            {
-                Directory.Delete(directory, true);
-            }
+            Assert.That(resolved, Is.EqualTo(Path.Combine(_tempDirectory, "take01-2" + RecSidecarPath.FileExtension)));
+            Assert.That(File.ReadAllText(filePath), Is.EqualTo("original"));
         }
 
         [Test]
         public void ResolveUniqueFilePath_SuffixedFileAlsoExists_IncrementsUntilFree()
         {
-            string directory = CreateTempDirectory();
-            try
-            {
-                string filePath = Path.Combine(directory, "take01" + RecSidecarPath.FileExtension);
-                File.WriteAllText(filePath, "1");
-                File.WriteAllText(Path.Combine(directory, "take01-2" + RecSidecarPath.FileExtension), "2");
+            string filePath = Path.Combine(_tempDirectory, "take01" + RecSidecarPath.FileExtension);
+            File.WriteAllText(filePath, "1");
+            File.WriteAllText(Path.Combine(_tempDirectory, "take01-2" + RecSidecarPath.FileExtension), "2");
 
-                string resolved = RecSidecarPath.ResolveUniqueFilePath(filePath);
+            string resolved = RecSidecarPath.ResolveUniqueFilePath(filePath);
 
-                Assert.That(resolved, Is.EqualTo(Path.Combine(directory, "take01-3" + RecSidecarPath.FileExtension)));
-            }
-            finally
-            {
-                Directory.Delete(directory, true);
-            }
-        }
-
-        private static string CreateTempDirectory()
-        {
-            string directory = Path.Combine(Path.GetTempPath(), "FacialControlRecSidecarPathTests", Guid.NewGuid().ToString("N"));
-            Directory.CreateDirectory(directory);
-            return directory;
+            Assert.That(resolved, Is.EqualTo(Path.Combine(_tempDirectory, "take01-3" + RecSidecarPath.FileExtension)));
         }
     }
 }

@@ -28,6 +28,7 @@ namespace Hidano.FacialControl.Rec.Adapters.Recording
         private readonly object _gate = new object();
 
         private Thread _thread;
+        private Stream _pendingStream;
         private RecBaselineState _baseline = RecBaselineState.Empty;
         private long _startedAtUnixMilliseconds;
         private int _baselineRecordCount;
@@ -36,6 +37,7 @@ namespace Hidano.FacialControl.Rec.Adapters.Recording
         private volatile bool _accepting;
         private volatile bool _stopRequested;
         private bool _sessionOpen;
+        private bool _outputAvailable;
         private bool _disposed;
 
         public RecStreamWriter(
@@ -72,6 +74,11 @@ namespace Hidano.FacialControl.Rec.Adapters.Recording
             _postFinalizeAction = postFinalizeAction;
         }
 
+        /// <summary>
+        /// 直近の <see cref="Open"/> で出力ファイルを開けたか。false のセッションではイベントを書き出さない。
+        /// </summary>
+        public bool IsOutputAvailable => _outputAvailable;
+
         public void Open(RecBaselineState baseline)
         {
             ThrowIfDisposed();
@@ -90,8 +97,18 @@ namespace Hidano.FacialControl.Rec.Adapters.Recording
                 _durationSeconds = 0d;
                 _runtimeEventCount = 0;
                 _stopRequested = false;
-                _accepting = true;
                 _sessionOpen = true;
+
+                // 出力ファイルは呼び出し元スレッドで同期的に開く。失敗（既存ファイルとの衝突など）を
+                // 呼び出し元が IsOutputAvailable で検知できるようにするため、ライタースレッドには委ねない。
+                _pendingStream = TryCreateStream();
+                _outputAvailable = _pendingStream != null;
+                _accepting = _outputAvailable;
+                if (!_outputAvailable)
+                {
+                    return;
+                }
+
                 _thread = new Thread(WriterLoop)
                 {
                     IsBackground = true,
@@ -120,6 +137,7 @@ namespace Hidano.FacialControl.Rec.Adapters.Recording
         public void Complete(double durationSeconds, int eventCount)
         {
             Thread threadToJoin;
+            bool outputAvailable;
             lock (_gate)
             {
                 if (!_sessionOpen)
@@ -134,6 +152,12 @@ namespace Hidano.FacialControl.Rec.Adapters.Recording
                 threadToJoin = _thread;
                 _thread = null;
                 _sessionOpen = false;
+                outputAvailable = _outputAvailable;
+            }
+
+            if (!outputAvailable)
+            {
+                return;
             }
 
             if (threadToJoin != null && threadToJoin.IsAlive && !threadToJoin.Join(ThreadJoinTimeoutMs))
@@ -166,21 +190,18 @@ namespace Hidano.FacialControl.Rec.Adapters.Recording
 
             try
             {
+                stream = _pendingStream;
+                _pendingStream = null;
+
                 try
                 {
-                    string directory = Path.GetDirectoryName(_filePath);
-                    if (!string.IsNullOrEmpty(directory))
-                    {
-                        Directory.CreateDirectory(directory);
-                    }
-
-                    stream = _streamFactory(_filePath);
                     WriteHeader(stream, ref buffer);
                     WriteBaseline(stream, ref buffer);
                 }
                 catch (Exception ex)
                 {
                     LogThrottledError(ex, startedAtUtc, ref nextErrorLogSeconds);
+                    stream.Dispose();
                     stream = null;
                 }
 
@@ -360,6 +381,25 @@ namespace Hidano.FacialControl.Rec.Adapters.Recording
             }
 
             Array.Resize(ref buffer, requiredCapacity);
+        }
+
+        private Stream TryCreateStream()
+        {
+            try
+            {
+                string directory = Path.GetDirectoryName(_filePath);
+                if (!string.IsNullOrEmpty(directory))
+                {
+                    Directory.CreateDirectory(directory);
+                }
+
+                return _streamFactory(_filePath);
+            }
+            catch (Exception ex)
+            {
+                Debug.LogError($"REC writer could not open '{_filePath}': {ex.Message}");
+                return null;
+            }
         }
 
         private static Stream CreateFileStream(string filePath)

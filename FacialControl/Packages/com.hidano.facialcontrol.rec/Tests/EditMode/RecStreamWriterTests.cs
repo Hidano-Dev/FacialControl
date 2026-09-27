@@ -45,6 +45,9 @@ namespace Hidano.FacialControl.Rec.Tests.EditMode
 
             using var writer = new RecStreamWriter(filePath, segmentCapacity: 2, initialSegments: 2, axisFloatCapacityPerSegment: 8);
             writer.Open(baseline);
+
+            Assert.That(writer.IsOutputAvailable, Is.True);
+
             writer.AppendEvent(RecEvent.CreateTriggerOn(0.1d, 0, 0), ReadOnlySpan<float>.Empty);
             writer.AppendEvent(RecEvent.CreateAnalogSample(0.2d, 1, 2), new float[] { 0.4f, -0.75f });
 
@@ -86,11 +89,14 @@ namespace Hidano.FacialControl.Rec.Tests.EditMode
             byte[] original = { 1, 2, 3, 4 };
             File.WriteAllBytes(filePath, original);
 
-            LogAssert.Expect(LogType.Error, new Regex("REC writer I/O failed"));
+            LogAssert.Expect(LogType.Error, new Regex("could not open"));
 
             using (var writer = new RecStreamWriter(filePath))
             {
                 writer.Open(RecBaselineState.Empty);
+
+                Assert.That(writer.IsOutputAvailable, Is.False);
+
                 writer.AppendEvent(RecEvent.CreateTriggerOn(0.1d, 0, 0), ReadOnlySpan<float>.Empty);
                 writer.Complete(0.1d, 1);
             }

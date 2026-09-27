@@ -4,7 +4,7 @@ using System.Globalization;
 namespace Hidano.FacialControl.Rec.Adapters.Recording
 {
     /// <summary>
-    /// Resolves the recording name used for a new REC take.
+    /// 新しい REC テイクの録画名を解決する。
     /// </summary>
     public static class RecRecordingNaming
     {

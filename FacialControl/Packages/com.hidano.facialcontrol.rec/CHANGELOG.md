@@ -4,10 +4,16 @@
 
 ## [Unreleased]
 
+### Added
+
+- `RecCharacterBinding.LastRecordingName` — 直近の録画で実際に保存したテイク名（連番付与後）
+- `RecCharacterBinding.LoadRecording()` の名前省略 — 直近に録画したテイクを読み込む。Inspector の Load Recording も Recording Name が空なら同じ動作になる
+
 ### Changed
 
-- 同名の録画がすでにある場合は上書きせず、`{名前}-2`, `{名前}-3`… と連番を付けて保存するようにした。実際に保存したパスは `LastRecordingPath` と Inspector の Path 表示に反映される。`RecStreamWriter` も既存ファイルを開かない（`FileMode.CreateNew`）
-- `RecCharacterBinding` の Default Recording Name の初期値を `take` から空にし、Recording Name / Default Recording Name の両方が空なら `take-yyyyMMdd-HHmmss` で命名する（README の記述と実装を一致させた）
+- 同名の録画がすでにある場合は上書きせず、`{名前}-2`, `{名前}-3`… と連番を付けて保存するようにした。実際に保存した名前とパスは `LastRecordingName` / `LastRecordingPath` と Inspector の Path 表示に反映される
+- `RecStreamWriter` は出力ファイルを `FileMode.CreateNew` で `Open` 時に同期的に開き、既存ファイルを決して上書きしない。開けなかった場合は `IsOutputAvailable` が false になり、`RecCharacterBinding.StartRecording` は警告を出して false を返す
+- `RecCharacterBinding` の Default Recording Name の初期値を `take` から空にし、Recording Name / Default Recording Name の両方が空なら `take-yyyyMMdd-HHmmss` で命名する（README の記述と実装を一致させた）。Inspector の Recording Name 欄を Default Recording Name で埋めるのをやめた
 - 録画名の解決ロジックを `RecRecordingNaming` に切り出した
 
 ## [1.0.0] - 2026-09-25

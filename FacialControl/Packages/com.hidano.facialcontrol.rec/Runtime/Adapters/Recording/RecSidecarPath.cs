@@ -1,4 +1,5 @@
 using System;
+using System.Globalization;
 using System.IO;
 using Hidano.FacialControl.Adapters.ScriptableObject.Serializable;
 using UnityEngine;
@@ -66,23 +67,20 @@ namespace Hidano.FacialControl.Rec.Adapters.Recording
                 return filePath;
             }
 
-            string directory = Path.GetDirectoryName(filePath);
+            string directory = Path.GetDirectoryName(filePath) ?? string.Empty;
             string baseName = Path.GetFileNameWithoutExtension(filePath);
             string extension = Path.GetExtension(filePath);
 
-            for (int sequence = 2; sequence < int.MaxValue; sequence++)
+            for (int sequence = 2; ; sequence++)
             {
-                string candidateName = baseName + "-" + sequence.ToString(System.Globalization.CultureInfo.InvariantCulture) + extension;
-                string candidate = string.IsNullOrEmpty(directory)
-                    ? candidateName
-                    : Path.Combine(directory, candidateName);
+                string candidate = Path.Combine(
+                    directory,
+                    baseName + "-" + sequence.ToString(CultureInfo.InvariantCulture) + extension);
                 if (!File.Exists(candidate))
                 {
                     return candidate;
                 }
             }
-
-            throw new IOException($"Could not find a free recording file name for '{filePath}'.");
         }
 
         private static bool TryNormalizeSegment(string value, string paramName, out string normalizedValue, out string error)

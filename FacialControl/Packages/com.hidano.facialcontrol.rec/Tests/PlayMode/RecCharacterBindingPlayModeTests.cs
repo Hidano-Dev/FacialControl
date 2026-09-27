@@ -66,7 +66,7 @@ namespace Hidano.FacialControl.Rec.Tests.PlayMode
             triggerSource.TriggerOff("smile");
             analogSource.Publish(0f, 0f);
 
-            Assert.That(binding.LoadRecording("session"), Is.True);
+            Assert.That(binding.LoadRecording(binding.LastRecordingName), Is.True);
 
             bool completed = false;
             binding.Completed += () => completed = true;
@@ -91,6 +91,48 @@ namespace Hidano.FacialControl.Rec.Tests.PlayMode
             Assert.That(binding.PlaybackState, Is.EqualTo(RecPlaybackState.Idle));
             Assert.That(registry.TryResolve(analogSource.Id, out IInputSource restoredSource), Is.True);
             Assert.That(restoredSource, Is.SameAs(analogSource));
+        }
+
+        [UnityTest]
+        public IEnumerator StartRecording_SameNameTwice_KeepsBothFilesUnderDistinctPaths()
+        {
+            SetupHarness(out _, out RecCharacterBinding binding, out FakeObservationBus bus, out _, out TestTriggerSource triggerSource, out _);
+
+            Assert.That(binding.StartRecording("same"), Is.True);
+            bus.PublishTriggerOn(triggerSource.Id, "smile");
+            binding.StopRecording();
+            string firstPath = binding.LastRecordingPath;
+            byte[] firstBytes = File.ReadAllBytes(firstPath);
+
+            Assert.That(binding.StartRecording("same"), Is.True);
+            bus.PublishTriggerOn(triggerSource.Id, "smile");
+            binding.StopRecording();
+            string secondPath = binding.LastRecordingPath;
+            yield return null;
+
+            Assert.That(secondPath, Is.Not.EqualTo(firstPath));
+            Assert.That(binding.LastRecordingName, Is.EqualTo("same-2"));
+            Assert.That(File.ReadAllBytes(firstPath), Is.EqualTo(firstBytes));
+            Assert.That(RecFileReader.TryRead(firstPath, out _), Is.True);
+            Assert.That(RecFileReader.TryRead(secondPath, out _), Is.True);
+        }
+
+        [UnityTest]
+        public IEnumerator LoadRecording_WithoutName_LoadsTheTakeThatWasJustRecorded()
+        {
+            SetupHarness(out _, out RecCharacterBinding binding, out FakeObservationBus bus, out _, out TestTriggerSource triggerSource, out _);
+
+            Assert.That(binding.StartRecording("reload"), Is.True);
+            bus.PublishTriggerOn(triggerSource.Id, "smile");
+            binding.StopRecording();
+
+            Assert.That(binding.StartRecording("reload"), Is.True);
+            bus.PublishTriggerOn(triggerSource.Id, "smile");
+            binding.StopRecording();
+            yield return null;
+
+            Assert.That(binding.LoadRecording(), Is.True);
+            Assert.That(binding.LoadedRecordingPath, Is.EqualTo(binding.LastRecordingPath));
         }
 
         [UnityTest]

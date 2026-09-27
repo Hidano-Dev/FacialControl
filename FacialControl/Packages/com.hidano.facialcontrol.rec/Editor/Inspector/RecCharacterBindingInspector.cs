@@ -43,18 +43,28 @@ namespace Hidano.FacialControl.Rec.Editor.Inspector
             };
             root.Add(editModeHelp);
 
+            // Default Recording Name で埋めない。空欄は「既定名に委ねる」の意味で、Start は
+            // Default Recording Name → タイムスタンプ、Load は直近に録画したテイクへフォールバックする。
             var recordingNameField = new TextField("Recording Name")
             {
                 name = RecordingNameFieldName,
-                value = serializedObject.FindProperty("_defaultRecordingName").stringValue,
-                tooltip = "空のままなら Default Recording Name、それも空なら take-yyyyMMdd-HHmmss で命名する。同名の録画がある場合は上書きせず -2, -3… を付与して保存する。",
+                tooltip = "Start Recording: 空のままなら Default Recording Name、それも空なら take-yyyyMMdd-HHmmss で命名する。同名の録画がある場合は上書きせず -2, -3… を付与して保存する。\nLoad Recording: 空のままなら直近に録画したテイクを読み込む。",
             };
             root.Add(recordingNameField);
+
+            // Path 表示は「最後に操作した対象」を優先する（録画開始 → 録画パス、Load → 読み込みパス）。
+            bool preferRecordingPath = false;
+            string seenRecordingPath = binding.LastRecordingPath;
+            string seenLoadedPath = binding.LoadedRecordingPath;
 
             var recordButtons = new VisualElement();
             recordButtons.style.flexDirection = FlexDirection.Row;
 
-            var startRecordingButton = new Button(() => binding.StartRecording(ResolveRecordingName(recordingNameField.value)))
+            var startRecordingButton = new Button(() =>
+            {
+                preferRecordingPath = true;
+                binding.StartRecording(ResolveRecordingName(recordingNameField.value));
+            })
             {
                 name = StartRecordingButtonName,
                 text = "Start Recording",
@@ -72,7 +82,11 @@ namespace Hidano.FacialControl.Rec.Editor.Inspector
             var playbackButtons = new VisualElement();
             playbackButtons.style.flexDirection = FlexDirection.Row;
 
-            var loadRecordingButton = new Button(() => binding.LoadRecording(ResolveRecordingName(recordingNameField.value)))
+            var loadRecordingButton = new Button(() =>
+            {
+                preferRecordingPath = false;
+                binding.LoadRecording(ResolveRecordingName(recordingNameField.value));
+            })
             {
                 name = LoadRecordingButtonName,
                 text = "Load Recording",
@@ -117,10 +131,23 @@ namespace Hidano.FacialControl.Rec.Editor.Inspector
                 startPlaybackButton.SetEnabled(isPlaying);
                 stopPlaybackButton.SetEnabled(isPlaying);
 
+                // スクリプト API 経由の操作も拾えるよう、パスの変化からも優先対象を更新する。
+                if (!string.Equals(seenRecordingPath, binding.LastRecordingPath, System.StringComparison.Ordinal))
+                {
+                    seenRecordingPath = binding.LastRecordingPath;
+                    preferRecordingPath = true;
+                }
+
+                if (!string.Equals(seenLoadedPath, binding.LoadedRecordingPath, System.StringComparison.Ordinal))
+                {
+                    seenLoadedPath = binding.LoadedRecordingPath;
+                    preferRecordingPath = false;
+                }
+
                 recordingStateLabel.text = string.Format(RecordingStateLabelFormat, binding.IsRecording);
                 playbackStateLabel.text = string.Format(PlaybackStateLabelFormat, binding.PlaybackState);
                 elapsedSecondsLabel.text = string.Format(ElapsedSecondsLabelFormat, binding.ElapsedSeconds);
-                pathLabel.text = string.Format(PathLabelFormat, ResolveDisplayPath(binding));
+                pathLabel.text = string.Format(PathLabelFormat, ResolveDisplayPath(binding, preferRecordingPath));
             }
 
             Refresh();
@@ -133,10 +160,10 @@ namespace Hidano.FacialControl.Rec.Editor.Inspector
             return string.IsNullOrWhiteSpace(value) ? null : value.Trim();
         }
 
-        private static string ResolveDisplayPath(RecCharacterBinding binding)
+        private static string ResolveDisplayPath(RecCharacterBinding binding, bool preferRecordingPath)
         {
-            // 録画中は実際に保存しているパス（連番付与後）を優先して表示する。
-            if (binding.IsRecording && !string.IsNullOrWhiteSpace(binding.LastRecordingPath))
+            // 録画中、または最後の操作が録画なら、実際に保存したパス（連番付与後）を表示する。
+            if ((binding.IsRecording || preferRecordingPath) && !string.IsNullOrWhiteSpace(binding.LastRecordingPath))
             {
                 return binding.LastRecordingPath;
             }
