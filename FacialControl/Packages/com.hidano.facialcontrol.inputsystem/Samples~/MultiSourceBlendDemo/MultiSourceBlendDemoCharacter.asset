@@ -284,7 +284,7 @@ MonoBehaviour:
     - rid: 8000000000000000001
       type: {class: InputSystemAdapterBinding, ns: Hidano.FacialControl.Adapters.AdapterBindings.InputSystem, asm: Hidano.FacialControl.InputSystem}
       data:
-        Slug: input
+        Slug: input-system
         _inputActionAsset: {fileID: -944628639613478452, guid: 5e2f7a9c1b3d4e6f8a0b2c4d5e6f7a8b, type: 3}
         _actionMapName: Expression
         _expressionBindings:
@@ -310,7 +310,7 @@ MonoBehaviour:
           triggerMode: 0
         - bindingMode: 1
           actionName: Look
-          expressionId: eye_look
+          expressionId: gaze
           triggerMode: 0
         - bindingMode: 2
           actionName: LeftTrigger

@@ -1,15 +1,27 @@
 {
     "name": "com.hidano.facialcontrol.rec",
-    "version": "0.1.0-preview.1",
+    "version": "1.0.0",
     "displayName": "FacialControl REC",
-    "description": "FacialControl のトリガー on/off、アナログ入力、gaze を記録・再生する REC パッケージです。core パッケージのみに依存する骨格を提供します。",
+    "description": "FacialControl のトリガー on/off・アナログ入力・Gaze を記録し、再生時に live 入力を遮断して再現する REC パッケージ。core パッケージのみに依存する。",
     "unity": "6000.3",
     "license": "MIT",
     "author": {
         "name": "Hidano"
     },
+    "homepage": "https://github.com/NHidano/FacialControl#readme",
+    "repository": {
+        "type": "git",
+        "url": "https://github.com/NHidano/FacialControl.git",
+        "directory": "FacialControl/Packages/com.hidano.facialcontrol.rec"
+    },
+    "bugs": {
+        "url": "https://github.com/NHidano/FacialControl/issues"
+    },
+    "documentationUrl": "https://github.com/NHidano/FacialControl/blob/main/FacialControl/Packages/com.hidano.facialcontrol.rec/README.md",
+    "changelogUrl": "https://github.com/NHidano/FacialControl/blob/main/FacialControl/Packages/com.hidano.facialcontrol.rec/CHANGELOG.md",
+    "licensesUrl": "https://github.com/NHidano/FacialControl/blob/main/FacialControl/Packages/com.hidano.facialcontrol.rec/LICENSE.md",
     "dependencies": {
-        "com.hidano.facialcontrol": "0.1.0-preview.2"
+        "com.hidano.facialcontrol": "1.0.0"
     },
     "keywords": [
         "facial",

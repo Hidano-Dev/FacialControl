@@ -1,32 +1,16 @@
 # Changelog
 
-すべての変更は [Keep a Changelog](https://keepachangelog.com/ja/1.1.0/) の形式に準拠し、[セマンティックバージョニング](https://semver.org/lang/ja/) に従います。
+[Keep a Changelog](https://keepachangelog.com/ja/1.1.0/) の形式に準拠し、[セマンティックバージョニング](https://semver.org/lang/ja/) に従う。
 
-## [0.1.0-preview.1] - Unreleased
+## [1.0.0] - 2026-09-25
 
-初回プレリリース。`com.hidano.facialcontrol` に iFacialMocap (iOS) 受信アダプタを追加しました。
-
-### ⚠ BREAKING CHANGES — gaze-channel-redesign
-
-- 視線入力は Profile の既定チャネル `gaze`（左右別は `{slug}:gaze.left` / `{slug}:gaze.right`）として宣言・登録されます。旧 expressionId / actionName 前提の source id は更新してください。
-- 目ボーン適用は core の `FacialController` に集約されました。旧 gaze provider 注入や `Configure` に依存するコードは更新が必要です。
-- 詳細は core の [`migration-guide.md`](../com.hidano.facialcontrol/Documentation~/migration-guide.md) を参照してください。
+初回リリース。
 
 ### Added
 
-- `IFacialMocapReceiverAdapterBinding` を追加し、iFacialMocap の UDP テキストプロトコル（標準 `-` / v2 `&` 両対応）から BlendShape・視線・頭部ポーズを受信できるようにしました。
-- `IFacialMocapReceiverHost` を追加し、受信スレッドでの UDP listen とハンドシェイク送信、最新フレーム保持を行います。
-- `IFacialMocapPacketParser` / `IFacialMocapBlendShapeCatalog` / `EyeGazeConverter` など Unity 非依存のプロトコル層を追加しました。
-- BlendShape 値パイプラインは `com.hidano.facialcontrol.osc` の `OscDoubleBuffer` / `OscInputSource`、視線は `GazeVector2InputSource` を再利用し、頭部は N 軸 `AnalogAxesInputSource` で公開します。
-- `IFacialMocapRuntimeSettingsSO` / `IFacialMocapOptionsDto` と JSON ラウンドトリップ、UI Toolkit ベースの `IFacialMocapReceiverAdapterBindingDrawer` を追加しました。
-- Package Manager の Import Sample から利用できる `IFacialMocapReceiverDemo` を追加しました。
-
-### Changed
-
-- `package.json` の `name` を `jp.co.com.hidano.facialcontrol.ifacialmocap` から `com.hidano.facialcontrol.ifacialmocap` に修正しました（他パッケージと同じ `com.hidano.facialcontrol.*` 体系に揃えるため。未公開のため利用者への影響はありません）。`packages-lock.json` のキーも併せて更新しています。
-- 自前の gaze 目ボーン適用を撤去し、core `FacialController` の集約適用へ移行しました。`IFacialMocapReceiverAdapterBinding` は視線入力源の registry 登録までを担います。目ボーン結線は `GazeChannel` で行います。
-
-### Documentation
-
-- README に iFacialMocap プロトコル、受信設定、視線 / 頭部の結線手順、サンプル導線を記載しました。
-- `Documentation~/ifacialmocap-options.md` と `Documentation~/usage.md` を追加しました。
+- `IFacialMocapReceiverAdapterBinding`（"iFacialMocap Receiver"）— iFacialMocap の UDP テキストプロトコル（標準 `-` / v2 `&`）を受信し、ARKit 互換 52 BlendShape（`<slug>`）、視線（`<slug>:gaze.left` / `.right`）、頭部（`<slug>:head`）を入力源として登録
+- `IFacialMocapReceiverHost` — 受信スレッドでの UDP listen、ハンドシェイク送信、最新フレーム保持
+- `IFacialMocapPacketParser` / `IFacialMocapBlendShapeCatalog` / `EyeGazeConverter` など Unity 非依存のプロトコル層
+- `IFacialMocapRuntimeSettingsSO` と `IFacialMocapOptionsDto` — 環境依存設定の sub-asset 化と JSON 相互変換
+- UI Toolkit の Drawer（Runtime Settings / BlendShape Mappings / Gaze 反転）
+- サンプル `IFacialMocapReceiverDemo`（実装 Scene と受信疎通確認用の診断 bootstrap）

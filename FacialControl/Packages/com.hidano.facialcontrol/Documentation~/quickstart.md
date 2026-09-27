@@ -1,63 +1,62 @@
-# クイックスタートガイド
+# クイックスタート
 
-FacialControl で 3D キャラクターの表情をリアルタイム制御するまでの最短手順です。**InputActionAsset 1 個 + キャラクター SO 1 個** だけ用意すれば動作します。JSON は人間が触る必要はありません。
+FacialControl で 3D キャラクターの表情をリアルタイム制御するまでの最短手順。用意するのは **`FacialCharacterProfileSO` 1 個** と、入力に応じたサブパッケージの binding だけで、JSON を手で触る必要はない。
 
-> **最速確認**: `com.hidano.facialcontrol.inputsystem` をインストール後、Package Manager から `Multi Source Blend Demo` サンプルを Import し、Scene の `Character` GameObject にモデルを子として配置すれば即動作します。詳細は `Samples~/MultiSourceBlendDemo/README.md`。
+> **最速確認**: `com.hidano.facialcontrol.inputsystem` を入れて Package Manager から `Multi Source Blend Demo` サンプルを Import し、Scene の `Character` にモデルを子として置くだけで動く。詳細はサンプルの README を参照。
 
-## 動作要件
-
-- Unity 6000.3 以降
-- Animator を持つ 3D キャラクターモデル (FBX / VRM 等)
-- BlendShape を持つ SkinnedMeshRenderer
-
-## 1. パッケージのインストール
+## 1. インストール
 
 | パッケージ | 役割 | 必須依存 |
 |---|---|---|
-| `com.hidano.facialcontrol` | コア (表情遷移・PlayableGraph・Editor 拡張) | Unity 6000.3+ |
-| `com.hidano.facialcontrol.inputsystem` | InputSystem 経由の入力結線 (推奨) | コア + `com.unity.inputsystem` |
-| `com.hidano.facialcontrol.osc` | OSC 送受信 (任意) | コア + `com.hidano.uosc` |
+| `com.hidano.facialcontrol` | コア | `jp.hadashikick.vcontainer`（OpenUPM） |
+| `com.hidano.facialcontrol.expression-creator` | Expression 作成ツール（Editor のみ） | `com.hidano.scene-view-style-camera-controller` |
+| `com.hidano.facialcontrol.routing-editor` | ルーティングエディタ（Editor のみ） | なし |
+| `com.hidano.facialcontrol.inputsystem` | キーボード / コントローラ入力 | `com.unity.inputsystem` |
+| `com.hidano.facialcontrol.osc` | OSC 送受信（VRChat / ARKit 互換） | `com.hidano.uosc` |
+| `com.hidano.facialcontrol.lipsync` | uLipSync 連携（Windows） | `com.hidano.ulipsync-asio` |
+| `com.hidano.facialcontrol.ifacialmocap` | iFacialMocap 受信 | `com.hidano.facialcontrol.osc` |
+| `com.hidano.facialcontrol.rec` | 入力の記録・再生 | なし |
+| `com.hidano.facialcontrol.timeline` | Timeline 連携 | `com.unity.timeline`, `.rec` |
 
-`Packages/manifest.json` に scopedRegistries (`com.hidano` を `https://registry.npmjs.org` に向ける) を追加した上で `dependencies` に追記してください。Git URL 経由のインストールも可能です (詳細は本リポジトリ README)。
+`Packages/manifest.json` に scoped registry（`com.hidano` → npmjs、`jp.hadashikick.vcontainer` → OpenUPM）を追加し、必要なパッケージだけを `dependencies` に書く。具体例はパッケージ README を参照。
 
-## 2. SO とコンポーネントのセットアップ
+## 2. Profile を作る
 
-このリファクタ後は **FacialCharacterSO 1 個** をシーン上のキャラクターに結線するだけで完結します。
+1. Project ウィンドウで右クリック → **Create → FacialControl → Facial Character Profile**
+2. Inspector 上部の **参照モデル** にキャラクター prefab を割り当てる。BlendShape 名の候補表示と、目ボーンの自動解決に使う
+3. **表情ライブラリ** タブで Expression を追加する
+   - **id**（スクリプトや入力 binding から参照する文字列）、**名前**、**所属レイヤー**、**AnimationClip**、**遷移時間** を設定
+   - AnimationClip は `com.hidano.facialcontrol.expression-creator` の **Tools → FacialControl → Expression 作成** で、モデルを見ながら BlendShape スライダーを動かしてベイクできる
+   - まばたきや音素を重ねたい場合は **Slots** を宣言し、**Default Overlays** と各 Expression の **Overlays** で Default / Suppress / Override を選ぶ
+4. **レイヤー** タブでレイヤー名・優先度・排他モード・入力源 id を確認する。サブパッケージの binding を Add すると既定レイヤーが自動追加されるので、通常は手で書く必要はない
+5. **Adapter Bindings** タブで **Add** から入力源を追加し、slug と設定を埋める（例: `Input System` → InputActionAsset とキーバインディング）
 
-1. Project ウィンドウで右クリック → **Create** → **FacialControl** → **Facial Character** で `FacialCharacterSO` を作成
-2. 作成された SO の Inspector を開き、各 Foldout セクションを上から埋める:
-   - **入力 (Input)**: 自前の `.inputactions` または同梱の `FacialControlDefaultActions.inputactions` を割り当て、`Action Map Name` を設定 (既定 `Expression`)
-   - **キーバインディング**: Action 名 ↔ Expression ID を編集 (Action 名はドロップダウンで InputActionAsset から候補列挙)
-   - **アナログバインディング**: 必要に応じて右スティック等を BlendShape / BonePose 軸に写像
-   - **レイヤー** / **Expression** / **BonePose**: 表情データ本体を編集 (BlendShape 名は参照モデルから候補ドロップダウン)
-3. シーンにキャラクターを配置し、Animator を含むルート GameObject を選択
-4. **Add Component** → **FacialControl** → **Facial Controller**
-5. **Character SO** フィールドに 1 で作成した SO をドラッグ&ドロップ
-6. (InputSystem 連携時) 同 GameObject に **Add Component** → **FacialControl** → **Facial Character Input Extension**
+## 3. Scene に結線する
 
-これだけで Play 時に自動初期化されます。`OnEnable` で SO から表情データと入力結線を読み込み、`OnDisable` でクリーンアップします。
+1. キャラクターのルート（`Animator` を持つ GameObject）を選択
+2. **Add Component → FacialControl → Facial Controller** を追加
+3. **Character SO** に 2 で作った Profile をドラッグ
+4. Play。`OnEnable` で初期化され、`OnDisable` で後始末される
 
-> **JSON について**: SO 編集時に Editor が裏で `StreamingAssets/FacialControl/{SO 名}/profile.json` を自動エクスポートします。**ユーザーが JSON のパスを書いたり中身を編集したりする必要はありません**。ビルド後にコンテンツ差し替えが必要な場合のみ、StreamingAssets 配下の JSON を直接置き換えれば反映されます。
+BlendShape を持つ `SkinnedMeshRenderer` は子階層から自動探索される。明示したい場合は `Skinned Mesh Renderers` に割り当てる。
 
-## 3. Gaze（目線）の設定
+> **JSON について**: Profile を編集するたび Editor が `StreamingAssets/FacialControl/{SO 名}/profile.json` を書き出す。Play 突入時とビルド時にも全 Profile を再書き出しするので、ランタイムが読む JSON は常に最新になる。ビルド後に表情を差し替えたい場合だけ、この JSON を置き換える。
 
-目線は Expression や `eye` レイヤーではなく、Profile 直下の **Gaze** セクションで設定する独立チャネルです。`eye` レイヤーはまばたき等の BlendShape 表情を担当します。
+## 4. 目線（Gaze）
 
-1. Character Profile の Inspector で **Gaze** セクションを開き、先頭の既定チャネル `gaze` を使用します。
-2. **入力ソース**で InputSystem、OSC 受信、iFacialMocap、Timeline などの入力を選択します。空欄のときは利用可能な binding から自動解決されます。
-3. 参照モデルを割り当てると、Animator を起点に左右の目ボーンを自動検出し、フルパスを保存します。必要に応じて目ボーン path、初期回転、yaw/pitch 軸、上下左右の可動角を上級設定で調整します。
+目線は Expression ではなく、Profile の **目線** タブにある独立したチャネルで扱う。
 
-通常の構成では既定チャネル `gaze` と入力ソースの選択だけで動作します。複数チャネルや左右独立の source id（`{slug}:{channelId}.left` / `.right`）は上級者向け設定です。Gaze はボーンを直接駆動するため、BlendShape の gaze Expression や旧 `GazeConfig` / `isGaze` の設定は不要です。
+1. 既定チャネル `gaze` をそのまま使う（複数チャネルは上級者向け）
+2. **入力ソース** ドロップダウンで、利用する binding が宣言した Gaze 入力源を選ぶ。空欄なら登録済みの入力源から自動解決される
+3. **参照モデルから目ボーンを自動解決** を押すと、Humanoid の Eye ボーン（無ければ名前検索）から左右の目ボーン path・初期回転・yaw / pitch 軸が保存される
+4. 上下 / 外側 / 内側の可動角は必要に応じて調整する
 
-## 4. 動作確認
-
-Unity Editor で Play モードに入り、SO の **キーバインディング** で割り当てた Action のキーを押すと Expression が発火します。Inspector の **デバッグ情報** Foldout で `schemaVersion` / レイヤー数 / Expression 数 / 自動エクスポート先パスを確認できます。
+目ボーンへの適用は `FacialController` が毎フレーム行う。binding 側は Vector2 入力源を登録するだけでよい。
 
 ## 5. スクリプトから表情を切り替える
 
 ```csharp
 using Hidano.FacialControl.Adapters.Playable;
-using Hidano.FacialControl.Domain.Models;
 using UnityEngine;
 
 public class MyExpressionController : MonoBehaviour
@@ -77,49 +76,35 @@ public class MyExpressionController : MonoBehaviour
 }
 ```
 
-### 主要 API
-
 | メソッド | 説明 |
 |---|---|
-| `Activate(Expression)` | Expression をアクティブ化 (レイヤーの排他モードに従う) |
-| `Deactivate(Expression)` | Expression を非アクティブ化 |
-| `LoadCharacter(FacialCharacterProfileSO)` | キャラクター SO を切り替え (PlayableGraph 再構築) |
-| `ReloadProfile()` | 現在のプロファイルを再読み込み |
-| `GetActiveExpressions()` | 現在アクティブな Expression のリストを取得 |
-| `SetActiveBonePose(in BonePose)` | アナログ等から BonePose を上書き |
-
-### 主要プロパティ
+| `Activate(Expression)` / `Deactivate(Expression)` | Expression の on / off（レイヤーの排他モードに従う） |
+| `LoadCharacter(FacialCharacterProfileSO)` | Profile を切り替えて再初期化 |
+| `ReloadProfile()` | 現在の Profile を再読み込み |
+| `GetActiveExpressions()` | アクティブな Expression の一覧 |
+| `SetLayerWeight(string layerName, float weight)` | レイヤー全体の重み |
+| `SetInputSourceWeight(int layerIdx, int sourceIdx, float weight)` | レイヤー内の入力源の重み（`sourceIdx` 0 は内部 Expression 用） |
+| `SetActiveBoneSnapshots(ReadOnlyMemory<BoneSnapshot>)` | ボーンポーズの上書き |
 
 | プロパティ | 型 | 説明 |
 |---|---|---|
 | `IsInitialized` | `bool` | 初期化済みか |
-| `CurrentProfile` | `FacialProfile?` | 現在のプロファイル |
-| `CharacterSO` | `FacialCharacterProfileSO` | 結線中の統合 SO |
+| `CurrentProfile` | `FacialProfile?` | 現在の Profile |
+| `CharacterSO` | `FacialCharacterProfileSO` | 結線中の Profile アセット |
+| `InputSourceRegistry` | `IInputSourceRegistry` | binding が登録した入力源 |
 
-## 6. ARKit / PerfectSync の自動検出 (オプション)
+## 6. ARKit / PerfectSync
 
-メニュー **FacialControl** → **ARKit 検出ツール** からモデルの BlendShape 命名を自動検出して Expression を生成できます。出力先に `FacialCharacterSO` の StreamingAssets 規約パスを指定すれば、対応する JSON が直接更新されます。
+**Tools → FacialControl → ARKit 検出ツール** でモデルの BlendShape を走査し、ARKit 52 / PerfectSync の命名を検出して Expression と OSC マッピングを生成できる。iFacialMocap などのキャプチャアプリから受け取る場合は `com.hidano.facialcontrol.ifacialmocap` または `com.hidano.facialcontrol.osc` を使う。
 
 ## トラブルシューティング
 
-### 表情が変化しない
-
-- **キャラクター SO 未結線**: `FacialController.CharacterSO` を Inspector で確認
-- **BlendShape 名がモデルと不一致**: SO Inspector の `_referenceModel` (Editor 専用) に対象モデルを指定すれば BlendShape ドロップダウンが正しい候補を表示
-- **SkinnedMeshRenderer 自動検索失敗**: `FacialController.SkinnedMeshRenderers` に明示的に割り当て
-- **Animator が無い**: ルートに Animator を必ず付与
-
-### キー入力で切り替わらない
-
-- **InputActionAsset 未結線**: SO Inspector の **入力** セクションで .inputactions を割り当て
-- **Action Map Name 不一致**: 既定は `Expression`、独自命名する場合は両側で揃える
-- **FacialCharacterInputExtension 未追加**: 同 GameObject に追加してあるか確認
-
-### JSON を手で書き換えたい (上級者向け)
-
-ビルド後のコンテンツ差し替え用途のみ想定しています。スキーマは [json-schema.md](json-schema.md) を参照。Editor 操作中の SO がマスターであり、Editor で SO を保存すると JSON が上書きされる点に注意してください。
+- **表情が変化しない**: `FacialController` の Character SO が空でないか、モデルの BlendShape 名が Expression の Clip と一致しているか、ルートに `Animator` があるかを確認
+- **入力源 id の警告が出る**: レイヤーの `inputSources[].id` と binding の slug（`<slug>` / `<slug>:<sub>`）が一致していない。Adapter Bindings タブの slug か、ルーティングエディタ（`com.hidano.facialcontrol.routing-editor`）で配線を確認
+- **同じモデルに `FacialController` が 2 つ付いている**: 祖先側だけが有効になり、他方は警告付きで無効化される。Inspector にも警告が出る
+- **目線が動かない**: 目線タブで目ボーン path が入っているか、入力ソースが binding の宣言と一致しているかを確認
 
 ## 次のステップ
 
-- **JSON スキーマの詳細 (上級者向け)**: [json-schema.md](json-schema.md)
-- **サンプル**: `Multi Source Blend Demo` / `Analog Binding Demo`
+- [JSON スキーマ](json-schema.md) — ビルド後の差し替えや外部ツール連携向け
+- [Adapter Runtime Settings](adapter-runtime-settings.md) — endpoint やデバイス名など環境依存設定の分離

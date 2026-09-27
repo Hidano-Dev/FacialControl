@@ -124,7 +124,7 @@ namespace Hidano.FacialControl.Timeline.Editor
                 initialDirectory = System.IO.Path.GetDirectoryName(currentPath);
             }
 
-            string selected = EditorUtility.OpenFilePanel("Select REC File", initialDirectory ?? string.Empty, "rec");
+            string selected = EditorUtility.OpenFilePanel("Select REC File", initialDirectory ?? string.Empty, "fcrec");
             if (string.IsNullOrWhiteSpace(selected))
             {
                 return;

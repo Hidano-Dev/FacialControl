@@ -5,7 +5,6 @@
         "Hidano.FacialControl.Domain",
         "Hidano.FacialControl.Application",
         "Hidano.FacialControl.Adapters",
-        "SceneViewStyleCameraController",
         "VContainer"
     ],
     "includePlatforms": [

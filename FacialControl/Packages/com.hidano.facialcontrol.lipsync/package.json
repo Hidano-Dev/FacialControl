@@ -1,37 +1,48 @@
 {
-  "name": "com.hidano.facialcontrol.lipsync",
-  "version": "0.1.0-preview.1",
-  "displayName": "FacialControl uLipSync Adapter",
-  "description": "FacialControl の uLipSync 連携アダプタ。Windows 環境で com.hidano.facialcontrol と com.hidano.ulipsync-asio を橋渡しし、uLipSync 解析結果を FacialControl の lipsync 入力ソースへ変換します。",
-  "unity": "6000.3",
-  "unityRelease": "2f1",
-  "license": "MIT",
-  "author": {
-    "name": "Hidano"
-  },
-  "dependencies": {
-    "com.hidano.facialcontrol": "0.1.0-preview.2",
-    "com.hidano.ulipsync-asio": "3.1.5-custom.2"
-  },
-  "keywords": [
-    "facial",
-    "blendshape",
-    "expression",
-    "vtuber",
-    "lipsync",
-    "ulipsync",
-    "windows-only"
-  ],
-  "samples": [
-    {
-      "displayName": "MicLipSyncDemo",
-      "description": "uLipSync のマイク入力を FacialControl の lipsync 入力ソースへ接続するデモ。Character GameObject には uLipSync 系コンポーネントを事前付与しない構成を示します。",
-      "path": "Samples~/MicLipSyncDemo"
+    "name": "com.hidano.facialcontrol.lipsync",
+    "version": "1.0.0",
+    "displayName": "FacialControl uLipSync Adapter",
+    "description": "FacialControl の uLipSync 連携アダプタ。Windows 環境で com.hidano.facialcontrol と com.hidano.ulipsync-asio を橋渡しし、uLipSync の音素解析結果を FacialControl の phoneme overlay (lipsync-overlay:a/i/u/e/o) 入力源へ変換する。",
+    "unity": "6000.3",
+    "license": "MIT",
+    "author": {
+        "name": "Hidano"
     },
-    {
-      "displayName": "AnimationClipLipSyncDemo",
-      "description": "uLipSync の音素入力を BlendShape entry と AnimationClip entry の混在設定へ接続するデモ。AnimationClip entry は time 0 の BlendShape 値をサンプリングします。",
-      "path": "Samples~/AnimationClipLipSyncDemo"
-    }
-  ]
+    "homepage": "https://github.com/NHidano/FacialControl#readme",
+    "repository": {
+        "type": "git",
+        "url": "https://github.com/NHidano/FacialControl.git",
+        "directory": "FacialControl/Packages/com.hidano.facialcontrol.lipsync"
+    },
+    "bugs": {
+        "url": "https://github.com/NHidano/FacialControl/issues"
+    },
+    "documentationUrl": "https://github.com/NHidano/FacialControl/blob/main/FacialControl/Packages/com.hidano.facialcontrol.lipsync/README.md",
+    "changelogUrl": "https://github.com/NHidano/FacialControl/blob/main/FacialControl/Packages/com.hidano.facialcontrol.lipsync/CHANGELOG.md",
+    "licensesUrl": "https://github.com/NHidano/FacialControl/blob/main/FacialControl/Packages/com.hidano.facialcontrol.lipsync/LICENSE.md",
+    "dependencies": {
+        "com.hidano.facialcontrol": "1.0.0",
+        "com.hidano.ulipsync-asio": "3.1.5-custom.2"
+    },
+    "keywords": [
+        "facial",
+        "blendshape",
+        "expression",
+        "vtuber",
+        "lipsync",
+        "ulipsync",
+        "windows-only"
+    ],
+    "samples": [
+        {
+            "displayName": "MicLipSyncDemo",
+            "description": "uLipSync のマイク入力を FacialControl の lipsync 入力ソースへ接続するデモ。Character GameObject には uLipSync 系コンポーネントを事前付与しない構成を示します。",
+            "path": "Samples~/MicLipSyncDemo"
+        },
+        {
+            "displayName": "AnimationClipLipSyncDemo",
+            "description": "uLipSync の音素入力を BlendShape entry と AnimationClip entry の混在設定へ接続するデモ。AnimationClip entry は time 0 の BlendShape 値をサンプリングします。",
+            "path": "Samples~/AnimationClipLipSyncDemo"
+        }
+    ]
 }

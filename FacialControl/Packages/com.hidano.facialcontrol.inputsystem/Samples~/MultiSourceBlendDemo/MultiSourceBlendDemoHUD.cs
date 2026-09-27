@@ -34,7 +34,7 @@ namespace Hidano.FacialControl.Samples
 
         [Tooltip("駆動対象の入力源 slug。profile.inputSources[].id 形式 (<slug> または <slug>:<sub>)。既定: input")]
         [SerializeField]
-        private string _inputSourceSlug = "input";
+        private string _inputSourceSlug = "input-system";
 
         [Tooltip("HUD で観測する LeftEye Transform (BonePose ターゲット)。アナログ機能未使用時は未割当で OK。")]
         [SerializeField]

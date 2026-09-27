@@ -133,7 +133,7 @@ namespace Hidano.FacialControl.Adapters.ScriptableObject.Serializable
 
         public void OnBeforeSerialize() { }
 
-        [Obsolete("GazeChannels を使用してください。後続タスクで削除されます。")]
+        /// <summary>Overlay slot 識別子の宣言一覧。Expression / DefaultOverlays / Adapter Binding の overlaySlot はここに宣言された値だけを参照できる。</summary>
         public IReadOnlyList<string> Slots => _slots ?? (_slots = new List<string>());
         public List<OverlaySlotBindingSerializable> DefaultOverlays
             => _defaultOverlays ?? (_defaultOverlays = new List<OverlaySlotBindingSerializable>());

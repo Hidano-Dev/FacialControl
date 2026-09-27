@@ -15,7 +15,7 @@ namespace Hidano.FacialControl.Tests.EditMode.Editor.Inspector
             "Assets/StreamingAssets/FacialControl/MultiSourceBlendDemoCharacter/profile.json";
 
         private const string ImportedSampleAssetPath =
-            "Assets/Samples/FacialControl InputSystem/0.1.0-preview.2/Multi Source Blend Demo/MultiSourceBlendDemoCharacter.asset";
+            "Assets/Samples/FacialControl InputSystem/1.0.0/Multi Source Blend Demo/MultiSourceBlendDemoCharacter.asset";
 
         private const string PackageSampleProfilePath =
             "Packages/com.hidano.facialcontrol.inputsystem/Samples~/MultiSourceBlendDemo/StreamingAssets/FacialControl/MultiSourceBlendDemoCharacter/profile.json";
@@ -27,7 +27,7 @@ namespace Hidano.FacialControl.Tests.EditMode.Editor.Inspector
         // Assets/StreamingAssets/.. へコピーされる前のテンプレートとして配置されるが、
         // Sample Import 経路の整合性検証では dev StreamingAssets の正本と一致している必要がある。
         private const string ImportedSampleStreamingProfilePath =
-            "Assets/Samples/FacialControl InputSystem/0.1.0-preview.2/Multi Source Blend Demo/StreamingAssets/FacialControl/MultiSourceBlendDemoCharacter/profile.json";
+            "Assets/Samples/FacialControl InputSystem/1.0.0/Multi Source Blend Demo/StreamingAssets/FacialControl/MultiSourceBlendDemoCharacter/profile.json";
 
         [Test]
         public void ProfileJson_DevStreamingAssetsAndPackageSample_AreByteIdentical()

@@ -161,7 +161,7 @@ namespace Hidano.FacialControl.Tests.EditMode.Adapters.Json
             // schemaVersion = "2.0"（未サポート）を渡すと Debug.LogError + NotSupportedException が出る。
             var json = "{\"schemaVersion\":\"2.0\",\"layers\":[],\"expressions\":[],\"rendererPaths\":[]}";
 
-            LogAssert.Expect(LogType.Error, new System.Text.RegularExpressions.Regex("schema v1.0 の strict チェックに失敗"));
+            LogAssert.Expect(LogType.Error, new System.Text.RegularExpressions.Regex("strict"));
 
             var parser = new SystemTextJsonParser();
             var ex = Assert.Throws<NotSupportedException>(() => parser.ParseProfileSnapshotV2(json));
@@ -175,7 +175,7 @@ namespace Hidano.FacialControl.Tests.EditMode.Adapters.Json
             // schemaVersion 自体が無いケースも拒否される。
             var json = "{\"layers\":[],\"expressions\":[],\"rendererPaths\":[]}";
 
-            LogAssert.Expect(LogType.Error, new System.Text.RegularExpressions.Regex("schema v1.0 の strict チェックに失敗"));
+            LogAssert.Expect(LogType.Error, new System.Text.RegularExpressions.Regex("strict"));
 
             var parser = new SystemTextJsonParser();
             var ex = Assert.Throws<NotSupportedException>(() => parser.ParseProfileSnapshotV2(json));

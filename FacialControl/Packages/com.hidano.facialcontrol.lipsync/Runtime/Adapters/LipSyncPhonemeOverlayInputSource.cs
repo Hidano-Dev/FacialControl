@@ -29,7 +29,7 @@ namespace Hidano.FacialControl.LipSync.Adapters
         // （音素 weight × 音量）は既定 snapshot と同じ値を使い回す（無音なら出力なし）。
         // Suppress は当該 slot の出力を止める。
         // precedence: Expression Override → Suppress → DefaultOverlays → LipSync default
-        // （phoneme-overlay-slots design.md / phoneme-overlay-migration.md §5）。
+        // （Documentation~/usage.md「表情側の Override / Suppress」）。
         // 解決コンテキスト未指定（旧 ctor）の場合は既定出力のみの従来動作。
         private readonly string _slot;
         private readonly IActiveExpressionProvider _activeProvider;

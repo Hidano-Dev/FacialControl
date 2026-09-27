@@ -1,57 +1,80 @@
 # FacialControl OSC
 
-`com.hidano.facialcontrol` の OSC（VRChat / ARKit 互換）送受信アダプタ。
-
-## 概要
-
-このパッケージは FacialControl コアに OSC 入出力機能を追加します。
-
-- **OscReceiverAdapterBinding**: `FacialCharacterProfileSO` の Adapter Bindings に追加する受信 binding。BlendShape、VRChat 形式 Gaze X/Y、ARKit / PerfectSync 互換 8 BlendShape Gaze を mode 別 `OscMappingEntry` で受信します。
-- **OscSenderAdapterBinding**: `FacialOutputBus` から post-blend BlendShape と Gaze Vector2 を購読し、VRChat / ARKit 互換 OSC bundle として複数 endpoint へ送信します。
-- **OscReceiverHost / OscSender**: binding 配下で `AddComponent` される helper MonoBehaviour。uOSC サーバー / クライアントをラップし、受信データを `OscDoubleBuffer` と Gaze source へ流します。
-- **JSON DTO / Drawer**: `OscSenderOptionsDto` / `OscReceiverOptionsDto` と UI Toolkit Drawer により、Scene 内設定と JSON サンプルを同じ構造で管理できます。
-
-## 主な機能
-
-- VRChat 互換: `/avatar/parameters/{name}` の BlendShape と `{expressionId}X` / `{expressionId}Y` の Gaze Vector2 送受信
-- ARKit / PerfectSync 互換: `/ARKit/{name}` の BlendShape と `eyeLook...` 8 BlendShape 形式の Gaze 送受信
-- OSC bundle による 1 フレーム単位の送信と、受信側の atomic swap / individual message 切替
-- 複数 endpoint 同報、heartbeat、sender identity、同一プロセス内 loopback 抑制
-- staleness fail-safe、ゾンビ sender 排除、heartbeat の BlendShape 名一覧による整合性検査
-
-## 破壊的変更
-
-preview.2 では `OscReceiverAdapterBinding` の SerializedField 構造を破壊的に変更しました。旧 BlendShape 専用 mapping Asset は自動 migration されないため、Inspector で `OscMappingEntry` の mode を選び直し、BlendShape / `Gaze_VRChat_XY` / `Gaze_ARKit_8BS` の各 entry を再作成してください。
+`com.hidano.facialcontrol` の OSC 送受信アダプタ。VRChat / ARKit（PerfectSync）互換のアドレスで BlendShape と Gaze を送受信し、FacialControl 同士なら heartbeat による自動マッピングで mapping の手入力なしに繋がる。
 
 ## 依存パッケージ
 
 | パッケージ | バージョン | 用途 |
 |---|---|---|
-| `com.hidano.facialcontrol` | 0.1.0-preview.2 以降 | コア機能、`FacialOutputBus`、Gaze binding |
-| `com.hidano.uosc` | 1.0.0 | OSC（UDP）通信 |
+| `com.hidano.facialcontrol` | 1.0.0 | Adapter Binding / 出力バス / Gaze チャネル |
+| `com.hidano.uosc` | 1.0.0 | OSC メッセージ表現と単発送信。受信と bundle 送信は本パッケージ独自の UDP 実装 |
+
+## 提供する binding
+
+| displayName | 既定 slug | 役割 |
+|---|---|---|
+| **OSC Receiver** (`OscReceiverAdapterBinding`) | `osc-receiver` | UDP で受信した BlendShape / Gaze を入力源として登録する |
+| **OSC Sender** (`OscSenderAdapterBinding`) | `osc-sender` | 合成後の BlendShape と Gaze を購読し、OSC bundle として複数 endpoint へ送信する |
+| **ARKit / PerfectSync** (`ArKitOscAdapterBinding`) | `arkit-perfectsync` | `/ARKit/{name}` を購読するアナログ入力源（実験的。入力源の登録経路は未接続） |
+
+endpoint やポートなど環境依存の設定は binding ではなく **`OscRuntimeSettingsSO`**（`AdapterRuntimeSettingsCollectionSO` の sub-asset）に置き、binding の **OSC Runtime Settings** 欄から参照する。同じ sub-asset を Receiver と Sender で共有できる。
 
 ## 使い方
 
-1. `com.hidano.facialcontrol` と本パッケージを `Packages/manifest.json` に追加
-2. キャラクターの GameObject に `FacialController` を追加し、`FacialCharacterProfileSO` を結線
-3. 受信する場合は **Adapter Bindings** セクションで `OSC` を追加し、listen endpoint と mapping mode を設定
-4. 送信する場合は `OSC Sender` を追加し、送信先 endpoint、BlendShape 名一覧、Gaze expressionId を設定
-5. Package Manager の **Import Sample** から `OscOutputDemo` / `OscReceiverDemo` を import すると、送信側と受信側の最小 Scene を確認できます。
+1. **Create → FacialControl → Adapter Runtime Settings Collection** を作成し、**Add → OscRuntimeSettingsSO**（Add メニューは型名で表示される）で sub-asset を追加。Receiver の listen ポート（既定 9001）、Sender の endpoint 一覧（既定送信先 9000）とプリセット（VRChat / ARKit）を設定
+2. `FacialCharacterProfileSO` の **Adapter Bindings** で **OSC Receiver** / **OSC Sender** を Add し、Runtime Settings 欄に sub-asset を割り当てる
+3. 受信をレイヤーに繋ぐ場合はレイヤーの入力源 id に `<slug>`（例 `osc-receiver`）を追加する。binding を Add した時点で既定レイヤーが自動追加される
+4. Gaze を受信する場合は Profile の目線タブでチャネル `gaze` の入力ソースに Receiver を選ぶ。送信側が FacialControl なら手動 mapping は不要
+5. Play。**Import Sample** から `OscOutputDemo` / `OscReceiverDemo` を取り込むと、送信側・受信側それぞれの最小 Scene を確認できる
+
+## アドレス形式
+
+| 種別 | VRChat プリセット | ARKit プリセット |
+|---|---|---|
+| BlendShape | `/avatar/parameters/{name}` (float 0〜1) | `/ARKit/{name}` |
+| Gaze | `/avatar/parameters/{channelId}X` と `...Y` | `/ARKit/eyeLook{In,Out,Up,Down}{Left,Right}` の固定 8 アドレスに分解 |
+
+制御アドレス（FacialControl 同士の連携用）:
+
+| アドレス | 内容 |
+|---|---|
+| `/_facialcontrol/sender_id` | 送信元識別（UUID + 起動時刻）。毎 bundle に同梱。受信側は最新起動の sender だけを採用しゾンビ送信元を排除 |
+| `/_facialcontrol/blendshape_names` | heartbeat。送信側が持つ BlendShape 名一覧。起動時と `heartbeatIntervalSeconds`（既定 5 秒）周期 |
+| `/_facialcontrol/preset` | `"vrchat"` / `"arkit"` のプリセット通知（Sender の Send Preset Address が ON のとき） |
+| `/_facialcontrol/gaze` | Gaze 広告。チャネル id と形式（`VRChat_XY` / `ARKit_8BS`）の組 |
+
+## 受信の動作
+
+- **自動マッピング**: heartbeat を受け取ると、送信側 BlendShape 名とモデルの BlendShape 名の積集合から mapping を生成する。手入力 mapping（`Mappings` リスト）があればそれを優先し、不足分だけ自動生成する。Gaze も `/_facialcontrol/gaze` 広告から自動で route を作る
+- **手動 mapping**: FacialControl 以外の送信元には `Mappings` に mode 別 entry を並べる。mode は `Normal_BlendShape` / `Gaze_VRChat_XY` / `Gaze_ARKit_8BS`
+- **bundle 解釈**: 既定 `AtomicSwap`（同一 bundle を 1 フレームで一括反映）。`IndividualMessage` で受信順に個別反映
+- **staleness fail-safe**: `stalenessSeconds` を超えて受信が途絶えると `RevertToBase`（ベース表情へ戻す）または `HoldLastValue`（最後の値を保持）
+- **整合性検査**: heartbeat と mapping の差分を警告ログに出す（`consistencyCheckWarnLog`）
+- **ポート自動繰り上げ**: listen ポートが使用中なら空きポートへ最大 10 回繰り上げ、警告で実際のポートを通知する
+- 受信スレッドは Unity API を呼ばず、メインスレッドの `Update` でパースと反映を行う
+
+登録する入力源 id: BlendShape は `<slug>`、Gaze は `<slug>:<channelId>`（左右別は `.left` / `.right`）。
+
+## 送信の動作
+
+- `FacialOutputBus` を購読し、`OnLateTick` で 1 フレーム 1 bundle を送る。MTU（1472 byte）を超える場合は同一タイムスタンプの複数 bundle に分割
+- 送信対象の BlendShape は既定でモデルの全 BlendShape。**BlendShape Names (Optional Filter)** に列挙すると絞り込める
+- Gaze は Profile の目線タブに宣言されたチャネルが `FacialController` から自動注入される。Inspector で個別指定する項目はない
+- **Suppress Loopback**（既定 ON）: 同じ Profile 内の OSC Receiver と同じ endpoint への送信を抑止する。同一プロセスで送受信デモを同居させるときは OFF にする
+- 送信は別スレッドの `UdpClient` で行い、メインスレッドをブロックしない
 
 ## サンプル
 
 | Sample | 内容 |
 |---|---|
-| `OscOutputDemo` | `OscSenderAdapterBinding` で BlendShape と `eye_look` Gaze Vector2 を VRChat / ARKit endpoint へ送信するサンプル |
-| `OscReceiverDemo` | `OscReceiverAdapterBinding` で VRChat 形式の BlendShape と Gaze Vector2 を受信し、手続き生成メッシュへ反映するサンプル |
-
-サンプルの canonical 配置は `Samples~/` です。開発プロジェクト用ミラーは `FacialControl/Assets/Samples/` に置いています。
+| `OscOutputDemo` | sin 波のデモ信号を BlendShape / Gaze として合成し、VRChat（9000）と ARKit（9001）の 2 endpoint へ送信 |
+| `OscReceiverDemo` | 9000 で受信し、heartbeat 自動マッピングでモデルへ反映。Gaze は広告から自動 route |
 
 ## JSON リファレンス
 
-- [OscSenderOptions JSON スキーマ](Documentation~/osc-sender-options.md)
-- [OscReceiverOptions JSON スキーマ](Documentation~/osc-receiver-options.md)
+- [OSC Sender の設定](Documentation~/osc-sender-options.md)
+- [OSC Receiver の設定](Documentation~/osc-receiver-options.md)
 
 ## ライセンス
 
-[MIT License](../com.hidano.facialcontrol/LICENSE.md)
+[MIT License](LICENSE.md)

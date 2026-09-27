@@ -1,165 +1,116 @@
 # com.hidano.facialcontrol
 
-## preview.1 破壊的変更
-
-- Expression の遷移時間と遷移カーブは `FacialCharacterProfileSO` Inspector の Expression 行で管理します。AnimationClip 上の `AnimationEvent` 由来メタデータ (`FacialControlMeta_Set` など) は preview.1 polish 以降の編集経路から撤去され、遷移メタの入力元として扱いません。
-- 過去 preview の AnimationClip に残っている遷移メタデータは自動マイグレーションされません。必要な値は `FacialCharacterProfileSO` または profile JSON の `transitionDuration` / `transitionCurvePreset` に手動で写してください。
-
-3D キャラクターの表情をリアルタイムに制御する Unity 向けコアパッケージ。
-
-本パッケージは表情制御本体のみを提供する。OSC 送受信や InputSystem 経由の入力は別パッケージ (`com.hidano.facialcontrol.osc` / `com.hidano.facialcontrol.inputsystem`) として分離されており、本コア単体で導入する場合は `com.unity.inputsystem` / `com.hidano.uosc` への依存は発生しない。
+3D キャラクターの表情をリアルタイムに制御する Unity 向けコアパッケージ。表情の定義・レイヤー合成・遷移補間・Overlay・Gaze・Editor 拡張を提供し、入力源（コントローラ / OSC / リップシンク / フェイシャルキャプチャ / Timeline）は `com.hidano.facialcontrol.*` サブパッケージを **Adapter Binding** として追加する。
 
 ## 主な機能
 
-- **マルチレイヤー表情制御** — 感情・リップシンク・目などのレイヤーで表情を同時管理。排他モード (LastWins / Blend) をレイヤー単位で設定可能
-- **スムーズな表情遷移** — 線形補間・イージング・カスタムカーブによる Expression 間の遷移。遷移割り込み時も Persistent NativeArray 再利用で追加アロケーションなし
-- **ARKit / PerfectSync 対応** — ARKit 52 ブレンドシェイプと PerfectSync の自動検出・Expression 自動生成
-- **Inspector 完結型 UX** — `FacialCharacterProfileSO` の UI Toolkit カスタム Inspector で表情・レイヤー・Renderer Paths・Adapter Bindings を 1 アセット内で編集。長文 README を読まずに設定可能 (各セクションに HelpBox + Tooltip)
-- **JSON 自動エクスポート** — Editor 編集時に `StreamingAssets/FacialControl/{SO 名}/profile.json` を自動同期。ビルド後の差し替えに対応しつつ、ユーザーが JSON のパスを書く必要はない
-- **リップシンク連携 I/F** — 外部プラグイン (uLipSync 等) からの入力を受け付ける `ILipSyncProvider` インターフェース
-- **Adapter Binding 拡張点** — `[FacialAdapterBinding(displayName: "...")]` 属性付きの `AdapterBindingBase` 派生を定義するだけで、core Inspector の Add ドロップダウンに自動列挙される。`OnStart(in AdapterBuildContext ctx)` 内で `ctx.InputSourceRegistry.Register(slug, source)` を呼び、binding 自身が VContainer per-FC `LifetimeScope` に配線される (scene 上に追加 MonoBehaviour 不要)
+- **1 アセット完結の設定** — `FacialCharacterProfileSO` に表情ライブラリ / レイヤー / ベース表情 / 目線 / Adapter Bindings をまとめて保存。JSON はランタイム用に自動書き出しされ、ユーザーが直接触る必要はない
+- **マルチレイヤー合成** — レイヤーごとに優先度と排他モード（`lastWins` = クロスフェード / `blend` = 加算）を設定し、複数の入力源を重み付きで合成
+- **表情遷移** — 遷移時間 0〜1 秒（既定 1/15 秒）、カーブは Linear / EaseIn / EaseOut / EaseInOut。遷移中の割り込みは現在値から新遷移を開始
+- **Overlay slot** — まばたきや音素の口形状など「表情の上に重ねる」要素を slot 単位で管理。表情ごとに Default / Suppress / Override の 3 状態を選べる
+- **Gaze チャネル** — Vector2 入力を目ボーンの yaw / pitch に変換。入力源は各 binding が宣言し、Profile の目線タブでドロップダウン選択
+- **Adapter Binding 拡張点** — `AdapterBindingBase` 派生クラスに `[FacialAdapterBinding]` を付けるだけで Inspector の Add メニューに自動列挙。binding は `ctx.InputSourceRegistry.Register(slug, source)` で入力源を公開する
+- **Editor ツール** — UI Toolkit の Profile Inspector、ARKit 52 / PerfectSync 検出ツール、新規プロファイル作成ダイアログ。BlendShape スライダーで AnimationClip を作る Expression 作成ツールは `com.hidano.facialcontrol.expression-creator`、入力源とレイヤーをノードで配線するルーティングエディタは `com.hidano.facialcontrol.routing-editor` として別パッケージで提供
+- **毎フレーム GC ゼロ** — 定常状態の `LateUpdate` 全経路、10 体同時制御、Gaze 適用を PlayMode の gate テストで GC.Alloc = 0 に固定
 
 ## 動作要件
 
 - Unity 6000.3 以降
-- Animator を持つ 3D キャラクターモデル (FBX)
-- BlendShape を持つ SkinnedMeshRenderer
+- `Animator` を持つキャラクターと、BlendShape を持つ `SkinnedMeshRenderer`（子階層から自動探索）
+- モデル形式は問わない。BlendShape 名で対応付けるため FBX でも VRM でも動作する。VRM ランタイム（表情 / LookAt）が同じ BlendShape や目ボーンを書き換える場合は片方を無効にすること
 
 ## インストール
 
-本パッケージは [VContainer](https://github.com/hadashiA/VContainer) (`jp.hadashikick.vcontainer`) に依存する。VContainer は npmjs / Unity Asset Store に publish されていないため、利用側で OpenUPM 等の scoped registry をあらかじめ追加しておく必要がある。`Packages/manifest.json` に以下のように追記する (他のサブパッケージや scopedRegistries の追加分はリポジトリルートの README を参照)。
+VContainer（OpenUPM 配布）に依存するため、npmjs と OpenUPM の 2 つの scoped registry を `Packages/manifest.json` に追加する。
 
 ```json
 {
     "scopedRegistries": [
-        {
-            "name": "OpenUPM",
-            "url": "https://package.openupm.com",
-            "scopes": [
-                "jp.hadashikick.vcontainer"
-            ]
-        }
+        { "name": "npmjs", "url": "https://registry.npmjs.org", "scopes": ["com.hidano"] },
+        { "name": "OpenUPM", "url": "https://package.openupm.com", "scopes": ["jp.hadashikick.vcontainer"] }
     ],
     "dependencies": {
-        "jp.hadashikick.vcontainer": "1.16.6",
-        "com.hidano.facialcontrol": "0.1.0-preview.2"
+        "jp.hadashikick.vcontainer": "1.17.0",
+        "com.hidano.facialcontrol": "1.0.0"
     }
 }
 ```
 
-> **Note**: VContainer のバージョンは本パッケージ作成時点で動作確認済みのものを記載している。後方互換性のあるパッチアップデートは利用側で自由に上げてよい。
+| 依存パッケージ | バージョン | 用途 | 取得元 |
+|---|---|---|---|
+| `jp.hadashikick.vcontainer` | 1.17.0 以上 | キャラクターごとの DI スコープ（asmdef 参照。package.json には書けないため手動追加） | OpenUPM |
+
+Expression 作成ツール（`com.hidano.facialcontrol.expression-creator`）とルーティングエディタ（`com.hidano.facialcontrol.routing-editor`）は Editor 専用の別パッケージ。必要なら `dependencies` に追加する。
 
 ## クイックスタート
 
-1. Project ウィンドウで **Create** → **FacialControl** → **Facial Character Profile** から `FacialCharacterProfileSO` を作成
-2. SO の Inspector で Layers / Expressions / Renderer Paths を編集 (各 Foldout セクションに使い方の HelpBox あり)
-3. Inspector 末尾の **Adapter Bindings** セクションで **Add** ボタンから必要な binding を追加 (例: `Input System` / `OSC` / `ARKit / PerfectSync`)
-4. 各 binding の inline UI で `InputActionAsset` / endpoint / port / blendshape マッピング 等を設定
-5. キャラクターの GameObject に **FacialController** を Add Component し、SO フィールドに作成した SO を結線
-6. Play で動作確認
+1. Project ウィンドウで **Create → FacialControl → Facial Character Profile** を作成
+2. Inspector 上部の **参照モデル** にキャラクターの prefab を割り当てる（BlendShape / ボーン名の候補表示と目ボーン自動解決に使う）
+3. **表情ライブラリ** タブで Expression を追加し、AnimationClip を割り当てる。Clip は `com.hidano.facialcontrol.expression-creator` の **Tools → FacialControl → Expression 作成** のスライダーからベイクできる
+4. **レイヤー** タブでレイヤーと入力源 id を設定する（サブパッケージの binding を Add すると既定レイヤーが自動追加される）
+5. **Adapter Bindings** タブで入力源（Input System / OSC Receiver / uLipSync など）を **Add** し、slug と各設定を埋める
+6. キャラクターの GameObject に **Add Component → FacialControl → Facial Controller** を追加し、Profile を結線
+7. Play。Profile を編集するたび `StreamingAssets/FacialControl/{SO 名}/profile.json` が自動更新される
 
 ```csharp
-// スクリプトから Expression を切り替える場合
-_facialController.Activate(expression);
-_facialController.Deactivate(expression);
-```
-
-詳細は [Documentation~/quickstart.md](Documentation~/quickstart.md) を参照。
-
-## アーキテクチャ
-
-レイヤード設計 (Domain / Application / Adapters) を採用し、Assembly Definition で依存方向を強制する。Unity ランタイム依存 (PlayableAPI 等) は Adapters 層に集約し、Domain 層は `Unity.Collections` (NativeArray) にのみ依存する (`UnityEngine.dll` には依存しない)。
-
-```
-Runtime/
-├── Domain/         # 値オブジェクト・抽象 I/F・純ドメインサービス
-├── Application/    # ユースケース
-└── Adapters/       # Unity API / PlayableGraph 実装
-Editor/             # Editor 拡張 (UI Toolkit)
-```
-
-表情制御は PlayableGraph + AnimationStream API ベースで、既存の Animator と共存可能。
-
-## Overlay slot スキーマ (preview.2)
-
-preview.2 では Overlay を Expression ID 参照ではなく、slot ごとの snapshot として定義する。`slots[]` が overlay slot 識別子の宣言元で、`defaultOverlays[]` と各 `expressions[].snapshot.overlays[]` は同じ `slot / suppress / snapshot` 形式を使う。
-
-- `suppress: false` かつ `snapshot: null` — profile の `defaultOverlays[]` へ fallback
-- `suppress: true` かつ `snapshot: null` — その slot の overlay を明示的に抑制
-- `suppress: false` かつ `snapshot` 指定 — その Expression 専用の overlay snapshot を適用
-
-旧 `expressionId` フィールドは preview.2 で廃止された。旧フィールドが `defaultOverlays[]` または `expressions[].snapshot.overlays[]` に残っている JSON は、`SystemTextJsonParser` が `FormatException` で拒否する。自動マイグレーションは提供しないため、`blink_overlay` のような中間 Expression は overlay snapshot として inline 化する。
-
-```json
+// スクリプトから Expression を切り替える
+var profile = _facialController.CurrentProfile.Value;
+var smile = profile.FindExpressionById("smile");   // Expression? を返す
+if (smile.HasValue)
 {
-  "schemaVersion": "1.0",
-  "slots": ["blink"],
-  "rendererPaths": [],
-  "layers": [],
-  "expressions": [
-    {
-      "id": "smile",
-      "name": "Smile",
-      "layer": "emotion",
-      "layerOverrideMask": [],
-      "snapshot": {
-        "transitionDuration": 0.0667,
-        "transitionCurvePreset": "EaseInOut",
-        "blendShapes": [],
-        "bones": [],
-        "rendererPaths": [],
-        "overlays": [
-          { "slot": "blink", "suppress": false, "snapshot": null }
-        ]
-      }
-    }
-  ],
-  "defaultOverlays": [
-    {
-      "slot": "blink",
-      "suppress": false,
-      "snapshot": {
-        "transitionDuration": 0.08,
-        "transitionCurvePreset": "Linear",
-        "blendShapes": [
-          { "rendererPath": "Face", "name": "Fcl_EYE_Close_L", "value": 1.0 },
-          { "rendererPath": "Face", "name": "Fcl_EYE_Close_R", "value": 1.0 }
-        ],
-        "bones": [],
-        "rendererPaths": ["Face"],
-        "overlays": []
-      }
-    }
-  ]
+    _facialController.Activate(smile.Value);
+    // ... 解除するとき
+    _facialController.Deactivate(smile.Value);
 }
 ```
 
-`FacialCharacterProfileSO` の Inspector は「表情ライブラリ / レイヤー / ベース表情 / 目線 / Adapter Bindings / Debug」の 6 タブ構成になり、slot 宣言、Default Overlays、Expression ごとの Overlays は表情ライブラリタブで編集する。Adapter Bindings の `overlaySlot` は `slots[]` から dropdown 生成される。
+詳細は [Documentation~/quickstart.md](Documentation~/quickstart.md)、JSON の構造は [Documentation~/json-schema.md](Documentation~/json-schema.md) を参照。
 
-## パフォーマンス
+## 入力源 id の規約
 
-- 定常状態 (レイヤー数・BlendShape 数固定時) で毎フレーム GC アロケーションゼロを目標に設計 (構成変更時のみ内部バッファを再確保)
-- 遷移割り込み時も `LayerPlayable` の `_snapshotBuffer` / `_targetBuffer` (Persistent NativeArray) を再利用し追加アロケーションなし
-- PlayMode テスト `MultiCharacterPerformanceTests` (10 キャラクター × ARKit 52 BlendShape) で同時制御の動作を検証
+Adapter Binding は Inspector で Add した時点で displayName 由来の slug（例 `Input System` → `input-system`）を持ち、`<slug>` または `<slug>:<sub>` の id で入力源を登録する。レイヤーの `inputSources[].id` はこの id を参照する。slug は `^[a-zA-Z0-9_.-]{1,64}$`、同一 Profile 内で重複するとアセット保存がブロックされる。Gaze の入力源は `{slug}:{channelId}` または `.left` / `.right` 付きで宣言される（既定チャネル id は `gaze`）。
+
+## Overlay slot の 3 状態
+
+| suppress | snapshot | 意味 |
+|---|---|---|
+| false | なし | Profile の Default Overlays にフォールバック |
+| true | なし | この表情の間は slot を抑制 |
+| false | あり | この表情専用の snapshot で上書き |
+
+slot 名は Profile の `slots[]` に宣言したものだけが有効。音素用の予約 slot `a / i / u / e / o` は **Phoneme slots を初期化** ボタンで追加できる。
+
+## アーキテクチャ
+
+```
+Runtime/
+├── Domain/        # 値オブジェクト・入力源の基底クラス・合成サービス・バス（Unity.Collections / UnityEngine に依存）
+├── Application/   # ProfileUseCase / ExpressionUseCase / LayerUseCase
+└── Adapters/      # FacialController / FacialCharacterProfileSO / JSON パーサ / 入力源レジストリ / DI スコープ / ボーン適用
+Editor/            # UI Toolkit Inspector / ARKit 検出 / ルーティング配線ロジック（Windows/Routing/Logic）/ 自動エクスポート
+Templates/         # default_profile.json
+Samples~/          # MultiSourceBlendBasicSample
+```
+
+- `FacialController` は `LateUpdate` で入力を集約し、`SkinnedMeshRenderer.SetBlendShapeWeight` へ直接書き込む（PlayableGraph は使わない）。合成後の値は `IFacialOutputBus` に流れ、OSC 送信などの出力系 binding が購読する
+- 同じ `SkinnedMeshRenderer` を複数の `FacialController` が掴んだ場合は祖先側だけを有効にし、他方を警告付きで無効化する
+- binding のライフサイクル（`OnStart` / `OnTick` / `OnLateTick` / `OnFixedTick` / `Dispose`）は VContainer のキャラクターごとの子スコープが駆動する。例外を出した binding は以後スキップされる
+
+## Editor メニュー
+
+| メニュー | 内容 |
+|---|---|
+| Tools → FacialControl → 新規プロファイル作成 | 命名規則（VRM / ARKit）を選んで `profile.json` の雛形を生成 |
+| Tools → FacialControl → ARKit 検出ツール | ARKit 52 / PerfectSync 命名を検出して Expression を自動生成 |
+| Create → FacialControl → Adapter Runtime Settings Collection | 環境依存設定（OSC の endpoint 等）をキャラクター Profile から分離する sub-asset コンテナ |
+
+**Tools → FacialControl → Expression 作成** と Profile Inspector の **ルーティングを編集** ボタンは、それぞれ `com.hidano.facialcontrol.expression-creator` / `com.hidano.facialcontrol.routing-editor` を追加すると現れる。ルーティングエディタは core の `RoutingEditorLauncher` に起動ハンドラを登録する方式で、core 側は拡張パッケージを参照しない。
 
 ## ドキュメント
 
-- [クイックスタートガイド](Documentation~/quickstart.md)
-- [JSON スキーマリファレンス (上級者向け)](Documentation~/json-schema.md)
-
-## 依存パッケージ
-
-| パッケージ | バージョン | 用途 | 取得元 |
-|-----------|-----------|------|--------|
-| `jp.hadashikick.vcontainer` | 1.16.6 以上 | per-FC LifetimeScope による DI 解決 | OpenUPM (scoped registry を `Packages/manifest.json` に追加) |
-| `com.hidano.scene-view-style-camera-controller` | 1.0.0 | Editor プレビューウィンドウのシーンビュー操作 | npm (npmjs.com) |
-
-## 対応フォーマット
-
-| フォーマット | 対応状況 |
-|-------------|----------|
-| FBX | 対応 |
-| VRM | 今後対応予定 |
+- [クイックスタート](Documentation~/quickstart.md)
+- [JSON スキーマ](Documentation~/json-schema.md)
+- [Adapter Runtime Settings](Documentation~/adapter-runtime-settings.md)
 
 ## ライセンス
 

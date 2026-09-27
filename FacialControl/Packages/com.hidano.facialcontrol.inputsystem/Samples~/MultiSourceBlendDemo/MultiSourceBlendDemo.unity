@@ -280,15 +280,13 @@ MonoBehaviour:
   m_EditorClassIdentifier:
   _facialController: {fileID: 345471962}
   _layerIndex: 0
-  _controllerSourceIndex: 1
-  _keyboardSourceIndex: 2
+  _inputSourceSlug: input-system
   _leftEye: {fileID: 0}
   _rightEye: {fileID: 0}
   _meshRenderer: {fileID: 0}
   _mouthOpenBlendShapeName: jawOpen
   _displayedSourceIds:
-  - left_stick
-  - arkit_jaw_open
+  - Look
 --- !u!114 &345471962
 MonoBehaviour:
   m_ObjectHideFlags: 0

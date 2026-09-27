@@ -1,30 +1,42 @@
 {
-  "name": "com.hidano.facialcontrol.ifacialmocap",
-  "version": "0.1.0-preview.1",
-  "displayName": "FacialControl iFacialMocap",
-  "description": "FacialControl \u306e iFacialMocap \u53d7\u4fe1\u30a2\u30c0\u30d7\u30bf\u3002iFacialMocap (iOS) \u306e UDP \u30c6\u30ad\u30b9\u30c8\u30d7\u30ed\u30c8\u30b3\u30eb\u3092\u53d7\u4fe1\u3057\u3001ARKit \u4e92\u63db BlendShape\u30fb\u8996\u7dda (Gaze Vector2)\u30fb\u982d\u90e8\u30dd\u30fc\u30ba\u3092 `IFacialMocapReceiverAdapterBinding` \u7d4c\u7531\u3067 FacialCharacterProfileSO \u306e AdapterBindings \u306b\u53d6\u308a\u8fbc\u3080\u3002\u53d7\u4fe1\u5024\u30d1\u30a4\u30d7\u30e9\u30a4\u30f3\u306f com.hidano.facialcontrol.osc \u306e OscDoubleBuffer / OscInputSource / GazeVector2InputSource \u3092\u518d\u5229\u7528\u3059\u308b\u3002",
-  "unity": "6000.3",
-  "license": "MIT",
-  "author": {
-    "name": "Hidano"
-  },
-  "dependencies": {
-    "com.hidano.facialcontrol": "0.1.0-preview.2",
-    "com.hidano.facialcontrol.osc": "0.1.0-preview.2"
-  },
-  "samples": [
-    {
-      "displayName": "IFacialMocapReceiverDemo",
-      "description": "IFacialMocapReceiverAdapterBinding \u3067 iFacialMocap \u306e BlendShape\u30fb\u8996\u7dda\u30fb\u982d\u90e8\u3092\u53d7\u4fe1\u3057\u3001\u304a\u624b\u6301\u3061\u306e\u30e2\u30c7\u30eb\u3078\u53cd\u6620\u3059\u308b\u53d7\u4fe1\u5c02\u7528\u30b5\u30f3\u30d7\u30eb\u3002FacialController \u3068\u7d50\u7dda\u6e08\u307f\u306e\u5b9f\u88c5 Scene (IFacialMocapReceiverDemo.unity)\u3001binding \u3092\u7d50\u7dda\u6e08\u307f\u306e FacialCharacterProfileSO\u3001IFacialMocapRuntimeSettingsSO \u3092\u5185\u5305\u3059\u308b\u8a2d\u5b9a SO\u3001\u53d7\u4fe1\u758e\u901a\u78ba\u8a8d\u7528\u306e\u8a3a\u65ad bootstrap \u3092\u540c\u68b1\u3059\u308b\u3002",
-      "path": "Samples~/IFacialMocapReceiverDemo"
-    }
-  ],
-  "keywords": [
-    "facial",
-    "blendshape",
-    "expression",
-    "vtuber",
-    "ifacialmocap",
-    "arkit"
-  ]
+    "name": "com.hidano.facialcontrol.ifacialmocap",
+    "version": "1.0.0",
+    "displayName": "FacialControl iFacialMocap",
+    "description": "FacialControl の iFacialMocap 受信アダプタ。iFacialMocap (iOS) の UDP テキストプロトコルを受信し、ARKit 互換 BlendShape・視線 (Gaze Vector2)・頭部ポーズを `IFacialMocapReceiverAdapterBinding` 経由で FacialCharacterProfileSO の AdapterBindings に取り込む。受信値パイプラインは com.hidano.facialcontrol.osc の OscDoubleBuffer / OscInputSource / GazeVector2InputSource を再利用する。",
+    "unity": "6000.3",
+    "license": "MIT",
+    "author": {
+        "name": "Hidano"
+    },
+    "homepage": "https://github.com/NHidano/FacialControl#readme",
+    "repository": {
+        "type": "git",
+        "url": "https://github.com/NHidano/FacialControl.git",
+        "directory": "FacialControl/Packages/com.hidano.facialcontrol.ifacialmocap"
+    },
+    "bugs": {
+        "url": "https://github.com/NHidano/FacialControl/issues"
+    },
+    "documentationUrl": "https://github.com/NHidano/FacialControl/blob/main/FacialControl/Packages/com.hidano.facialcontrol.ifacialmocap/README.md",
+    "changelogUrl": "https://github.com/NHidano/FacialControl/blob/main/FacialControl/Packages/com.hidano.facialcontrol.ifacialmocap/CHANGELOG.md",
+    "licensesUrl": "https://github.com/NHidano/FacialControl/blob/main/FacialControl/Packages/com.hidano.facialcontrol.ifacialmocap/LICENSE.md",
+    "dependencies": {
+        "com.hidano.facialcontrol": "1.0.0",
+        "com.hidano.facialcontrol.osc": "1.0.0"
+    },
+    "samples": [
+        {
+            "displayName": "IFacialMocapReceiverDemo",
+            "description": "IFacialMocapReceiverAdapterBinding で iFacialMocap の BlendShape・視線・頭部を受信し、お手持ちのモデルへ反映する受信専用サンプル。FacialController と結線済みの実装 Scene (IFacialMocapReceiverDemo.unity)、binding を結線済みの FacialCharacterProfileSO、IFacialMocapRuntimeSettingsSO を内包する設定 SO、受信疎通確認用の診断 bootstrap を同梱する。",
+            "path": "Samples~/IFacialMocapReceiverDemo"
+        }
+    ],
+    "keywords": [
+        "facial",
+        "blendshape",
+        "expression",
+        "vtuber",
+        "ifacialmocap",
+        "arkit"
+    ]
 }

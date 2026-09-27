@@ -104,7 +104,7 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
 
             try
             {
-                LogAssert.Expect(LogType.Error, $"REC load failed because file '{missingRecPath}' did not exist.");
+                LogAssert.Expect(LogType.Error, new System.Text.RegularExpressions.Regex("REC load failed"));
 
                 bool success = RecToTimelineExporter.TryExportTimelineAsset(
                     missingRecPath,

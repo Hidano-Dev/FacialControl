@@ -1,453 +1,157 @@
-# JSON スキーマリファレンス (上級者向け)
+# JSON スキーマリファレンス
 
-> **このドキュメントを読む必要があるのは「ビルド後にコンテンツを JSON で差し替えたい」「外部ツールから FacialControl 用プロファイルを生成したい」場合のみです**。通常の運用では `FacialCharacterSO` の Inspector セクションだけで設定が完結し、JSON は Editor が `StreamingAssets/FacialControl/{SO 名}/profile.json` に自動エクスポートします。ユーザーがパスを書いたり中身を編集したりする必要はありません ([quickstart.md](quickstart.md) 参照)。
+`FacialCharacterProfileSO` を編集すると `StreamingAssets/FacialControl/{SO 名}/profile.json` が自動生成され、ランタイムはこの JSON を読む。通常は Inspector だけで完結するが、ビルド後の差し替えや外部ツールからの生成ではこの形式に従う。
 
-FacialControl で使用する JSON ファイルのスキーマ定義です。
+- `schemaVersion` は `"1.0"` 固定。それ以外は `NotSupportedException` で拒否される
+- パーサは `JsonUtility` 互換。未知キーは無視され、欠落したセクションは既定値で補完される
+- Adapter Bindings は JSON に含まれない（SO にのみ保存される）
+- 旧形式のキー（`overlays[].expressionId`、`gazeConfigs` 等）は自動変換されない。`expressionId` は `FormatException`、`gazeConfigs` は警告のうえ読み捨て
 
-FacialControl は 2 種類の JSON ファイルを使用します。
-
-| ファイル | 用途 | 配置先 |
-|---------|------|--------|
-| プロファイル JSON | 表情定義（レイヤー構成 + Expression） | `StreamingAssets/FacialControl/{name}_profile.json` |
-| 設定 JSON（config.json） | OSC 通信設定 + キャッシュ設定 | `StreamingAssets/FacialControl/config.json` |
-
-スキーマバージョン: `1.0`
-
----
-
-## プロファイル JSON
-
-表情プロファイルを定義する JSON ファイルです。レイヤー構成と Expression（表情）の一覧を含みます。
-
-### ルート構造
-
-```json
-{
-    "schemaVersion": "1.0",
-    "layers": [],
-    "expressions": []
-}
-```
-
-| フィールド | 型 | 必須 | 説明 |
-|-----------|------|------|------|
-| `schemaVersion` | string | 必須 | スキーマバージョン。現在は `"1.0"` 固定 |
-| `layers` | LayerDefinition[] | 必須 | レイヤー定義の配列 |
-| `expressions` | Expression[] | 必須 | Expression 定義の配列 |
-
-### LayerDefinition
-
-レイヤーの定義です。レイヤーは表情を分類・管理する単位で、優先度と排他モードを持ちます。
-
-```json
-{
-    "name": "emotion",
-    "priority": 0,
-    "exclusionMode": "lastWins"
-}
-```
-
-| フィールド | 型 | 必須 | 制約 | 説明 |
-|-----------|------|------|------|------|
-| `name` | string | 必須 | 空文字不可 | レイヤー名 |
-| `priority` | integer | 必須 | 0 以上 | 優先度（値が大きいほど優先） |
-| `exclusionMode` | string | 必須 | `"lastWins"` \| `"blend"` | 排他モード |
-
-#### 排他モード（ExclusionMode）
-
-| 値 | 動作 |
-|----|------|
-| `"lastWins"` | 同レイヤー内で最後にアクティブ化された Expression のみ有効。旧 Expression からクロスフェード遷移する |
-| `"blend"` | 同レイヤー内の複数 Expression を加算ブレンド。合計値は 0〜1 にクランプされる |
-
-### Expression
-
-表情（Expression）の定義です。BlendShape 値の組み合わせと遷移設定を持ちます。
-
-```json
-{
-    "id": "550e8400-e29b-41d4-a716-446655440000",
-    "name": "笑顔",
-    "layer": "emotion",
-    "transitionDuration": 0.25,
-    "transitionCurve": {
-        "type": "easeInOut"
-    },
-    "blendShapeValues": [
-        {"name": "Fcl_ALL_Joy", "value": 1.0},
-        {"name": "Fcl_EYE_Joy_R", "value": 0.6, "renderer": "Face"}
-    ],
-    "layerSlots": [
-        {
-            "layer": "lipsync",
-            "blendShapeValues": [
-                {"name": "Fcl_MTH_A", "value": 0.5}
-            ]
-        }
-    ]
-}
-```
-
-| フィールド | 型 | 必須 | 制約 | 説明 |
-|-----------|------|------|------|------|
-| `id` | string | 必須 | GUID 形式、空文字不可 | 一意な識別子 |
-| `name` | string | 必須 | 空文字不可 | 表情名（日本語可） |
-| `layer` | string | 必須 | `layers` に定義済みのレイヤー名 | 所属レイヤー。未定義レイヤーの場合は `"emotion"` にフォールバック |
-| `transitionDuration` | number | 必須 | 0.0〜1.0（自動クランプ） | 遷移時間（秒）。デフォルト: 0.25 |
-| `transitionCurve` | TransitionCurve | 必須 | — | 遷移カーブ設定 |
-| `blendShapeValues` | BlendShapeMapping[] | 必須 | — | BlendShape 値の配列 |
-| `layerSlots` | LayerSlot[] | 必須 | — | 他レイヤーへのオーバーライド設定 |
-
-### TransitionCurve
-
-表情遷移のカーブ設定です。プリセットカーブまたはカスタムカーブを指定できます。
-
-#### プリセットカーブ
-
-```json
-{
-    "type": "easeInOut"
-}
-```
-
-#### カスタムカーブ
-
-```json
-{
-    "type": "custom",
-    "keys": [
-        {
-            "time": 0.0,
-            "value": 0.0,
-            "inTangent": 0.0,
-            "outTangent": 1.0,
-            "inWeight": 0.0,
-            "outWeight": 0.33,
-            "weightedMode": 0
-        },
-        {
-            "time": 1.0,
-            "value": 1.0,
-            "inTangent": 1.0,
-            "outTangent": 0.0,
-            "inWeight": 0.33,
-            "outWeight": 0.0,
-            "weightedMode": 0
-        }
-    ]
-}
-```
-
-| フィールド | 型 | 必須 | 制約 | 説明 |
-|-----------|------|------|------|------|
-| `type` | string | 必須 | 下記参照 | カーブ種別 |
-| `keys` | CurveKeyFrame[] | （`type` が `"custom"` の場合のみ必須） | — | カスタムカーブのキーフレーム配列 |
-
-#### カーブ種別（TransitionCurveType）
-
-| 値 | 説明 |
-|----|------|
-| `"linear"` | 線形補間 |
-| `"easeIn"` | 加速（開始がゆるやか） |
-| `"easeOut"` | 減速（終了がゆるやか） |
-| `"easeInOut"` | 加速→減速 |
-| `"custom"` | カスタムカーブ（`keys` フィールドが必要） |
-
-#### CurveKeyFrame
-
-カスタムカーブのキーフレーム定義です。Unity の `Keyframe` 構造体に対応します。
+## ルート
 
 | フィールド | 型 | 説明 |
-|-----------|------|------|
-| `time` | number | 時間位置（0.0〜1.0） |
-| `value` | number | この時点での値 |
-| `inTangent` | number | 入力側タンジェント |
-| `outTangent` | number | 出力側タンジェント |
-| `inWeight` | number | 入力側ウェイト（デフォルト: 0.0） |
-| `outWeight` | number | 出力側ウェイト（デフォルト: 0.0） |
-| `weightedMode` | integer | ウェイトモード（デフォルト: 0） |
+|---|---|---|
+| `schemaVersion` | string | `"1.0"` |
+| `layers` | Layer[] | レイヤー定義（必須） |
+| `slots` | string[] | Overlay slot 名の宣言。Expression / defaultOverlays / binding が参照できる slot はここに列挙したものだけ |
+| `expressions` | Expression[] | 表情定義 |
+| `baseExpression` | Snapshot | どのレイヤーも寄与しない BlendShape に残る基準値。省略時は全 0 |
+| `rendererPaths` | string[] | 各 snapshot が参照する rendererPath の和集合（エクスポート時に自動生成） |
+| `gaze` | `{ "channels": GazeChannel[] }` | Gaze チャネル。省略時は既定チャネル `gaze` が補完される |
+| `defaultOverlays` | OverlayBinding[] | Expression が slot を指定しなかったときのフォールバック |
 
-### BlendShapeMapping
+## Layer
 
-BlendShape の名前と値のマッピングです。
+| フィールド | 型 | 説明 |
+|---|---|---|
+| `name` | string | レイヤー名（空不可） |
+| `priority` | int | 0 以上。大きいほど後から合成される |
+| `exclusionMode` | string | `"lastWins"`（クロスフェード）または `"blend"`（加算して 0〜1 にクランプ）。大文字小文字は区別しない |
+| `inputSources` | InputSource[] | 必須。空配列は `FormatException` |
 
-```json
-{
-    "name": "Fcl_ALL_Joy",
-    "value": 1.0,
-    "renderer": "Face"
-}
-```
+### InputSource
 
-| フィールド | 型 | 必須 | 制約 | 説明 |
-|-----------|------|------|------|------|
-| `name` | string | 必須 | 空文字不可 | BlendShape 名。モデルに定義されている名前と完全一致させる（2 バイト文字・特殊記号対応） |
-| `value` | number | 必須 | 0.0〜1.0（自動クランプ） | BlendShape ウェイト（正規化値）。Unity 適用時は 0〜100 に変換される |
-| `renderer` | string | 任意 | — | 対象 SkinnedMeshRenderer 名。省略時は全 SkinnedMeshRenderer に適用 |
+| フィールド | 型 | 説明 |
+|---|---|---|
+| `id` | string | binding が登録する入力源 id。`<slug>` または `<slug>:<sub>`。正規表現 `^[a-zA-Z0-9_.\-:]{1,64}$` |
+| `weight` | float | 既定 1.0 |
+| `options` | object | 入力源固有のオプション（例: `{ "stalenessSeconds": 1.0 }`）。内部では文字列として保持される |
 
-### LayerSlot
+同じレイヤー内で `id` が重複した場合は最後の出現を採用して警告を出す。
 
-他レイヤーへのオーバーライド設定です。この Expression がアクティブになると、指定レイヤーの BlendShape 値を完全に置換します（対象レイヤーの排他モードをバイパス）。
+## Expression
 
-```json
-{
-    "layer": "lipsync",
-    "blendShapeValues": [
-        {"name": "Fcl_MTH_A", "value": 0.5}
-    ]
-}
-```
+| フィールド | 型 | 説明 |
+|---|---|---|
+| `id` | string | スクリプトや binding から参照する識別子 |
+| `name` | string | 表示名 |
+| `layer` | string | 所属レイヤー名 |
+| `layerOverrideMask` | string[] | この表情がアクティブな間に抑制するレイヤー名 |
+| `snapshot` | ExpressionSnapshot | BlendShape / ボーン値と遷移設定 |
 
-| フィールド | 型 | 必須 | 説明 |
-|-----------|------|------|------|
-| `layer` | string | 必須 | オーバーライド対象のレイヤー名 |
-| `blendShapeValues` | BlendShapeMapping[] | 必須 | 対象レイヤーに適用する BlendShape 値 |
+### Snapshot（`baseExpression` / `overlays[].snapshot` / `defaultOverlays[].snapshot` 共通）
 
----
+| フィールド | 型 | 説明 |
+|---|---|---|
+| `transitionDuration` | float | 遷移時間（秒）。0〜1 にクランプ。既定 0.0667（1/15 秒） |
+| `transitionCurvePreset` | string | `"Linear"` / `"EaseIn"` / `"EaseOut"` / `"EaseInOut"`。未知の値は Linear |
+| `blendShapes` | `{ rendererPath, name, value }[]` | value は正規化 0〜1（ランタイムで ×100 して適用） |
+| `bones` | `{ bonePath, position, rotationEuler, scale }[]` | ボーンポーズ |
+| `rendererPaths` | string[] | この snapshot が参照する rendererPath |
 
-## 設定 JSON（config.json）
+`ExpressionSnapshot` は上記に加えて `overlays: OverlayBinding[]` を持つ。
 
-OSC 通信と AnimationClip キャッシュの設定ファイルです。
+### OverlayBinding
 
-### ルート構造
+| suppress | snapshot | 意味 |
+|---|---|---|
+| `false` | `null` | `defaultOverlays` にフォールバック |
+| `true` | `null` | この slot を抑制 |
+| `false` | Snapshot | この表情専用の snapshot で上書き |
 
-```json
-{
-    "schemaVersion": "1.0",
-    "osc": {},
-    "cache": {}
-}
-```
+`suppress: true` と非 null の `snapshot` を同時に指定すると `FormatException`。`slot` は `slots[]` に宣言済みであること。
 
-| フィールド | 型 | 必須 | 説明 |
-|-----------|------|------|------|
-| `schemaVersion` | string | 必須 | スキーマバージョン。現在は `"1.0"` 固定 |
-| `osc` | OscConfiguration | 必須 | OSC 通信設定 |
-| `cache` | CacheConfiguration | 必須 | キャッシュ設定 |
+## GazeChannel
 
-### OscConfiguration
+| フィールド | 型 | 説明 |
+|---|---|---|
+| `id` | string | チャネル id。先頭は常に `gaze` |
+| `providerSlug` | string | 入力源を提供する binding の slug。空なら自動解決 |
+| `useDistinctLeftRight` | bool | 左右別の入力源を使う |
+| `sourceIdLeft` / `sourceIdRight` | string | 左右別入力源 id（`useDistinctLeftRight` 時） |
+| `leftEyeBonePath` / `rightEyeBonePath` | string | 目ボーンの相対 path |
+| `leftEyeInitialRotation` / `rightEyeInitialRotation` | Euler | 初期回転 |
+| `leftEyeYawAxisLocal` / `leftEyePitchAxisLocal` など | Vector3 | ローカル yaw / pitch 軸 |
+| `lookUpAngle` / `lookDownAngle` / `outerYawAngle` / `innerYawAngle` | float | 可動角（度）。既定 15 / 9 / 15 / 18 |
 
-OSC 通信の設定です。VRChat OSC 互換（`/avatar/parameters/{name}` 形式）に対応しています。
+入力源 id の規約は `{slug}:{channelId}` または `{slug}:{channelId}.left` / `.right`。
 
-```json
-{
-    "sendPort": 9000,
-    "receivePort": 9001,
-    "preset": "vrchat",
-    "mapping": []
-}
-```
-
-| フィールド | 型 | 必須 | 制約 | デフォルト | 説明 |
-|-----------|------|------|------|-----------|------|
-| `sendPort` | integer | 必須 | 0〜65535 | 9000 | UDP 送信ポート |
-| `receivePort` | integer | 必須 | 0〜65535 | 9001 | UDP 受信ポート |
-| `preset` | string | 必須 | — | `"vrchat"` | OSC アドレスプリセット名 |
-| `mapping` | OscMapping[] | 必須 | — | `[]` | OSC アドレスと BlendShape のマッピング配列 |
-
-#### プリセットの OSC アドレス形式
-
-| プリセット | アドレス形式 |
-|-----------|------------|
-| `"vrchat"` | `/avatar/parameters/{blendShapeName}` |
-| `"arkit"` | `/ARKit/{blendShapeName}` |
-
-### OscMapping
-
-OSC アドレスと BlendShape の対応を定義します。送信・受信の両方に使用されます。
-
-```json
-{
-    "oscAddress": "/avatar/parameters/Fcl_ALL_Joy",
-    "blendShapeName": "Fcl_ALL_Joy",
-    "layer": "emotion"
-}
-```
-
-| フィールド | 型 | 必須 | 説明 |
-|-----------|------|------|------|
-| `oscAddress` | string | 必須 | OSC アドレスパス |
-| `blendShapeName` | string | 必須 | 対象の BlendShape 名 |
-| `layer` | string | 必須 | 対象のレイヤー名 |
-
-### CacheConfiguration
-
-AnimationClip の LRU キャッシュ設定です。
-
-```json
-{
-    "animationClipLruSize": 16
-}
-```
-
-| フィールド | 型 | 必須 | 制約 | デフォルト | 説明 |
-|-----------|------|------|------|-----------|------|
-| `animationClipLruSize` | integer | 必須 | 1 以上 | 16 | AnimationClip LRU キャッシュの最大エントリ数 |
-
----
-
-## サンプル JSON
-
-### プロファイル JSON（技術仕様書 §13.7）
-
-3 レイヤー構成で 3 つの Expression を含む完全なプロファイル例です。
+## 例
 
 ```json
 {
     "schemaVersion": "1.0",
+    "slots": ["blink"],
+    "rendererPaths": ["Face"],
     "layers": [
-        {"name": "emotion", "priority": 0, "exclusionMode": "lastWins"},
-        {"name": "lipsync", "priority": 1, "exclusionMode": "blend"},
-        {"name": "eye", "priority": 2, "exclusionMode": "lastWins"}
+        {
+            "name": "emotion",
+            "priority": 0,
+            "exclusionMode": "lastWins",
+            "inputSources": [{ "id": "input-system", "weight": 1.0 }]
+        },
+        {
+            "name": "overlay",
+            "priority": 10,
+            "exclusionMode": "blend",
+            "inputSources": [{ "id": "overlay:blink", "weight": 1.0 }]
+        }
     ],
     "expressions": [
         {
-            "id": "550e8400-e29b-41d4-a716-446655440000",
-            "name": "笑顔",
+            "id": "smile",
+            "name": "Smile",
             "layer": "emotion",
-            "transitionDuration": 0.25,
-            "transitionCurve": {
-                "type": "easeInOut"
-            },
-            "blendShapeValues": [
-                {"name": "Fcl_ALL_Joy", "value": 1.0},
-                {"name": "Fcl_EYE_Joy", "value": 0.8},
-                {"name": "Fcl_EYE_Joy_R", "value": 0.6, "renderer": "Face"}
-            ],
-            "layerSlots": [
-                {
-                    "layer": "lipsync",
-                    "blendShapeValues": [
-                        {"name": "Fcl_MTH_A", "value": 0.5}
-                    ]
-                }
-            ]
-        },
-        {
-            "id": "661f9511-f30c-52e5-b827-557766551111",
-            "name": "怒り",
-            "layer": "emotion",
-            "transitionDuration": 0.15,
-            "transitionCurve": {
-                "type": "linear"
-            },
-            "blendShapeValues": [
-                {"name": "Fcl_ALL_Angry", "value": 1.0},
-                {"name": "Fcl_BRW_Angry", "value": 0.9}
-            ],
-            "layerSlots": []
-        },
-        {
-            "id": "772a0622-a41d-63f6-c938-668877662222",
-            "name": "まばたき",
-            "layer": "eye",
-            "transitionDuration": 0.08,
-            "transitionCurve": {
-                "type": "linear"
-            },
-            "blendShapeValues": [
-                {"name": "Fcl_EYE_Close", "value": 1.0}
-            ],
-            "layerSlots": []
+            "layerOverrideMask": [],
+            "snapshot": {
+                "transitionDuration": 0.0667,
+                "transitionCurvePreset": "EaseInOut",
+                "blendShapes": [{ "rendererPath": "Face", "name": "Fcl_ALL_Joy", "value": 1.0 }],
+                "bones": [],
+                "rendererPaths": ["Face"],
+                "overlays": [{ "slot": "blink", "suppress": false, "snapshot": null }]
+            }
         }
-    ]
-}
-```
-
-### 設定 JSON（技術仕様書 §13.8）
-
-VRChat プリセットの OSC 設定例です。
-
-```json
-{
-    "schemaVersion": "1.0",
-    "osc": {
-        "sendPort": 9000,
-        "receivePort": 9001,
-        "preset": "vrchat",
-        "mapping": [
-            {"oscAddress": "/avatar/parameters/Fcl_ALL_Joy", "blendShapeName": "Fcl_ALL_Joy", "layer": "emotion"},
-            {"oscAddress": "/avatar/parameters/Fcl_MTH_A", "blendShapeName": "Fcl_MTH_A", "layer": "lipsync"}
+    ],
+    "defaultOverlays": [
+        {
+            "slot": "blink",
+            "suppress": false,
+            "snapshot": {
+                "transitionDuration": 0.08,
+                "transitionCurvePreset": "Linear",
+                "blendShapes": [
+                    { "rendererPath": "Face", "name": "Fcl_EYE_Close_L", "value": 1.0 },
+                    { "rendererPath": "Face", "name": "Fcl_EYE_Close_R", "value": 1.0 }
+                ],
+                "bones": [],
+                "rendererPaths": ["Face"]
+            }
+        }
+    ],
+    "gaze": {
+        "channels": [
+            {
+                "id": "gaze",
+                "providerSlug": "",
+                "useDistinctLeftRight": false,
+                "leftEyeBonePath": "Armature/Hips/Spine/Chest/Neck/Head/LeftEye",
+                "rightEyeBonePath": "Armature/Hips/Spine/Chest/Neck/Head/RightEye",
+                "lookUpAngle": 15, "lookDownAngle": 9, "outerYawAngle": 15, "innerYawAngle": 18
+            }
         ]
-    },
-    "cache": {
-        "animationClipLruSize": 16
     }
 }
 ```
 
-### カスタムカーブを含むプロファイル例
-
-```json
-{
-    "schemaVersion": "1.0",
-    "layers": [
-        {"name": "emotion", "priority": 0, "exclusionMode": "lastWins"}
-    ],
-    "expressions": [
-        {
-            "id": "883b1733-b52e-74a7-da49-779988773333",
-            "name": "驚き",
-            "layer": "emotion",
-            "transitionDuration": 0.3,
-            "transitionCurve": {
-                "type": "custom",
-                "keys": [
-                    {
-                        "time": 0.0,
-                        "value": 0.0,
-                        "inTangent": 0.0,
-                        "outTangent": 2.0,
-                        "inWeight": 0.0,
-                        "outWeight": 0.33,
-                        "weightedMode": 0
-                    },
-                    {
-                        "time": 0.5,
-                        "value": 1.0,
-                        "inTangent": 0.0,
-                        "outTangent": 0.0,
-                        "inWeight": 0.33,
-                        "outWeight": 0.33,
-                        "weightedMode": 0
-                    },
-                    {
-                        "time": 1.0,
-                        "value": 1.0,
-                        "inTangent": 0.0,
-                        "outTangent": 0.0,
-                        "inWeight": 0.33,
-                        "outWeight": 0.0,
-                        "weightedMode": 0
-                    }
-                ]
-            },
-            "blendShapeValues": [
-                {"name": "Fcl_ALL_Surprised", "value": 1.0}
-            ],
-            "layerSlots": []
-        }
-    ]
-}
-```
-
----
-
-## 値の範囲と自動クランプ
-
-以下のフィールドは範囲外の値が指定された場合、自動的にクランプされます。
-
-| フィールド | 有効範囲 | クランプ動作 |
-|-----------|---------|------------|
-| `BlendShapeMapping.value` | 0.0〜1.0 | 負値は 0.0、1.0 超は 1.0 にクランプ |
-| `Expression.transitionDuration` | 0.0〜1.0 | 負値は 0.0、1.0 超は 1.0 にクランプ |
-| `LayerDefinition.priority` | 0 以上 | 負値は 0 にクランプ |
-
-## テンプレートファイル
-
-パッケージには以下のテンプレートファイルが同梱されています。`StreamingAssets/FacialControl/` にコピーして使用してください。
-
-| ファイル | 説明 |
-|---------|------|
-| `Templates/default_profile.json` | デフォルト 3 レイヤー構成 + 基本 Expression（default, blink, gaze_follow, gaze_camera） |
-| `Templates/default_config.json` | VRChat プリセットの OSC 設定 + 基本マッピング |
+雛形は `Templates/default_profile.json`、または **Tools → FacialControl → 新規プロファイル作成** で生成できる。

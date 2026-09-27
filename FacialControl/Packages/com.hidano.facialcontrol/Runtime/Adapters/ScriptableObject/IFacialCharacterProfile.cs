@@ -23,9 +23,6 @@ namespace Hidano.FacialControl.Adapters.ScriptableObject.Serializable
         /// </summary>
         IReadOnlyList<GazeChannel> GazeChannels { get; }
 
-        /// <summary>旧依存側の移行期間用。後続タスクで削除する。</summary>
-        [System.Obsolete("GazeChannels を使用してください。")]
-
         /// <summary>
         /// JSON ファイルが見つからない場合に Inspector でシリアライズされた
         /// フィールドから FacialProfile を組み立てる。

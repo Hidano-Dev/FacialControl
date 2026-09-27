@@ -1,0 +1,34 @@
+{
+    "name": "com.hidano.facialcontrol.routing-editor",
+    "version": "1.0.0",
+    "displayName": "FacialControl Routing Editor",
+    "description": "FacialControl のルーティングエディタ。FacialCharacterProfileSO の Adapter Binding が公開する入力源とレイヤーの配線を GraphView のノードグラフで編集する Editor 拡張。Profile Inspector の「ルーティングを編集」ボタンから開く。",
+    "unity": "6000.3",
+    "license": "MIT",
+    "author": {
+        "name": "Hidano"
+    },
+    "homepage": "https://github.com/NHidano/FacialControl#readme",
+    "repository": {
+        "type": "git",
+        "url": "https://github.com/NHidano/FacialControl.git",
+        "directory": "FacialControl/Packages/com.hidano.facialcontrol.routing-editor"
+    },
+    "bugs": {
+        "url": "https://github.com/NHidano/FacialControl/issues"
+    },
+    "documentationUrl": "https://github.com/NHidano/FacialControl/blob/main/FacialControl/Packages/com.hidano.facialcontrol.routing-editor/README.md",
+    "changelogUrl": "https://github.com/NHidano/FacialControl/blob/main/FacialControl/Packages/com.hidano.facialcontrol.routing-editor/CHANGELOG.md",
+    "licensesUrl": "https://github.com/NHidano/FacialControl/blob/main/FacialControl/Packages/com.hidano.facialcontrol.routing-editor/LICENSE.md",
+    "dependencies": {
+        "com.hidano.facialcontrol": "1.0.0"
+    },
+    "keywords": [
+        "facial",
+        "blendshape",
+        "expression",
+        "vtuber",
+        "editor",
+        "graphview"
+    ]
+}

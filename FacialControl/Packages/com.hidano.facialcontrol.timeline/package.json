@@ -1,16 +1,28 @@
 {
     "name": "com.hidano.facialcontrol.timeline",
-    "version": "0.1.0-preview.1",
+    "version": "1.0.0",
     "displayName": "FacialControl Timeline",
-    "description": "Timeline integration package for FacialControl. Provides the assembly and editor scaffolding for track-based playback and REC export workflows.",
+    "description": "FacialControl の Timeline 連携パッケージ。Timeline トラックからの表情 / Gaze 駆動と、REC 記録の Timeline へのベイク・書き出しを提供する。",
     "unity": "6000.3",
     "license": "MIT",
     "author": {
         "name": "Hidano"
     },
+    "homepage": "https://github.com/NHidano/FacialControl#readme",
+    "repository": {
+        "type": "git",
+        "url": "https://github.com/NHidano/FacialControl.git",
+        "directory": "FacialControl/Packages/com.hidano.facialcontrol.timeline"
+    },
+    "bugs": {
+        "url": "https://github.com/NHidano/FacialControl/issues"
+    },
+    "documentationUrl": "https://github.com/NHidano/FacialControl/blob/main/FacialControl/Packages/com.hidano.facialcontrol.timeline/README.md",
+    "changelogUrl": "https://github.com/NHidano/FacialControl/blob/main/FacialControl/Packages/com.hidano.facialcontrol.timeline/CHANGELOG.md",
+    "licensesUrl": "https://github.com/NHidano/FacialControl/blob/main/FacialControl/Packages/com.hidano.facialcontrol.timeline/LICENSE.md",
     "dependencies": {
-        "com.hidano.facialcontrol": "0.1.0-preview.2",
-        "com.hidano.facialcontrol.rec": "0.1.0-preview.1",
+        "com.hidano.facialcontrol": "1.0.0",
+        "com.hidano.facialcontrol.rec": "1.0.0",
         "com.unity.timeline": "1.8.9"
     },
     "keywords": [

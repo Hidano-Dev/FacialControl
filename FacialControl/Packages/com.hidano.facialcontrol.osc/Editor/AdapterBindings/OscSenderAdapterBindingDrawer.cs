@@ -40,7 +40,7 @@ namespace Hidano.FacialControl.Osc.Editor.AdapterBindings
                 "空のままにすると、対象キャラの全 BlendShape を自動送信します。subset 配信したい場合のみ名前を列挙してください。",
                 HelpBoxMessageType.Info));
             root.Add(new HelpBox(
-                "空のままにすると、Profile の Gaze Configs から expressionId を自動取得します。subset 配信したい場合のみ明示してください。",
+                "Gaze は Profile の目線タブで宣言されたチャネル (既定 gaze) を FacialController が自動注入して送信します。送信先 endpoint / heartbeat / loopback 抑制は OSC Runtime Settings 側で設定します。",
                 HelpBoxMessageType.Info));
             AddSenderIdentityReadout(root, property);
 

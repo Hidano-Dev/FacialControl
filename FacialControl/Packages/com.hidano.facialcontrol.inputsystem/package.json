@@ -1,21 +1,33 @@
 {
     "name": "com.hidano.facialcontrol.inputsystem",
-    "version": "0.1.0-preview.2",
+    "version": "1.0.0",
     "displayName": "FacialControl InputSystem",
-    "description": "FacialControl の Unity InputSystem 連携アダプタ。コントローラ／キーボードからの Expression トリガー入力と、`InputBindingProfileSO` によるキーバインド永続化を提供する。",
+    "description": "FacialControl の Unity InputSystem 連携アダプタ。`InputSystemAdapterBinding` 1 つで InputActionAsset / コントローラ・キーボードからの Expression トリガー / アナログ入力 (BlendShape・BonePose) / Gaze 入力を FacialCharacterProfileSO に結線する。",
     "unity": "6000.3",
     "license": "MIT",
     "author": {
         "name": "Hidano"
     },
+    "homepage": "https://github.com/NHidano/FacialControl#readme",
+    "repository": {
+        "type": "git",
+        "url": "https://github.com/NHidano/FacialControl.git",
+        "directory": "FacialControl/Packages/com.hidano.facialcontrol.inputsystem"
+    },
+    "bugs": {
+        "url": "https://github.com/NHidano/FacialControl/issues"
+    },
+    "documentationUrl": "https://github.com/NHidano/FacialControl/blob/main/FacialControl/Packages/com.hidano.facialcontrol.inputsystem/README.md",
+    "changelogUrl": "https://github.com/NHidano/FacialControl/blob/main/FacialControl/Packages/com.hidano.facialcontrol.inputsystem/CHANGELOG.md",
+    "licensesUrl": "https://github.com/NHidano/FacialControl/blob/main/FacialControl/Packages/com.hidano.facialcontrol.inputsystem/LICENSE.md",
     "dependencies": {
-        "com.hidano.facialcontrol": "0.1.0-preview.2",
+        "com.hidano.facialcontrol": "1.0.0",
         "com.unity.inputsystem": "1.17.0"
     },
     "samples": [
         {
             "displayName": "Multi Source Blend Demo",
-            "description": "InputSystem の Trigger Action 経由で controller / keyboard 双方を受ける単一 input-system ソースの加重和ブレンドに加え、左スティック → LeftEye/RightEye Euler、ARKit/OSC float → mouth-open BlendShape のアナログバインディングを 1 サンプルで網羅する統合デモ。Scene / FacialCharacterProfileSO (InputSystemAdapterBinding + OscReceiverAdapterBinding 同時保持) / InputActions / StreamingAssets JSON / HUD 一式を同梱し、ユーザーはモデルを Character の子に配置するだけで動作する (新 _adapterBindings + slug 駆動形式)。",
+            "description": "InputSystem の Trigger Action 経由で controller / keyboard 双方を受ける単一 input-system ソースの加重和ブレンドに加え、左スティック → LeftEye/RightEye Euler、ARKit/OSC float → mouth-open BlendShape のアナログバインディングを 1 サンプルで網羅する統合デモ。Scene / FacialCharacterProfileSO (InputSystemAdapterBinding + OscReceiverAdapterBinding 同時保持) / InputActions / StreamingAssets JSON / HUD 一式を同梱し、ユーザーはモデルを Character の子に配置するだけで動作する。",
             "path": "Samples~/MultiSourceBlendDemo"
         }
     ],

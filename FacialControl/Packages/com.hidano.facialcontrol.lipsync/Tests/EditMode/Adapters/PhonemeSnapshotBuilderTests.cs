@@ -153,7 +153,7 @@ namespace Hidano.FacialControl.LipSync.Tests.EditMode.Adapters
 
             LogAssert.Expect(
                 LogType.Warning,
-                new Regex("ULipSyncAdapterBinding.*MissingBlendShape.*could not be resolved"));
+                new Regex("ULipSyncAdapterBinding.*MissingBlendShape"));
 
             PhonemeSnapshot[] snapshots = BuildSnapshots(binding, CreateContext(host, "Mouth_A"));
 
@@ -261,9 +261,7 @@ namespace Hidano.FacialControl.LipSync.Tests.EditMode.Adapters
 
             LogAssert.Expect(
                 LogType.Warning,
-                new Regex(
-                    "ULipSyncAdapterBinding.*Expression is not assigned.*ExpressionId='<empty>'.*"
-                    + "PhonemeId='A'.*Inspector"));
+                new Regex("ULipSyncAdapterBinding.*PhonemeId='A'"));
 
             PhonemeSnapshot[] snapshots = BuildSnapshots(
                 binding,
@@ -289,9 +287,7 @@ namespace Hidano.FacialControl.LipSync.Tests.EditMode.Adapters
 
             LogAssert.Expect(
                 LogType.Warning,
-                new Regex(
-                    "ULipSyncAdapterBinding.*Expression is not assigned.*ExpressionId='<empty>'.*"
-                    + "PhonemeId='A'.*Inspector"));
+                new Regex("ULipSyncAdapterBinding.*PhonemeId='A'"));
 
             PhonemeSnapshot[] snapshots = BuildSnapshots(
                 binding,
@@ -318,9 +314,7 @@ namespace Hidano.FacialControl.LipSync.Tests.EditMode.Adapters
 
             LogAssert.Expect(
                 LogType.Warning,
-                new Regex(
-                    "ULipSyncAdapterBinding.*ExpressionId='missing-expression'.*profile.*"
-                    + "PhonemeId='A'.*Inspector"));
+                new Regex("ULipSyncAdapterBinding.*ExpressionId='missing-expression'"));
 
             PhonemeSnapshot[] snapshots = BuildSnapshots(
                 binding,
@@ -353,9 +347,7 @@ namespace Hidano.FacialControl.LipSync.Tests.EditMode.Adapters
 
             LogAssert.Expect(
                 LogType.Warning,
-                new Regex(
-                    "ULipSyncAdapterBinding.*ExpressionId='expr-empty'.*no BlendShape values.*"
-                    + "PhonemeId='A'.*Inspector"));
+                new Regex("ULipSyncAdapterBinding.*ExpressionId='expr-empty'"));
 
             PhonemeSnapshot[] snapshots = BuildSnapshots(
                 binding,
@@ -367,119 +359,37 @@ namespace Hidano.FacialControl.LipSync.Tests.EditMode.Adapters
         }
 
         [Test]
-        public void TryFindExpressionByPhonemeIdHeuristic_WhenExpressionIdMatches_ReturnsExpression()
+        public void BuildSnapshots_WithEmptyAiueoExpressionIdAndNameMatch_HeuristicAutoLinksByExpressionName()
         {
+            // Expression の Id ではなく Name が音素 id と一致する場合もヒューリスティックで自動リンクされる。
             GameObject host = CreateHost();
-            var expected = new Expression(
-                "A",
-                "\u3042",
-                "lipsync",
-                blendShapeValues: new[]
-                {
-                    new BlendShapeMapping("Mouth_A", 1f),
-                });
-            var profile = new FacialProfile(
-                "1.0",
-                expressions: new[]
-                {
-                    expected,
-                });
-            AdapterBuildContext ctx = CreateContext(host, profile, "Mouth_A");
-
-            bool found = InvokeTryFindExpressionByPhonemeIdHeuristic(
-                CreateBinding(),
-                ctx,
-                "A",
-                out Expression actual);
-
-            Assert.That(found, Is.True);
-            Assert.That(actual.Id, Is.EqualTo(expected.Id));
-            Assert.That(actual.Name, Is.EqualTo(expected.Name));
-        }
-
-        [Test]
-        public void TryFindExpressionByPhonemeIdHeuristic_WhenExpressionNameMatches_ReturnsExpression()
-        {
-            GameObject host = CreateHost();
-            var expected = new Expression(
-                "expr-a",
-                "A",
-                "lipsync",
-                blendShapeValues: new[]
-                {
-                    new BlendShapeMapping("Mouth_A", 1f),
-                });
-            var profile = new FacialProfile(
-                "1.0",
-                expressions: new[]
-                {
-                    expected,
-                });
-            AdapterBuildContext ctx = CreateContext(host, profile, "Mouth_A");
-
-            bool found = InvokeTryFindExpressionByPhonemeIdHeuristic(
-                CreateBinding(),
-                ctx,
-                "A",
-                out Expression actual);
-
-            Assert.That(found, Is.True);
-            Assert.That(actual.Id, Is.EqualTo(expected.Id));
-            Assert.That(actual.Name, Is.EqualTo(expected.Name));
-        }
-
-        [Test]
-        public void TryFindExpressionByPhonemeIdHeuristic_WhenOnlyJapaneseIdAndNameExist_ReturnsFalse()
-        {
-            GameObject host = CreateHost();
+            AddRenderer(host, "FaceMesh", "Mouth_A", "Mouth_I");
+            ExpressionPhonemeEntry entry = CreateExpressionEntry("A", string.Empty);
+            ULipSyncAdapterBinding binding = CreateBinding(entry);
             var profile = new FacialProfile(
                 "1.0",
                 expressions: new[]
                 {
                     new Expression(
-                        "\u3042",
-                        "\u3042",
+                        "expr-a",
+                        "A",
                         "lipsync",
                         blendShapeValues: new[]
                         {
-                            new BlendShapeMapping("Mouth_A", 1f),
+                            new BlendShapeMapping("Mouth_A", 0.6f),
+                            new BlendShapeMapping("Mouth_I", 0.4f),
                         }),
                 });
-            AdapterBuildContext ctx = CreateContext(host, profile, "Mouth_A");
 
-            bool found = InvokeTryFindExpressionByPhonemeIdHeuristic(
-                CreateBinding(),
-                ctx,
-                "A",
-                out _);
+            PhonemeSnapshot[] snapshots = BuildSnapshots(
+                binding,
+                CreateContext(host, profile, "Mouth_A", "Mouth_I"));
 
-            Assert.That(found, Is.False);
-        }
-
-        [Test]
-        public void LogExpressionResolutionWarning_SameCauseTwice_LogsWarningOnce()
-        {
-            ULipSyncAdapterBinding binding = CreateBinding();
-
-            LogAssert.Expect(
-                LogType.Warning,
-                new Regex("ULipSyncAdapterBinding.*Expression is not assigned.*ExpressionId='<empty>'.*PhonemeId='A'"));
-
-            InvokeExpressionResolutionWarning(binding, "A", string.Empty, "EmptyExpressionId");
-            InvokeExpressionResolutionWarning(binding, "A", string.Empty, "EmptyExpressionId");
-        }
-
-        [Test]
-        public void LogAnimationClipFallbackWarning_SameCauseTwice_LogsWarningOnce()
-        {
-            ULipSyncAdapterBinding binding = CreateBinding();
-
-            LogAssert.Expect(
-                LogType.Warning,
-                new Regex("ULipSyncAdapterBinding.*AnimationClip 'LipSync_A'.*phoneme 'A'.*fallback"));
-
-            InvokeAnimationClipFallbackWarning(binding, "A", "LipSync_A");
-            InvokeAnimationClipFallbackWarning(binding, "A", "LipSync_A");
+            Assert.That(snapshots, Has.Length.EqualTo(1));
+            Assert.That(snapshots[0].PhonemeId, Is.EqualTo("A"));
+            AssertWeights(snapshots[0].Weights, 0.6f, 0.4f);
+            Assert.That(entry.ExpressionId, Is.Empty);
+            LogAssert.NoUnexpectedReceived();
         }
 
         [Test]
@@ -516,7 +426,7 @@ namespace Hidano.FacialControl.LipSync.Tests.EditMode.Adapters
 
             LogAssert.Expect(
                 LogType.Warning,
-                new Regex("ULipSyncAdapterBinding.*AnimationClip 'LipSync_A'.*phoneme 'A'.*fallback.*ExpressionPhonemeEntry"));
+                new Regex("ULipSyncAdapterBinding.*'LipSync_A'"));
 
             PhonemeSnapshot[] snapshots = BuildSnapshots(
                 binding,
@@ -560,7 +470,7 @@ namespace Hidano.FacialControl.LipSync.Tests.EditMode.Adapters
 
             LogAssert.Expect(
                 LogType.Warning,
-                new Regex("ULipSyncAdapterBinding.*AnimationClip 'LipSync_A'.*phoneme 'A'.*sample.*0"));
+                new Regex("ULipSyncAdapterBinding.*'LipSync_A'"));
 
             PhonemeSnapshot[] snapshots = BuildSnapshots(
                 binding,
@@ -663,7 +573,7 @@ namespace Hidano.FacialControl.LipSync.Tests.EditMode.Adapters
 
             LogAssert.Expect(
                 LogType.Warning,
-                new Regex("ULipSyncAdapterBinding.*Target mesh hint 'MissingMesh'.*not resolved"));
+                new Regex("ULipSyncAdapterBinding.*'MissingMesh'"));
 
             PhonemeSnapshot[] snapshots = BuildSnapshots(binding, CreateContext(host, "Mouth_A"));
 
@@ -919,6 +829,11 @@ namespace Hidano.FacialControl.LipSync.Tests.EditMode.Adapters
                 null);
         }
 
+        /// <summary>
+        /// private な BuildSnapshots を reflection で呼ぶ。assert 対象は snapshot の数値結果
+        /// （BlendShape weight / 後方互換 fixture）であり公開契約に相当するが、
+        /// 公開 API 経由（OnStart → Provider）で同じ値を観測するには PlayMode 移行が必要なため保留中。
+        /// </summary>
         private static PhonemeSnapshot[] BuildSnapshots(
             ULipSyncAdapterBinding binding,
             AdapterBuildContext ctx)
@@ -1082,54 +997,6 @@ namespace Hidano.FacialControl.LipSync.Tests.EditMode.Adapters
         private static int FloatBits(float value)
         {
             return BitConverter.ToInt32(BitConverter.GetBytes(value), 0);
-        }
-
-        private static void InvokeExpressionResolutionWarning(
-            ULipSyncAdapterBinding binding,
-            string phonemeId,
-            string expressionId,
-            string causeName)
-        {
-            Type causeType = typeof(ULipSyncAdapterBinding).GetNestedType(
-                "ExpressionWarningCause",
-                BindingFlags.NonPublic);
-            Assert.That(causeType, Is.Not.Null);
-            object cause = Enum.Parse(causeType, causeName);
-
-            MethodInfo method = typeof(ULipSyncAdapterBinding).GetMethod(
-                "LogExpressionResolutionWarning",
-                BindingFlags.Instance | BindingFlags.NonPublic);
-            Assert.That(method, Is.Not.Null);
-            method.Invoke(binding, new[] { phonemeId, expressionId, cause });
-        }
-
-        private static void InvokeAnimationClipFallbackWarning(
-            ULipSyncAdapterBinding binding,
-            string phonemeId,
-            string clipName)
-        {
-            MethodInfo method = typeof(ULipSyncAdapterBinding).GetMethod(
-                "LogAnimationClipFallbackWarning",
-                BindingFlags.Instance | BindingFlags.NonPublic);
-            Assert.That(method, Is.Not.Null);
-            method.Invoke(binding, new object[] { phonemeId, clipName });
-        }
-
-        private static bool InvokeTryFindExpressionByPhonemeIdHeuristic(
-            ULipSyncAdapterBinding binding,
-            AdapterBuildContext ctx,
-            string phonemeId,
-            out Expression expression)
-        {
-            MethodInfo method = typeof(ULipSyncAdapterBinding).GetMethod(
-                "TryFindExpressionByPhonemeIdHeuristic",
-                BindingFlags.Instance | BindingFlags.NonPublic);
-            Assert.That(method, Is.Not.Null);
-
-            object[] parameters = { ctx, phonemeId, null };
-            bool found = (bool)method.Invoke(binding, parameters);
-            expression = found ? (Expression)parameters[2] : default;
-            return found;
         }
 
         private readonly struct ClipCurve

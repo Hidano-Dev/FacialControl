@@ -1,0 +1,35 @@
+{
+    "name": "com.hidano.facialcontrol.expression-creator",
+    "version": "1.0.0",
+    "displayName": "FacialControl Expression Creator",
+    "description": "FacialControl の Expression 作成ツール。モデルをプレビューしながら BlendShape スライダーで表情を作り、AnimationClip にベイクする Editor 拡張。プレビューの PNG 書き出しと全 Expression の一括書き出しを含む。Tools → FacialControl → Expression 作成 から開く。",
+    "unity": "6000.3",
+    "license": "MIT",
+    "author": {
+        "name": "Hidano"
+    },
+    "homepage": "https://github.com/NHidano/FacialControl#readme",
+    "repository": {
+        "type": "git",
+        "url": "https://github.com/NHidano/FacialControl.git",
+        "directory": "FacialControl/Packages/com.hidano.facialcontrol.expression-creator"
+    },
+    "bugs": {
+        "url": "https://github.com/NHidano/FacialControl/issues"
+    },
+    "documentationUrl": "https://github.com/NHidano/FacialControl/blob/main/FacialControl/Packages/com.hidano.facialcontrol.expression-creator/README.md",
+    "changelogUrl": "https://github.com/NHidano/FacialControl/blob/main/FacialControl/Packages/com.hidano.facialcontrol.expression-creator/CHANGELOG.md",
+    "licensesUrl": "https://github.com/NHidano/FacialControl/blob/main/FacialControl/Packages/com.hidano.facialcontrol.expression-creator/LICENSE.md",
+    "dependencies": {
+        "com.hidano.facialcontrol": "1.0.0",
+        "com.hidano.scene-view-style-camera-controller": "1.0.0"
+    },
+    "keywords": [
+        "facial",
+        "blendshape",
+        "expression",
+        "vtuber",
+        "editor",
+        "animationclip"
+    ]
+}

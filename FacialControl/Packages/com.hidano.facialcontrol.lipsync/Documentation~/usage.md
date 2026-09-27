@@ -1,34 +1,78 @@
 # uLipSync Adapter 使用手順
 
-`com.hidano.facialcontrol.lipsync` は、uLipSync の解析結果を FacialControl の `lipsync` 入力ソースへ接続するための Windows 向け UPM パッケージです。設定は `FacialCharacterProfileSO` の `ULipSyncAdapterBinding` に inline serialized で保存され、再生時に `AudioSource`、`uLipSync.uLipSync`、入力コンポーネントを Host GameObject へ動的に追加します。
+## 1. slot とレイヤー
 
-> **マイクデバイス指定の保存先**: マシン依存値である Device 名 / Disambiguator Index は、spec
-> [`adapter-runtime-settings`](../../../../.kiro/specs/adapter-runtime-settings/) で導入された
-> `LipSyncDeviceStore` 経由で PlayerPrefs (キー
-> `Hidano.FacialControl.LipSync.MicDevice.Name` /
-> `Hidano.FacialControl.LipSync.MicDevice.Disambiguator`) に保存され、git 管理外になります。
-> Inspector の DeviceDescriptorPopup は内部で `LipSyncDeviceStore.Load()` / `Save()` を呼びます。
-> 詳細は [`com.hidano.facialcontrol/Documentation~/adapter-runtime-settings.md`](../../com.hidano.facialcontrol/Documentation~/adapter-runtime-settings.md)
-> の「5. PlayerPrefs キー名一覧」節を参照してください。
+uLipSync の出力は、FacialControl の **音素 Overlay slot**（`a / i / u / e / o`）への入力源として流れる。まず Profile に slot を宣言する。
 
-## AnimationClip 形式 entry の time-0 サンプリング
+1. `FacialCharacterProfileSO` の **表情ライブラリ** タブで **Phoneme slots を初期化 (a/i/u/e/o)** を押す（小文字 5 つ。別名や追加音素は対象外）
+2. **Adapter Bindings** で **uLipSync** を Add する。`overlay` レイヤー（優先度 10、`blend`）が自動追加され、入力源 id に `overlay:{slot}` と `lipsync-overlay:{slot}` の 10 件が並ぶ
 
-AnimationClip 形式 entry は、初期化時に `AnimationClip.SampleAnimation(host, 0f)` 相当の処理で **time 0 の BlendShape weight だけ**を読み取ります。読み取った値は音素ごとの固定スナップショットとして保持され、再生中は `phonemeRatio * volume * snapshotWeight` として合算されます。
+手で書く場合の JSON は次のとおり。
 
-この entry は AnimationClip の時間軸を再生しません。たとえば 0.0 秒で口閉じ、0.5 秒で口開けになる Clip を指定しても、使用されるのは 0.0 秒時点の値だけです。口開け遷移、イージング、途中キー、ループ、Clip 長は評価対象になりません。
+```json
+{
+  "slots": ["a", "i", "u", "e", "o"],
+  "layers": [
+    {
+      "name": "overlay", "priority": 10, "exclusionMode": "blend",
+      "inputSources": [
+        { "id": "overlay:a" }, { "id": "lipsync-overlay:a" },
+        { "id": "overlay:i" }, { "id": "lipsync-overlay:i" },
+        { "id": "overlay:u" }, { "id": "lipsync-overlay:u" },
+        { "id": "overlay:e" }, { "id": "lipsync-overlay:e" },
+        { "id": "overlay:o" }, { "id": "lipsync-overlay:o" }
+      ]
+    }
+  ]
+}
+```
 
-複合的な口形状を使いたい場合は、対象 Clip の 0.0 秒に必要な BlendShape weight をすべて設定してください。A / I / U / E / O のような音素ごとに 1 枚の Clip を用意し、それぞれの 0.0 秒フレームに完成形の値を置く運用を推奨します。
+`lipsync-overlay` は binding の slug に依存しない固定 prefix。Slots に宣言されていない音素、または Analyzer Profile に存在しない音素は登録されず、1 件も登録できない場合は警告が出る。
 
-サンプリング時は Host GameObject 配下の `SkinnedMeshRenderer` の BlendShape weight を一時的に変更しますが、`ULipSyncAdapterBinding` は全 SMR の値を退避し、サンプリング後に復元します。この処理は `OnStart` の初期化コストであり、毎フレームのホットパスには含まれません。
+## 2. 音素エントリ
 
-## ASIO 入力の利用手順
+| 形式 | 設定 | サンプリング |
+|---|---|---|
+| Expression | Profile の Expression id。未割当で PhonemeId が A〜O なら id / 名前が一致する Expression に自動リンク | Expression の snapshot |
+| AnimationClip | AnimationClip | Clip の **終端時刻**（`length` が 0 なら先頭）を `SampleAnimation` して BlendShape 値を採取。全値 0 なら同名 Expression にフォールバック |
+| BlendShape | BlendShape 名 | 名前一致の 1 BlendShape |
 
-ASIO 入力を使う場合も、Inspector で ASIO / Mic を切り替えるトグルはありません。`ULipSyncAdapterBinding` は設定されたデバイス名を ASIO ドライバ一覧に先に照合し、一致した場合は `uLipSyncAsioInput` を選択します。一致しない場合だけ `UnityEngine.Microphone.devices` の通常マイクとして解決します。
+MaxWeight は 0〜100 で指定し、`Max Weight Scale` を掛けたうえで 0〜1 に正規化される。AnimationClip 形式は Host GameObject 配下の renderer path と Clip の curve binding が一致している必要がある。詳しい比較は [phoneme-entry-format-guide.md](phoneme-entry-format-guide.md)。
 
-1. 使用する ASIO ドライバを OS にインストールします。オーディオインターフェース固有の公式 ASIO ドライバを優先し、必要な場合のみ ASIO4ALL などの汎用ドライバを使用します。
-2. Unity Editor を起動し、対象 Profile の `ULipSyncAdapterBinding` を Inspector で開きます。
-3. Device 欄に、ASIO ドライバ一覧へ表示される名前をそのまま入力します。候補に出ない環境では手動 override のテキスト欄にプロジェクト固有のドライバ名を入力します。
-4. 同名デバイスが複数ある環境では `Disambiguator Index` に列挙順の 0 始まりインデックスを指定します。通常は `0` のままで問題ありません。
-5. Analyzer Profile と phoneme entry を設定し、Scene を Play して Console に未解決デバイスの `LogError` が出ていないことを確認します。
+## 3. 表情側の Override / Suppress
 
-ASIO ドライバ名は PC、ドライバのバージョン、ASIO4ALL の構成、接続中の機器によって変わります。そのため本パッケージは ASIO Sample Scene を同梱しません。特定の開発環境でしか解決できないドライバ名をサンプルに固定すると、Package Manager から Import したユーザー環境では再現性がありません。ASIO の確認は、この手順に従って各プロジェクトで実際のドライバ名を設定して行ってください。
+各 Expression の **Overlays** で slot `a〜o` を指定すると、その表情がアクティブな間の口形状を切り替えられる。
+
+| 状態 | 動き |
+|---|---|
+| Default | uLipSync の既定出力（音素エントリ）を使う |
+| Override | 指定した snapshot を既定の代わりに使う。駆動 weight（音素比率 × 音量）は同じなので、無音時は何も出力しない |
+| Suppress | その slot は出力しない（すでに口を開けている表情など） |
+
+解決順は Expression の Override / Suppress → Profile の Default Overlays → uLipSync 既定出力。合計 weight が閾値（1e-4）未満のフレームは出力せず、下位レイヤーを上書きしない。
+
+## 4. 入力デバイス
+
+- デバイス名は Inspector のポップアップで選ぶ。値は PlayerPrefs（`Hidano.FacialControl.LipSync.MicDevice.Name` / `.Disambiguator`）に保存され、アセットには残らない
+- 空のままにすると `Microphone.devices` の先頭を使い、使用デバイスを `Debug.Log` で通知する。マイクが 1 台も無い場合はエラー
+- 名前を指定した場合は ASIO ドライバ一覧 → マイク一覧の順で完全一致を探す。見つからなければエラーで起動を中止する（別デバイスへのフォールバックはしない）
+- 同名デバイスが複数ある場合は **Disambiguator Index**（0 始まり）で区別する
+- 実行中の切り替えは `ULipSyncAdapterBinding.SwapDevice(deviceName, disambiguatorIndex)`
+
+### ASIO
+
+ASIO / マイクの切替トグルはなく、名前が ASIO ドライバ一覧に一致すれば `uLipSyncAsioInput` が使われる。
+
+1. オーディオインターフェース公式の ASIO ドライバ（無ければ ASIO4ALL 等）をインストールする
+2. Inspector のデバイスポップアップで ASIO ドライバ名を選ぶ。候補に出ない場合は手動入力欄に名前を入れる
+3. Play して Console に未解決デバイスのエラーが出ないことを確認する
+
+ドライバ名は環境ごとに異なるため、ASIO 用サンプルは同梱しない。
+
+## 5. Analyzer Profile
+
+`_analyzerProfile` が未指定のときは `Resources.Load("FacialControl/LipSync/Default uLipSync Profile")` で同梱 Profile（mfcc 12、16 kHz、音素 A / I / U / E / O / `-`）を使う。独自に学習させた Profile を使う場合だけ割り当てる。
+
+## 6. 音量
+
+音量の正規化と平滑化は uLipSync 本体（`uLipSyncBlendShape` 派生の `FacialControlULipSyncBlendShape`）に委ね、本パッケージでは再加工しない。声が小さい・大きい場合はマイク gain や uLipSync の Profile 側で調整する。

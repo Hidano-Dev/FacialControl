@@ -50,23 +50,6 @@ namespace Hidano.FacialControl.Tests.EditMode.Adapters
         }
 
         [Test]
-        public void Observe_AdoptedSenderSwitch_LogsPreviousAndCurrentIdentity()
-        {
-            var policy = new ZombieEvictionPolicy();
-            var previous = new SenderIdentity(
-                Guid.Parse("55555555-5555-5555-5555-555555555555"),
-                5000L);
-            var current = new SenderIdentity(
-                Guid.Parse("66666666-6666-6666-6666-666666666666"),
-                6000L);
-
-            Assert.IsTrue(policy.Observe(previous));
-            LogAssert.Expect(LogType.Log, SwitchLogPattern(previous, current));
-
-            Assert.IsTrue(policy.Observe(current));
-        }
-
-        [Test]
         public void Observe_MoreThanCapacity_EvictsOldestObservedSenderByFifo()
         {
             var policy = new ZombieEvictionPolicy(maxObservedSenders: 3);

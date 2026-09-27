@@ -32,10 +32,7 @@ namespace Hidano.FacialControl.Adapters.ScriptableObject.Serializable
         [Tooltip("所属レイヤー名 (Layers セクションの name と一致させる)。")]
         public string layer;
 
-        // 旧テスト/依存コードのコンパイル互換用。Unity に保存されるフィールドではなく、Gaze の判定には使用しない。
-        [Obsolete("Gaze は GazeChannel で定義してください。")]
-
-        [Tooltip("表情の AnimationClip。時刻 0 の BlendShape / Bone 値および AnimationEvent メタデータから snapshot をベイクする。")]
+        [Tooltip("表情の AnimationClip。時刻 0 の BlendShape / Bone 値から snapshot をベイクする。")]
         public AnimationClip animationClip;
 
         [Tooltip("[Bridge] 遷移時間 (秒)。0〜1 範囲外は自動クランプ。snapshot 経路へ移行予定。")]

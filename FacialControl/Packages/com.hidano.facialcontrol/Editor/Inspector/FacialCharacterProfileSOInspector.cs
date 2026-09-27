@@ -431,9 +431,11 @@ namespace Hidano.FacialControl.Editor.Inspector
 
             // ルーティング編集はレイヤー・配線・スロットを横断する操作のため、
             // タブ内ではなく全タブ共通バーに常時表示する。
-            if (target is ScriptableObject routingProfile)
+            // エディタ本体は com.hidano.facialcontrol.routing-editor にあり、
+            // 未導入（ハンドラ未登録）ならボタン自体を出さない。
+            if (RoutingEditorLauncher.IsAvailable && target is ScriptableObject routingProfile)
             {
-                var routingButton = new Button(() => RoutingEditorWindow.Open(routingProfile))
+                var routingButton = new Button(() => RoutingEditorLauncher.Open(routingProfile))
                 {
                     name = RoutingEditorOpenButtonName,
                     text = "ルーティングを編集",

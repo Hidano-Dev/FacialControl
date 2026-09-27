@@ -77,7 +77,7 @@ MonoBehaviour:
         transitionCurvePreset: Linear
         blendShapes:
         - rendererPath: Face
-          name: 縺・smile
+          name: A_smile
           value: 1
         bones: []
         rendererPaths:

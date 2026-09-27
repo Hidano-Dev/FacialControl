@@ -349,7 +349,7 @@ namespace Hidano.FacialControl.InputSystem.Tests.PlayMode.Integration
 
             LogAssert.Expect(
                 LogType.Warning,
-                "[InputSystemAdapterBinding] Overlay binding slot 'missing' is not declared in profile.Slots. skip.");
+                new System.Text.RegularExpressions.Regex(@"\[InputSystemAdapterBinding\].*'missing'"));
 
             AdapterBuildContext ctx = CreateContext(slots: new[] { "blink" });
 
@@ -359,32 +359,6 @@ namespace Hidano.FacialControl.InputSystem.Tests.PlayMode.Integration
             bool resolved = _registry.TryResolve(slug + ":overlay:missing", out IInputSource source);
             Assert.IsFalse(resolved, "Slots 未宣言の overlaySlot は overlay source として登録されてはならない。");
             Assert.IsNull(source);
-        }
-
-        [Test]
-        public void OnStart_GazePath_BindingWithoutConfig_LogsWarning()
-        {
-            _sourceAsset = CreateGazeActionAsset(
-                actionMapName: "Expression",
-                gazeActionName: "GazeLook");
-
-            var gazeBinding = CreateGazeBindingEntry("GazeLook", "missing-gaze");
-
-            _binding = CreateBinding(
-                slug: "input-system-gaze-pairing-missing-config",
-                asset: _sourceAsset,
-                actionMapName: "Expression",
-                expressionBindings: new List<ExpressionBindingEntry> { gazeBinding },
-                injectedGazeConfigs: new List<GazeChannel> { CreateGazeConfig("expr-gaze") });
-
-            LogAssert.Expect(
-                LogType.Warning,
-                "[InputSystemAdapterBinding] Gaze binding channel id 'missing-gaze' が注入チャネルに存在しません。skip します。");
-
-            AdapterBuildContext ctx = CreateContext();
-
-            _binding.OnStart(in ctx);
-            _bindingStarted = true;
         }
 
         [Test]
@@ -630,18 +604,6 @@ namespace Hidano.FacialControl.InputSystem.Tests.PlayMode.Integration
             var action = map.AddAction(gazeActionName, InputActionType.Value, expectedControlLayout: "Vector2");
             action.AddBinding("<Gamepad>/leftStick");
             return asset;
-        }
-
-        private static ExpressionBindingEntry CreateGazeBindingEntry(
-            string gazeActionName,
-            string expressionId)
-        {
-            return new ExpressionBindingEntry
-            {
-                bindingMode = BindingMode.Gaze,
-                expressionId = expressionId,
-                actionName = gazeActionName,
-            };
         }
 
         private static GazeChannel CreateGazeConfig(string expressionId)

@@ -1,6 +1,6 @@
 {
     "name": "com.hidano.facialcontrol.osc",
-    "version": "0.1.0-preview.2",
+    "version": "1.0.0",
     "displayName": "FacialControl OSC",
     "description": "FacialControl の OSC 送受信アダプタ。VRChat / ARKit 互換 OSC で BlendShape と Gaze Vector2 を送受信し、`OscReceiverAdapterBinding` / `OscSenderAdapterBinding` 経由で FacialCharacterProfileSO の AdapterBindings に組み込む。",
     "unity": "6000.3",
@@ -8,8 +8,20 @@
     "author": {
         "name": "Hidano"
     },
+    "homepage": "https://github.com/NHidano/FacialControl#readme",
+    "repository": {
+        "type": "git",
+        "url": "https://github.com/NHidano/FacialControl.git",
+        "directory": "FacialControl/Packages/com.hidano.facialcontrol.osc"
+    },
+    "bugs": {
+        "url": "https://github.com/NHidano/FacialControl/issues"
+    },
+    "documentationUrl": "https://github.com/NHidano/FacialControl/blob/main/FacialControl/Packages/com.hidano.facialcontrol.osc/README.md",
+    "changelogUrl": "https://github.com/NHidano/FacialControl/blob/main/FacialControl/Packages/com.hidano.facialcontrol.osc/CHANGELOG.md",
+    "licensesUrl": "https://github.com/NHidano/FacialControl/blob/main/FacialControl/Packages/com.hidano.facialcontrol.osc/LICENSE.md",
     "dependencies": {
-        "com.hidano.facialcontrol": "0.1.0-preview.2",
+        "com.hidano.facialcontrol": "1.0.0",
         "com.hidano.uosc": "1.0.0"
     },
     "samples": [

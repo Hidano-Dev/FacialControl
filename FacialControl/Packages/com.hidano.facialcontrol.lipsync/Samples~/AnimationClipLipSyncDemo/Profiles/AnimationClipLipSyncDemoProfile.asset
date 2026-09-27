@@ -14,18 +14,52 @@ MonoBehaviour:
   m_EditorClassIdentifier: Hidano.FacialControl.Adapters::Hidano.FacialControl.Adapters.ScriptableObject.Serializable.FacialCharacterProfileSO
   _schemaVersion: "1.0"
   _layers:
-  - name: lipsync
-    priority: 0
+  - name: overlay
+    priority: 10
     exclusionMode: 1
     inputSources:
-    - id: ulipsync
+    - id: overlay:a
       weight: 1
-      optionsJson: 
+      optionsJson:
+    - id: lipsync-overlay:a
+      weight: 1
+      optionsJson:
+    - id: overlay:i
+      weight: 1
+      optionsJson:
+    - id: lipsync-overlay:i
+      weight: 1
+      optionsJson:
+    - id: overlay:u
+      weight: 1
+      optionsJson:
+    - id: lipsync-overlay:u
+      weight: 1
+      optionsJson:
+    - id: overlay:e
+      weight: 1
+      optionsJson:
+    - id: lipsync-overlay:e
+      weight: 1
+      optionsJson:
+    - id: overlay:o
+      weight: 1
+      optionsJson:
+    - id: lipsync-overlay:o
+      weight: 1
+      optionsJson:
     layerOverrideMask:
-    - lipsync
+    - overlay
   _expressions: []
   _rendererPaths: []
   _legacyGazeConfigs: []
+  _slots:
+  - a
+  - i
+  - u
+  - e
+  - o
+  _defaultOverlays: []
   _adapterBindings:
   - rid: 4448593420807569408
   _referenceModel: {fileID: 0}

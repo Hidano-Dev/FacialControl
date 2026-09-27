@@ -53,10 +53,11 @@ namespace Hidano.FacialControl.Samples.OscOutputDemo
                 slug,
                 "blendshape",
                 new DemoBlendShapeSource(slug.Value + ":blendshape", blendShapeCount, _state));
+            // Profile の既定 Gaze チャネル id ("gaze") と一致させ、FacialController の自動解決で結線されるようにする。
             ctx.InputSourceRegistry.Register(
                 slug,
-                "eye_look",
-                new DemoGazeSource(slug.Value + ":eye_look", _state));
+                "gaze",
+                new DemoGazeSource(slug.Value + ":gaze", _state));
         }
     }
 

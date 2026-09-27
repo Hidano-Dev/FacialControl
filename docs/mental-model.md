@@ -28,23 +28,25 @@ FacialCharacterProfileSO (1 個)
 ## 2. 表情合成パイプライン
 
 ```
-入力（キー / アナログ / LipSync / OSC 受信） → Activate(Expression)
-  → PlayableGraph 内で ScriptPlayable が NativeArray 補間
-  → AnimationStream で SkinnedMeshRenderer.BlendShape へ書き戻し
+入力（キー / アナログ / LipSync / OSC 受信） → 各 binding が入力源として登録
+  → FacialController.LateUpdate でレイヤーごとに加重和 → 優先度順に合成 → 遷移補間
+  → SkinnedMeshRenderer.SetBlendShapeWeight へ直接書き込み（PlayableGraph は使わない）
+  → 合成後の値を IFacialOutputBus へ配信（OSC Sender 等が購読）
 ```
 
-- レイヤーは「優先度 + ウェイトでブレンド」される。`layerSlots` による横断オーバーライドも可能。
-- 遷移は線形が既定（0〜1 秒、既定 0.25 秒）。遷移中に新表情がトリガーされたら、現在の補間値を起点に新遷移を開始（GC ゼロ）。
+- レイヤーは「優先度 + ウェイトでブレンド」される。Expression の `layerOverrideMask` で他レイヤーを抑制できる。
+- 遷移は線形が既定（0〜1 秒、既定 1/15 秒）。遷移中に新表情がトリガーされたら、現在の補間値を起点に新遷移を開始（GC ゼロ）。
 - テクスチャ切り替え / UV アニメーションは AnimationClip 内のキーフレームとして扱われる（再生するだけで対応）。
 
 ## 3. OSC 送信（Sender Binding）
 
 - **送信単位は BlendShape 1 個 = OSC メッセージ 1 個**。毎フレーム bundle で送出。
 - プリセットでアドレス決定:
-  - `vrchat`: `/avatar/parameters/{name}`、Gaze は `{id}X` / `{id}Y` の 2 メッセージ
+  - `vrchat`: `/avatar/parameters/{name}`、Gaze は `{channelId}X` / `{channelId}Y` の 2 メッセージ
   - `arkit`: `/ARKit/{name}`、Gaze は eyeLook 系 8 BlendShape に分解
-- 送信対象は **省略時に全自動**（モデルの全 BlendShape + Profile が宣言する全 Gaze）。subset 配信したいときだけ `BlendShape Names (Optional Filter)` / `Gaze Expression Ids (Optional Filter)` を列挙して絞る。
-- 起動時と `heartbeatIntervalSeconds` 周期（既定 5 秒）で `/_facialcontrol/blendshape_names` heartbeat を送出（受信側の名前整合性検査用）。bundle には送信元識別用 `/_facialcontrol/sender_id` と、gaze の expressionId / 形式を知らせる `/_facialcontrol/gaze` 広告も同梱される。
+- 送信対象は **省略時に全自動**（モデルの全 BlendShape + Profile が宣言する全 Gaze チャネル）。subset 配信したいときだけ `BlendShape Names (Optional Filter)` を列挙して絞る。Gaze は FacialController が自動注入し、個別指定はしない。
+- endpoint / heartbeat 周期 / loopback 抑制は `OscRuntimeSettingsSO`（Adapter Runtime Settings Collection の sub-asset）に置く。
+- 起動時と `heartbeatIntervalSeconds` 周期（既定 5 秒）で `/_facialcontrol/blendshape_names` heartbeat を送出（受信側の名前整合性検査用）。bundle には送信元識別用 `/_facialcontrol/sender_id` と、gaze のチャネル id / 形式を知らせる `/_facialcontrol/gaze` 広告も同梱される。
 - `suppressLoopback`（既定 ON）: 同一 child scope 内の自分の受信 endpoint と一致する送信先を抑止する。
 - 別スレッド非同期送信で、メインスレッド負荷ゼロ。
 
@@ -79,7 +81,7 @@ FacialCharacterProfileSO (1 個)
 
 ## 6. メンタルモデル要約
 
-> **「キャラ SO に表情データ・入力・OSC アダプターを全部生やす → `FacialController` が表情を PlayableGraph で再生し、Gaze は独立して目ボーンへ適用する」**。
+> **「キャラ SO に表情データ・入力・OSC アダプターを全部生やす → `FacialController` が LateUpdate で合成して BlendShape へ書き込み、Gaze は独立して目ボーンへ適用する」**。
 >
 > OSC は表情の I/O アダプターのひとつで、送信は BlendShape と Gaze の snapshot を送出し、受信は gaze 広告を起点にチャネル route を自動生成する（必要なら手動 mapping で上書きする）。Gaze source id は `{slug}:{channelId}[.left|.right]` で統一される。JSON は永続化フォーマットだが、通常は SO の Gaze セクションを操作する。
 

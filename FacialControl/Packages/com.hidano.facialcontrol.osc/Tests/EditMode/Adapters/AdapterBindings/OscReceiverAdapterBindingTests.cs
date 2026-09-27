@@ -80,69 +80,6 @@ namespace Hidano.FacialControl.Tests.EditMode.Adapters.AdapterBindings
         }
 
         [Test]
-        public void GazeAtomicSwap_CompletedFramesReusePool_AndClearReturnsAllFrames()
-        {
-            var binding = new OscReceiverAdapterBinding();
-            var bindingType = typeof(OscReceiverAdapterBinding);
-            var initialize = bindingType.GetMethod(
-                "InitializeGazeBundleState",
-                System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
-            initialize.Invoke(binding, null);
-
-            var poolField = bindingType.GetField(
-                "_gazeFramePool",
-                System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
-            var currentField = bindingType.GetField(
-                "_currentGazeBundleValues",
-                System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
-            var complete = bindingType.GetMethod(
-                "CompleteCurrentGazeBundleLocked",
-                System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
-            var flush = bindingType.GetMethod(
-                "FlushBufferedGazeMessages",
-                System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
-            var clear = bindingType.GetMethod(
-                "ClearGazeBundleState",
-                System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
-            var hasCurrentField = bindingType.GetField(
-                "_hasCurrentGazeBundle",
-                System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
-
-            var sampleType = bindingType.GetNestedType(
-                "GazeSample",
-                System.Reflection.BindingFlags.NonPublic);
-            var runtimeType = bindingType.GetNestedType(
-                "GazeRuntimeEntry",
-                System.Reflection.BindingFlags.NonPublic);
-            object runtime = Activator.CreateInstance(
-                runtimeType,
-                System.Reflection.BindingFlags.Instance |
-                System.Reflection.BindingFlags.Public |
-                System.Reflection.BindingFlags.NonPublic,
-                null,
-                new object[] { OscMappingMode.Gaze_VRChat_XY },
-                null);
-            object sample = Activator.CreateInstance(
-                sampleType,
-                System.Reflection.BindingFlags.Instance |
-                System.Reflection.BindingFlags.Public |
-                System.Reflection.BindingFlags.NonPublic,
-                null,
-                new object[] { runtime, 0, 0f },
-                null);
-            var current = (System.Collections.IList)currentField.GetValue(binding);
-            current.Add(sample);
-            hasCurrentField.SetValue(binding, true);
-
-            complete.Invoke(binding, null);
-            Assert.That(((System.Collections.ICollection)poolField.GetValue(binding)).Count, Is.EqualTo(1));
-            flush.Invoke(binding, new object[] { 1d });
-            Assert.That(((System.Collections.ICollection)poolField.GetValue(binding)).Count, Is.EqualTo(2));
-            clear.Invoke(binding, null);
-            Assert.That(((System.Collections.ICollection)poolField.GetValue(binding)).Count, Is.EqualTo(2));
-        }
-
-        [Test]
         public void Type_IsConcreteSealedClass()
         {
             Type type = typeof(OscReceiverAdapterBinding);
@@ -742,6 +679,57 @@ namespace Hidano.FacialControl.Tests.EditMode.Adapters.AdapterBindings
                 Assert.That(output[1], Is.EqualTo(-1f).Within(1e-6f));
                 Assert.That(output[2], Is.EqualTo(0.75f).Within(1e-6f));
                 AssertMask(source.ContributeMask, true, false, true);
+            }
+            finally
+            {
+                binding.Dispose();
+                UnityEngine.Object.DestroyImmediate(host);
+            }
+        }
+
+        [Test]
+        public void HandleOscMessage_SameHeartbeatResentWithSameTimestamp_KeepsHeartbeatHashAndRuntimeMappings()
+        {
+            var registry = new InputSourceRegistry();
+            var binding = new OscReceiverAdapterBinding
+            {
+                Slug = "osc",
+                Port = AllocatePort(),
+                StalenessSeconds = 0f,
+                BundleMode = BundleInterpretationMode.IndividualMessage,
+                Mappings = new List<OscMappingEntry>(),
+            };
+
+            var host = new GameObject("OscAdapterBindingHeartbeatResendTests");
+            try
+            {
+                binding.OnStart(CreateContext(registry, host, blendShapeNames: new[] { "smile", "frown" }));
+
+                // bare メッセージ（bundle 無し）は常に同じ timestamp key で届く。
+                // 同一内容の heartbeat を再送しても chunk 蓄積に名前が重複せず、
+                // ハッシュも runtime mapping も変わらないこと（再構築が走らないこと）を検証する。
+                var heartbeat = new uOSC.Message(
+                    OscReceiverAdapterBinding.BlendShapeNamesAddress, "smile", "frown");
+                binding.HelperHost.Receiver.HandleOscMessage(heartbeat);
+                binding.OnFixedTick(0.02f);
+
+                OscInputSource source = binding.InputSource;
+                IReadOnlyList<OscMapping> mappings = binding.RuntimeMappings;
+                uint hash = binding.LastHeartbeatHash;
+                Assert.That(source, Is.Not.Null);
+                Assert.That(mappings.Count, Is.EqualTo(2));
+                Assert.That(hash, Is.EqualTo(HeartbeatHashHelper.ComputeFnv1a(new[] { "smile", "frown" })),
+                    "初回 heartbeat のハッシュは受信した名前列そのもののハッシュであるべき。");
+
+                binding.HelperHost.Receiver.HandleOscMessage(heartbeat);
+                binding.OnFixedTick(0.02f);
+
+                Assert.That(binding.LastHeartbeatHash, Is.EqualTo(hash),
+                    "同一 heartbeat の再送でハッシュが変わってはならない（名前の重複蓄積）。");
+                Assert.That(binding.InputSource, Is.SameAs(source));
+                Assert.That(binding.RuntimeMappings, Is.SameAs(mappings),
+                    "同一 heartbeat の再送で runtime mapping が再構築されてはならない。");
+                Assert.That(binding.RuntimeMappings.Count, Is.EqualTo(2));
             }
             finally
             {

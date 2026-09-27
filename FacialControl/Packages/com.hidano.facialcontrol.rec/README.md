@@ -1,31 +1,71 @@
-# com.hidano.facialcontrol.rec
+# FacialControl REC
 
-`com.hidano.facialcontrol.rec` は FacialControl の録画・再生機能を提供する UPM パッケージです。
-現時点では spec `rec-recording-playback` に対応した構成の土台を提供します。`Runtime` の `Domain` / `Application` / `Adapters`、`Editor`、`Tests`、`Samples~`、`Documentation~` を含み、asmdef による責務分離を前提にしています。
+`com.hidano.facialcontrol` に流れ込む入力（表情トリガーの on/off・アナログ値・Gaze）を記録し、あとから同じ入力を再現するパッケージ。再生中は live 入力を遮断するので、キャプチャした演技を配信中にそのまま再生したり、`com.hidano.facialcontrol.timeline` 経由で Timeline へ書き出したりできる。
 
-## 前提バージョン
-- Unity 6000.3 系
-- `com.hidano.facialcontrol` 0.1.0-preview.2
+## 依存パッケージ
 
-本パッケージは `com.hidano.facialcontrol` のみに依存します。OSC / InputSystem / LipSync / iFacialMocap パッケージへの依存は持ちません。
+| パッケージ | バージョン | 用途 |
+|---|---|---|
+| `com.hidano.facialcontrol` | 1.0.0 | 入力観測バス (`IFacialInputObservationBus`) と入力源レジストリ |
 
-## ディレクトリ構成
+OSC / InputSystem / LipSync / iFacialMocap パッケージには依存しない。どの入力源から来た値でも、core の観測バスを通る限り記録できる。
 
-- `Runtime/Domain/`
-- `Runtime/Application/`
-- `Runtime/Adapters/`
-- `Editor/`
-- `Tests/EditMode/`
-- `Tests/PlayMode/`
-- `Tests/Shared/`
-- `Samples~/`
-- `Documentation~/`
+## 使い方
 
-## 補足
-このパッケージではパッケージ構造と asmdef 配置を前提に、録画・再生の実装、サンプル、Inspector UI を段階的に追加します。
+1. `FacialController` を持つ GameObject に **Add Component → FacialControl → REC Character Binding** を追加する（`RecCharacterBinding`。同 GameObject の `FacialController` を自動で拾う）
+2. Play 中に Inspector の **Start Recording** を押す。Recording Name を空にすると `take-yyyyMMdd-HHmmss` 形式で命名される
+3. **Stop Recording** で `.fcrec` ファイルが確定する。保存先は `StreamingAssets/FacialControl/{キャラクター名}/recordings/{名前}.fcrec`
+4. **Load Recording → Start Playback** で再生する。再生中は live の表情トリガーとアナログ入力が遮断され、記録された値だけが反映される
 
-## 既知制限
-- REC 再生開始後に新規登録された live の入力ソースは遮断の対象外です（trigger / analog / gaze 共通の開始時スナップショット方式）。再生開始時点で registry に存在した source と baseline に含まれる source のみを遮断・置換します。
-- `com.hidano.facialcontrol.timeline` の `TimelineExpressionStateSink` が発火する `TriggerOn` / `TriggerOff` も REC 再生中は抑止されます。REC 再生と Timeline 再生を同時に使う場合、trigger 系の live 更新は共存しません。
+スクリプトからは同じ操作を `RecCharacterBinding` の API で行える。
 
-補足として、baseline に存在しない analog source は再生開始時に 0 seed で確定します。gaze も同様に中立 `(0, 0)` で開始されます。
+```csharp
+var rec = GetComponent<RecCharacterBinding>();
+rec.StartRecording("take01");
+rec.StopRecording();
+rec.LoadRecording("take01");
+rec.StartPlayback();     // 完了時は rec.Completed イベント
+rec.StopPlayback();
+```
+
+録画と再生は排他で、片方を開始するともう片方は自動停止する。`OnDisable` / `OnDestroy` でも録画・再生は停止され、録画中のファイルは末尾まで書き切られる。
+
+## 記録される内容
+
+| 種別 | 内容 |
+|---|---|
+| Trigger on/off | 入力源 id と Expression id の組 |
+| Analog sample | 入力源 id と 1〜255 軸の float 値。Gaze の Vector2 もこの形式で記録される |
+| Baseline | 録画開始時点でアクティブだった Expression と、有効だったアナログ入力源の現在値 |
+
+Expression id や入力源 id は文字列として先頭で 1 度だけ定義され、以降のレコードは番号で参照する。Profile に存在しない Expression id は再生開始時に 1 回だけ警告され、その id のイベントは無視される。
+
+## ファイル形式
+
+`.fcrec` は独自バイナリ形式（little-endian）。マジック `FREC`、`formatVersion = 1`、開始時刻（Unix ms）のヘッダに続けてレコード列、末尾に duration と件数の Footer を持つ。書き込みは専用スレッド（`RecStreamWriter`）でストリーム出力するため、録画中のメインスレッドに GC アロケーションは発生しない。Footer が欠けたファイルは末尾切れとして警告付きで復元される。
+
+## 再生中の入力遮断
+
+再生開始時点でレジストリに存在する入力源をスナップショットし、そのうえで記録を注入する。
+
+- **Trigger**: 各トリガー入力源を suspend し、スタックを baseline に置き換えてから記録イベントを注入する。停止時は suspend を解除するが、スタックは元に戻さない
+- **Analog / Gaze**: baseline にある入力源は記録値を seed にした再生用 source で置き換え、その他のアナログ入力源も 0 seed で置き換える。停止時は自分が置き換えたものだけを元に戻す
+- 再生開始後に新しく登録された入力源は遮断の対象外
+- `com.hidano.facialcontrol.timeline` の状態 sink もトリガー入力源の一種なので、REC 再生中は Timeline からの表情 on/off も抑止される
+
+## 構成
+
+```
+Runtime/
+├── Domain/        # RecEvent / RecTimeline / RecBinaryFormat / RecPlaybackScheduler（Unity 非依存）
+├── Application/   # RecordingUseCase / PlaybackUseCase
+└── Adapters/      # RecCharacterBinding (MonoBehaviour) / RecStreamWriter / RecFileReader / 注入用 Injector
+Editor/            # RecCharacterBinding の UI Toolkit Inspector
+Tests/             # EditMode 単体 + PlayMode E2E / GC ゼロ gate
+```
+
+サンプルは同梱しない。Timeline への書き出しは `com.hidano.facialcontrol.timeline` の **Tools → FacialControl → Timeline → REC Export** を使う。
+
+## ライセンス
+
+[MIT License](LICENSE.md)

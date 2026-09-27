@@ -9,7 +9,7 @@
 | 形式 | 向いている用途 | 強み | 注意点 |
 |---|---|---|---|
 | `ExpressionPhonemeEntry` | Profile に A / I / U / E / O などの口形 Expression がある場合 | 既存の Expression snapshot を参照するため、renderer path 不一致の影響を受けません。Inspector の既定追加形式です。 | 参照先 Expression の割り当てが必要です。未割り当ての場合は HelpBox と warning が表示され、該当 phoneme はスキップされます。 |
-| `AnimationClipPhonemeEntry` | 1 phoneme に複数 BlendShape をまとめて設定したい場合、または既存の口形 AnimationClip を流用したい場合 | Clip の time 0 に置いた複数 BlendShape 値をまとめて snapshot 化できます。 | `AnimationClip.SampleAnimation` は Host GameObject 配下の renderer path と curve binding が一致する必要があります。time 0 の値だけを読むため、Clip の時間再生、途中キー、ループ、イージングは使われません。 |
+| `AnimationClipPhonemeEntry` | 1 phoneme に複数 BlendShape をまとめて設定したい場合、または既存の口形 AnimationClip を流用したい場合 | Clip の終端フレームに置いた複数 BlendShape 値をまとめて snapshot 化できます。 | `AnimationClip.SampleAnimation` は Host GameObject 配下の renderer path と curve binding が一致する必要があります。Clip の終端時刻（`length` が 0 なら先頭）の値だけを読むため、Clip の時間再生、途中キー、ループ、イージングは使われません。 |
 | `BlendShapePhonemeEntry` | 1 phoneme が単一 BlendShape 名だけで表せる場合 | 最も単純で、BlendShape 名と最大 weight だけで設定できます。 | 単一 BlendShape しか出力できません。複数 BlendShape を組み合わせる口形には不向きです。BlendShape 名が対象 mesh と一致しない場合は動作しません。 |
 
 選択の目安は次のとおりです。
@@ -28,7 +28,7 @@
 
 既存の `AnimationClipPhonemeEntry` が「動かない」場合は、次の順に確認してください。
 
-1. Clip の time 0 に必要な BlendShape weight が入っているか確認します。
+1. Clip の終端フレームに必要な BlendShape weight が入っているか確認します。
 2. Clip の curve binding の renderer path が Host GameObject 配下の実際の階層と一致しているか確認します。
 3. Profile に同じ phoneme の Expression を作成し、`ExpressionPhonemeEntry` へ置き換えます。
 
@@ -36,8 +36,8 @@
 
 ## サンプル方針
 
-`MicLipSyncDemo` など新規ユーザー向けの LipSync サンプルは、Profile に登録した A / I / U / E / O の Expression を参照する `ExpressionPhonemeEntry` を標準構成として扱います。これにより、ユーザーがモデル階層や Clip の curve binding を調整しなくても、Inspector 上の Expression 割り当てだけで口形を確認できます。
+`MicLipSyncDemo` は、モデル側に `A / I / U / E / O` という名前の BlendShape がある前提で `BlendShapePhonemeEntry` を使う最小構成です。モデルの BlendShape 名が異なる場合は、各 entry の BlendShape 名を合わせるか、Profile に口形 Expression を登録して `ExpressionPhonemeEntry` に切り替えてください。
 
-`AnimationClipLipSyncDemo` は、`AnimationClipPhonemeEntry` の time-0 sampling を説明するための互換・検証用サンプルとして残します。このサンプルでは、Clip の再生時間ではなく time 0 の BlendShape 値だけが使われること、renderer path が一致しないと snapshot が空になることを確認できます。
+`AnimationClipLipSyncDemo` は、`BlendShapePhonemeEntry` と `AnimationClipPhonemeEntry` の混在例です。Clip の終端フレームの BlendShape 値だけが使われること、renderer path が一致しないと snapshot が空になることを確認できます。
 
 `Multi Source Blend Demo` は、LipSync 専用の phoneme entry 形式ではなく、FacialControl の Expression / overlay / input source の合成を示すサンプルです。LipSync と組み合わせる場合は、同じ口形 Expression を `ExpressionPhonemeEntry` から参照し、必要に応じて overlay 側で Override / Suppress を設定してください。

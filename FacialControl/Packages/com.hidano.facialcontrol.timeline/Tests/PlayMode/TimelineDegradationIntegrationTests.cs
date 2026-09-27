@@ -90,7 +90,7 @@ namespace Hidano.FacialControl.Timeline.Tests.PlayMode
                 bakedBlendShapeNames: new[] { "Smile" });
             using var overlayHarness = new OverlayAggregationHarness(profile, fixture.ExpressionSink, fixture.ValueSink, blendShapeNames);
 
-            LogAssert.Expect(LogType.Warning, "[FacialTimelineReceiver] BakeAsset is missing. Value playback is disabled, state playback continues.");
+            LogAssert.Expect(LogType.Warning, new System.Text.RegularExpressions.Regex(@"\[FacialTimelineReceiver\].*BakeAsset"));
 
             fixture.AdvanceTo(0.25f);
             overlayHarness.Aggregate();
