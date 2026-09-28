@@ -10,7 +10,8 @@
         "Unity.Collections",
         "UnityEngine.TestRunner",
         "UnityEditor.TestRunner",
-        "uOSC.Runtime"
+        "uOSC.Runtime",
+        "Hidano.FacialControl.Testing"
     ],
     "includePlatforms": [
         "Editor"

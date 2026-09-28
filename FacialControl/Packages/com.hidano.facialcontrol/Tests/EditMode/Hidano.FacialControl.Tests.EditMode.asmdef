@@ -14,7 +14,8 @@
         "Unity.InputSystem",
         "UnityEngine.TestRunner",
         "UnityEditor.TestRunner",
-        "VContainer"
+        "VContainer",
+        "Hidano.FacialControl.Testing"
     ],
     "includePlatforms": [
         "Editor"

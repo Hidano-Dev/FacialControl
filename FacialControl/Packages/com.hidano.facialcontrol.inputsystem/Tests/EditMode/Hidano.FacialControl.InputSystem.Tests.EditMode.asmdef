@@ -13,7 +13,8 @@
         "Unity.Collections",
         "Unity.InputSystem",
         "UnityEngine.TestRunner",
-        "UnityEditor.TestRunner"
+        "UnityEditor.TestRunner",
+        "Hidano.FacialControl.Testing"
     ],
     "includePlatforms": [
         "Editor"

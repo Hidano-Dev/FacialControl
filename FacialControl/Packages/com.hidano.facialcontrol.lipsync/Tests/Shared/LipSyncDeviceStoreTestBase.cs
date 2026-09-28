@@ -1,9 +1,10 @@
 using Hidano.FacialControl.LipSync.Adapters.Devices;
+using Hidano.FacialControl.Testing;
 using NUnit.Framework;
 
 namespace Hidano.FacialControl.LipSync.Tests.Shared
 {
-    internal abstract class LipSyncDeviceStoreTestBase
+    internal abstract class LipSyncDeviceStoreTestBase : SizedTestFixture
     {
         protected FakePlayerPrefsBackend Backend { get; private set; }
 
