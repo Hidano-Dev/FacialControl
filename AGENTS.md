@@ -10,6 +10,7 @@ Kiro-style Spec-Driven Development on an agentic SDLC
 ## Test Execution (IMPORTANT)
 - The ONLY sanctioned way to run tests is Unity Test Runner in batchmode:
   `& "D:/UnityEditors/6000.3.19f1/Editor/Unity.exe" -batchmode -nographics -projectPath <repo>/FacialControl -runTests -testPlatform EditMode|PlayMode [-testFilter <fullname>] -testResults <abs-path>.xml -logFile <abs-path>.log`
+- Tests are classified by size (`[SmallTest]` / `[MediumTest]` / `[LargeTest]`, see `docs/testing.md`). Add `-testCategory Small` (or `Medium`) to run one size; run `pwsh ./scripts/check-test-sizes.ps1` before pushing to catch undeclared sizes without launching Unity.
 - NEVER pass `-quit` together with `-runTests` — it makes Unity exit immediately without running tests (no XML is produced). The test runner exits by itself when the run finishes.
 - NEVER load project/test DLLs (`Library/ScriptAssemblies/*.dll`) into PowerShell via `[System.Reflection.Assembly]::LoadFrom` + `Activator.CreateInstance` to invoke NUnit methods directly. This pattern is flagged by Windows Defender as a trojan (fileless-malware heuristic), gets blocked, and bypasses Unity Test Runner semantics (SetUp/TearDown, LogAssert, Unity APIs). If a test run seems to produce no XML, fix the command line (usually the `-quit` mistake) instead of switching to reflection.
 
