@@ -1,0 +1,70 @@
+# FacialControl CI - Large テスト（手動 / 夜間）
+#
+# Large は実機ビルドや外部システム接続を含むテスト（docs/testing.md）。PR ごとには回さず、
+# workflow_dispatch と夜間スケジュールで EditMode / PlayMode の -testCategory Large を実行する。
+# 現時点で Large に分類されたテストは 0 件（docs/test-size-migration.md）。フィルタに一致する
+# テストがない場合の Unity Test Runner の終了コードは環境依存のため、ジョブは continue-on-error とし
+# 結果 XML の有無で判断する。Large テストを追加したら continue-on-error を外す。
+name: CI (Large)
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 18 * * *'   # 毎日 03:00 JST
+
+env:
+  UNITY_PROJECT_PATH: FacialControl
+  TEST_RESULTS_DIR: test-results
+  LARGE_CATEGORY: Large
+
+jobs:
+  large-tests:
+    name: Large テスト（EditMode + PlayMode）
+    runs-on: self-hosted
+    timeout-minutes: 90
+    continue-on-error: true
+    steps:
+      - name: チェックアウト
+        uses: actions/checkout@v4
+
+      - name: テスト結果ディレクトリ作成
+        run: |
+          if (-Not (Test-Path "${{ env.TEST_RESULTS_DIR }}")) {
+            New-Item -ItemType Directory -Path "${{ env.TEST_RESULTS_DIR }}"
+          }
+        shell: pwsh
+
+      - name: Large テスト実行（EditMode, -testCategory Large）
+        run: |
+          & "$env:UNITY_PATH/Unity.exe" `
+            -batchmode `
+            -nographics `
+            -projectPath "${{ env.UNITY_PROJECT_PATH }}" `
+            -runTests `
+            -testPlatform EditMode `
+            -testCategory "${{ env.LARGE_CATEGORY }}" `
+            -testResults "${{ env.TEST_RESULTS_DIR }}/large-editmode.xml"
+        shell: pwsh
+
+      - name: Large テスト実行（PlayMode, -testCategory Large）
+        if: always()
+        run: |
+          & "$env:UNITY_PATH/Unity.exe" `
+            -batchmode `
+            -nographics `
+            -projectPath "${{ env.UNITY_PROJECT_PATH }}" `
+            -runTests `
+            -testPlatform PlayMode `
+            -testCategory "${{ env.LARGE_CATEGORY }}" `
+            -testResults "${{ env.TEST_RESULTS_DIR }}/large-playmode.xml"
+        shell: pwsh
+
+      - name: テスト結果アップロード
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: large-test-results
+          path: |
+            ${{ env.TEST_RESULTS_DIR }}/large-editmode.xml
+            ${{ env.TEST_RESULTS_DIR }}/large-playmode.xml
+          if-no-files-found: warn

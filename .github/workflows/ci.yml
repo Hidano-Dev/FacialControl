@@ -1,4 +1,11 @@
-# FacialControl CI - パッケージバリデーション / EditMode / PlayMode テスト自動実行
+# FacialControl CI - パッケージバリデーション / テストサイズ別（Small / Medium）テスト自動実行
+#
+# テストは Google の Test size に従って Category で分類されている（docs/testing.md）。
+#   - Small : EditMode、PR ごとに実行（push / pull_request すべて）
+#   - Medium: EditMode + PlayMode、マージ前ゲート（pull_request と main への push）
+#   - Large : 手動 / 夜間（.github/workflows/ci-large.yml）
+# サイズ未宣言テストは test-size-check ジョブ（静的）と Small ジョブ内の
+# TestSizeDeclarationTests（reflection）の両方で検出する。
 name: CI
 
 on:
@@ -13,6 +20,8 @@ env:
   PACKAGE_PATH: FacialControl/Packages/com.hidano.facialcontrol
   LIPSYNC_EDITMODE_TEST_ASSEMBLY: Hidano.FacialControl.LipSync.Tests.EditMode
   LIPSYNC_PLAYMODE_TEST_ASSEMBLY: Hidano.FacialControl.LipSync.Tests.PlayMode
+  SMALL_CATEGORY: Small
+  MEDIUM_CATEGORY: Medium
 
 jobs:
   package-validation:
@@ -28,9 +37,22 @@ jobs:
           & "./scripts/validate-package.ps1" -PackagePath "${{ env.PACKAGE_PATH }}"
         shell: pwsh
 
-  editmode-tests:
-    needs: package-validation
-    name: EditMode テスト
+  test-size-check:
+    name: テストサイズ静的チェック
+    runs-on: self-hosted
+    timeout-minutes: 5
+    steps:
+      - name: チェックアウト
+        uses: actions/checkout@v4
+
+      - name: サイズ宣言・Small 禁止 API・Small アセンブリ参照の検査
+        run: |
+          & "./scripts/check-test-sizes.ps1" -PackagesPath "${{ env.UNITY_PROJECT_PATH }}/Packages"
+        shell: pwsh
+
+  small-tests:
+    needs: [package-validation, test-size-check]
+    name: Small テスト（EditMode, PR ごと）
     runs-on: self-hosted
     timeout-minutes: 30
     steps:
@@ -44,7 +66,7 @@ jobs:
           }
         shell: pwsh
 
-      - name: EditMode テスト実行
+      - name: Small テスト実行（EditMode, -testCategory Small）
         run: |
           & "$env:UNITY_PATH/Unity.exe" `
             -batchmode `
@@ -52,19 +74,22 @@ jobs:
             -projectPath "${{ env.UNITY_PROJECT_PATH }}" `
             -runTests `
             -testPlatform EditMode `
-            -testResults "${{ env.TEST_RESULTS_DIR }}/editmode.xml"
+            -testCategory "${{ env.SMALL_CATEGORY }}" `
+            -testResults "${{ env.TEST_RESULTS_DIR }}/small-editmode.xml"
         shell: pwsh
 
       - name: テスト結果アップロード
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: editmode-test-results
-          path: ${{ env.TEST_RESULTS_DIR }}/editmode.xml
+          name: small-test-results
+          path: ${{ env.TEST_RESULTS_DIR }}/small-editmode.xml
 
-  playmode-tests:
-    needs: package-validation
-    name: PlayMode テスト
+  medium-tests:
+    needs: [package-validation, test-size-check]
+    name: Medium テスト（EditMode + PlayMode, マージ前）
+    # マージ前ゲート: PR と main への push で実行（feature ブランチへの push では Small のみ）
+    if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main'
     runs-on: self-hosted
     timeout-minutes: 30
     steps:
@@ -78,7 +103,20 @@ jobs:
           }
         shell: pwsh
 
-      - name: PlayMode テスト実行
+      - name: Medium テスト実行（EditMode, -testCategory Medium）
+        run: |
+          & "$env:UNITY_PATH/Unity.exe" `
+            -batchmode `
+            -nographics `
+            -projectPath "${{ env.UNITY_PROJECT_PATH }}" `
+            -runTests `
+            -testPlatform EditMode `
+            -testCategory "${{ env.MEDIUM_CATEGORY }}" `
+            -testResults "${{ env.TEST_RESULTS_DIR }}/medium-editmode.xml"
+        shell: pwsh
+
+      - name: Medium テスト実行（PlayMode, -testCategory Medium）
+        if: always()
         run: |
           & "$env:UNITY_PATH/Unity.exe" `
             -batchmode `
@@ -86,19 +124,22 @@ jobs:
             -projectPath "${{ env.UNITY_PROJECT_PATH }}" `
             -runTests `
             -testPlatform PlayMode `
-            -testResults "${{ env.TEST_RESULTS_DIR }}/playmode.xml"
+            -testCategory "${{ env.MEDIUM_CATEGORY }}" `
+            -testResults "${{ env.TEST_RESULTS_DIR }}/medium-playmode.xml"
         shell: pwsh
 
       - name: テスト結果アップロード
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: playmode-test-results
-          path: ${{ env.TEST_RESULTS_DIR }}/playmode.xml
+          name: medium-test-results
+          path: |
+            ${{ env.TEST_RESULTS_DIR }}/medium-editmode.xml
+            ${{ env.TEST_RESULTS_DIR }}/medium-playmode.xml
 
-  lipsync-editmode-tests:
-    needs: package-validation
-    name: uLipSync EditMode テスト
+  lipsync-small-tests:
+    needs: [package-validation, test-size-check]
+    name: uLipSync Small テスト（EditMode, PR ごと）
     runs-on: self-hosted
     timeout-minutes: 30
     steps:
@@ -112,10 +153,10 @@ jobs:
           }
         shell: pwsh
 
-      - name: uLipSync EditMode テスト実行
+      - name: uLipSync Small テスト実行（EditMode, -testCategory Small）
         run: |
           $testResultsDir = (Resolve-Path "${{ env.TEST_RESULTS_DIR }}").Path
-          $testResultsPath = Join-Path $testResultsDir "lipsync-editmode.xml"
+          $testResultsPath = Join-Path $testResultsDir "lipsync-small-editmode.xml"
           & "$env:UNITY_PATH/Unity.exe" `
             -batchmode `
             -nographics `
@@ -123,6 +164,7 @@ jobs:
             -runTests `
             -testPlatform EditMode `
             -assemblyNames "${{ env.LIPSYNC_EDITMODE_TEST_ASSEMBLY }}" `
+            -testCategory "${{ env.SMALL_CATEGORY }}" `
             -testResults "$testResultsPath"
         shell: pwsh
 
@@ -130,13 +172,14 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: lipsync-editmode-test-results
-          path: ${{ env.TEST_RESULTS_DIR }}/lipsync-editmode.xml
+          name: lipsync-small-test-results
+          path: ${{ env.TEST_RESULTS_DIR }}/lipsync-small-editmode.xml
           if-no-files-found: error
 
-  lipsync-playmode-tests:
-    needs: package-validation
-    name: uLipSync PlayMode テスト
+  lipsync-medium-tests:
+    needs: [package-validation, test-size-check]
+    name: uLipSync Medium テスト（EditMode + PlayMode, マージ前）
+    if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main'
     runs-on: self-hosted
     timeout-minutes: 30
     steps:
@@ -150,10 +193,26 @@ jobs:
           }
         shell: pwsh
 
-      - name: uLipSync PlayMode テスト実行
+      - name: uLipSync Medium テスト実行（EditMode, -testCategory Medium）
         run: |
           $testResultsDir = (Resolve-Path "${{ env.TEST_RESULTS_DIR }}").Path
-          $testResultsPath = Join-Path $testResultsDir "lipsync-playmode.xml"
+          $testResultsPath = Join-Path $testResultsDir "lipsync-medium-editmode.xml"
+          & "$env:UNITY_PATH/Unity.exe" `
+            -batchmode `
+            -nographics `
+            -projectPath "${{ env.UNITY_PROJECT_PATH }}" `
+            -runTests `
+            -testPlatform EditMode `
+            -assemblyNames "${{ env.LIPSYNC_EDITMODE_TEST_ASSEMBLY }}" `
+            -testCategory "${{ env.MEDIUM_CATEGORY }}" `
+            -testResults "$testResultsPath"
+        shell: pwsh
+
+      - name: uLipSync Medium テスト実行（PlayMode, -testCategory Medium）
+        if: always()
+        run: |
+          $testResultsDir = (Resolve-Path "${{ env.TEST_RESULTS_DIR }}").Path
+          $testResultsPath = Join-Path $testResultsDir "lipsync-medium-playmode.xml"
           & "$env:UNITY_PATH/Unity.exe" `
             -batchmode `
             -nographics `
@@ -161,6 +220,7 @@ jobs:
             -runTests `
             -testPlatform PlayMode `
             -assemblyNames "${{ env.LIPSYNC_PLAYMODE_TEST_ASSEMBLY }}" `
+            -testCategory "${{ env.MEDIUM_CATEGORY }}" `
             -testResults "$testResultsPath"
         shell: pwsh
 
@@ -168,6 +228,8 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: lipsync-playmode-test-results
-          path: ${{ env.TEST_RESULTS_DIR }}/lipsync-playmode.xml
+          name: lipsync-medium-test-results
+          path: |
+            ${{ env.TEST_RESULTS_DIR }}/lipsync-medium-editmode.xml
+            ${{ env.TEST_RESULTS_DIR }}/lipsync-medium-playmode.xml
           if-no-files-found: error
