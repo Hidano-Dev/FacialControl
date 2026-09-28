@@ -54,15 +54,5 @@ namespace Hidano.FacialControl.LipSync.Tests.EditMode.Adapters
             CollectionAssert.IsEmpty(names);
         }
 #endif
-
-        [Test]
-        public void GetDeviceNames_DefaultEnumerator_ReturnsStringArray()
-        {
-            var enumerator = new DefaultMicrophoneDeviceEnumerator();
-
-            var names = enumerator.GetDeviceNames();
-
-            Assert.That(names, Is.Not.Null);
-        }
     }
 }

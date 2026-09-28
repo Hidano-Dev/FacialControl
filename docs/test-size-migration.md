@@ -10,7 +10,7 @@
 
 | 検出項目 | 判定に使ったパターン（要約） | Small で禁止する理由 |
 |---|---|---|
-| AssetDatabase / Resources | `AssetDatabase`, `PrefabUtility`, `Resources.Load` | アセット DB とディスクへの依存 |
+| AssetDatabase / Resources | `AssetDatabase`, `PrefabUtility`, `Resources.*`（`FindObjectsOfTypeAll` を含む） | アセット DB・ロード済みオブジェクト全体への依存 |
 | ファイル I/O | `File.*`, `Directory.*`, `Path.GetTempPath`, `Application.persistentDataPath` 等 | ディスク I/O |
 | PlayerPrefs / EditorPrefs | `PlayerPrefs.`（Fake 経由を除く）, `EditorPrefs.` | マシンローカルな永続化 |
 | ネットワーク | `UdpClient`, `Socket`, `uOSC.*`, `UnityWebRequest`, `Dns` | ソケット確保（ループバックでも Medium） |
@@ -18,7 +18,8 @@
 | フレーム待ち / [UnityTest] | `WaitForSeconds*`, `WaitForFixedUpdate`, `[UnityTest]` | フレーム同期・エディタループ依存 |
 | Time.* 直接参照 | `Time.time`, `Time.deltaTime`, `Time.unscaledTime` 等 | 実時間依存（`ITimeProvider` を使う） |
 | 実時間 | `DateTime.Now/UtcNow`, `Stopwatch`, `Thread.Sleep` | 非決定的 |
-| EditorWindow / EditorApplication | `EditorWindow`, `GetWindow<`, `EditorApplication.` | エディタ UI・ループ依存 |
+| EditorWindow / EditorApplication | `*EditorWindow`（派生型を含む）, `GetWindow<`, `EditorApplication.` | エディタ UI・ループ依存 |
+| 実デバイス | `Microphone.`, `new DefaultMicrophoneDeviceEnumerator` | 実音声デバイスの列挙 |
 | エンジングローバル状態 | `InputSystem.*`, `InputTestFixture`, `PlayerLoop`, `Physics.` | プロセス全体の状態を書き換える |
 | MonoBehaviour 生成 | `AddComponent<FacialController / OscSender / OscReceiver / FacialTimelineReceiver / RecCharacterBinding / uLipSync 等>` | MonoBehaviour ライフサイクル（OnEnable / OnDestroy）に依存 |
 | 性能・GC 計測 | `Tests/*/Performance/`, `*Allocation*`, `*Benchmark*` | 実行環境の負荷に依存し、Small の決定性を満たさない |
@@ -34,35 +35,34 @@
 | `Hidano.FacialControl.IFacialMocap.Tests.PlayMode` | PlayMode | 0 / 0 | 2 / 4 | 0 / 0 |
 | `Hidano.FacialControl.InputSystem.Tests.EditMode` | EditMode | 5 / 54 | 2 / 13 | 0 / 0 |
 | `Hidano.FacialControl.InputSystem.Tests.PlayMode` | PlayMode | 0 / 0 | 8 / 77 | 0 / 0 |
-| `Hidano.FacialControl.LipSync.Tests.EditMode` | EditMode | 7 / 49 | 9 / 59 | 0 / 0 |
+| `Hidano.FacialControl.LipSync.Tests.EditMode` | EditMode | 7 / 48 | 10 / 60 | 0 / 0 |
 | `Hidano.FacialControl.LipSync.Tests.PlayMode` | PlayMode | 0 / 0 | 8 / 43 | 0 / 0 |
 | `Hidano.FacialControl.Osc.Tests.EditMode` | EditMode | 28 / 262 | 8 / 82 | 0 / 0 |
 | `Hidano.FacialControl.Osc.Tests.PlayMode` | PlayMode | 0 / 0 | 19 / 167 | 0 / 0 |
 | `Hidano.FacialControl.Rec.Tests.EditMode` | EditMode | 10 / 64 | 3 / 8 | 0 / 0 |
 | `Hidano.FacialControl.Rec.Tests.PlayMode` | PlayMode | 0 / 0 | 2 / 10 | 0 / 0 |
-| `Hidano.FacialControl.RoutingEditor.Tests.EditMode` | EditMode | 1 / 7 | 1 / 2 | 0 / 0 |
-| `Hidano.FacialControl.Testing` | PlayMode | 0 / 0 | 2 / 0 | 0 / 0 |
+| `Hidano.FacialControl.RoutingEditor.Tests.EditMode` | EditMode | 0 / 0 | 2 / 9 | 0 / 0 |
 | `Hidano.FacialControl.Tests.EditMode` | EditMode | 38 / 470 | 18 / 118 | 0 / 0 |
 | `Hidano.FacialControl.Tests.PlayMode` | PlayMode | 0 / 0 | 25 / 107 | 0 / 0 |
 | `Hidano.FacialControl.Tests.Small` | EditMode | 37 / 617 | 0 / 0 | 0 / 0 |
 | `Hidano.FacialControl.Timeline.Tests.EditMode` | EditMode | 12 / 50 | 4 / 20 | 0 / 0 |
 | `Hidano.FacialControl.Timeline.Tests.PlayMode` | PlayMode | 0 / 0 | 3 / 10 | 0 / 0 |
-| **合計** | | **147 / 1625** | **115 / 731** | **0 / 0** |
+| **合計** | | **146 / 1617** | **115 / 739** | **0 / 0** |
 
 テスト数は `[Test]` / `[UnityTest]` / `[TestCase]` / `[TestCaseSource]` / `[Theory]` 属性の出現数（`TestCase` は 1 属性 = 1 件で数えているため Test Runner の表示件数とは多少ずれる）。Large に分類したテストはない。実機ビルドや外部サーバー・実デバイスに接続するテストは現状存在せず、IFacialMocap / OSC の UDP テストはすべてループバックで完結するため Medium とした。
 
 ## Small 化を阻んでいる依存
 
-EditMode でありながら Small にできなかった 46 ファイルの阻害要因（重複あり）:
+EditMode でありながら Small にできなかった 48 ファイルの阻害要因（重複あり）:
 
 | 阻害要因 | ファイル数 | 代表例と切り離し方 |
 |---|---|---|
-| AssetDatabase / Resources | 18 | `FacialCharacterProfileSOTests`, `PhonemeSnapshotBuilderTests`, `ArKitOscAdapterBindingTests`。SO を `CreateInstance` で作り、アセット保存部分を Editor 側の薄いラッパへ寄せれば昇格できる |
+| AssetDatabase / Resources | 19 | `FacialCharacterProfileSOTests`, `PhonemeSnapshotBuilderTests`, `ArKitOscAdapterBindingTests`。SO を `CreateInstance` で作り、アセット保存部分を Editor 側の薄いラッパへ寄せれば昇格できる |
 | ファイル I/O | 11 | `FileProfileRepositoryTests`, `RecFileReaderTests`, `FacialCharacterProfileExporterTests`。`RecStreamWriter` は既に `Func<string, Stream>` を受けるため MemoryStream 化で昇格可能。Exporter / Repository は `ISaveStorage` 相当のファイル抽象が未整備 |
 | MonoBehaviour 生成（AddComponent） | 10 | `FacialControllerRendererOwnershipTests`, `FacialTimelineReceiverTests`, `AnalogBlendShapeInputSourceTests`。`FacialController` / `OscReceiver` に埋まったロジック（LayerUseCase 駆動、Renderer 所有権、入力ソース登録）を Humble Object に分離する必要がある |
 | 性能・GC 計測 | 5 | `*AllocationTests`, `ManagedAllocationProbeTests`, `AnimationClipExpressionSamplerBenchmarkTests`。計測系は本質的に環境依存 |
 | ネットワーク（UDP / Socket / uOSC） | 5 | `OscPortResolverTests`, `OscReceiverPortAutoIncrementTests`, `OscSenderAdapterBindingTests`。ポート空き確認に実ソケットを使う。`IDatagramSender` を導入したので送信側は Fake 化できるが、受信側（uOscServer）と bind 可否判定の抽象は未着手 |
-| EditorWindow / EditorApplication | 4 | `ExpressionCreatorWindowTests`, `RoutingEditorLauncherTests`, `FacialCharacterProfileSOInspectorTests`。Editor UI smoke（test-policy の Editor UI 最小方針） |
+| EditorWindow / EditorApplication | 5 | `ExpressionCreatorWindowTests`, `RoutingEditorLauncherTests`, `FacialCharacterProfileSOInspectorTests`。Editor UI smoke（test-policy の Editor UI 最小方針） |
 | PlayerPrefs / EditorPrefs | 3 | `DefaultPlayerPrefsBackendTests`, `LipSyncDeviceStoreTests`。`IPlayerPrefsBackend : ISaveStorage` を通して `InMemorySaveStorage` に置き換え可能。`DefaultPlayerPrefsBackendTests` は本番実装そのものの検証なので Medium のまま |
 | エンジングローバル状態（InputSystem / PlayerLoop） | 2 | `InputSystemAdapterBindingTests`。`InputSystem.AddDevice` でプロセス全体の入力状態を変える |
 | 実時間（DateTime.Now / Stopwatch） | 2 | `RecStreamWriterTests`（Stopwatch 待ち）、`AnimationClipExpressionSamplerBenchmarkTests` |
@@ -140,6 +140,13 @@ Small 候補 73 ファイルのうち残る 38 ファイルは Adapters / Editor
 6. ループバック UDP（`127.0.0.1`）は「外部ネットワーク通信」に当たらないため Medium 可とし、Large にしていない
 7. `DeviceHotSwapTests`（lipsync PlayMode）は `uLipSyncMicrophone` コンポーネントを扱うが、`FakeMicrophoneDeviceEnumerator` / `FakeAsioDriverEnumerator` 経由で実デバイスを列挙しないため Medium とした
 
+## レビューでの再分類（PR #21）
+
+初回の静的判定が見落とし、レビュー（Codex）で指摘されて Medium に変更したもの。判定パターンと `scripts/check-test-sizes.ps1` にも同じ補強を入れた。
+
+- `RoutingEditorWindowTests`（routing-editor）: `RoutingEditorWindow.Open` で EditorWindow 派生型を生成し、後始末に `Resources.FindObjectsOfTypeAll` を使う。パターンが `\bEditorWindow\b`（派生型名に不一致）と `Resources.Load` のみだったため見落とした → `\w*EditorWindow\b`、`Resources.\w+` に拡張
+- `DefaultDeviceEnumeratorTests`（lipsync）の `GetDeviceNames_DefaultEnumerator_ReturnsStringArray`: 本番 `DefaultMicrophoneDeviceEnumerator` が `Microphone.devices` を読む。テスト側に `Microphone.` が現れないため見落とした → `new DefaultMicrophoneDeviceEnumerator` をパターンに追加し、テストを `DefaultMicrophoneDeviceEnumeratorTests.cs`（Medium）へ分離
+
 ## 全ファイルの分類
 
 | ファイル | アセンブリ | モード | テスト数 | サイズ | 判定理由 |
@@ -171,7 +178,8 @@ Small 候補 73 ファイルのうち残る 38 ファイルは Adapters / Editor
 | `com.hidano.facialcontrol.inputsystem/Tests/PlayMode/Performance/AnalogProcessorAllocationTests.cs` | `InputSystem.Tests.PlayMode` | PlayMode | 7 | Medium | PlayMode アセンブリ |
 | `com.hidano.facialcontrol.inputsystem/Tests/PlayMode/Performance/ExpressionInputSourceAdapterAllocationTests.cs` | `InputSystem.Tests.PlayMode` | PlayMode | 4 | Medium | PlayMode アセンブリ（ExpressionInputSourceAdapter） |
 | `com.hidano.facialcontrol.inputsystem/Tests/PlayMode/Performance/ExpressionResolverAllocationTests.cs` | `InputSystem.Tests.PlayMode` | PlayMode | 3 | Medium | PlayMode アセンブリ |
-| `com.hidano.facialcontrol.lipsync/Tests/EditMode/Adapters/DefaultDeviceEnumeratorTests.cs` | `LipSync.Tests.EditMode` | EditMode | 5 | Small | 禁止 API なし |
+| `com.hidano.facialcontrol.lipsync/Tests/EditMode/Adapters/DefaultDeviceEnumeratorTests.cs` | `LipSync.Tests.EditMode` | EditMode | 4 | Small | 禁止 API なし |
+| `com.hidano.facialcontrol.lipsync/Tests/EditMode/Adapters/DefaultMicrophoneDeviceEnumeratorTests.cs` | `LipSync.Tests.EditMode` | EditMode | 1 | Medium | 実デバイス |
 | `com.hidano.facialcontrol.lipsync/Tests/EditMode/Adapters/DefaultPlayerPrefsBackendTests.cs` | `LipSync.Tests.EditMode` | EditMode | 7 | Medium | PlayerPrefs / EditorPrefs |
 | `com.hidano.facialcontrol.lipsync/Tests/EditMode/Adapters/DeviceResolverTests.cs` | `LipSync.Tests.EditMode` | EditMode | 9 | Small | 禁止 API なし |
 | `com.hidano.facialcontrol.lipsync/Tests/EditMode/Adapters/LipSyncDeviceStoreTests.cs` | `LipSync.Tests.EditMode` | EditMode | 15 | Medium | PlayerPrefs / EditorPrefs |
@@ -266,9 +274,7 @@ Small 候補 73 ファイルのうち残る 38 ファイルは Adapters / Editor
 | `com.hidano.facialcontrol.rec/Tests/PlayMode/RecCharacterBindingPlayModeTests.cs` | `Rec.Tests.PlayMode` | PlayMode | 7 | Medium | PlayMode アセンブリ（FacialController, RecCharacterBinding） |
 | `com.hidano.facialcontrol.rec/Tests/PlayMode/RecGcZeroGateTests.cs` | `Rec.Tests.PlayMode` | PlayMode | 3 | Medium | PlayMode アセンブリ |
 | `com.hidano.facialcontrol.routing-editor/Tests/EditMode/RoutingEditorLauncherRegistrationTests.cs` | `RoutingEditor.Tests.EditMode` | EditMode | 2 | Medium | EditorWindow / EditorApplication |
-| `com.hidano.facialcontrol.routing-editor/Tests/EditMode/RoutingEditorWindowTests.cs` | `RoutingEditor.Tests.EditMode` | EditMode | 7 | Small | 禁止 API なし |
-| `com.hidano.facialcontrol/Tests/Testing/SizedTestFixture.cs` | `Testing` | PlayMode | 0 | Medium | PlayMode アセンブリ |
-| `com.hidano.facialcontrol/Tests/Testing/TestSizeAttribute.cs` | `Testing` | PlayMode | 0 | Medium | PlayMode アセンブリ |
+| `com.hidano.facialcontrol.routing-editor/Tests/EditMode/RoutingEditorWindowTests.cs` | `RoutingEditor.Tests.EditMode` | EditMode | 7 | Medium | AssetDatabase / Resources, EditorWindow / EditorApplication |
 | `com.hidano.facialcontrol/Tests/EditMode/Adapters/AdapterBindingHostTests.cs` | `Tests.EditMode` | EditMode | 17 | Small | 禁止 API なし |
 | `com.hidano.facialcontrol/Tests/EditMode/Adapters/AdapterBuildContextTests.cs` | `Tests.EditMode` | EditMode | 9 | Small | 禁止 API なし |
 | `com.hidano.facialcontrol/Tests/EditMode/Adapters/AnimationClipCacheTests.cs` | `Tests.EditMode` | EditMode | 23 | Small | 禁止 API なし |

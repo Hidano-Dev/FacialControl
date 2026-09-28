@@ -27,7 +27,7 @@ namespace Hidano.FacialControl.RoutingEditor.Tests.EditMode
     /// </list>
     /// </summary>
     [TestFixture]
-    [SmallTest]
+    [MediumTest] // RoutingEditorWindow（EditorWindow）の生成と Resources.FindObjectsOfTypeAll による後始末を伴うため Small 不可
     public class RoutingEditorWindowTests : SizedTestFixture
     {
         private FacialCharacterProfileSO _profile;

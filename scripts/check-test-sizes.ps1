@@ -34,6 +34,13 @@ function Write-Section {
     Write-Host "=== $Title ===" -ForegroundColor Cyan
 }
 
+# 素の NUnit Category によるサイズ宣言（[Category("Small")] 等）を、文字列マスクで消えない識別子形
+# （[Category(TestSizes.SmallCategory)]）に正規化する。長さは変わるが行数は変わらないので行番号は保たれる。
+function ConvertTo-IdentifierSizeCategory {
+    param([string]$Source)
+    return [regex]::Replace($Source, 'Category\s*\(\s*"(Small|Medium|Large)"\s*\)', 'Category(TestSizes.$1Category)')
+}
+
 # コメントと文字列を同じ長さの空白に置き換える（行番号・位置を保つ）
 function Remove-CommentsAndStrings {
     param([string]$Source)
@@ -91,7 +98,7 @@ $classRegex = [regex]'(?m)^(?<indent>[ \t]*)(?<mods>(?:(?:public|internal|privat
 
 # Small で禁止する API（docs/testing.md の定義と同期させる）
 $smallBannedPatterns = [ordered]@{
-    "AssetDatabase / Resources"      = '\bAssetDatabase\b|\bPrefabUtility\b|\bResources\.\w*Load'
+    "AssetDatabase / Resources"      = '\bAssetDatabase\b|\bPrefabUtility\b|\bResources\.\w+'
     "ファイル I/O"                    = '\bFile\.\w+\(|\bDirectory\.\w+\(|Path\.GetTempPath|Application\.(persistentDataPath|dataPath|temporaryCachePath|streamingAssetsPath)|\bFileStream\b|\bStreamWriter\b|\bStreamReader\b'
     "PlayerPrefs / EditorPrefs"      = '(?<![\w.])PlayerPrefs\.|\bEditorPrefs\.'
     "ネットワーク"                    = '\bUnityWebRequest\b|\bUdpClient\b|\bSocket\b|\bTcpClient\b|\buOSC\.|\buOscClient\b|\buOscServer\b|\bDns\.\w+'
@@ -100,8 +107,9 @@ $smallBannedPatterns = [ordered]@{
     "UnityTest（コルーチン）"         = '\[\s*UnityTest\s*\]'
     "Time.* 直接参照"                 = '\bTime\.(time|deltaTime|unscaledTime|realtimeSinceStartup|frameCount|fixedTime|unscaledDeltaTime|timeAsDouble|unscaledTimeAsDouble|fixedDeltaTime|timeScale)\b'
     "実時間 / スリープ"               = 'DateTime\.(Now|UtcNow)|\bStopwatch\b|Thread\.Sleep|Task\.Delay'
-    "EditorWindow / EditorApplication" = '\bEditorWindow\b|GetWindow<|CreateWindow<|\bEditorApplication\.'
+    "EditorWindow / EditorApplication" = '\w*EditorWindow\b|GetWindow<|CreateWindow<|\bEditorApplication\.'
     "エンジングローバル状態"          = '\bPlayerLoop\b|\bInputSystem\.\w+|\bInputTestFixture\b|\bPhysics\.'
+    "実デバイス"                      = '\bMicrophone\.|new\s+DefaultMicrophoneDeviceEnumerator\b'  # DefaultAsioDriverEnumerator は provider 注入前提のため対象外
     "MonoBehaviour ライフサイクル"     = 'AddComponent<\s*(FacialController|OscSender|OscReceiver|OscReceiverHost|FacialTimelineReceiver|RecCharacterBinding|ExpressionInputSourceAdapter|IFacialMocapReceiverHost|uLipSync\.uLipSync|uOSC\.uOscClient|uOSC\.uOscServer|LifetimeScope|FacialControlULipSyncBlendShape)\s*>'
 }
 
@@ -133,7 +141,7 @@ foreach ($file in $testFiles) {
     $relPath = $relPath.Substring($relPath.IndexOf('/Packages/') + 10)
     $raw = Get-Content -Path $file.FullName -Raw
     if ($null -eq $raw) { continue }
-    $src = $raw -replace "`r`n", "`n"
+    $src = ConvertTo-IdentifierSizeCategory -Source ($raw -replace "`r`n", "`n")
     $masked = Remove-CommentsAndStrings -Source $src
 
     $testMatches = $testAttrRegex.Matches($masked)
@@ -235,10 +243,10 @@ foreach ($file in $testFiles) {
     $relPath = $relPath.Substring($relPath.IndexOf('/Packages/') + 10)
     $raw = Get-Content -Path $file.FullName -Raw
     if ($null -eq $raw) { continue }
-    $src = $raw -replace "`r`n", "`n"
+    $src = ConvertTo-IdentifierSizeCategory -Source ($raw -replace "`r`n", "`n")
     $masked = Remove-CommentsAndStrings -Source $src
     $inSmallDir = $relPath -match '/Tests/Small/'
-    $declaresSmall = $masked -match '\[\s*SmallTest\b|\[\s*Category\s*\(\s*(?:"Small"|TestSizes\.SmallCategory)\s*\)'
+    $declaresSmall = $masked -match '\[\s*SmallTest\b|\[\s*Category\s*\(\s*TestSizes\.SmallCategory\s*\)'
     if (-not ($inSmallDir -or $declaresSmall)) { continue }
     $smallFileCount++
     if ($inSmallDir -and ($masked -match '\[\s*(MediumTest|LargeTest)\b')) {

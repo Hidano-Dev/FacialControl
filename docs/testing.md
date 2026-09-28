@@ -8,7 +8,7 @@ Google の「Test size」の考え方をこのリポジトリに導入したと�
 
 | サイズ | 実行モード | 使ってよいもの | 禁止 | 既定 Timeout |
 |---|---|---|---|---|
-| **Small** | EditMode（同期） | 純粋な C#、インメモリの `ScriptableObject.CreateInstance`、`new GameObject()` とエンジン組み込みコンポーネント（`SkinnedMeshRenderer` 等）、Fake（`ManualTimeProvider` / `InMemorySaveStorage` / `FakeDatagramSender`）、`LogAssert` | シーンロード、MonoBehaviour のライフサイクル（`AddComponent<FacialController>` 等）、`UnityWebRequest`、`PlayerPrefs` / `EditorPrefs`、ファイル I/O、`Resources` / `AssetDatabase`、`WaitForSeconds`・`[UnityTest]`、`Time.time` 等の直接参照、`DateTime.Now` / `Stopwatch` / `Thread.Sleep`、`EditorWindow`、`InputSystem` / `PlayerLoop` のグローバル状態、ソケット | 60 秒 |
+| **Small** | EditMode（同期） | 純粋な C#、インメモリの `ScriptableObject.CreateInstance`、`new GameObject()` とエンジン組み込みコンポーネント（`SkinnedMeshRenderer` 等）、Fake（`ManualTimeProvider` / `InMemorySaveStorage` / `FakeDatagramSender`）、`LogAssert` | シーンロード、MonoBehaviour のライフサイクル（`AddComponent<FacialController>` 等）、`UnityWebRequest`、`PlayerPrefs` / `EditorPrefs`、ファイル I/O、`Resources.*`（`FindObjectsOfTypeAll` を含む）/ `AssetDatabase`、`WaitForSeconds`・`[UnityTest]`、`Time.time` 等の直接参照、`DateTime.Now` / `Stopwatch` / `Thread.Sleep`、`EditorWindow`（`RoutingEditorWindow` 等の派生型の生成を含む）、`InputSystem` / `PlayerLoop` のグローバル状態、ソケット、実デバイス（`Microphone.devices` を読む `DefaultMicrophoneDeviceEnumerator` 等） | 60 秒 |
 | **Medium** | PlayMode（エディタ上）、または EditMode でローカル資源を使うもの | シーン、コルーチン、フレーム待ち、Physics、ローカルアセット読み込み（AssetDatabase）、ファイル I/O、PlayerPrefs、MonoBehaviour、ループバック UDP（`127.0.0.1`）、性能・GC 計測 | 外部ネットワーク通信、実デバイス、実機ビルド | 300 秒 |
 | **Large** | 実機ビルド、または実サーバー・実デバイス等の外部システム接続 | すべて | — | 900 秒 |
 
@@ -109,7 +109,7 @@ Small にしたいのに MonoBehaviour・ファイル・ソケット・時刻が
 5. **ファイル**: `RecStreamWriter` のように `Func<string, Stream>` を受け取り、テストでは `MemoryStream` を返す。
 6. **AssetDatabase / EditorWindow**: SO は `ScriptableObject.CreateInstance` で作って渡し、アセット保存・ウィンドウ表示は Editor 側の薄いメソッドに寄せて Medium の smoke で守る（`docs/test-policy.md`「Editor UI テストは最小限」）。
 
-どうしても分離できないものは **Medium にして理由をコメントに書く**。Small に偽装するために禁止 API を隠すことはしない（静的チェックはファイル単位で見ている）。
+どうしても分離できないものは **Medium にして理由をコメントに書く**。Small に偽装するために禁止 API を隠すことはしない。静的チェックはファイル単位で見ているため、同じ対象クラスでも Small の fixture と Medium の fixture（実デバイスの smoke 等）は別ファイルに分ける（例: `DefaultDeviceEnumeratorTests.cs` と `DefaultMicrophoneDeviceEnumeratorTests.cs`）。
 
 ## 新しくテストを書くときのチェックリスト
 
