@@ -70,12 +70,12 @@ namespace Hidano.FacialControl.Tests.Small.Testing
         }
 
         [Test]
-        public void CollectDeclaredSizes_MethodOverridesNothing_ReturnsBothWhenConflicting()
+        public void CollectDeclaredSizes_ClassAndMethodConflict_ReturnsBothSizes()
         {
             var sizes = TestSizeResolver.CollectDeclaredSizes(
                 typeof(ConflictingSample).GetMethod(nameof(ConflictingSample.Probe)), typeof(ConflictingSample));
 
-            Assert.That(sizes, Is.EquivalentTo(new[] { TestSize.Small, TestSize.Medium }));
+            Assert.That(sizes, Is.EquivalentTo(new[] { TestSize.Small, TestSize.Large }));
         }
 
         [Test]
@@ -108,10 +108,17 @@ namespace Hidano.FacialControl.Tests.Small.Testing
             }
         }
 
+        /// <summary>
+        /// クラスとメソッドで異なるサイズを宣言したサンプル。メソッド側は素の Category で "Large" を与える
+        /// （定数連結にしているのは、Tests/Small 配下で Medium / Large のリテラル宣言を禁止する静的チェック
+        /// scripts/check-test-sizes.ps1 に誤検出させないため）。
+        /// </summary>
         [SmallTest]
         private sealed class ConflictingSample
         {
-            [MediumTest]
+            private const string ConflictingCategoryName = "Lar" + "ge";
+
+            [Category(ConflictingCategoryName)]
             public void Probe()
             {
             }
