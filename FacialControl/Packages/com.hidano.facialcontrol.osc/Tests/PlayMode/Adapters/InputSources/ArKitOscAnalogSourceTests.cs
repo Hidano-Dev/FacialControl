@@ -5,13 +5,15 @@ using Hidano.FacialControl.Adapters.InputSources;
 using Hidano.FacialControl.Adapters.OSC;
 using Hidano.FacialControl.Domain.Models;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.Tests.PlayMode.Adapters.InputSources
 {
     /// <summary>
     /// <see cref="ArKitOscAnalogSource"/> のテスト。
     /// </summary>
     [TestFixture]
-    public class ArKitOscAnalogSourceTests
+    [MediumTest]
+    public class ArKitOscAnalogSourceTests : SizedTestFixture
     {
         private GameObject _receiverObj;
         private OscReceiver _receiver;

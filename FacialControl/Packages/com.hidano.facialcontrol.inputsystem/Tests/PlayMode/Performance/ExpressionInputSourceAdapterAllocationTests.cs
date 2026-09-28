@@ -6,6 +6,7 @@ using UnityEngine.InputSystem;
 using Hidano.FacialControl.Adapters.InputSources;
 using Hidano.FacialControl.Domain.Models;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.InputSystem.Tests.PlayMode.Performance
 {
     /// <summary>
@@ -29,6 +30,7 @@ namespace Hidano.FacialControl.InputSystem.Tests.PlayMode.Performance
     /// </para>
     /// </remarks>
     [TestFixture]
+    [MediumTest]
     public class ExpressionInputSourceAdapterAllocationTests : InputTestFixture
     {
         private const int DispatchCount = 100;

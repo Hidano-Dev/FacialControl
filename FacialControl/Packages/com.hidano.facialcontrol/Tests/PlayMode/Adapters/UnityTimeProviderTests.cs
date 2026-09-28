@@ -4,13 +4,15 @@ using UnityEngine.TestTools;
 using Hidano.FacialControl.Adapters.InputSources;
 using Hidano.FacialControl.Domain.Interfaces;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.Tests.PlayMode.Adapters
 {
     /// <summary>
     /// T6.1: UnityTimeProvider の PlayMode 契約テスト。
     /// Time.unscaledTimeAsDouble がフレーム進行に伴って単調増加することを検証する。
     /// </summary>
-    public class UnityTimeProviderTests
+    [MediumTest]
+    public class UnityTimeProviderTests : SizedTestFixture
     {
         [UnityTest]
         public IEnumerator UnscaledTimeSeconds_AfterOneFrame_IsGreaterThanBefore()

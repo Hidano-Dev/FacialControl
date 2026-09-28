@@ -11,10 +11,12 @@ using Hidano.FacialControl.LipSync.Adapters.PhonemeEntries;
 using NUnit.Framework;
 using UnityEngine;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.LipSync.Tests.PlayMode.Performance
 {
     [TestFixture]
-    public class EndToEndGcAllocationTests
+    [MediumTest]
+    public class EndToEndGcAllocationTests : SizedTestFixture
     {
         private const int FrameCount = 1000;
         private const int BlendShapeCount = 4;

@@ -9,6 +9,7 @@ using Hidano.FacialControl.Domain.Interfaces;
 using Hidano.FacialControl.Domain.Models;
 using Hidano.FacialControl.Domain.Services;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.Tests.PlayMode.Performance
 {
     /// <summary>
@@ -21,7 +22,8 @@ namespace Hidano.FacialControl.Tests.PlayMode.Performance
     /// 60 フレーム × 1000 Set のシナリオで回しても managed 差分が 0 バイトとなること。
     /// </remarks>
     [TestFixture]
-    public class SetWeightZeroAllocationTests
+    [MediumTest]
+    public class SetWeightZeroAllocationTests : SizedTestFixture
     {
         private const int LayerCount = 5;
         private const int SourcesPerLayer = 4;

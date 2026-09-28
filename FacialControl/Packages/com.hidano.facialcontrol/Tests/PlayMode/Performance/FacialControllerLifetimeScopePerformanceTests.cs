@@ -12,10 +12,12 @@ using UnityEngine;
 using VContainer;
 using VContainer.Unity;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.Tests.PlayMode.Performance
 {
     [TestFixture]
-    public class FacialControllerLifetimeScopePerformanceTests
+    [MediumTest]
+    public class FacialControllerLifetimeScopePerformanceTests : SizedTestFixture
     {
         private const int BindingsPerCharacter = 3;
         private const int SourcesPerCharacter = 3;

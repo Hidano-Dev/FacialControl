@@ -10,10 +10,12 @@ using Hidano.FacialControl.LipSync.Tests.Shared;
 using NUnit.Framework;
 using Unity.Profiling;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.LipSync.Tests.PlayMode.Performance
 {
     [TestFixture]
-    public sealed class PhonemeOverlayPerformanceTests
+    [MediumTest]
+    public sealed class PhonemeOverlayPerformanceTests : SizedTestFixture
     {
         private const int CharacterCount = 10;
         private const int BlendShapeCount = 25;

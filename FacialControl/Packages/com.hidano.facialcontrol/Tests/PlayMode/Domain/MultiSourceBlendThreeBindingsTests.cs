@@ -10,6 +10,7 @@ using Hidano.FacialControl.Tests.Shared;
 using NUnit.Framework;
 using UnityEngine;
 
+using Hidano.FacialControl.Testing;
 using AdapterInputSourceRegistry = Hidano.FacialControl.Adapters.InputSources.InputSourceRegistry;
 using DomainLayerInputSourceRegistry = Hidano.FacialControl.Domain.Services.LayerInputSourceRegistry;
 
@@ -20,7 +21,8 @@ namespace Hidano.FacialControl.Tests.PlayMode.Domain
     /// unchanged MultiSourceBlend domain pipeline.
     /// </summary>
     [TestFixture]
-    public class MultiSourceBlendThreeBindingsTests
+    [MediumTest]
+    public class MultiSourceBlendThreeBindingsTests : SizedTestFixture
     {
         private GameObject _hostGameObject;
 

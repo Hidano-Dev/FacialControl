@@ -5,6 +5,7 @@ using Unity.Profiling;
 using Hidano.FacialControl.Domain.Models;
 using Hidano.FacialControl.Domain.Services;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.InputSystem.Tests.PlayMode.Performance
 {
     /// <summary>
@@ -21,7 +22,8 @@ namespace Hidano.FacialControl.InputSystem.Tests.PlayMode.Performance
     /// </para>
     /// </remarks>
     [TestFixture]
-    public class ExpressionResolverAllocationTests
+    [MediumTest]
+    public class ExpressionResolverAllocationTests : SizedTestFixture
     {
         private const int FrameCount = 100;
         private const int BlendShapeCount = 52; // ARKit 52 相当

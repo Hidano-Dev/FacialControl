@@ -7,6 +7,7 @@ using Hidano.FacialControl.Domain.Models;
 using NUnit.Framework;
 using Unity.Profiling;
 using UnityEngine;
+using Hidano.FacialControl.Testing;
 using Object = UnityEngine.Object;
 
 namespace Hidano.FacialControl.Tests.PlayMode.Performance
@@ -16,7 +17,8 @@ namespace Hidano.FacialControl.Tests.PlayMode.Performance
     /// FacialController のライブ経路 (Activate -> LateUpdate -> writer) で検証する。
     /// </summary>
     [TestFixture]
-    public class MultiCharacterPerformanceTests
+    [MediumTest]
+    public class MultiCharacterPerformanceTests : SizedTestFixture
     {
         private const int CharacterCount = 10;
         private const int WarmupFrames = 8;

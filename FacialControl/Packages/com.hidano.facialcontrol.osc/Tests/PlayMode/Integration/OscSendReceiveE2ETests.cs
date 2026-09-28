@@ -11,6 +11,7 @@ using NUnit.Framework;
 using UnityEngine;
 using UnityEngine.TestTools;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.Tests.PlayMode.Integration
 {
     /// <summary>
@@ -18,7 +19,8 @@ namespace Hidano.FacialControl.Tests.PlayMode.Integration
     /// 受信側 FacialController が OscReceiverAdapterBinding 経由で消費して Renderer に適用することを検証する。
     /// </summary>
     [TestFixture]
-    public class OscSendReceiveE2ETests
+    [MediumTest]
+    public class OscSendReceiveE2ETests : SizedTestFixture
     {
         private const string Endpoint = "127.0.0.1";
         private const int LoopbackPortBase = 19280;

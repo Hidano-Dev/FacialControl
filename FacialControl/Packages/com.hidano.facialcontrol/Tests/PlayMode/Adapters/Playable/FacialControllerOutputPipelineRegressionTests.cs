@@ -10,6 +10,7 @@ using Hidano.FacialControl.Adapters.ScriptableObject.Serializable;
 using Hidano.FacialControl.Domain.Adapters;
 using Hidano.FacialControl.Domain.Models;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.Tests.PlayMode.Adapters.Playable
 {
     /// <summary>
@@ -20,7 +21,8 @@ namespace Hidano.FacialControl.Tests.PlayMode.Adapters.Playable
     /// 検証対象は「購読者が観測する値と順序」という公開契約である。
     /// </summary>
     [TestFixture]
-    public class FacialControllerOutputPipelineRegressionTests
+    [MediumTest]
+    public class FacialControllerOutputPipelineRegressionTests : SizedTestFixture
     {
         private GameObject _controllerGameObject;
         private Mesh _mesh;

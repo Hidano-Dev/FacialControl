@@ -11,10 +11,12 @@ using Hidano.FacialControl.Tests.Shared;
 using NUnit.Framework;
 using UnityEngine;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.Tests.PlayMode.Integration
 {
     [TestFixture]
-    public sealed class OscBundleAtomicityTests
+    [MediumTest]
+    public sealed class OscBundleAtomicityTests : SizedTestFixture
     {
         private const int PortBase = 19480;
         private const string Slug = "osc-bundle-atomicity";

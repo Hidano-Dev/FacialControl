@@ -10,6 +10,7 @@ using Hidano.FacialControl.LipSync.Adapters.PhonemeEntries;
 using Hidano.FacialControl.LipSync.Tests.Shared;
 using NUnit.Framework;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.LipSync.Tests.PlayMode.Integration
 {
     /// <summary>
@@ -26,7 +27,8 @@ namespace Hidano.FacialControl.LipSync.Tests.PlayMode.Integration
     /// precedence: Expression Override → Suppress → DefaultOverlays → LipSync default。
     /// </remarks>
     [TestFixture]
-    public sealed class PhonemeOverlayPreemptionTests
+    [MediumTest]
+    public sealed class PhonemeOverlayPreemptionTests : SizedTestFixture
     {
         private const float Tolerance = 0.0001f;
         private const string EmotionLayer = "emotion";

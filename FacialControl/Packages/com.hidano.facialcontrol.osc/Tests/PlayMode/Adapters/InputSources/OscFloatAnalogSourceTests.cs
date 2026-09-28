@@ -5,13 +5,15 @@ using Hidano.FacialControl.Adapters.InputSources;
 using Hidano.FacialControl.Adapters.OSC;
 using Hidano.FacialControl.Domain.Models;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.Tests.PlayMode.Adapters.InputSources
 {
     /// <summary>
     /// <see cref="OscFloatAnalogSource"/> のテスト。
     /// </summary>
     [TestFixture]
-    public class OscFloatAnalogSourceTests
+    [MediumTest]
+    public class OscFloatAnalogSourceTests : SizedTestFixture
     {
         private const string TestAddress = "/avatar/parameters/jawOpen";
 

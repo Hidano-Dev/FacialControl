@@ -7,6 +7,7 @@ using UnityEngine.TestTools;
 using Hidano.FacialControl.Adapters.InputSources;
 using Hidano.FacialControl.Domain.Models;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.InputSystem.Tests.PlayMode.Adapters.InputSources
 {
     /// <summary>
@@ -30,6 +31,7 @@ namespace Hidano.FacialControl.InputSystem.Tests.PlayMode.Adapters.InputSources
     /// </para>
     /// </remarks>
     [TestFixture]
+    [MediumTest]
     public class ExpressionInputSourceAdapterTests : InputTestFixture
     {
         private static readonly string[] BlendShapeNames =

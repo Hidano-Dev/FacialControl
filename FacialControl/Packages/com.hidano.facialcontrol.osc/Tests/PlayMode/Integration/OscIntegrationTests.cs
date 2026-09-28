@@ -6,6 +6,7 @@ using Hidano.FacialControl.Adapters.OSC;
 using Hidano.FacialControl.Adapters.Playable;
 using Hidano.FacialControl.Domain.Models;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.Tests.PlayMode.Integration
 {
     /// <summary>
@@ -13,7 +14,8 @@ namespace Hidano.FacialControl.Tests.PlayMode.Integration
     /// FacialController + OscReceiver / OscSender の連携動作を検証する。
     /// </summary>
     [TestFixture]
-    public class OscIntegrationTests
+    [MediumTest]
+    public class OscIntegrationTests : SizedTestFixture
     {
         private GameObject _controllerObj;
         private GameObject _receiverObj;

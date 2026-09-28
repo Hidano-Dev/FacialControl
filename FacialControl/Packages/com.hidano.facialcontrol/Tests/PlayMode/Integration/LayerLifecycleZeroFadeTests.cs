@@ -6,6 +6,7 @@ using NUnit.Framework;
 using UnityEngine;
 using UnityEngine.TestTools;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.Tests.PlayMode.Integration
 {
     /// <summary>
@@ -20,7 +21,8 @@ namespace Hidano.FacialControl.Tests.PlayMode.Integration
     /// <see cref="LayerUseCase.UpdateWeights"/> を呼びつつ Activate / Deactivate を踏む。
     /// </remarks>
     [TestFixture]
-    public class LayerLifecycleZeroFadeTests
+    [MediumTest]
+    public class LayerLifecycleZeroFadeTests : SizedTestFixture
     {
         private GameObject _host;
         private LayerUseCase _useCase;

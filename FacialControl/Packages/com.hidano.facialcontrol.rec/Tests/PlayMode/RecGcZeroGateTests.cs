@@ -7,10 +7,12 @@ using Hidano.FacialControl.Rec.Domain.Models;
 using NUnit.Framework;
 using Unity.Profiling;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.Rec.Tests.PlayMode
 {
     [TestFixture]
-    public sealed class RecGcZeroGateTests
+    [MediumTest]
+    public sealed class RecGcZeroGateTests : SizedTestFixture
     {
         private const int WarmupFrames = 8;
         private const int MeasurementFrames = 120;

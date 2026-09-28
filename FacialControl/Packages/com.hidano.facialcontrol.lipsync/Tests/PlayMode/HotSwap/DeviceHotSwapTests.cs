@@ -15,10 +15,12 @@ using NUnit.Framework;
 using UnityEngine;
 using UnityEngine.TestTools;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.LipSync.Tests.PlayMode.HotSwap
 {
     [TestFixture]
-    public class DeviceHotSwapTests
+    [MediumTest]
+    public class DeviceHotSwapTests : SizedTestFixture
     {
         private const string Slug = "ulipsync";
         private const string OverlayASlug = "lipsync-overlay:a";

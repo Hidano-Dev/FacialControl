@@ -19,10 +19,12 @@ using UnityEngine.Playables;
 using UnityEngine.TestTools;
 using UnityEngine.Timeline;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.Timeline.Tests.PlayMode
 {
     [TestFixture]
-    public sealed class TimelineDegradationIntegrationTests
+    [MediumTest]
+    public sealed class TimelineDegradationIntegrationTests : SizedTestFixture
     {
         private const string ExpressionLayer = "Expressions";
         private const string OverlayLayer = "Overlay";

@@ -12,10 +12,12 @@ using NUnit.Framework;
 using UnityEngine;
 using UnityEngine.TestTools;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.Tests.PlayMode.Integration
 {
     [TestFixture]
-    public sealed class OscLoopbackSuppressionTests
+    [MediumTest]
+    public sealed class OscLoopbackSuppressionTests : SizedTestFixture
     {
         private const string Endpoint = "127.0.0.1";
         private const int PortBase = 19520;

@@ -6,12 +6,14 @@ using UnityEngine.Profiling;
 using Hidano.FacialControl.Adapters.InputSources;
 using Hidano.FacialControl.Domain.Models;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.Tests.PlayMode.Adapters.InputSources
 {
     /// <summary>
     /// <see cref="InputActionAnalogSource"/> のテスト。
     /// </summary>
     [TestFixture]
+    [MediumTest]
     public class InputActionAnalogSourceTests : InputTestFixture
     {
         private Gamepad _gamepad;

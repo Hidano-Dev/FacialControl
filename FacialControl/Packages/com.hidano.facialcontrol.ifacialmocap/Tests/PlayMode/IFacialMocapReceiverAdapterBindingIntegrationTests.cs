@@ -17,13 +17,15 @@ using NUnit.Framework;
 using UnityEngine;
 using UnityEngine.TestTools;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.IFacialMocap.Tests.PlayMode
 {
     /// <summary>
     /// 実 UDP loopback で <see cref="IFacialMocapReceiverAdapterBinding"/> の OnStart →
     /// 入力源登録 → OnFixedTick による BlendShape 反映、および Dispose での後始末を検証する。
     /// </summary>
-    public class IFacialMocapReceiverAdapterBindingIntegrationTests
+    [MediumTest]
+    public class IFacialMocapReceiverAdapterBindingIntegrationTests : SizedTestFixture
     {
         private static int s_port = 19430;
 

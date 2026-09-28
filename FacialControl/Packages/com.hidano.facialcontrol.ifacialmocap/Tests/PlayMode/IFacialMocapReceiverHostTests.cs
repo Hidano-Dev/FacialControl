@@ -7,13 +7,15 @@ using NUnit.Framework;
 using UnityEngine;
 using UnityEngine.TestTools;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.IFacialMocap.Tests.PlayMode
 {
     /// <summary>
     /// 実 UDP loopback で <see cref="IFacialMocapReceiverHost"/> が受信→パース→最新フレーム保持を
     /// 行うことを検証する PlayMode テスト。
     /// </summary>
-    public class IFacialMocapReceiverHostTests
+    [MediumTest]
+    public class IFacialMocapReceiverHostTests : SizedTestFixture
     {
         private static int s_port = 19330;
 

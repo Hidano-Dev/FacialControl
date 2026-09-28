@@ -6,6 +6,7 @@ using UnityEngine;
 using UnityEngine.TestTools;
 using Hidano.FacialControl.Adapters.Bone;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.Tests.PlayMode.Adapters.Bone
 {
     /// <summary>
@@ -27,7 +28,8 @@ namespace Hidano.FacialControl.Tests.PlayMode.Adapters.Bone
     ///     経由で解決できる。
     /// </summary>
     [TestFixture]
-    public class BoneTransformResolverTests
+    [MediumTest]
+    public class BoneTransformResolverTests : SizedTestFixture
     {
         private GameObject _root;
 
