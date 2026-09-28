@@ -11,6 +11,7 @@ using Hidano.FacialControl.Domain.Models;
 using Hidano.FacialControl.Domain.Services;
 using Hidano.FacialControl.Tests.Shared;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.Tests.EditMode.Domain
 {
     /// <summary>
@@ -27,7 +28,8 @@ namespace Hidano.FacialControl.Tests.EditMode.Domain
     /// </list>
     /// </remarks>
     [TestFixture]
-    public class LayerInputSourceAggregatorTests
+    [SmallTest]
+    public class LayerInputSourceAggregatorTests : SizedTestFixture
     {
         /// <summary>
         /// 固定値を書込む最小 <see cref="IInputSource"/> フェイク。

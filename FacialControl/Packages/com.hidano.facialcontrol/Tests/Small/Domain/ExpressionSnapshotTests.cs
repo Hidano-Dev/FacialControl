@@ -2,6 +2,7 @@ using System;
 using NUnit.Framework;
 using Hidano.FacialControl.Domain.Models;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.Tests.EditMode.Domain
 {
     /// <summary>
@@ -9,7 +10,8 @@ namespace Hidano.FacialControl.Tests.EditMode.Domain
     /// AnimationClip 由来 snapshot の Domain 受け皿としての振る舞いを検証する。
     /// </summary>
     [TestFixture]
-    public class ExpressionSnapshotTests
+    [SmallTest]
+    public class ExpressionSnapshotTests : SizedTestFixture
     {
         [Test]
         public void Ctor_Defensive_Copies_BlendShapes()

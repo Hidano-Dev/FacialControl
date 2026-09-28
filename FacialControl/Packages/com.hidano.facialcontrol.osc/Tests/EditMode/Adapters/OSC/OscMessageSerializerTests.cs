@@ -2,9 +2,11 @@ using NUnit.Framework;
 using uOSC;
 using Hidano.FacialControl.Adapters.OSC;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.Osc.Tests.EditMode.Adapters.OSC
 {
-    public sealed class OscMessageSerializerTests
+    [SmallTest]
+    public sealed class OscMessageSerializerTests : SizedTestFixture
     {
         [Test]
         public void TryWrite_AllSupportedTypes_RoundTripsThroughPacketReader()

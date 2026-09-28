@@ -4,10 +4,12 @@ using NUnit.Framework;
 using Hidano.FacialControl.Domain.Models;
 using Hidano.FacialControl.Domain.Services;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.Tests.EditMode.Domain
 {
     [TestFixture]
-    public class ARKitDetectorTests
+    [SmallTest]
+    public class ARKitDetectorTests : SizedTestFixture
     {
         // --- ARKit 52 パラメータ定数確認 ---
 

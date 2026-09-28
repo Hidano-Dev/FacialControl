@@ -9,9 +9,11 @@ using UnityEditor.Timeline;
 using UnityEngine;
 using UnityEngine.Timeline;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.Timeline.Tests.EditMode
 {
-    public sealed class FacialTimelineValidatorTests
+    [SmallTest]
+    public sealed class FacialTimelineValidatorTests : SizedTestFixture
     {
         [Test]
         public void Validate_WithChildLaneOnly_ReturnsEmptyParentTrackIssue()

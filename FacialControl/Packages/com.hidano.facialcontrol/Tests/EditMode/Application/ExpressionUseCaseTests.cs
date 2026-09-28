@@ -6,6 +6,7 @@ using Hidano.FacialControl.Application.UseCases;
 using Hidano.FacialControl.Domain.Interfaces;
 using Hidano.FacialControl.Domain.Models;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.Tests.EditMode.Application
 {
     /// <summary>
@@ -15,7 +16,8 @@ namespace Hidano.FacialControl.Tests.EditMode.Application
     /// それに依存する <see cref="OverlayInputSource"/> の slot 解決が active 切替に追従することを確認する。
     /// </summary>
     [TestFixture]
-    public class ExpressionUseCaseTests
+    [SmallTest]
+    public class ExpressionUseCaseTests : SizedTestFixture
     {
         // --- ヘルパー ---
 

@@ -2,10 +2,12 @@ using System.Collections.Generic;
 using NUnit.Framework;
 using Hidano.FacialControl.Adapters.InputSources;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.Tests.EditMode.Adapters.InputSources
 {
     [TestFixture]
-    public class ToggleStateReconcilerTests
+    [SmallTest]
+    public class ToggleStateReconcilerTests : SizedTestFixture
     {
         private sealed class TestToggleStateEntry : IToggleStateEntry
         {

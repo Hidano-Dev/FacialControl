@@ -4,9 +4,11 @@ using Hidano.FacialControl.Domain.Services;
 using Hidano.FacialControl.Timeline.Adapters.InputSources;
 using NUnit.Framework;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.Timeline.Tests.EditMode
 {
-    public sealed class TimelineExpressionStateSinkTests
+    [SmallTest]
+    public sealed class TimelineExpressionStateSinkTests : SizedTestFixture
     {
         [Test]
         public void TriggerStack_RetainsBaseLifoSemantics_WithRetriggerAndDepthLimit()

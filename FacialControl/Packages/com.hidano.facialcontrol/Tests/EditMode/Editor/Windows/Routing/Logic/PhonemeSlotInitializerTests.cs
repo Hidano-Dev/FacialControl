@@ -4,12 +4,14 @@ using Hidano.FacialControl.Editor.Windows.Routing.Logic;
 using NUnit.Framework;
 using UnityEditor;
 using UnityEngine;
+using Hidano.FacialControl.Testing;
 using Object = UnityEngine.Object;
 
 namespace Hidano.FacialControl.Tests.EditMode.Editor.Windows.Routing.Logic
 {
     [TestFixture]
-    public class PhonemeSlotInitializerTests
+    [SmallTest]
+    public class PhonemeSlotInitializerTests : SizedTestFixture
     {
         private FacialCharacterProfileSO _profile;
 

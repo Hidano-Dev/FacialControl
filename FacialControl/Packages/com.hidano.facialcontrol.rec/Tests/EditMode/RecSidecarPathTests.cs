@@ -3,10 +3,12 @@ using Hidano.FacialControl.Adapters.ScriptableObject.Serializable;
 using Hidano.FacialControl.Rec.Adapters.Recording;
 using NUnit.Framework;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.Rec.Tests.EditMode
 {
     [TestFixture]
-    public class RecSidecarPathTests
+    [SmallTest]
+    public class RecSidecarPathTests : SizedTestFixture
     {
         [Test]
         public void TryBuildRecordingFilePath_ValidNames_ReturnsExpectedPath()

@@ -6,12 +6,14 @@ using Hidano.FacialControl.LipSync.Adapters;
 using NUnit.Framework;
 using UnityEditor;
 using UnityEngine;
+using Hidano.FacialControl.Testing;
 using Object = UnityEngine.Object;
 
 namespace Hidano.FacialControl.Tests.EditMode.Editor.Windows.Routing.Logic
 {
     [TestFixture]
-    public class AutoWireServiceTests
+    [SmallTest]
+    public class AutoWireServiceTests : SizedTestFixture
     {
         private FacialCharacterProfileSO _profile;
 

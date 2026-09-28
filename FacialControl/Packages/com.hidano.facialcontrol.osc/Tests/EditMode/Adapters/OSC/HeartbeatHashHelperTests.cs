@@ -3,10 +3,12 @@ using Hidano.FacialControl.Adapters.OSC;
 using NUnit.Framework;
 using Unity.Profiling;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.Tests.EditMode.Adapters
 {
     [TestFixture]
-    public sealed class HeartbeatHashHelperTests
+    [SmallTest]
+    public sealed class HeartbeatHashHelperTests : SizedTestFixture
     {
         private const int ZeroAllocIterations = 50000;
 

@@ -9,10 +9,12 @@ using Hidano.FacialControl.Domain.Services;
 using Hidano.FacialControl.Tests.Shared;
 using NUnit.Framework;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.Tests.EditMode.Adapters.InputSources
 {
     [TestFixture]
-    public class AnalogObservationSamplerTests
+    [SmallTest]
+    public class AnalogObservationSamplerTests : SizedTestFixture
     {
         [Test]
         public void Sample_NoObservers_DoesNotReadSources()

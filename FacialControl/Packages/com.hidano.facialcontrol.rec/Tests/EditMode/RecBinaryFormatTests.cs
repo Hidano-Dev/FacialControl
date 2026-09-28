@@ -5,10 +5,12 @@ using Hidano.FacialControl.Rec.Domain.Models;
 using Hidano.FacialControl.Rec.Domain.Services;
 using NUnit.Framework;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.Rec.Tests.EditMode
 {
     [TestFixture]
-    public class RecBinaryFormatTests
+    [SmallTest]
+    public class RecBinaryFormatTests : SizedTestFixture
     {
         [Test]
         public void SerializeThenRead_AllRecordKinds_RoundTripsTimeline()

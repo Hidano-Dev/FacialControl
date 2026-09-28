@@ -10,6 +10,7 @@ using UnityEditor;
 using UnityEngine;
 using UnityEngine.TestTools;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.Tests.EditMode.Editor.Sampling
 {
     /// <summary>
@@ -19,7 +20,8 @@ namespace Hidano.FacialControl.Tests.EditMode.Editor.Sampling
     /// および TryResolveContributeIndices による ContributeMask 解決を検証する。
     /// </summary>
     [TestFixture]
-    public class AnimationClipExpressionSamplerTests
+    [SmallTest]
+    public class AnimationClipExpressionSamplerTests : SizedTestFixture
     {
         private readonly List<UnityEngine.Object> _trackedObjects = new List<UnityEngine.Object>();
 

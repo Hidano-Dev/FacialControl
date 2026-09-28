@@ -7,9 +7,11 @@ using System;
 using System.Collections;
 using UnityEngine;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.Tests.EditMode.Adapters.ScriptableObjectTests
 {
-    public sealed class GazeChannelResolverTests
+    [SmallTest]
+    public sealed class GazeChannelResolverTests : SizedTestFixture
     {
         [Test]
         public void TryResolve_AutomaticSidePair_SelectsOrdinalFirstSlug()

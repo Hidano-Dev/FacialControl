@@ -5,10 +5,12 @@ using Hidano.FacialControl.Domain.Models;
 using Hidano.FacialControl.Domain.Interfaces;
 using Hidano.FacialControl.Application.UseCases;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.Tests.EditMode.Application
 {
     [TestFixture]
-    public class ProfileUseCaseTests
+    [SmallTest]
+    public class ProfileUseCaseTests : SizedTestFixture
     {
         // --- Fake 実装 ---
 

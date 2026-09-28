@@ -3,6 +3,7 @@ using NUnit.Framework;
 using Unity.Collections;
 using Hidano.FacialControl.Adapters.Playable;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.Tests.EditMode.Adapters
 {
     /// <summary>
@@ -10,7 +11,8 @@ namespace Hidano.FacialControl.Tests.EditMode.Adapters
     /// 確保・再利用・解放を検証する。
     /// </summary>
     [TestFixture]
-    public class NativeArrayPoolTests
+    [SmallTest]
+    public class NativeArrayPoolTests : SizedTestFixture
     {
         // ================================================================
         // Allocate — 確保

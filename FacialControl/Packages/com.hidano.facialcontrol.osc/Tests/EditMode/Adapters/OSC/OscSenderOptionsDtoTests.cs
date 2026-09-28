@@ -4,10 +4,12 @@ using Hidano.FacialControl.Adapters.OSC;
 using Hidano.FacialControl.Domain.Models;
 using NUnit.Framework;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.Tests.EditMode.Adapters.Json
 {
     [TestFixture]
-    public sealed class OscSenderOptionsDtoTests
+    [SmallTest]
+    public sealed class OscSenderOptionsDtoTests : SizedTestFixture
     {
         [Test]
         public void Type_SerializableAttribute_IsDefined()

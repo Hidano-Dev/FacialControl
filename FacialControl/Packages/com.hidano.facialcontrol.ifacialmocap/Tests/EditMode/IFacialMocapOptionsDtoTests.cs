@@ -1,9 +1,11 @@
 using Hidano.FacialControl.Adapters.Json.Dto;
 using NUnit.Framework;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.IFacialMocap.Tests.EditMode
 {
-    public class IFacialMocapOptionsDtoTests
+    [SmallTest]
+    public class IFacialMocapOptionsDtoTests : SizedTestFixture
     {
         [Test]
         public void RoundTrip_PreservesValues()

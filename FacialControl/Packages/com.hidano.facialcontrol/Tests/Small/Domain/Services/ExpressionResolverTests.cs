@@ -4,6 +4,7 @@ using NUnit.Framework;
 using Hidano.FacialControl.Domain.Models;
 using Hidano.FacialControl.Domain.Services;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.Tests.EditMode.Domain.Services
 {
     /// <summary>
@@ -11,7 +12,8 @@ namespace Hidano.FacialControl.Tests.EditMode.Domain.Services
     /// SnapshotId → BlendShape 値 / Bone スナップショット列の preallocated 解決の振る舞いを検証する。
     /// </summary>
     [TestFixture]
-    public class ExpressionResolverTests
+    [SmallTest]
+    public class ExpressionResolverTests : SizedTestFixture
     {
         private static ExpressionSnapshot BuildSnapshot(
             string id,

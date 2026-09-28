@@ -3,10 +3,12 @@ using Hidano.FacialControl.Adapters.InputSources;
 using Hidano.FacialControl.Domain.Interfaces;
 using NUnit.Framework;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.Tests.EditMode.Adapters.InputSources
 {
     [TestFixture]
-    public sealed class GazeInputReaderTests
+    [SmallTest]
+    public sealed class GazeInputReaderTests : SizedTestFixture
     {
         [Test]
         public void TryReadXY_ScalarInput_UsesXAndZeroY()

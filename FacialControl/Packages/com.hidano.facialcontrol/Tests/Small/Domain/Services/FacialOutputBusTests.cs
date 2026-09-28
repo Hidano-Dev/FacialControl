@@ -8,10 +8,12 @@ using NUnit.Framework;
 using UnityEngine;
 using UnityEngine.TestTools;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.Tests.EditMode.Domain.Services
 {
     [TestFixture]
-    public class FacialOutputBusTests
+    [SmallTest]
+    public class FacialOutputBusTests : SizedTestFixture
     {
         private static readonly Regex InvalidOperationPattern = new Regex("InvalidOperationException");
 

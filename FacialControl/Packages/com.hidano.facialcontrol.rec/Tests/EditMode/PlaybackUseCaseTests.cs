@@ -14,10 +14,12 @@ using NUnit.Framework;
 using UnityEngine;
 using UnityEngine.TestTools;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.Rec.Tests.EditMode
 {
     [TestFixture]
-    public class PlaybackUseCaseTests
+    [SmallTest]
+    public class PlaybackUseCaseTests : SizedTestFixture
     {
         [Test]
         public void Load_ValidTimelineAndProfile_ReturnsMissingExpressionIdsAndResetsState()

@@ -3,10 +3,12 @@ using NUnit.Framework;
 using Hidano.FacialControl.Domain.Models;
 using Hidano.FacialControl.Domain.Services;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.Tests.EditMode.Domain
 {
     [TestFixture]
-    public class TransitionCalculatorTests
+    [SmallTest]
+    public class TransitionCalculatorTests : SizedTestFixture
     {
         // --- Linear カーブ ---
 

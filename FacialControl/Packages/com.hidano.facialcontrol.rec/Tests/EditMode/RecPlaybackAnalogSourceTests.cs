@@ -4,10 +4,12 @@ using Hidano.FacialControl.Domain.Models;
 using Hidano.FacialControl.Rec.Adapters.Playback;
 using NUnit.Framework;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.Rec.Tests.EditMode
 {
     [TestFixture]
-    public class RecPlaybackAnalogSourceTests
+    [SmallTest]
+    public class RecPlaybackAnalogSourceTests : SizedTestFixture
     {
         [Test]
         public void SetAxes_WhenAxisCountMatches_StoresValuesAndMarksSourceValid()

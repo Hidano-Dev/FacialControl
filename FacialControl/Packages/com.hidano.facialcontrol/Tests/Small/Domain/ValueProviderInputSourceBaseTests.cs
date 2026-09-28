@@ -4,6 +4,7 @@ using Hidano.FacialControl.Domain.Interfaces;
 using Hidano.FacialControl.Domain.Models;
 using Hidano.FacialControl.Domain.Services;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.Tests.EditMode.Domain
 {
     /// <summary>
@@ -18,7 +19,8 @@ namespace Hidano.FacialControl.Tests.EditMode.Domain
     /// </list>
     /// </remarks>
     [TestFixture]
-    public class ValueProviderInputSourceBaseTests
+    [SmallTest]
+    public class ValueProviderInputSourceBaseTests : SizedTestFixture
     {
         /// <summary>
         /// <see cref="ValueProviderInputSourceBase"/> を継承し、<c>TryWriteValues</c> のみ

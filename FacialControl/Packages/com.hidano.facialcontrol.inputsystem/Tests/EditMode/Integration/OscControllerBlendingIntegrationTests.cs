@@ -9,6 +9,7 @@ using Hidano.FacialControl.Domain.Models;
 using Hidano.FacialControl.Domain.Services;
 using Hidano.FacialControl.Tests.Shared;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.Tests.EditMode.Integration
 {
     /// <summary>
@@ -47,7 +48,8 @@ namespace Hidano.FacialControl.Tests.EditMode.Integration
     /// </para>
     /// </remarks>
     [TestFixture]
-    public class OscControllerBlendingIntegrationTests
+    [SmallTest]
+    public class OscControllerBlendingIntegrationTests : SizedTestFixture
     {
         // BlendShape 配置:
         //   index 0: smile       (controller が Expression 経由で駆動)

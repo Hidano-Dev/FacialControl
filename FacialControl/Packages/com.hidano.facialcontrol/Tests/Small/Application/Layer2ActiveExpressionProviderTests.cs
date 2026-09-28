@@ -4,6 +4,7 @@ using Hidano.FacialControl.Application.UseCases;
 using Hidano.FacialControl.Domain.Models;
 using Hidano.FacialControl.Domain.Services;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.Tests.EditMode.Application
 {
     /// <summary>
@@ -11,7 +12,8 @@ namespace Hidano.FacialControl.Tests.EditMode.Application
     /// TriggerOn/Off 状態から active 表情を解決することを検証する。
     /// </summary>
     [TestFixture]
-    public class Layer2ActiveExpressionProviderTests
+    [SmallTest]
+    public class Layer2ActiveExpressionProviderTests : SizedTestFixture
     {
         private const string EmotionLayer = "emotion";
         private static readonly string[] BlendShapeNames = { "bs_a", "bs_b" };

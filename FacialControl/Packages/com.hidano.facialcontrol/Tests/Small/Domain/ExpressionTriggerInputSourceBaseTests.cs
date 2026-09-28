@@ -9,6 +9,7 @@ using Hidano.FacialControl.Domain.Interfaces;
 using Hidano.FacialControl.Domain.Models;
 using Hidano.FacialControl.Domain.Services;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.Tests.EditMode.Domain
 {
     /// <summary>
@@ -26,7 +27,8 @@ namespace Hidano.FacialControl.Tests.EditMode.Domain
     /// </list>
     /// </remarks>
     [TestFixture]
-    public class ExpressionTriggerInputSourceBaseTests
+    [SmallTest]
+    public class ExpressionTriggerInputSourceBaseTests : SizedTestFixture
     {
         private sealed class TestTriggerEventObserver : ITriggerEventObserver
         {

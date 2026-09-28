@@ -3,10 +3,12 @@ using System.Threading;
 using NUnit.Framework;
 using Hidano.FacialControl.Adapters.OSC;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.Tests.EditMode.Adapters
 {
     [TestFixture]
-    public class OscDoubleBufferTests
+    [SmallTest]
+    public class OscDoubleBufferTests : SizedTestFixture
     {
         [Test]
         public void Constructor_ValidSize_CreatesBuffer()

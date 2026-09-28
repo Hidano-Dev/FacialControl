@@ -1,10 +1,12 @@
 using Hidano.FacialControl.Domain.Models;
 using NUnit.Framework;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.Tests.EditMode.Domain
 {
     [TestFixture]
-    public sealed class GazeSourceIdConventionTests
+    [SmallTest]
+    public sealed class GazeSourceIdConventionTests : SizedTestFixture
     {
         [TestCase("receiver", "gaze", GazeSide.Shared)]
         [TestCase("receiver", "gaze", GazeSide.Left)]

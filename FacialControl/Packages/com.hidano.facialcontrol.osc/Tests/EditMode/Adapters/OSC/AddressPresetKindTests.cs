@@ -1,10 +1,12 @@
 using Hidano.FacialControl.Adapters.OSC;
 using NUnit.Framework;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.Tests.EditMode.Adapters
 {
     [TestFixture]
-    public sealed class AddressPresetKindTests
+    [SmallTest]
+    public sealed class AddressPresetKindTests : SizedTestFixture
     {
         [Test]
         public void EnumValues_SerializedValues_AreStable()

@@ -6,9 +6,11 @@ using Hidano.FacialControl.Adapters.OSC;
 using UnityEngine;
 using UnityEngine.TestTools;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.Osc.Tests.EditMode.Adapters.OSC
 {
-    public sealed class OscPacketReaderTests
+    [SmallTest]
+    public sealed class OscPacketReaderTests : SizedTestFixture
     {
         [Test]
         public void TryReadNext_ReadsJapaneseAddressAndSequentialBlobStringArguments()

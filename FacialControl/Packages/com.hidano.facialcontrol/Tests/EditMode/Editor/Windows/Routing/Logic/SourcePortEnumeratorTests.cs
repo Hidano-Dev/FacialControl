@@ -8,6 +8,7 @@ using Hidano.FacialControl.Editor.Windows.Routing.Logic;
 using Hidano.FacialControl.LipSync.Adapters;
 using NUnit.Framework;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.Tests.EditMode.Editor.Windows.Routing.Logic
 {
     [Serializable]
@@ -102,7 +103,8 @@ namespace Hidano.FacialControl.Tests.EditMode.Editor.Windows.Routing.Logic
     }
 
     [TestFixture]
-    public class SourcePortEnumeratorTests
+    [SmallTest]
+    public class SourcePortEnumeratorTests : SizedTestFixture
     {
         [Test]
         public void Enumerate_ULipSyncBinding_ReturnsOverlayPhonemePortsAndLegacySingleSource()

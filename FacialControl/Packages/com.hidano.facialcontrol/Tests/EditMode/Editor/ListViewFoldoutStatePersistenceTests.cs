@@ -5,10 +5,12 @@ using UnityEditor;
 using UnityEngine;
 using UnityEngine.UIElements;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.Tests.EditMode.Editor
 {
     [TestFixture]
-    public class ListViewFoldoutStatePersistenceTests
+    [SmallTest]
+    public class ListViewFoldoutStatePersistenceTests : SizedTestFixture
     {
         private FoldoutHostSO _host;
         private SerializedObject _serializedObject;

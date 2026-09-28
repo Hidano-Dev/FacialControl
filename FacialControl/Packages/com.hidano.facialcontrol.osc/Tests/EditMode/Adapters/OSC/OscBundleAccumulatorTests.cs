@@ -2,10 +2,12 @@ using System;
 using Hidano.FacialControl.Adapters.OSC;
 using NUnit.Framework;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.Tests.EditMode.Adapters
 {
     [TestFixture]
-    public sealed class OscBundleAccumulatorTests
+    [SmallTest]
+    public sealed class OscBundleAccumulatorTests : SizedTestFixture
     {
         [Test]
         public void RecordBundleMessage_SameTimestamp_WaitsForTimeoutThenSwapsOnce()

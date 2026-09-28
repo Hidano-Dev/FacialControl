@@ -2,6 +2,7 @@ using System;
 using NUnit.Framework;
 using Hidano.FacialControl.Domain.Models;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.Tests.EditMode.Domain
 {
     /// <summary>
@@ -9,7 +10,8 @@ namespace Hidano.FacialControl.Tests.EditMode.Domain
     /// スキーマ (Id / Name / Layer / OverrideMask: LayerOverrideMask / SnapshotId: string) を中心に検証する。
     /// </summary>
     [TestFixture]
-    public class ExpressionTests
+    [SmallTest]
+    public class ExpressionTests : SizedTestFixture
     {
         // --- 新スキーマ: Ctor_StoresAllFields ---
 

@@ -5,9 +5,11 @@ using NUnit.Framework;
 using UnityEngine;
 using UnityEngine.TestTools;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.Tests.EditMode.Adapters.Bone
 {
-    public sealed class BoneTransformResolverFallbackTests
+    [SmallTest]
+    public sealed class BoneTransformResolverFallbackTests : SizedTestFixture
     {
         private GameObject _root;
 

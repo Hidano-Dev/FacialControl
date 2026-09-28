@@ -4,6 +4,7 @@ using NUnit.Framework;
 using UnityEngine;
 using UnityEngine.TestTools;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.Tests.EditMode.Adapters.RuntimeSettings
 {
     /// <summary>
@@ -11,7 +12,8 @@ namespace Hidano.FacialControl.Tests.EditMode.Adapters.RuntimeSettings
     /// <c>_schemaVersion == 1</c>、<c>Label</c> getter、ToJson 既定実装が空文字を返すことを検証する。
     /// </summary>
     [TestFixture]
-    public class AdapterRuntimeSettingsBaseTests
+    [SmallTest]
+    public class AdapterRuntimeSettingsBaseTests : SizedTestFixture
     {
         public sealed class FakeAdapterRuntimeSettings : AdapterRuntimeSettingsBase
         {

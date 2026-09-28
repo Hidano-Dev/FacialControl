@@ -1,10 +1,12 @@
 using NUnit.Framework;
 using Hidano.FacialControl.Domain.Models;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.Tests.EditMode.Domain
 {
     [TestFixture]
-    public class LayerDefinitionTests
+    [SmallTest]
+    public class LayerDefinitionTests : SizedTestFixture
     {
         [Test]
         public void Constructor_ValidParameters_CreatesInstance()

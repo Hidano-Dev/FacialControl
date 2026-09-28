@@ -1,6 +1,7 @@
 using NUnit.Framework;
 using Hidano.FacialControl.Domain.Models;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.Tests.EditMode.Domain
 {
     /// <summary>
@@ -8,7 +9,8 @@ namespace Hidano.FacialControl.Tests.EditMode.Domain
     /// (RendererPath, Name, Value) を保持する readonly struct の振る舞いを検証する。
     /// </summary>
     [TestFixture]
-    public class BlendShapeSnapshotTests
+    [SmallTest]
+    public class BlendShapeSnapshotTests : SizedTestFixture
     {
         [Test]
         public void Ctor_Stores_AllFields()

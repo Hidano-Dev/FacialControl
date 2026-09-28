@@ -2,12 +2,14 @@ using System.Collections.Generic;
 using Hidano.FacialControl.Adapters.Playable;
 using NUnit.Framework;
 using UnityEngine;
+using Hidano.FacialControl.Testing;
 using Object = UnityEngine.Object;
 
 namespace Hidano.FacialControl.Tests.EditMode.Adapters.Playable
 {
     [TestFixture]
-    public class SkinnedMeshRendererBlendShapeWriterTests
+    [SmallTest]
+    public class SkinnedMeshRendererBlendShapeWriterTests : SizedTestFixture
     {
         private readonly List<Object> _trackedObjects = new List<Object>();
 

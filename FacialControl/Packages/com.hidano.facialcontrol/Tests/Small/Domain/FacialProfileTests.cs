@@ -2,6 +2,7 @@ using System;
 using NUnit.Framework;
 using Hidano.FacialControl.Domain.Models;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.Tests.EditMode.Domain
 {
     /// <summary>
@@ -11,7 +12,8 @@ namespace Hidano.FacialControl.Tests.EditMode.Domain
     /// および Slots 宣言と overlay 参照の整合性検証 (<see cref="FacialProfile.ValidateSlotReferences"/>) を含む。
     /// </summary>
     [TestFixture]
-    public class FacialProfileTests
+    [SmallTest]
+    public class FacialProfileTests : SizedTestFixture
     {
         // --- ヘルパー ---
 

@@ -4,9 +4,11 @@ using Hidano.FacialControl.Domain.Models;
 using Hidano.FacialControl.Timeline.Adapters.InputSources;
 using NUnit.Framework;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.Timeline.Tests.EditMode
 {
-    public sealed class TimelineAnalogInputSourceTests
+    [SmallTest]
+    public sealed class TimelineAnalogInputSourceTests : SizedTestFixture
     {
         [Test]
         public void SetAxes_WithMatchingAxisCount_MarksSourceValidAndUpdatesReads()

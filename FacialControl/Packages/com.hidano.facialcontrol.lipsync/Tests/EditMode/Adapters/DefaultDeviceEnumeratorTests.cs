@@ -4,10 +4,12 @@ using NUnit.Framework;
 using UnityEngine;
 using UnityEngine.TestTools;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.LipSync.Tests.EditMode.Adapters
 {
     [TestFixture]
-    public class DefaultDeviceEnumeratorTests
+    [SmallTest]
+    public class DefaultDeviceEnumeratorTests : SizedTestFixture
     {
 #if UNITY_STANDALONE_WIN || UNITY_EDITOR_WIN
         [Test]

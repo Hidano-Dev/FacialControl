@@ -5,10 +5,12 @@ using NUnit.Framework;
 using Unity.Profiling;
 using UnityEngine;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.Tests.EditMode.Adapters.InputSources
 {
     [TestFixture]
-    public class GazeVector2InputSourceTests
+    [SmallTest]
+    public class GazeVector2InputSourceTests : SizedTestFixture
     {
         private const int ZeroAllocIterations = 50000;
 

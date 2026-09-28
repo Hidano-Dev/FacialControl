@@ -4,10 +4,12 @@ using NUnit.Framework;
 using Hidano.FacialControl.Domain.Interfaces;
 using Hidano.FacialControl.Domain.Models;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.Tests.EditMode.Domain
 {
     [TestFixture]
-    public class IInputSourceContractTests
+    [SmallTest]
+    public class IInputSourceContractTests : SizedTestFixture
     {
         /// <summary>
         /// 契約検証用の最小 Fake。<see cref="IInputSource.TryWriteValues"/> が常に false を返し、

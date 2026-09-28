@@ -9,10 +9,12 @@ using NUnit.Framework;
 using UnityEngine;
 using UnityEngine.TestTools;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.Rec.Tests.EditMode
 {
     [TestFixture]
-    public class RecordingUseCaseTests
+    [SmallTest]
+    public class RecordingUseCaseTests : SizedTestFixture
     {
         [Test]
         public void StartRecording_WhenIdle_OpensSinkResetsClockAndSubscribes()

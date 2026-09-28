@@ -8,12 +8,14 @@ using Hidano.FacialControl.LipSync.Adapters;
 using Hidano.FacialControl.Tests.EditMode.Adapters.ScriptableObjectTests.AdapterBindings;
 using NUnit.Framework;
 using UnityEngine;
+using Hidano.FacialControl.Testing;
 using Object = UnityEngine.Object;
 
 namespace Hidano.FacialControl.Tests.EditMode.Editor.Windows.Routing.Logic
 {
     [TestFixture]
-    public class RoutingGraphModelBuilderTests
+    [SmallTest]
+    public class RoutingGraphModelBuilderTests : SizedTestFixture
     {
         private TestFacialCharacterProfileSO _profile;
         private RoutingGraphModelBuilder _builder;

@@ -10,10 +10,12 @@ using NUnit.Framework;
 using UnityEngine;
 using UnityEngine.TestTools;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.Tests.EditMode.Adapters.InputSources
 {
     [TestFixture]
-    public class InputSourceRegistryTests
+    [SmallTest]
+    public class InputSourceRegistryTests : SizedTestFixture
     {
         private static readonly Regex DuplicateLogPattern =
             new Regex("InputSourceRegistry.*duplicate", RegexOptions.IgnoreCase);

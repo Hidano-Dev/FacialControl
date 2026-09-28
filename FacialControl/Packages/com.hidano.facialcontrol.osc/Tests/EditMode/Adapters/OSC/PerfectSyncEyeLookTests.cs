@@ -4,10 +4,12 @@ using Hidano.FacialControl.Adapters.OSC;
 using NUnit.Framework;
 using UnityEngine;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.Tests.EditMode.Adapters
 {
     [TestFixture]
-    public class PerfectSyncEyeLookTests
+    [SmallTest]
+    public class PerfectSyncEyeLookTests : SizedTestFixture
     {
         private const float Tolerance = 1e-6f;
 

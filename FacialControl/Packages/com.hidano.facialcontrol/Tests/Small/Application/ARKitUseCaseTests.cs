@@ -4,10 +4,12 @@ using Hidano.FacialControl.Domain.Models;
 using Hidano.FacialControl.Domain.Services;
 using Hidano.FacialControl.Application.UseCases;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.Tests.EditMode.Application
 {
     [TestFixture]
-    public class ARKitUseCaseTests
+    [SmallTest]
+    public class ARKitUseCaseTests : SizedTestFixture
     {
         private ARKitUseCase _useCase;
 

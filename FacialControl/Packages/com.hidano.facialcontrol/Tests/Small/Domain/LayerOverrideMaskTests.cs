@@ -2,10 +2,12 @@ using System;
 using NUnit.Framework;
 using Hidano.FacialControl.Domain.Models;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.Tests.EditMode.Domain
 {
     [TestFixture]
-    public class LayerOverrideMaskTests
+    [SmallTest]
+    public class LayerOverrideMaskTests : SizedTestFixture
     {
         [Test]
         public void Combine_TwoFlags_HasBoth()

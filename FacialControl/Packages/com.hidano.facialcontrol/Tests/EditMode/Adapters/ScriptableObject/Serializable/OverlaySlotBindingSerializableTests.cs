@@ -3,12 +3,14 @@ using Hidano.FacialControl.Adapters.ScriptableObject.Serializable;
 using NUnit.Framework;
 using UnityEditor;
 using UnityEngine;
+using Hidano.FacialControl.Testing;
 using Object = UnityEngine.Object;
 
 namespace Hidano.FacialControl.Tests.EditMode.Adapters.ScriptableObjectTests.Serializable
 {
     [TestFixture]
-    public class OverlaySlotBindingSerializableTests
+    [SmallTest]
+    public class OverlaySlotBindingSerializableTests : SizedTestFixture
     {
         [Test]
         public void TypeDefinition_DoesNotExposeLegacyExpressionIdField()

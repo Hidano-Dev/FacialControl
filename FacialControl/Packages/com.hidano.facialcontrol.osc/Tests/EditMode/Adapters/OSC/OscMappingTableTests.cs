@@ -3,6 +3,7 @@ using NUnit.Framework;
 using Hidano.FacialControl.Adapters.OSC;
 using Hidano.FacialControl.Domain.Models;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.Tests.EditMode.Adapters
 {
     /// <summary>
@@ -10,7 +11,8 @@ namespace Hidano.FacialControl.Tests.EditMode.Adapters
     /// マッピング変換、プリセットを検証する。
     /// </summary>
     [TestFixture]
-    public class OscMappingTableTests
+    [SmallTest]
+    public class OscMappingTableTests : SizedTestFixture
     {
         // ================================================================
         // コンストラクタ — OscMapping 配列からの初期化

@@ -13,6 +13,7 @@ using UnityEngine;
 using UnityEngine.TestTools;
 using VContainer.Unity;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.Tests.EditMode.Adapters
 {
     /// <summary>
@@ -27,7 +28,8 @@ namespace Hidano.FacialControl.Tests.EditMode.Adapters
     /// CS0246 (型 / 名前空間 が見つからない) が発生して Red 状態となる（task 3.3 の Green 化対象）。
     /// </remarks>
     [TestFixture]
-    public class AdapterBindingHostTests
+    [SmallTest]
+    public class AdapterBindingHostTests : SizedTestFixture
     {
         private static readonly Regex LogErrorPattern = new Regex("AdapterBindingHost");
 

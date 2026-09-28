@@ -1,6 +1,7 @@
 using NUnit.Framework;
 using Hidano.FacialControl.Adapters.Processors;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.Tests.EditMode.Adapters.Processors
 {
     /// <summary>
@@ -20,7 +21,8 @@ namespace Hidano.FacialControl.Tests.EditMode.Adapters.Processors
     /// </list>
     /// </remarks>
     [TestFixture]
-    public class AnalogProcessorTests
+    [SmallTest]
+    public class AnalogProcessorTests : SizedTestFixture
     {
         private const float Tolerance = 1e-5f;
 

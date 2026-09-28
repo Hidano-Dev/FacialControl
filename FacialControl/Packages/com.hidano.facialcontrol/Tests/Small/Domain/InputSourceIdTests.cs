@@ -1,6 +1,7 @@
 using NUnit.Framework;
 using Hidano.FacialControl.Domain.Models;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.Tests.EditMode.Domain
 {
     /// <summary>
@@ -12,7 +13,8 @@ namespace Hidano.FacialControl.Tests.EditMode.Domain
     /// 本ファイルは識別子文字列としての validation 契約（regex / 長さ / legacy 拒否 / 等価性）のみを保持する。
     /// </remarks>
     [TestFixture]
-    public class InputSourceIdTests
+    [SmallTest]
+    public class InputSourceIdTests : SizedTestFixture
     {
         [TestCase("x-mycompany-arm-sensor")]
         [TestCase("x-test")]

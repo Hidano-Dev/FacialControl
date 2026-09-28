@@ -3,9 +3,11 @@ using System.Linq;
 using Hidano.FacialControl.Domain.Adapters;
 using NUnit.Framework;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.Tests.EditMode.Adapters
 {
-    public sealed class GazeSourceContractsTests
+    [SmallTest]
+    public sealed class GazeSourceContractsTests : SizedTestFixture
     {
         [Test]
         public void GazeSourceDeclaration_PreservesChannelAndPairValues()

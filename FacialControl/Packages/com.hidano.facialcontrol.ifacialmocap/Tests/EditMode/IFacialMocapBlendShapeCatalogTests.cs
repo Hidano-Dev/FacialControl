@@ -1,9 +1,11 @@
 using Hidano.FacialControl.Adapters.IFacialMocap;
 using NUnit.Framework;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.IFacialMocap.Tests.EditMode
 {
-    public class IFacialMocapBlendShapeCatalogTests
+    [SmallTest]
+    public class IFacialMocapBlendShapeCatalogTests : SizedTestFixture
     {
         [Test]
         public void Names_Contains52ArKitBlendShapes()

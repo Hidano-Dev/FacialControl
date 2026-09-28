@@ -1,9 +1,11 @@
 using Hidano.FacialControl.Adapters.IFacialMocap;
 using NUnit.Framework;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.IFacialMocap.Tests.EditMode
 {
-    public class IFacialMocapPacketParserTests
+    [SmallTest]
+    public class IFacialMocapPacketParserTests : SizedTestFixture
     {
         private static float GetBlendShape(IFacialMocapFrame frame, string name)
         {

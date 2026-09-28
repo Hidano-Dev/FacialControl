@@ -7,10 +7,12 @@ using NUnit.Framework;
 using UnityEngine;
 using UnityEngine.TestTools;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.Tests.EditMode.Adapters
 {
     [TestFixture]
-    public sealed class RuntimeMappingResolverTests
+    [SmallTest]
+    public sealed class RuntimeMappingResolverTests : SizedTestFixture
     {
         [Test]
         public void ResolveInitialMappings_ManualBlendShapeEntriesOnly_ReturnsManualOriginsInInputOrder()

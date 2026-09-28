@@ -10,6 +10,7 @@ using Hidano.FacialControl.Domain.Models;
 using Hidano.FacialControl.Domain.Services;
 using Hidano.FacialControl.Tests.Shared;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.Tests.EditMode.Domain
 {
     /// <summary>
@@ -21,7 +22,8 @@ namespace Hidano.FacialControl.Tests.EditMode.Domain
     /// <see cref="LayerInputSourceRegistry.Dispose"/> で内部バッファが解放されること。
     /// </remarks>
     [TestFixture]
-    public class LayerInputSourceRegistryTests
+    [SmallTest]
+    public class LayerInputSourceRegistryTests : SizedTestFixture
     {
         private sealed class FakeInputSource : IInputSource
         {

@@ -7,6 +7,7 @@ using Hidano.FacialControl.Domain.Models;
 using Hidano.FacialControl.Domain.Services;
 using Hidano.FacialControl.Tests.Shared;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.Tests.EditMode.Domain
 {
     /// <summary>
@@ -20,7 +21,8 @@ namespace Hidano.FacialControl.Tests.EditMode.Domain
     /// exactly that source's values (within floating-point tolerance) for that layer."
     /// </remarks>
     [TestFixture]
-    public class WeightOneExactOutputContractTests
+    [SmallTest]
+    public class WeightOneExactOutputContractTests : SizedTestFixture
     {
         /// <summary>
         /// 浮動小数点比較の許容誤差。<c>Mathf.Approximately</c> は <c>max(1e-6, 1e-6 * max(|a|,|b|)) * 8</c>

@@ -5,6 +5,7 @@ using NUnit.Framework;
 using Hidano.FacialControl.Domain.Services;
 using Hidano.FacialControl.Tests.Shared;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.Tests.EditMode.Domain
 {
     /// <summary>
@@ -13,7 +14,8 @@ namespace Hidano.FacialControl.Tests.EditMode.Domain
     /// および ContributeMask（部分 mask / null mask）が出力の上書き範囲を制御することを確認する。
     /// </summary>
     [TestFixture]
-    public class LayerBlenderTests
+    [SmallTest]
+    public class LayerBlenderTests : SizedTestFixture
     {
         private const float Tolerance = 1e-6f;
 

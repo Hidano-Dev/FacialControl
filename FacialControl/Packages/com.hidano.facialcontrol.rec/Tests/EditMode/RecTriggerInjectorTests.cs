@@ -9,10 +9,12 @@ using NUnit.Framework;
 using UnityEngine;
 using UnityEngine.TestTools;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.Rec.Tests.EditMode
 {
     [TestFixture]
-    public class RecTriggerInjectorTests
+    [SmallTest]
+    public class RecTriggerInjectorTests : SizedTestFixture
     {
         [Test]
         public void BeginInjection_AllTriggerSources_AreSuspendedAndBaselineApplied()

@@ -2,10 +2,12 @@ using System;
 using NUnit.Framework;
 using Hidano.FacialControl.Domain.Models;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.Tests.EditMode.Domain
 {
     [TestFixture]
-    public class OverlaySlotBindingTests
+    [SmallTest]
+    public class OverlaySlotBindingTests : SizedTestFixture
     {
         [Test]
         public void Constructor_DefaultFallback_KeepsSlotAndState()

@@ -3,6 +3,7 @@ using NUnit.Framework;
 using UnityEngine;
 using Hidano.FacialControl.Editor.Common;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.Tests.EditMode.Editor
 {
     /// <summary>
@@ -11,7 +12,8 @@ namespace Hidano.FacialControl.Tests.EditMode.Editor
     /// 重複排除・Ordinal ソート・null 安全を保証する。
     /// </summary>
     [TestFixture]
-    public class BlendShapeNameProviderTests
+    [SmallTest]
+    public class BlendShapeNameProviderTests : SizedTestFixture
     {
         private readonly List<Object> _trackedObjects = new List<Object>();
 

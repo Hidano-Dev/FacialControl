@@ -4,6 +4,7 @@ using UnityEngine;
 using UnityEngine.TestTools;
 using Hidano.FacialControl.Domain.Services;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.Tests.EditMode.Domain
 {
     /// <summary>
@@ -16,7 +17,8 @@ namespace Hidano.FacialControl.Tests.EditMode.Domain
     /// 3.4 の範囲外 (layer, source) への Set で警告 + no-op  を検証する。
     /// </remarks>
     [TestFixture]
-    public class LayerInputSourceWeightBufferTests
+    [SmallTest]
+    public class LayerInputSourceWeightBufferTests : SizedTestFixture
     {
         [Test]
         public void Constructor_ExposesLayerAndSourceCapacity()

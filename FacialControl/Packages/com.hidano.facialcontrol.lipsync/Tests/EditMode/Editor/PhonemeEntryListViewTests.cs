@@ -7,6 +7,7 @@ using UnityEditor;
 using UnityEngine;
 using UnityEngine.UIElements;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.LipSync.Tests.EditMode.Editor
 {
     /// <summary>
@@ -14,7 +15,8 @@ namespace Hidano.FacialControl.LipSync.Tests.EditMode.Editor
     /// UI ツリーは「生成できる」smoke のみ。残りは公開 API（AddEntry / SetEntryKind / MoveEntry / RemoveEntryAt）
     /// が SerializedProperty へ正しく書き込むことを SerializedObject 経由で観測する（UI 非依存）。
     /// </summary>
-    public class PhonemeEntryListViewTests
+    [SmallTest]
+    public class PhonemeEntryListViewTests : SizedTestFixture
     {
         private PhonemeEntryListViewTestAsset _asset;
         private SerializedObject _serializedObject;

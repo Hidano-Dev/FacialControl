@@ -2,10 +2,12 @@ using NUnit.Framework;
 using Hidano.FacialControl.Domain.Interfaces;
 using Hidano.FacialControl.Tests.Shared;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.Tests.EditMode.Domain
 {
     [TestFixture]
-    public class ManualTimeProviderTests
+    [SmallTest]
+    public class ManualTimeProviderTests : SizedTestFixture
     {
         [Test]
         public void UnscaledTimeSeconds_AfterConstruction_IsZero()

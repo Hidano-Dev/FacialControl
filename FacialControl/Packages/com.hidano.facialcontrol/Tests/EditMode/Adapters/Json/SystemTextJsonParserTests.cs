@@ -10,6 +10,7 @@ using Hidano.FacialControl.Adapters.Json;
 using Hidano.FacialControl.Adapters.Json.Dto;
 using Hidano.FacialControl.Domain.Models;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.Tests.EditMode.Adapters.Json
 {
     /// <summary>
@@ -19,7 +20,8 @@ namespace Hidano.FacialControl.Tests.EditMode.Adapters.Json
     /// overlays（slots / suppress / snapshot）、gaze セクションの読み取りを扱う。
     /// </summary>
     [TestFixture]
-    public class SystemTextJsonParserTests
+    [SmallTest]
+    public class SystemTextJsonParserTests : SizedTestFixture
     {
         private SystemTextJsonParser _parser;
 

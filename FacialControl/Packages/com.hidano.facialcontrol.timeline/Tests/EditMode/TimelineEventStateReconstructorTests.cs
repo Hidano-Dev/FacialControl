@@ -3,9 +3,11 @@ using Hidano.FacialControl.Timeline.Domain.Models;
 using Hidano.FacialControl.Timeline.Domain.Services;
 using NUnit.Framework;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.Timeline.Tests.EditMode
 {
-    public sealed class TimelineEventStateReconstructorTests
+    [SmallTest]
+    public sealed class TimelineEventStateReconstructorTests : SizedTestFixture
     {
         [Test]
         public void AdvanceLinear_ReplaysEventsInRecordedOrder_AndMatchesExpectedStack()
