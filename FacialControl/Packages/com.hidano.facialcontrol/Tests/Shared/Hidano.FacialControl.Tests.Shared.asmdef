@@ -2,7 +2,8 @@
     "name": "Hidano.FacialControl.Tests.Shared",
     "rootNamespace": "Hidano.FacialControl.Tests.Shared",
     "references": [
-        "Hidano.FacialControl.Domain"
+        "Hidano.FacialControl.Domain",
+        "Hidano.FacialControl.Testing"
     ],
     "includePlatforms": [],
     "excludePlatforms": [],

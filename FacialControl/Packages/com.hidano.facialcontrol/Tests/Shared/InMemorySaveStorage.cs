@@ -1,14 +1,18 @@
 using System.Collections.Generic;
-using Hidano.FacialControl.LipSync.Adapters.Devices;
+using Hidano.FacialControl.Domain.Interfaces;
 using Hidano.FacialControl.Testing;
 
-namespace Hidano.FacialControl.LipSync.Tests.Shared
+namespace Hidano.FacialControl.Tests.Shared
 {
-    internal sealed class FakePlayerPrefsBackend : IPlayerPrefsBackend, IFakeDependency
+    /// <summary>
+    /// <see cref="ISaveStorage"/> のインメモリ Fake。PlayerPrefs に触れずに保存・読み出しの振る舞いを検証する。
+    /// </summary>
+    public sealed class InMemorySaveStorage : ISaveStorage, IFakeDependency
     {
         private readonly Dictionary<string, string> _strings = new Dictionary<string, string>();
         private readonly Dictionary<string, int> _ints = new Dictionary<string, int>();
 
+        /// <summary><see cref="Save"/> が呼ばれた回数。</summary>
         public int SaveCallCount { get; private set; }
 
         public string GetString(string key, string defaultValue)
@@ -44,6 +48,14 @@ namespace Hidano.FacialControl.LipSync.Tests.Shared
         public bool ContainsIntKey(string key)
         {
             return _ints.ContainsKey(key);
+        }
+
+        /// <summary>全データと呼び出し回数を初期状態に戻す。</summary>
+        public void Clear()
+        {
+            _strings.Clear();
+            _ints.Clear();
+            SaveCallCount = 0;
         }
     }
 }

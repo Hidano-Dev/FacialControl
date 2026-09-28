@@ -1,11 +1,12 @@
+using Hidano.FacialControl.Domain.Interfaces;
+
 namespace Hidano.FacialControl.LipSync.Adapters.Devices
 {
-    internal interface IPlayerPrefsBackend
+    /// <summary>
+    /// LipSync デバイス選択の保存先。メンバは <see cref="ISaveStorage"/>（PlayerPrefs 相当のキー・値保存）と同一で、
+    /// モジュール内部向けの名前を維持するために継承のみ行う。
+    /// </summary>
+    internal interface IPlayerPrefsBackend : ISaveStorage
     {
-        string GetString(string key, string defaultValue);
-        int GetInt(string key, int defaultValue);
-        void SetString(string key, string value);
-        void SetInt(string key, int value);
-        void Save();
     }
 }
