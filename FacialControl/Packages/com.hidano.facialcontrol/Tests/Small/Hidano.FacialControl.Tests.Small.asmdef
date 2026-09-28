@@ -1,0 +1,28 @@
+{
+    "name": "Hidano.FacialControl.Tests.Small",
+    "rootNamespace": "Hidano.FacialControl.Tests.Small",
+    "references": [
+        "Hidano.FacialControl.Domain",
+        "Hidano.FacialControl.Application",
+        "Hidano.FacialControl.Tests.Shared",
+        "Hidano.FacialControl.Testing",
+        "Unity.Collections",
+        "UnityEngine.TestRunner",
+        "UnityEditor.TestRunner"
+    ],
+    "includePlatforms": [
+        "Editor"
+    ],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": true,
+    "precompiledReferences": [
+        "nunit.framework.dll"
+    ],
+    "autoReferenced": false,
+    "defineConstraints": [
+        "UNITY_INCLUDE_TESTS"
+    ],
+    "versionDefines": [],
+    "noEngineReferences": false
+}
