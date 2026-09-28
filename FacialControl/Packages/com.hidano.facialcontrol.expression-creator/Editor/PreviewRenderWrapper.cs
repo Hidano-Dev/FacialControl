@@ -331,10 +331,10 @@ namespace Hidano.FacialControl.ExpressionCreator
                     // 「手前にホイール (≒ ズームアウト期待)」で正になる。DollyHandler は
                     // 正の dollyAmount で「カメラを前方に進める = ズームイン」になるため、
                     // 直感どおりの方向にするには符号を反転して渡す必要がある。
-                    _state = DollyHandler.Apply(_state, -frame.ScrollDelta.y, DollyScrollSensitivity, MinPivotDistance);
+                    _state = DollyHandler.ApplyScroll(_state, -frame.ScrollDelta.y, DollyScrollSensitivity, MinPivotDistance);
                     break;
                 case EventType.MouseDrag when button == 1 && alt:
-                    _state = DollyHandler.Apply(_state, -frame.Delta.y, DollyDragSensitivity, MinPivotDistance);
+                    _state = DollyHandler.ApplyDrag(_state, -frame.Delta.y, DollyDragSensitivity, MinPivotDistance);
                     break;
                 default:
                     return false;

@@ -7,7 +7,7 @@
 | パッケージ | バージョン | 用途 |
 |---|---|---|
 | `com.hidano.facialcontrol` | 1.0.0 | Profile / Expression の定義、AnimationClip の読み取り（`AnimationClipExpressionSampler`）、BlendShape 名の候補列挙 |
-| `com.hidano.scene-view-style-camera-controller` | 1.0.0 | プレビューカメラの Scene View 風操作（orbit / pan / dolly） |
+| `com.hidano.scene-view-style-camera-controller` | 1.3.0 | プレビューカメラの Scene View 風操作（orbit / pan / dolly） |
 
 ## 開き方
 

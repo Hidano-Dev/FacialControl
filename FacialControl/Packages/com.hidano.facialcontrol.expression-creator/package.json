@@ -22,7 +22,7 @@
     "licensesUrl": "https://github.com/NHidano/FacialControl/blob/main/FacialControl/Packages/com.hidano.facialcontrol.expression-creator/LICENSE.md",
     "dependencies": {
         "com.hidano.facialcontrol": "1.0.0",
-        "com.hidano.scene-view-style-camera-controller": "1.0.0"
+        "com.hidano.scene-view-style-camera-controller": "1.3.0"
     },
     "keywords": [
         "facial",
