@@ -2,10 +2,12 @@ using Hidano.FacialControl.LipSync.Adapters.Devices;
 using NUnit.Framework;
 using UnityEngine;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.LipSync.Tests.EditMode.Adapters
 {
     [TestFixture]
-    public class DefaultPlayerPrefsBackendTests
+    [MediumTest]
+    public class DefaultPlayerPrefsBackendTests : SizedTestFixture
     {
         private const string TestStringKey = "Hidano.FacialControl.Tests.DefaultPlayerPrefsBackend.String";
         private const string TestIntKey = "Hidano.FacialControl.Tests.DefaultPlayerPrefsBackend.Int";

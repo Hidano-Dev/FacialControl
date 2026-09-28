@@ -8,6 +8,7 @@ using NUnit.Framework;
 using UnityEditor;
 using UnityEngine;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.ExpressionCreator.Tests.EditMode
 {
     /// <summary>
@@ -17,7 +18,8 @@ namespace Hidano.FacialControl.ExpressionCreator.Tests.EditMode
     /// 落ちる」「破棄で例外を出さない」だけを守り、UI ツリーの細部は検証しない。
     /// </summary>
     [TestFixture]
-    public class ExpressionCreatorWindowTests
+    [MediumTest]
+    public class ExpressionCreatorWindowTests : SizedTestFixture
     {
         private readonly List<UnityEngine.Object> _trackedObjects = new List<UnityEngine.Object>();
         private readonly List<string> _trackedAssetPaths = new List<string>();

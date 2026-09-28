@@ -8,6 +8,7 @@ using NUnit.Framework;
 using UnityEngine;
 using UnityEngine.TestTools;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.Tests.EditMode.Adapters
 {
     /// <summary>
@@ -16,7 +17,8 @@ namespace Hidano.FacialControl.Tests.EditMode.Adapters
     /// ビルド済みアプリでポート衝突が発覚するケースを想定し、無警告で受信不能になる事故を防ぐ。
     /// </summary>
     [TestFixture]
-    public class OscReceiverPortAutoIncrementTests
+    [MediumTest]
+    public class OscReceiverPortAutoIncrementTests : SizedTestFixture
     {
         private const int PortBase = 19620;
 

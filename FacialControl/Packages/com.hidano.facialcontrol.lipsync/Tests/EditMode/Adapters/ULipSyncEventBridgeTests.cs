@@ -2,10 +2,12 @@ using Hidano.FacialControl.LipSync.Adapters;
 using NUnit.Framework;
 using UnityEngine;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.LipSync.Tests.EditMode.Adapters
 {
     [TestFixture]
-    public class ULipSyncEventBridgeTests
+    [MediumTest]
+    public class ULipSyncEventBridgeTests : SizedTestFixture
     {
         [Test]
         public void Constructor_NullSource_ThrowsArgumentNullException()

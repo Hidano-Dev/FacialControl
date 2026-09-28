@@ -6,6 +6,7 @@ using NUnit.Framework;
 using UnityEditor;
 using UnityEngine;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.Tests.EditMode.Editor.Sampling
 {
     /// <summary>
@@ -13,7 +14,8 @@ namespace Hidano.FacialControl.Tests.EditMode.Editor.Sampling
     /// 1 Expression あたり 50ms 以内（典型 ~10 BlendShapes）でサンプリング完了することを確認する。
     /// </summary>
     [TestFixture]
-    public class AnimationClipExpressionSamplerBenchmarkTests
+    [MediumTest]
+    public class AnimationClipExpressionSamplerBenchmarkTests : SizedTestFixture
     {
         private const int TypicalBlendShapeCount = 10;
         private const int WarmupIterations = 3;

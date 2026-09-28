@@ -3,10 +3,12 @@ using Hidano.FacialControl.LipSync.Tests.Shared;
 using NUnit.Framework;
 using UnityEngine;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.LipSync.Tests.EditMode.Adapters
 {
     [TestFixture]
-    internal class LipSyncDeviceStoreTests
+    [MediumTest]
+    internal class LipSyncDeviceStoreTests : SizedTestFixture
     {
         private FakePlayerPrefsBackend _backend;
 

@@ -3,6 +3,7 @@ using NUnit.Framework;
 using UnityEditor;
 using UnityEngine;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.Tests.EditMode.Adapters.RuntimeSettings
 {
     /// <summary>
@@ -12,7 +13,8 @@ namespace Hidano.FacialControl.Tests.EditMode.Adapters.RuntimeSettings
     /// 残存 sub-asset の <c>_label</c> / <c>_schemaVersion</c> が保持されることを検証する。
     /// </summary>
     [TestFixture]
-    public class AdapterRuntimeSettingsCollectionSOTests
+    [MediumTest]
+    public class AdapterRuntimeSettingsCollectionSOTests : SizedTestFixture
     {
         private AdapterRuntimeSettingsCollectionSO _collection;
 
@@ -218,7 +220,8 @@ namespace Hidano.FacialControl.Tests.EditMode.Adapters.RuntimeSettings
     /// が消失しないことを検証する。
     /// </summary>
     [TestFixture]
-    public class AdapterRuntimeSettingsCollectionSOPersistedSubAssetTests
+    [MediumTest]
+    public class AdapterRuntimeSettingsCollectionSOPersistedSubAssetTests : SizedTestFixture
     {
         private const string TempFolderParent = "Assets";
         private const string TempFolderName = "Temp_AdapterRuntimeSettingsCollectionSOPersistedSubAssetTests";

@@ -10,6 +10,7 @@ using Hidano.FacialControl.Editor.Sampling;
 using NUnit.Framework;
 using UnityEditor;
 using UnityEngine;
+using Hidano.FacialControl.Testing;
 using Object = UnityEngine.Object;
 
 namespace Hidano.FacialControl.Tests.EditMode.Editor.AutoExport
@@ -20,7 +21,8 @@ namespace Hidano.FacialControl.Tests.EditMode.Editor.AutoExport
     /// ExportProfileJson が cachedSnapshot / transitionDuration / slots / defaultOverlays を profile.json へ正しく書き出すことを検証する。
     /// </summary>
     [TestFixture]
-    public class FacialCharacterProfileExporterTests
+    [MediumTest]
+    public class FacialCharacterProfileExporterTests : SizedTestFixture
     {
         // ---- SampleAnimationClipsIntoCachedSnapshots: ベース表情 ----
 

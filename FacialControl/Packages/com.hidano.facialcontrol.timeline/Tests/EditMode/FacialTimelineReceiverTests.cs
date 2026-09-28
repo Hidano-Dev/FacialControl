@@ -16,9 +16,11 @@ using UnityEngine;
 using UnityEngine.TestTools;
 using UnityEngine.Timeline;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.Timeline.Tests.EditMode
 {
-    public sealed class FacialTimelineReceiverTests
+    [MediumTest]
+    public sealed class FacialTimelineReceiverTests : SizedTestFixture
     {
         [Test]
         public void BeginPlaybackSession_WhenBakeAssetMissing_WarnsAndMarksStatus()

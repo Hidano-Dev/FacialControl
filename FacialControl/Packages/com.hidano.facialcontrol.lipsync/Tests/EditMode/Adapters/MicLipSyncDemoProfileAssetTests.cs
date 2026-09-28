@@ -6,6 +6,7 @@ using NUnit.Framework;
 using UnityEditor;
 using UnityEditorInternal;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.LipSync.Tests.EditMode.Adapters
 {
     /// <summary>
@@ -13,7 +14,8 @@ namespace Hidano.FacialControl.LipSync.Tests.EditMode.Adapters
     /// （slot a/i/u/e/o の宣言、overlay レイヤーの overlay:/lipsync-overlay: 入力、smile の slot a Override）を保っていることを固定する。
     /// </summary>
     [TestFixture]
-    public sealed class MicLipSyncDemoProfileAssetTests
+    [MediumTest]
+    public sealed class MicLipSyncDemoProfileAssetTests : SizedTestFixture
     {
         private const string AssetPath =
             "Packages/com.hidano.facialcontrol.lipsync/Samples~/MicLipSyncDemo/Profiles/MicLipSyncDemoProfile.asset";

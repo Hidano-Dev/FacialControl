@@ -6,10 +6,12 @@ using NUnit.Framework;
 using UnityEditor;
 using UnityEngine;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.Tests.EditMode.Editor.AutoExport
 {
     [TestFixture]
-    public sealed class FacialCharacterProfileAutoExporterTests
+    [MediumTest]
+    public sealed class FacialCharacterProfileAutoExporterTests : SizedTestFixture
     {
         private const string TempFolderName = "Temp_AutoExporterSaveTests";
         private const string TempFolderPath = "Assets/" + TempFolderName;

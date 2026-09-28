@@ -4,10 +4,12 @@ using NUnit.Framework;
 using UnityEditor;
 using UnityEngine;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.LipSync.Tests.EditMode.Adapters
 {
     [TestFixture]
-    public class PhonemeEntryTests
+    [MediumTest]
+    public class PhonemeEntryTests : SizedTestFixture
     {
         private const string TempFolderParent = "Assets";
         private const string TempFolderName = "__Temp_ULipSyncPhonemeEntryTests";

@@ -4,6 +4,7 @@ using System.Net.Sockets;
 using Hidano.FacialControl.Adapters.OSC;
 using NUnit.Framework;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.Tests.EditMode.Adapters
 {
     /// <summary>
@@ -12,7 +13,8 @@ namespace Hidano.FacialControl.Tests.EditMode.Adapters
     /// REUSEADDR なしプローブによる検知が機能することを検証する。
     /// </summary>
     [TestFixture]
-    public class OscPortResolverTests
+    [MediumTest]
+    public class OscPortResolverTests : SizedTestFixture
     {
         private const int PortBase = 19420;
 

@@ -4,6 +4,7 @@ using UnityEngine.UIElements;
 using Hidano.FacialControl.Adapters.Playable;
 using Hidano.FacialControl.Editor.Inspector;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.Tests.EditMode.Editor.Inspector
 {
     /// <summary>
@@ -13,7 +14,8 @@ namespace Hidano.FacialControl.Tests.EditMode.Editor.Inspector
     /// Inspector 警告として検出できること（<see cref="FacialControllerEditor.FindHierarchyDuplicate"/>）を守る。
     /// </summary>
     [TestFixture]
-    public class FacialControllerEditorTests
+    [MediumTest]
+    public class FacialControllerEditorTests : SizedTestFixture
     {
         private GameObject _host;
         private FacialController _controller;

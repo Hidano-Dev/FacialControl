@@ -7,13 +7,15 @@ using Hidano.FacialControl.Domain.Models;
 using NUnit.Framework;
 using UnityEditor;
 using UnityEngine;
+using Hidano.FacialControl.Testing;
 using Object = UnityEngine.Object;
 using RoundTripProfileSO = Hidano.FacialControl.Tests.EditMode.Adapters.ScriptableObjectTests.AdapterBindings.TestFacialCharacterProfileSO;
 
 namespace Hidano.FacialControl.Tests.EditMode.Adapters.ScriptableObjectTests
 {
     [TestFixture]
-    public class FacialCharacterProfileConverterPhonemeOverlayTests
+    [MediumTest]
+    public class FacialCharacterProfileConverterPhonemeOverlayTests : SizedTestFixture
     {
         private const string TempFolderParent = "Assets";
         private const string TempFolderName = "__Temp_FacialCharacterProfileSO_PhonemeOverlayRoundTrip";

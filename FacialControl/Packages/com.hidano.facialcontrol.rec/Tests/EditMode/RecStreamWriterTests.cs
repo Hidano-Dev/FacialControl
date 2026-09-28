@@ -12,10 +12,12 @@ using NUnit.Framework;
 using UnityEngine;
 using UnityEngine.TestTools;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.Rec.Tests.EditMode
 {
     [TestFixture]
-    public class RecStreamWriterTests
+    [MediumTest]
+    public class RecStreamWriterTests : SizedTestFixture
     {
         private string _tempDirectory;
 

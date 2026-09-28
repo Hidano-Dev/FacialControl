@@ -13,10 +13,12 @@ using NUnit.Framework;
 using UnityEngine;
 using UnityEngine.TestTools;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.Tests.EditMode.Adapters.AdapterBindings
 {
     [TestFixture]
-    public sealed class OscSenderAdapterBindingTests
+    [MediumTest]
+    public sealed class OscSenderAdapterBindingTests : SizedTestFixture
     {
         private const int PortBase = 19420;
         private static int s_portCounter;

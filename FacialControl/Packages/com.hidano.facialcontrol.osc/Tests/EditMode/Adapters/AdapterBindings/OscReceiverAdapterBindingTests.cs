@@ -18,6 +18,7 @@ using UnityEditor;
 using UnityEngine;
 using UnityEngine.TestTools;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.Tests.EditMode.Adapters.AdapterBindings
 {
     /// <summary>
@@ -32,7 +33,8 @@ namespace Hidano.FacialControl.Tests.EditMode.Adapters.AdapterBindings
     /// コンパイル時に CS0246 / CS0234 が発生して Red 状態となる（task 9.2 の Green 化対象）。
     /// </remarks>
     [TestFixture]
-    public class OscReceiverAdapterBindingTests
+    [MediumTest]
+    public class OscReceiverAdapterBindingTests : SizedTestFixture
     {
         private const string ExpectedDisplayName = "OSC Receiver";
         private const int PortBase = 19320;

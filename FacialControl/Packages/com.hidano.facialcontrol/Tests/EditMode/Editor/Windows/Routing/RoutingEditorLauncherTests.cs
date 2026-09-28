@@ -5,6 +5,7 @@ using NUnit.Framework;
 using UnityEditor;
 using UnityEngine;
 using UnityEngine.TestTools;
+using Hidano.FacialControl.Testing;
 using Object = UnityEngine.Object;
 
 namespace Hidano.FacialControl.Tests.EditMode.Editor.Windows.Routing
@@ -14,7 +15,8 @@ namespace Hidano.FacialControl.Tests.EditMode.Editor.Windows.Routing
     /// 別パッケージが登録したハンドラへプロファイルを委譲し、未登録なら警告して null を返す。
     /// </summary>
     [TestFixture]
-    public class RoutingEditorLauncherTests
+    [MediumTest]
+    public class RoutingEditorLauncherTests : SizedTestFixture
     {
         private Func<ScriptableObject, EditorWindow> _previousHandler;
         private ScriptableObject _profile;

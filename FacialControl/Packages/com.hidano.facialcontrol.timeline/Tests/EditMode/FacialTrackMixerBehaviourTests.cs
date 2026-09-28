@@ -14,9 +14,11 @@ using UnityEngine;
 using UnityEngine.Playables;
 using UnityEngine.Timeline;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.Timeline.Tests.EditMode
 {
-    public sealed class FacialTrackMixerBehaviourTests
+    [MediumTest]
+    public sealed class FacialTrackMixerBehaviourTests : SizedTestFixture
     {
         [Test]
         public void ExpressionMixer_CollectsParentAndChildLaneEvents_AndAdvancesLinearly()

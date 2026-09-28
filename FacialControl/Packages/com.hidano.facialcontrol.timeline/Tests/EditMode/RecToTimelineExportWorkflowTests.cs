@@ -18,9 +18,11 @@ using UnityEngine.Playables;
 using UnityEngine.TestTools;
 using UnityEngine.Timeline;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.Timeline.Tests.EditMode
 {
-    public sealed class RecToTimelineExportWorkflowTests
+    [MediumTest]
+    public sealed class RecToTimelineExportWorkflowTests : SizedTestFixture
     {
         [Test]
         public void TryExportTimelineAsset_NewAsset_CreatesTimelineBakeAndBindings()

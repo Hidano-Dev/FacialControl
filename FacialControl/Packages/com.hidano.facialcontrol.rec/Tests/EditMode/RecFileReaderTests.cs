@@ -9,10 +9,12 @@ using NUnit.Framework;
 using UnityEngine;
 using UnityEngine.TestTools;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.Rec.Tests.EditMode
 {
     [TestFixture]
-    public class RecFileReaderTests
+    [MediumTest]
+    public class RecFileReaderTests : SizedTestFixture
     {
         private string _tempDirectory;
 

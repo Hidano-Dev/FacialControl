@@ -5,6 +5,7 @@ using System.Reflection;
 using NUnit.Framework;
 using UnityEditor;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.Tests.EditMode.Editor.Sampling
 {
     /// <summary>
@@ -14,7 +15,8 @@ namespace Hidano.FacialControl.Tests.EditMode.Editor.Sampling
     /// <c>includePlatforms</c> が <c>["Editor"]</c> 1 件であることを静的に検査する。
     /// </summary>
     [TestFixture]
-    public class EditorOnlyVisibilityTests
+    [MediumTest]
+    public class EditorOnlyVisibilityTests : SizedTestFixture
     {
         private const string EditorSamplingNamespace = "Hidano.FacialControl.Editor.Sampling";
 
