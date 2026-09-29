@@ -35,8 +35,8 @@ rec.StopPlayback();
 
 記録タイムスタンプは既定では録画開始からの経過秒（`RecStopwatchClock`）。外部の時計に揃えたい場合は、次の 2 つの差し替え点を使う（どちらも次の `StartRecording` から反映される）。
 
-- `RecordingClock`（`IRecClock`）: 記録に使うクロック。null なら既定の `RecStopwatchClock`。録画開始時に `Reset()` が 1 回呼ばれ、以後はメインスレッドから `ElapsedSeconds` が読まれる。値は有限・非負・単調非減少にすること
-- `RecordingStartOffsetSeconds`（Inspector の **Recording Start Offset Seconds**）: すべてのタイムスタンプに加算する開始オフセット（秒、0 以上）。Footer の duration にも加算されるため、再生・REC Export ではタイムライン全体がこの秒数だけ後ろにずれる（再生時は先頭にこの秒数の待ちが入る）
+- `RecordingClock`（`IRecClock`）: 記録に使うクロック。null なら既定の `RecStopwatchClock`。録画開始時に `Reset()` が 1 回呼ばれ、以後はメインスレッドから `ElapsedSeconds` が読まれる。値は有限・非負・単調非減少にすること（逆行は直前の値にクランプされ、例外・NaN・負の値は直前の値で置き換えて 1 回だけ警告される）。録画ごとに `Reset()` されるので、同時に録画する複数の binding で 1 つのインスタンスを共有しないこと
+- `RecordingStartOffsetSeconds`（Inspector の **Recording Start Offset Seconds**）: すべてのタイムスタンプに加算する開始オフセット（秒、0 以上）。Footer の duration にも加算されるため、再生・REC Export ではタイムライン全体がこの秒数だけ後ろにずれる（再生時は先頭にこの秒数の待ちが入る）。録画中の `ElapsedSeconds`（Inspector の Elapsed Seconds）もオフセット込みの値になる
 
 ```csharp
 rec.RecordingClock = myTimecodeClock;       // IRecClock の独自実装

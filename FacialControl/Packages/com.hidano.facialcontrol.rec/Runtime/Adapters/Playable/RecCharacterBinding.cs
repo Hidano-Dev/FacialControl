@@ -56,6 +56,10 @@ namespace Hidano.FacialControl.Rec.Adapters.Playable
 
         public RecPlaybackState PlaybackState => _playbackUseCase?.State ?? RecPlaybackState.Idle;
 
+        /// <summary>
+        /// 録画中は記録タイムスタンプの現在値（<see cref="RecordingStartOffsetSeconds"/> を含む）、
+        /// 再生中は再生位置の秒数を返す。
+        /// </summary>
         public double ElapsedSeconds
         {
             get
@@ -95,7 +99,8 @@ namespace Hidano.FacialControl.Rec.Adapters.Playable
         /// <summary>
         /// 記録に使うクロック。null（既定）なら <see cref="RecStopwatchClock"/> を使う。
         /// 外部タイムコード等に同期させたいときに差し替える。<see cref="StartRecording"/> 時に読まれ、
-        /// 録画中に差し替えても次の録画から反映される。契約は <see cref="IRecClock"/> を参照。
+        /// 録画中に差し替えても次の録画から反映される。録画開始ごとに <see cref="IRecClock.Reset"/> が呼ばれるため、
+        /// 同時に録画する複数の binding で 1 つのインスタンスを共有しないこと。契約は <see cref="IRecClock"/> を参照。
         /// </summary>
         public IRecClock RecordingClock { get; set; }
 

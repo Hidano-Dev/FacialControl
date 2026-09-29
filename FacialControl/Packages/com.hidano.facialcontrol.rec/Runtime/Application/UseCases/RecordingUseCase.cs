@@ -19,6 +19,8 @@ namespace Hidano.FacialControl.Rec.Application.UseCases
         private RecIdTable _idTable = new RecIdTable();
         private RecordingState _state;
         private int _eventCount;
+        private double _lastTimestampSeconds;
+        private bool _invalidClockWarned;
         private bool _disposed;
 
         public RecordingUseCase(
@@ -36,7 +38,7 @@ namespace Hidano.FacialControl.Rec.Application.UseCases
 
         public bool IsRecording => _state == RecordingState.Recording;
 
-        public double ElapsedSeconds => IsRecording ? _clock.ElapsedSeconds : 0d;
+        public double ElapsedSeconds => IsRecording ? SampleClock() : 0d;
 
         public void StartRecording(RecBaselineState baseline)
         {
@@ -52,6 +54,8 @@ namespace Hidano.FacialControl.Rec.Application.UseCases
             _idTable = CreateSeededIdTable(baseline);
             _eventCount = 0;
             _clock.Reset();
+            _lastTimestampSeconds = 0d;
+            _invalidClockWarned = false;
             _sink.Open(baseline);
             _observationBus.Subscribe(this);
             _state = RecordingState.Recording;
@@ -66,7 +70,7 @@ namespace Hidano.FacialControl.Rec.Application.UseCases
                 return;
             }
 
-            double durationSeconds = _clock.ElapsedSeconds;
+            double durationSeconds = SampleClock();
             int eventCount = _eventCount;
 
             _state = RecordingState.Idle;
@@ -102,7 +106,7 @@ namespace Hidano.FacialControl.Rec.Application.UseCases
                 return;
             }
 
-            AppendEvent(RecEvent.CreateTriggerOn(_clock.ElapsedSeconds, sourceIndex, expressionIndex), ReadOnlySpan<float>.Empty);
+            AppendEvent(RecEvent.CreateTriggerOn(SampleClock(), sourceIndex, expressionIndex), ReadOnlySpan<float>.Empty);
         }
 
         public void OnTriggerOff(string sourceId, string expressionId)
@@ -117,7 +121,7 @@ namespace Hidano.FacialControl.Rec.Application.UseCases
                 return;
             }
 
-            AppendEvent(RecEvent.CreateTriggerOff(_clock.ElapsedSeconds, sourceIndex, expressionIndex), ReadOnlySpan<float>.Empty);
+            AppendEvent(RecEvent.CreateTriggerOff(SampleClock(), sourceIndex, expressionIndex), ReadOnlySpan<float>.Empty);
         }
 
         public void OnAnalogSample(string sourceId, ReadOnlySpan<float> axes)
@@ -140,7 +144,7 @@ namespace Hidano.FacialControl.Rec.Application.UseCases
             }
 
             ushort sourceIndex = EnsureSourceIdDefined(sourceId);
-            AppendEvent(RecEvent.CreateAnalogSample(_clock.ElapsedSeconds, sourceIndex, checked((byte)axes.Length)), axes);
+            AppendEvent(RecEvent.CreateAnalogSample(SampleClock(), sourceIndex, checked((byte)axes.Length)), axes);
         }
 
         public void Dispose()
@@ -159,6 +163,49 @@ namespace Hidano.FacialControl.Rec.Application.UseCases
             }
 
             _disposed = true;
+        }
+
+        /// <summary>
+        /// クロックの現在値を記録用タイムスタンプとして読む。クロックは差し替え可能なので、例外・非有限・負の値は
+        /// 直前のタイムスタンプで置き換えて警告を 1 セッション 1 回だけ出し、逆行はクランプする
+        /// （逆行や負値のタイムスタンプを含むテイクは読み込めず、例外は入力の発行元まで伝播してしまうため）。
+        /// </summary>
+        private double SampleClock()
+        {
+            double value;
+            try
+            {
+                value = _clock.ElapsedSeconds;
+            }
+            catch (Exception ex)
+            {
+                WarnInvalidClockOnce($"threw {ex.GetType().Name}: {ex.Message}");
+                return _lastTimestampSeconds;
+            }
+
+            if (double.IsNaN(value) || double.IsInfinity(value) || value < 0d)
+            {
+                WarnInvalidClockOnce($"returned {value}");
+                return _lastTimestampSeconds;
+            }
+
+            if (value > _lastTimestampSeconds)
+            {
+                _lastTimestampSeconds = value;
+            }
+
+            return _lastTimestampSeconds;
+        }
+
+        private void WarnInvalidClockOnce(string detail)
+        {
+            if (_invalidClockWarned)
+            {
+                return;
+            }
+
+            _invalidClockWarned = true;
+            Debug.LogWarning($"Recording clock {detail}. The previous timestamp {_lastTimestampSeconds} was used instead.");
         }
 
         private bool TryResolveTriggerIds(string sourceId, string expressionId, out ushort sourceIndex, out ushort expressionIndex)
