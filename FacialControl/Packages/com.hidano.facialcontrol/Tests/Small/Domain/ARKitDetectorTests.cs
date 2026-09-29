@@ -1,7 +1,6 @@
 using System;
 using System.Linq;
 using NUnit.Framework;
-using Hidano.FacialControl.Domain.Models;
 using Hidano.FacialControl.Domain.Services;
 
 using Hidano.FacialControl.Testing;
@@ -266,155 +265,6 @@ namespace Hidano.FacialControl.Tests.EditMode.Domain
             Assert.IsNull(ARKitDetector.GetLayerGroup("customShape"));
         }
 
-        // --- レイヤー別グルーピング ---
-
-        [Test]
-        public void GroupByLayer_MixedParameters_GroupsCorrectly()
-        {
-            var names = new[] { "eyeBlinkLeft", "jawOpen", "browDownLeft", "eyeBlinkRight", "mouthSmileLeft" };
-
-            var groups = ARKitDetector.GroupByLayer(names);
-
-            Assert.IsTrue(groups.ContainsKey("eye"));
-            Assert.IsTrue(groups.ContainsKey("mouth"));
-            Assert.IsTrue(groups.ContainsKey("brow"));
-            Assert.AreEqual(2, groups["eye"].Length);
-            Assert.AreEqual(2, groups["mouth"].Length);
-            Assert.AreEqual(1, groups["brow"].Length);
-        }
-
-        [Test]
-        public void GroupByLayer_EmptyInput_ReturnsEmptyDictionary()
-        {
-            var names = Array.Empty<string>();
-
-            var groups = ARKitDetector.GroupByLayer(names);
-
-            Assert.AreEqual(0, groups.Count);
-        }
-
-        [Test]
-        public void GroupByLayer_UnknownNames_ExcludedFromGroups()
-        {
-            var names = new[] { "customShape", "unknownBlend" };
-
-            var groups = ARKitDetector.GroupByLayer(names);
-
-            Assert.AreEqual(0, groups.Count);
-        }
-
-        // --- Expression 自動生成 ---
-
-        [Test]
-        public void GenerateExpressions_ARKit52Eye_CreatesEyeExpression()
-        {
-            var detectedNames = new[] { "eyeBlinkLeft", "eyeBlinkRight", "eyeWideLeft", "eyeWideRight" };
-
-            var expressions = ARKitDetector.GenerateExpressions(detectedNames);
-
-            Assert.Greater(expressions.Length, 0);
-            // eye グループの Expression が生成される
-            bool hasEyeExpression = false;
-            for (int i = 0; i < expressions.Length; i++)
-            {
-                if (expressions[i].Layer == "eye")
-                {
-                    hasEyeExpression = true;
-                    // BlendShape 値が含まれている
-                    Assert.Greater(expressions[i].BlendShapeValues.Length, 0);
-                }
-            }
-            Assert.IsTrue(hasEyeExpression, "eye レイヤーの Expression が生成されていません。");
-        }
-
-        [Test]
-        public void GenerateExpressions_MixedGroups_CreatesPerLayer()
-        {
-            var detectedNames = new[] { "eyeBlinkLeft", "jawOpen", "browDownLeft" };
-
-            var expressions = ARKitDetector.GenerateExpressions(detectedNames);
-
-            var layers = new System.Collections.Generic.HashSet<string>();
-            for (int i = 0; i < expressions.Length; i++)
-            {
-                layers.Add(expressions[i].Layer);
-            }
-            Assert.IsTrue(layers.Contains("eye"));
-            Assert.IsTrue(layers.Contains("mouth"));
-            Assert.IsTrue(layers.Contains("brow"));
-        }
-
-        [Test]
-        public void GenerateExpressions_EmptyInput_ReturnsEmpty()
-        {
-            var detectedNames = Array.Empty<string>();
-
-            var expressions = ARKitDetector.GenerateExpressions(detectedNames);
-
-            Assert.AreEqual(0, expressions.Length);
-        }
-
-        [Test]
-        public void GenerateExpressions_EachHasValidIdAndName()
-        {
-            var detectedNames = new[] { "eyeBlinkLeft", "jawOpen" };
-
-            var expressions = ARKitDetector.GenerateExpressions(detectedNames);
-
-            for (int i = 0; i < expressions.Length; i++)
-            {
-                Assert.IsFalse(string.IsNullOrWhiteSpace(expressions[i].Id));
-                Assert.IsFalse(string.IsNullOrWhiteSpace(expressions[i].Name));
-                Assert.IsFalse(string.IsNullOrWhiteSpace(expressions[i].Layer));
-            }
-        }
-
-        [Test]
-        public void GenerateExpressions_BlendShapeValuesAreDefaultOne()
-        {
-            var detectedNames = new[] { "eyeBlinkLeft", "eyeBlinkRight" };
-
-            var expressions = ARKitDetector.GenerateExpressions(detectedNames);
-
-            for (int i = 0; i < expressions.Length; i++)
-            {
-                var bsValues = expressions[i].BlendShapeValues.Span;
-                for (int j = 0; j < bsValues.Length; j++)
-                {
-                    Assert.AreEqual(1f, bsValues[j].Value, 0.0001f,
-                        $"BlendShape '{bsValues[j].Name}' の値が 1.0 ではありません。");
-                }
-            }
-        }
-
-        [Test]
-        public void GenerateExpressions_UniqueIds()
-        {
-            var detectedNames = new[] { "eyeBlinkLeft", "jawOpen", "browDownLeft" };
-
-            var expressions = ARKitDetector.GenerateExpressions(detectedNames);
-
-            var ids = new System.Collections.Generic.HashSet<string>();
-            for (int i = 0; i < expressions.Length; i++)
-            {
-                Assert.IsTrue(ids.Add(expressions[i].Id),
-                    $"Expression ID '{expressions[i].Id}' が重複しています。");
-            }
-        }
-
-        [Test]
-        public void GenerateExpressions_DefaultTransitionDuration()
-        {
-            var detectedNames = new[] { "eyeBlinkLeft" };
-
-            var expressions = ARKitDetector.GenerateExpressions(detectedNames);
-
-            for (int i = 0; i < expressions.Length; i++)
-            {
-                Assert.AreEqual(Expression.DefaultTransitionDuration, expressions[i].TransitionDuration, 0.0001f);
-            }
-        }
-
         // --- Null 引数チェック ---
 
         [Test]
@@ -433,18 +283,6 @@ namespace Hidano.FacialControl.Tests.EditMode.Domain
         public void DetectAll_NullInput_ThrowsArgumentNullException()
         {
             Assert.Throws<ArgumentNullException>(() => ARKitDetector.DetectAll(null));
-        }
-
-        [Test]
-        public void GroupByLayer_NullInput_ThrowsArgumentNullException()
-        {
-            Assert.Throws<ArgumentNullException>(() => ARKitDetector.GroupByLayer(null));
-        }
-
-        [Test]
-        public void GenerateExpressions_NullInput_ThrowsArgumentNullException()
-        {
-            Assert.Throws<ArgumentNullException>(() => ARKitDetector.GenerateExpressions(null));
         }
 
         [Test]

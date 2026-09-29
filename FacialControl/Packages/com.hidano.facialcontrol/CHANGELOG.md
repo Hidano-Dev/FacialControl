@@ -2,6 +2,13 @@
 
 [Keep a Changelog](https://keepachangelog.com/ja/1.1.0/) の形式に準拠し、[セマンティックバージョニング](https://semver.org/lang/ja/) に従う。
 
+## [Unreleased]
+
+### Removed
+
+- ARKit 検出ツール（Tools → FacialControl → ARKit 検出ツール）と、それが使っていた `ARKitEditorService` / `ARKitUseCase` を削除。ARKit 命名の BlendShape を「グループ内を全部 1.0」にした Expression を自動生成する機能は、Clip ベース + キャプチャ入力の運用では使われていなかった。OSC マッピング生成は `com.hidano.facialcontrol.osc` の heartbeat 自動マッピングと ARKit プリセットで代替できる
+- `ARKitDetector.GroupByLayer` / `ARKitDetector.GenerateExpressions` を削除（上記ツール専用だった）。名前表（`ARKit52Names` / `PerfectSyncNames`）・`GetLayerGroup`・完全一致検出（`DetectARKit` / `DetectPerfectSync` / `DetectAll`）は残す
+
 ## [1.0.0] - 2026-09-25
 
 初回リリース。

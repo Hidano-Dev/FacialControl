@@ -95,7 +95,7 @@ public class MyExpressionController : MonoBehaviour
 
 ## 6. ARKit / PerfectSync
 
-**Tools → FacialControl → ARKit 検出ツール** でモデルの BlendShape を走査し、ARKit 52 / PerfectSync の命名を検出して Expression と OSC マッピングを生成できる。iFacialMocap などのキャプチャアプリから受け取る場合は `com.hidano.facialcontrol.ifacialmocap` または `com.hidano.facialcontrol.osc` を使う。
+ARKit 52 / PerfectSync 命名の BlendShape を持つモデルは、キャプチャ入力の binding が BlendShape 名で直接駆動する。iFacialMocap などのキャプチャアプリから受け取る場合は `com.hidano.facialcontrol.ifacialmocap` または `com.hidano.facialcontrol.osc`（ARKit プリセット / heartbeat 自動マッピング）を使う。命名の判定には core の `ARKitDetector`（ARKit 52 + PerfectSync 13 の名前表と完全一致検出）を使う。
 
 ## トラブルシューティング
 
