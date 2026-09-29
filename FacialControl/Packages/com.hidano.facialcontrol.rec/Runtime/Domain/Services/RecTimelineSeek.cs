@@ -8,11 +8,15 @@ namespace Hidano.FacialControl.Rec.Domain.Services
     /// Rebuilds the input state at an arbitrary playback position so playback can start mid-recording.
     /// </summary>
     /// <remarks>
-    /// 開始位置より前（timestamp が開始位置未満）のイベントを recorded baseline に順に畳み込む。
+    /// <see cref="RecPlaybackScheduler.GetStartEventIndex"/> より前のイベント（開始位置より前。録画長以上なら全イベント）を
+    /// recorded baseline に順に畳み込む。
     /// トリガーは各入力源の最終スタック（on は既存を除いて末尾へ push、off は remove）、
     /// アナログは各入力源の最後のサンプルになる。開始位置ちょうどのイベントは畳み込まず
     /// <see cref="RecPlaybackScheduler"/> 側で発火させる。遷移の進行度は再現できないため、
     /// 開始位置で遷移途中だった表情はその時点の目標状態から始まる。
+    /// 入力源ごとの maxStackDepth は Domain からは見えないため畳み込みでは適用しない（注入時の
+    /// ResetToExpressionStack が新しい側を残して切り詰める）。深さ超過で落ちた id が後の off で
+    /// 再び表に出る稀なケースは再現しきれない。
     /// </remarks>
     public static class RecTimelineSeek
     {
@@ -23,9 +27,7 @@ namespace Hidano.FacialControl.Rec.Domain.Services
                 throw new ArgumentNullException(nameof(timeline));
             }
 
-            RecPlaybackScheduler.ValidateStartOffset(offsetSeconds, nameof(offsetSeconds));
-
-            int foldCount = RecPlaybackScheduler.FindFirstEventIndexAtOrAfter(timeline, offsetSeconds);
+            int foldCount = RecPlaybackScheduler.GetStartEventIndex(timeline, offsetSeconds);
             if (foldCount == 0)
             {
                 return timeline.Baseline;

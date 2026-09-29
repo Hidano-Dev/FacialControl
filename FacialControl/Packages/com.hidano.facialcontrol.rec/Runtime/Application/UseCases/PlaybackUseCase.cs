@@ -72,7 +72,7 @@ namespace Hidano.FacialControl.Rec.Application.UseCases
         /// </summary>
         public bool StartPlayback(double startOffsetSeconds)
         {
-            if (double.IsNaN(startOffsetSeconds) || double.IsInfinity(startOffsetSeconds) || startOffsetSeconds < 0d)
+            if (!RecPlaybackScheduler.IsValidStartOffset(startOffsetSeconds))
             {
                 Debug.LogWarning($"Playback start was ignored because startOffsetSeconds ({startOffsetSeconds}) must be a finite, non-negative number.");
                 return false;

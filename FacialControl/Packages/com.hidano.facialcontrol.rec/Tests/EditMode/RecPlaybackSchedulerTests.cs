@@ -144,7 +144,7 @@ namespace Hidano.FacialControl.Rec.Tests.EditMode
         }
 
         [Test]
-        public void Load_WithOffsetAtOrBeyondDuration_IsCompletedImmediately()
+        public void Load_WithOffsetAtOrBeyondDuration_CompletesImmediately()
         {
             var scheduler = new RecPlaybackScheduler();
             scheduler.Load(CreateTimeline(), 0.5d);
@@ -158,7 +158,7 @@ namespace Hidano.FacialControl.Rec.Tests.EditMode
         }
 
         [Test]
-        public void Load_WithNegativeOrNonFiniteOffset_Throws()
+        public void Load_WithNegativeOrNonFiniteOffset_ThrowsArgumentOutOfRange()
         {
             var scheduler = new RecPlaybackScheduler();
 
@@ -168,15 +168,49 @@ namespace Hidano.FacialControl.Rec.Tests.EditMode
         }
 
         [Test]
-        public void FindFirstEventIndexAtOrAfter_ReturnsIndexOfFirstEventNotBeforeOffset()
+        public void GetStartEventIndex_OffsetWithinDuration_ReturnsFirstEventNotBeforeOffset()
         {
             RecTimeline timeline = CreateTimeline();
 
-            Assert.That(RecPlaybackScheduler.FindFirstEventIndexAtOrAfter(timeline, 0d), Is.EqualTo(0));
-            Assert.That(RecPlaybackScheduler.FindFirstEventIndexAtOrAfter(timeline, 0.2d), Is.EqualTo(0));
-            Assert.That(RecPlaybackScheduler.FindFirstEventIndexAtOrAfter(timeline, 0.21d), Is.EqualTo(1));
-            Assert.That(RecPlaybackScheduler.FindFirstEventIndexAtOrAfter(timeline, 0.3d), Is.EqualTo(3));
-            Assert.That(RecPlaybackScheduler.FindFirstEventIndexAtOrAfter(timeline, 1d), Is.EqualTo(4));
+            Assert.That(RecPlaybackScheduler.GetStartEventIndex(timeline, 0d), Is.EqualTo(0));
+            Assert.That(RecPlaybackScheduler.GetStartEventIndex(timeline, 0.2d), Is.EqualTo(0));
+            Assert.That(RecPlaybackScheduler.GetStartEventIndex(timeline, 0.21d), Is.EqualTo(1));
+            Assert.That(RecPlaybackScheduler.GetStartEventIndex(timeline, 0.25d), Is.EqualTo(1));
+            Assert.That(RecPlaybackScheduler.GetStartEventIndex(timeline, 0.3d), Is.EqualTo(3));
+            Assert.That(RecPlaybackScheduler.GetStartEventIndex(timeline, 0.45d), Is.EqualTo(4));
+        }
+
+        [Test]
+        public void GetStartEventIndex_OffsetAtOrBeyondDuration_ReturnsEventCount()
+        {
+            var timeline = new RecTimeline(
+                RecBaselineState.Empty,
+                new[]
+                {
+                    RecEvent.CreateTriggerOn(0.2d, 0, 0),
+                    RecEvent.CreateTriggerOff(0.5d, 0, 0),
+                },
+                new[] { "trigger" },
+                new[] { "a" },
+                0.5d,
+                new[] { Array.Empty<float>(), Array.Empty<float>() });
+
+            Assert.That(RecPlaybackScheduler.GetStartEventIndex(timeline, 0.5d), Is.EqualTo(2));
+            Assert.That(RecPlaybackScheduler.GetStartEventIndex(timeline, 3d), Is.EqualTo(2));
+        }
+
+        [Test]
+        public void GetStartEventIndex_ZeroOffsetOnZeroLengthTimeline_ReturnsZero()
+        {
+            var timeline = new RecTimeline(
+                RecBaselineState.Empty,
+                new[] { RecEvent.CreateTriggerOn(0d, 0, 0) },
+                new[] { "trigger" },
+                new[] { "a" },
+                0d,
+                new[] { Array.Empty<float>() });
+
+            Assert.That(RecPlaybackScheduler.GetStartEventIndex(timeline, 0d), Is.EqualTo(0));
         }
 
         private static RecTimeline CreateTimeline()

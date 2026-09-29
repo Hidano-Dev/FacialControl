@@ -21,7 +21,7 @@ namespace Hidano.FacialControl.Rec.Tests.EditMode
         }
 
         [Test]
-        public void BuildBaselineAt_AppliesTriggerEventsBeforeOffsetAsFinalStack()
+        public void BuildBaselineAt_TriggerOnOffBeforeOffset_ReturnsFinalStack()
         {
             RecTimeline timeline = CreateTimeline();
 
@@ -33,7 +33,7 @@ namespace Hidano.FacialControl.Rec.Tests.EditMode
         }
 
         [Test]
-        public void BuildBaselineAt_TriggerOnSameExpressionAgain_MovesItToTopOfStack()
+        public void BuildBaselineAt_TriggerOnSameExpressionAgain_MovesExpressionToTopOfStack()
         {
             RecTimeline timeline = CreateTimeline();
 
@@ -44,7 +44,7 @@ namespace Hidano.FacialControl.Rec.Tests.EditMode
         }
 
         [Test]
-        public void BuildBaselineAt_EventExactlyAtOffset_IsLeftForScheduler()
+        public void BuildBaselineAt_EventExactlyAtOffset_LeavesEventForScheduler()
         {
             RecTimeline timeline = CreateTimeline();
 
@@ -52,11 +52,11 @@ namespace Hidano.FacialControl.Rec.Tests.EditMode
 
             Assert.That(baseline.TryGetTriggerStack("input:trigger", out IReadOnlyList<string> expressionIds), Is.True);
             Assert.That(expressionIds, Is.EqualTo(new[] { "smile" }));
-            Assert.That(RecPlaybackScheduler.FindFirstEventIndexAtOrAfter(timeline, 0.10d), Is.EqualTo(0));
+            Assert.That(RecPlaybackScheduler.GetStartEventIndex(timeline, 0.10d), Is.EqualTo(0));
         }
 
         [Test]
-        public void BuildBaselineAt_UsesLastAnalogSamplePerSourceBeforeOffset()
+        public void BuildBaselineAt_MultipleAnalogSamplesBeforeOffset_UsesLastSamplePerSource()
         {
             RecTimeline timeline = CreateTimeline();
 
@@ -69,7 +69,7 @@ namespace Hidano.FacialControl.Rec.Tests.EditMode
         }
 
         [Test]
-        public void BuildBaselineAt_SourceMissingFromRecordedBaseline_IsAdded()
+        public void BuildBaselineAt_SourceMissingFromRecordedBaseline_AddsSourceEntry()
         {
             RecTimeline timeline = CreateTimeline();
 
@@ -80,7 +80,7 @@ namespace Hidano.FacialControl.Rec.Tests.EditMode
         }
 
         [Test]
-        public void BuildBaselineAt_DoesNotMutateRecordedBaseline()
+        public void BuildBaselineAt_AnyOffset_DoesNotMutateRecordedBaseline()
         {
             RecTimeline timeline = CreateTimeline();
 
@@ -94,7 +94,7 @@ namespace Hidano.FacialControl.Rec.Tests.EditMode
         }
 
         [Test]
-        public void BuildBaselineAt_NegativeOrNonFiniteOffset_Throws()
+        public void BuildBaselineAt_NegativeOrNonFiniteOffset_ThrowsArgumentOutOfRange()
         {
             RecTimeline timeline = CreateTimeline();
 
@@ -104,9 +104,30 @@ namespace Hidano.FacialControl.Rec.Tests.EditMode
         }
 
         [Test]
-        public void BuildBaselineAt_NullTimeline_Throws()
+        public void BuildBaselineAt_NullTimeline_ThrowsArgumentNull()
         {
             Assert.Throws<ArgumentNullException>(() => RecTimelineSeek.BuildBaselineAt(null, 0.5d));
+        }
+
+        [Test]
+        public void BuildBaselineAt_OffsetEqualToDuration_FoldsEventsStampedAtDuration()
+        {
+            var timeline = new RecTimeline(
+                RecBaselineState.Empty,
+                new[]
+                {
+                    RecEvent.CreateTriggerOn(0.5d, 0, 0),
+                    RecEvent.CreateTriggerOff(1d, 0, 0),
+                },
+                new[] { "input:trigger" },
+                new[] { "smile" },
+                1d,
+                new[] { Array.Empty<float>(), Array.Empty<float>() });
+
+            RecBaselineState baseline = RecTimelineSeek.BuildBaselineAt(timeline, 1d);
+
+            Assert.That(baseline.TryGetTriggerStack("input:trigger", out IReadOnlyList<string> expressionIds), Is.True);
+            Assert.That(expressionIds, Is.Empty);
         }
 
         private static RecTimeline CreateTimeline()

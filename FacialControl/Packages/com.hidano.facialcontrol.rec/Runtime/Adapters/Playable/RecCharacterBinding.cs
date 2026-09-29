@@ -186,7 +186,8 @@ namespace Hidano.FacialControl.Rec.Adapters.Playable
         /// </summary>
         public bool StartPlayback(double startOffsetSeconds)
         {
-            if (double.IsNaN(startOffsetSeconds) || double.IsInfinity(startOffsetSeconds) || startOffsetSeconds < 0d)
+            // 録画停止などの副作用より前に弾く。
+            if (!RecPlaybackScheduler.IsValidStartOffset(startOffsetSeconds))
             {
                 UnityEngine.Debug.LogWarning($"REC playback start was ignored because startOffsetSeconds ({startOffsetSeconds}) must be a finite, non-negative number.");
                 return false;

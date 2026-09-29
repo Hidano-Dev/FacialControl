@@ -7,7 +7,7 @@
 ### Added
 
 - `RecCharacterBinding.StartPlayback(double startOffsetSeconds)` / `PlaybackUseCase.StartPlayback(double)` — 録画の途中から再生する。開始位置より前のイベントを畳み込んで状態を再構築する（トリガーは最終的な on/off、アナログは各入力源の最後の値）。遷移途中だった表情は遷移の進行度までは再現せず、その時点の目標状態から始まる
-- `RecTimelineSeek.BuildBaselineAt` と `RecPlaybackScheduler.Load(RecTimeline, double)` / `FindFirstEventIndexAtOrAfter` — 上記の Domain 側の実装
+- `RecTimelineSeek.BuildBaselineAt` と `RecPlaybackScheduler.Load(RecTimeline, double)` / `GetStartEventIndex` / `IsValidStartOffset` — 上記の Domain 側の実装
 - `RecCharacterBinding.LastRecordingName` — 直近の録画で実際に保存したテイク名（連番付与後）
 - `RecCharacterBinding.LoadRecording()` の名前省略 — 直近に録画したテイクを読み込む。Inspector の Load Recording も Recording Name が空なら同じ動作になる
 
