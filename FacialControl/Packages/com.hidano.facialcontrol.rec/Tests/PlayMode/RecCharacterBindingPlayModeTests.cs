@@ -28,6 +28,8 @@ namespace Hidano.FacialControl.Rec.Tests.PlayMode
     [MediumTest]
     public class RecCharacterBindingPlayModeTests : SizedTestFixture
     {
+        private const string TestAssetName = "RecCharacterBindingPlayModeTestsAsset";
+
         private GameObject _gameObject;
         private TestCharacterProfileSO _characterSo;
 
@@ -68,7 +70,7 @@ namespace Hidano.FacialControl.Rec.Tests.PlayMode
             triggerSource.TriggerOff("smile");
             analogSource.Publish(0f, 0f);
 
-            Assert.That(binding.LoadRecording("session"), Is.True);
+            Assert.That(binding.LoadRecording(binding.LastRecordingName), Is.True);
 
             bool completed = false;
             binding.Completed += () => completed = true;
@@ -93,6 +95,76 @@ namespace Hidano.FacialControl.Rec.Tests.PlayMode
             Assert.That(binding.PlaybackState, Is.EqualTo(RecPlaybackState.Idle));
             Assert.That(registry.TryResolve(analogSource.Id, out IInputSource restoredSource), Is.True);
             Assert.That(restoredSource, Is.SameAs(analogSource));
+        }
+
+        [UnityTest]
+        public IEnumerator StartRecording_SameNameTwice_KeepsBothFilesUnderDistinctPaths()
+        {
+            SetupHarness(out _, out RecCharacterBinding binding, out FakeObservationBus bus, out _, out TestTriggerSource triggerSource, out _);
+
+            Assert.That(binding.StartRecording("same"), Is.True);
+            bus.PublishTriggerOn(triggerSource.Id, "smile");
+            binding.StopRecording();
+            string firstPath = binding.LastRecordingPath;
+            byte[] firstBytes = File.ReadAllBytes(firstPath);
+
+            Assert.That(binding.StartRecording("same"), Is.True);
+            bus.PublishTriggerOn(triggerSource.Id, "smile");
+            binding.StopRecording();
+            string secondPath = binding.LastRecordingPath;
+            yield return null;
+
+            Assert.That(secondPath, Is.Not.EqualTo(firstPath));
+            Assert.That(binding.LastRecordingName, Is.EqualTo("same-2"));
+            Assert.That(File.ReadAllBytes(firstPath), Is.EqualTo(firstBytes));
+            Assert.That(RecFileReader.TryRead(firstPath, out _), Is.True);
+            Assert.That(RecFileReader.TryRead(secondPath, out _), Is.True);
+        }
+
+        [UnityTest]
+        public IEnumerator LoadRecording_WithoutName_LoadsTheTakeThatWasJustRecorded()
+        {
+            SetupHarness(out _, out RecCharacterBinding binding, out FakeObservationBus bus, out _, out TestTriggerSource triggerSource, out _);
+
+            Assert.That(binding.StartRecording("reload"), Is.True);
+            bus.PublishTriggerOn(triggerSource.Id, "smile");
+            binding.StopRecording();
+
+            Assert.That(binding.StartRecording("reload"), Is.True);
+            bus.PublishTriggerOn(triggerSource.Id, "smile");
+            binding.StopRecording();
+            yield return null;
+
+            Assert.That(binding.LoadRecording(), Is.True);
+            Assert.That(binding.LoadedRecordingPath, Is.EqualTo(binding.LastRecordingPath));
+        }
+
+        [UnityTest]
+        public IEnumerator StartRecording_WhenOutputFileCannotBeCreated_StopsRecordingAndKeepsPreviousTake()
+        {
+            SetupHarness(out _, out RecCharacterBinding binding, out FakeObservationBus bus, out _, out TestTriggerSource triggerSource, out _);
+
+            Assert.That(binding.StartRecording("kept"), Is.True);
+            bus.PublishTriggerOn(triggerSource.Id, "smile");
+            binding.StopRecording();
+            string keptPath = binding.LastRecordingPath;
+
+            // 出力ファイルと同名のディレクトリを置き、ライタースレッドでのオープンを失敗させる。
+            Assert.That(RecSidecarPath.TryBuildRecordingFilePath(TestAssetName, "blocked", out string blockedPath, out _), Is.True);
+            Directory.CreateDirectory(blockedPath);
+            LogAssert.Expect(LogType.Error, new Regex("could not open"));
+            LogAssert.Expect(LogType.Warning, new Regex("could not be created"));
+
+            Assert.That(binding.StartRecording("blocked"), Is.True);
+            float deadline = Time.realtimeSinceStartup + 5f;
+            while (binding.IsRecording && Time.realtimeSinceStartup < deadline)
+            {
+                yield return null;
+            }
+
+            Assert.That(binding.IsRecording, Is.False);
+            Assert.That(binding.LastRecordingPath, Is.EqualTo(keptPath));
+            Assert.That(binding.LastRecordingName, Is.EqualTo("kept"));
         }
 
         [UnityTest]
@@ -123,12 +195,13 @@ namespace Hidano.FacialControl.Rec.Tests.PlayMode
             bus.PublishTriggerOn(triggerSource.Id, "smile");
             bus.PublishAnalog(analogSource.Id, 0.35f, -0.15f);
 
-            string recordingPath = binding.LastRecordingPath;
             GameObject host = _gameObject;
             _gameObject = null;
             UnityEngine.Object.Destroy(host);
             yield return null;
 
+            // 出力ファイルはライタースレッドが開くため、パスは録画を閉じた後に確定している。
+            string recordingPath = binding.LastRecordingPath;
             Assert.That(recordingPath, Is.Not.Null.And.Not.Empty);
             Assert.That(RecFileReader.TryRead(recordingPath, out _), Is.True);
         }
@@ -257,7 +330,7 @@ namespace Hidano.FacialControl.Rec.Tests.PlayMode
             binding.FacialController = controller;
 
             _characterSo = ScriptableObject.CreateInstance<TestCharacterProfileSO>();
-            _characterSo.name = "RecCharacterBindingPlayModeTestsAsset";
+            _characterSo.name = TestAssetName;
             controller.CharacterSO = _characterSo;
 
             FacialProfile profile = CreateProfile();
@@ -279,7 +352,7 @@ namespace Hidano.FacialControl.Rec.Tests.PlayMode
             string recordingsDirectory = Path.Combine(
                 UnityEngine.Application.streamingAssetsPath,
                 FacialCharacterProfileSO.StreamingAssetsRootFolder,
-                "RecCharacterBindingPlayModeTestsAsset",
+                TestAssetName,
                 RecSidecarPath.RecordingsFolderName);
             if (!Directory.Exists(recordingsDirectory))
             {
@@ -295,6 +368,12 @@ namespace Hidano.FacialControl.Rec.Tests.PlayMode
                 {
                     File.Delete(metaFilePath);
                 }
+            }
+
+            // オープン失敗を再現するために置いた「出力ファイルと同名のディレクトリ」も消す。
+            foreach (string directoryPath in Directory.GetDirectories(recordingsDirectory))
+            {
+                Directory.Delete(directoryPath, true);
             }
         }
 

@@ -1,4 +1,5 @@
 using System;
+using System.Globalization;
 using System.IO;
 using Hidano.FacialControl.Adapters.ScriptableObject.Serializable;
 using UnityEngine;
@@ -48,6 +49,38 @@ namespace Hidano.FacialControl.Rec.Adapters.Recording
 
             filePath = Path.Combine(directoryPath, normalizedRecordingName + FileExtension);
             return true;
+        }
+
+        /// <summary>
+        /// 既存ファイルと衝突しないパスを返す。衝突時は <c>name-2</c>, <c>name-3</c>… と連番を付与し、
+        /// 既存の録画を上書きしない（REC データは代替が効かないため、迷ったら捨てずに守る）。
+        /// </summary>
+        public static string ResolveUniqueFilePath(string filePath)
+        {
+            if (string.IsNullOrWhiteSpace(filePath))
+            {
+                throw new ArgumentException("A recording file path is required.", nameof(filePath));
+            }
+
+            if (!File.Exists(filePath))
+            {
+                return filePath;
+            }
+
+            string directory = Path.GetDirectoryName(filePath) ?? string.Empty;
+            string baseName = Path.GetFileNameWithoutExtension(filePath);
+            string extension = Path.GetExtension(filePath);
+
+            for (int sequence = 2; ; sequence++)
+            {
+                string candidate = Path.Combine(
+                    directory,
+                    baseName + "-" + sequence.ToString(CultureInfo.InvariantCulture) + extension);
+                if (!File.Exists(candidate))
+                {
+                    return candidate;
+                }
+            }
         }
 
         private static bool TryNormalizeSegment(string value, string paramName, out string normalizedValue, out string error)

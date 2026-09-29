@@ -82,6 +82,132 @@ namespace Hidano.FacialControl.Rec.Tests.EditMode
         }
 
         [Test]
+        public void Complete_AfterSuccessfulOpen_ReportsTheOpenedPath()
+        {
+            string filePath = Path.Combine(_tempDirectory, "opened.fcrec");
+
+            using var writer = new RecStreamWriter(filePath);
+            writer.Open(RecBaselineState.Empty);
+            writer.Complete(0d, 0);
+
+            Assert.That(writer.OutputFilePath, Is.EqualTo(filePath));
+            Assert.That(writer.HasOutputFailed, Is.False);
+        }
+
+        [Test]
+        public void Open_WhenFileAlreadyExists_WritesToSuffixedPathAndLeavesExistingFileUntouched()
+        {
+            string filePath = Path.Combine(_tempDirectory, "existing.fcrec");
+            byte[] original = { 1, 2, 3, 4 };
+            File.WriteAllBytes(filePath, original);
+
+            using (var writer = new RecStreamWriter(filePath))
+            {
+                writer.Open(RecBaselineState.Empty);
+                writer.AppendEvent(RecEvent.CreateTriggerOn(0.1d, 0, 0), ReadOnlySpan<float>.Empty);
+                writer.Complete(0.1d, 1);
+
+                Assert.That(writer.OutputFilePath, Is.EqualTo(Path.Combine(_tempDirectory, "existing-2.fcrec")));
+                Assert.That(RecFileReader.TryRead(writer.OutputFilePath, out _), Is.True);
+            }
+
+            Assert.That(File.ReadAllBytes(filePath), Is.EqualTo(original));
+        }
+
+        [Test]
+        public void Open_TwoWritersRacingForTheSamePath_KeepBothTakes()
+        {
+            string filePath = Path.Combine(_tempDirectory, "race.fcrec");
+            using var bothResolved = new Barrier(2);
+            int factoryCalls = 0;
+
+            // 両ライターが同じパスを解決し終えてから CreateNew させ、衝突を必ず起こす。
+            Func<string, Stream> factory = path =>
+            {
+                if (Interlocked.Increment(ref factoryCalls) <= 2)
+                {
+                    bothResolved.SignalAndWait(TimeSpan.FromSeconds(2d));
+                }
+
+                return new FileStream(path, FileMode.CreateNew, FileAccess.Write, FileShare.Read);
+            };
+
+            using var first = new RecStreamWriter(filePath, 2, 2, 8, factory, null);
+            using var second = new RecStreamWriter(filePath, 2, 2, 8, factory, null);
+            first.Open(RecBaselineState.Empty);
+            second.Open(RecBaselineState.Empty);
+            first.Complete(0d, 0);
+            second.Complete(0d, 0);
+
+            Assert.That(first.HasOutputFailed, Is.False);
+            Assert.That(second.HasOutputFailed, Is.False);
+            Assert.That(
+                new[] { first.OutputFilePath, second.OutputFilePath },
+                Is.EquivalentTo(new[] { filePath, Path.Combine(_tempDirectory, "race-2.fcrec") }));
+        }
+
+        [Test]
+        public void Open_WhenStreamCannotBeCreated_ReportsFailureAndDropsEvents()
+        {
+            string filePath = Path.Combine(_tempDirectory, "unavailable.fcrec");
+
+            LogAssert.Expect(LogType.Error, new Regex("could not open"));
+
+            using var writer = new RecStreamWriter(
+                filePath,
+                segmentCapacity: 2,
+                initialSegments: 2,
+                axisFloatCapacityPerSegment: 8,
+                streamFactory: _ => throw new IOException("disk unavailable"),
+                postFinalizeAction: null);
+
+            writer.Open(RecBaselineState.Empty);
+            writer.AppendEvent(RecEvent.CreateTriggerOn(0.1d, 0, 0), ReadOnlySpan<float>.Empty);
+            writer.Complete(0.1d, 1);
+
+            Assert.That(writer.HasOutputFailed, Is.True);
+            Assert.That(writer.OutputFilePath, Is.Null);
+            Assert.That(File.Exists(filePath), Is.False);
+        }
+
+        [Test]
+        public void Open_WhenOpeningTheStreamIsSlow_ReturnsWithoutWaitingForStorage()
+        {
+            string filePath = Path.Combine(_tempDirectory, "slow-open.fcrec");
+            using var enteredOpen = new ManualResetEventSlim(false);
+            using var releaseOpen = new ManualResetEventSlim(false);
+
+            using var writer = new RecStreamWriter(
+                filePath,
+                segmentCapacity: 2,
+                initialSegments: 2,
+                axisFloatCapacityPerSegment: 8,
+                streamFactory: _ =>
+                {
+                    enteredOpen.Set();
+                    releaseOpen.Wait(TimeSpan.FromSeconds(10d));
+                    return new MemoryStream();
+                },
+                postFinalizeAction: null);
+
+            var stopwatch = Stopwatch.StartNew();
+            writer.Open(RecBaselineState.Empty);
+            stopwatch.Stop();
+
+            Assert.That(enteredOpen.Wait(TimeSpan.FromSeconds(2d)), Is.True, "The writer thread never started opening the stream.");
+            Assert.That(stopwatch.ElapsedMilliseconds, Is.LessThan(1000));
+            Assert.That(writer.OutputFilePath, Is.Null);
+
+            // オープン待ちの間に届いたイベントも取りこぼさずに書き出される。
+            writer.AppendEvent(RecEvent.CreateTriggerOn(0.1d, 0, 0), ReadOnlySpan<float>.Empty);
+            releaseOpen.Set();
+            writer.Complete(0.1d, 1);
+
+            Assert.That(writer.OutputFilePath, Is.EqualTo(filePath));
+            Assert.That(writer.HasOutputFailed, Is.False);
+        }
+
+        [Test]
         public void Complete_WhenWriterThreadIsBlocked_ReturnsAfterTimeout()
         {
             string filePath = Path.Combine(_tempDirectory, "slow-finalize.fcrec");

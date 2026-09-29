@@ -2,6 +2,20 @@
 
 [Keep a Changelog](https://keepachangelog.com/ja/1.1.0/) の形式に準拠し、[セマンティックバージョニング](https://semver.org/lang/ja/) に従う。
 
+## [Unreleased]
+
+### Added
+
+- `RecCharacterBinding.LastRecordingName` — 直近の録画で実際に保存したテイク名（連番付与後）
+- `RecCharacterBinding.LoadRecording()` の名前省略 — 直近に録画したテイクを読み込む。Inspector の Load Recording も Recording Name が空なら同じ動作になる
+
+### Changed
+
+- 同名の録画がすでにある場合は上書きせず、`{名前}-2`, `{名前}-3`… と連番を付けて保存するようにした。実際に保存した名前とパスは `LastRecordingName` / `LastRecordingPath` と Inspector の Path 表示に反映される
+- `RecStreamWriter` は出力先の予約（連番付与）と `FileMode.CreateNew` でのオープンをライタースレッドで行い、既存ファイルを決して上書きしない（呼び出し元をストレージ I/O 待ちでブロックしない）。実際に開いたパスは `OutputFilePath`、開けなかったことは `HasOutputFailed` で分かる。同じパスへ同時に録画を始めた場合も連番を取り直して両方のテイクを残す。`RecCharacterBinding.StartRecording` はファイルを開く前に true を返し、オープン失敗には気づいた時点（Update または StopRecording）で録画を止めて警告を出す（従来はオープン失敗が背景スレッドのログだけで、成功扱いのまま録画が失われていた。オープン後の書き込み失敗は従来どおりライタースレッドのログのみ）。`LastRecordingName` / `LastRecordingPath` はファイルを開いた後に反映され、録画中のテイクのパスは `CurrentRecordingPath` で分かる
+- `RecCharacterBinding` の Default Recording Name の初期値を `take` から空にし、Recording Name / Default Recording Name の両方が空なら `take-yyyyMMdd-HHmmss` で命名する（README の記述と実装を一致させた）。Inspector の Recording Name 欄を Default Recording Name で埋めるのをやめた
+- 録画名の解決ロジックを `RecRecordingNaming` に切り出した
+
 ## [1.0.0] - 2026-09-25
 
 初回リリース。

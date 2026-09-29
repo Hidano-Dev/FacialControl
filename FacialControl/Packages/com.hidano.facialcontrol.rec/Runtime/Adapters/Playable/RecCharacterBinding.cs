@@ -2,6 +2,7 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.IO;
 using Hidano.FacialControl.Adapters.InputSources;
 using Hidano.FacialControl.Adapters.Playable;
 using Hidano.FacialControl.Adapters.ScriptableObject.Serializable;
@@ -29,7 +30,8 @@ namespace Hidano.FacialControl.Rec.Adapters.Playable
         private FacialController _facialController;
 
         [SerializeField]
-        private string _defaultRecordingName = "take";
+        [Tooltip("Recording Name を省略したときの既定名。空のままなら take-yyyyMMdd-HHmmss で命名する。")]
+        private string _defaultRecordingName = string.Empty;
 
         private FacialController _runtimeController;
         private PlaybackUseCase _playbackUseCase;
@@ -40,7 +42,9 @@ namespace Hidano.FacialControl.Rec.Adapters.Playable
         private RecTimeline _loadedTimeline;
         private string _loadedRecordingName;
         private string _loadedRecordingPath;
+        private string _lastRecordingName;
         private string _lastRecordingPath;
+        private string _requestedRecordingPath;
 
         public bool IsRecording => _recordingUseCase != null && _recordingUseCase.IsRecording;
 
@@ -61,7 +65,18 @@ namespace Hidano.FacialControl.Rec.Adapters.Playable
             }
         }
 
+        /// <summary>
+        /// 直近の録画で実際に保存したテイク名（同名衝突時の連番付与後）。<see cref="LoadRecording"/> にそのまま渡せる。
+        /// 出力ファイルはライタースレッドが開くため、<see cref="StartRecording"/> 直後はまだ前回の値のことがある
+        /// （開いた後の Update か <see cref="StopRecording"/> で反映される）。
+        /// </summary>
+        public string LastRecordingName => _lastRecordingName;
+
+        /// <summary>直近の録画で実際に保存したファイルパス（同名衝突時の連番付与後）。反映タイミングは <see cref="LastRecordingName"/> と同じ。</summary>
         public string LastRecordingPath => _lastRecordingPath;
+
+        /// <summary>録画中のテイクの出力ファイルパス。録画中でない、またはライタースレッドがまだファイルを開いていなければ null。</summary>
+        public string CurrentRecordingPath => IsRecording ? _streamWriter?.OutputFilePath : null;
 
         public string LoadedRecordingPath => _loadedRecordingPath;
 
@@ -89,21 +104,23 @@ namespace Hidano.FacialControl.Rec.Adapters.Playable
             StopPlayback();
 
             string assetName = ResolveAssetName(controller);
-            string resolvedRecordingName = ResolveRecordingName(recordingName);
-            if (!RecSidecarPath.TryBuildRecordingFilePath(assetName, resolvedRecordingName, out string filePath, out string error))
+            string resolvedRecordingName = RecRecordingNaming.Resolve(recordingName, _defaultRecordingName, DateTime.Now);
+            if (!RecSidecarPath.TryBuildRecordingFilePath(assetName, resolvedRecordingName, out string requestedFilePath, out string error))
             {
                 UnityEngine.Debug.LogWarning($"REC recording start was ignored because the output path was invalid: {error}");
                 return false;
             }
 
+            // 出力先の予約（同名衝突時の連番付与）とファイルのオープンは RecStreamWriter がライタースレッドで行う。
+            // 結果（実際のパス / オープン失敗）は Update と StopRecording で SyncRecordingOutput が拾う。
             RecBaselineState baseline = CaptureBaseline(profile, controller.InputSourceRegistry);
-            _streamWriter = new RecStreamWriter(filePath);
+            _requestedRecordingPath = requestedFilePath;
+            _streamWriter = new RecStreamWriter(requestedFilePath);
             _recordingUseCase = new RecordingUseCase(
                 controller.InputObservationBus,
                 new StopwatchRecClock(),
                 _streamWriter);
             _recordingUseCase.StartRecording(baseline);
-            _lastRecordingPath = filePath;
             return true;
         }
 
@@ -112,11 +129,25 @@ namespace Hidano.FacialControl.Rec.Adapters.Playable
             DisposeRecordingSession();
         }
 
-        public bool LoadRecording(string recordingName)
+        /// <summary>
+        /// 指定したテイクを読み込む。<paramref name="recordingName"/> が空なら直近に録画したテイク
+        /// （<see cref="LastRecordingName"/>。連番付与後の名前）を読み込む。
+        /// </summary>
+        public bool LoadRecording(string recordingName = null)
         {
             if (!TryEnsureReady(out FacialController controller, out FacialProfile profile))
             {
                 return false;
+            }
+
+            if (string.IsNullOrWhiteSpace(recordingName))
+            {
+                recordingName = _lastRecordingName;
+                if (string.IsNullOrWhiteSpace(recordingName))
+                {
+                    UnityEngine.Debug.LogWarning("REC load was ignored because no recording name was given and nothing has been recorded yet.");
+                    return false;
+                }
             }
 
             StopRecording();
@@ -170,6 +201,12 @@ namespace Hidano.FacialControl.Rec.Adapters.Playable
 
         private void Update()
         {
+            // オープン失敗はライタースレッドで判明するので、気づいた時点で録画を止めて警告する。
+            if (_streamWriter != null && !SyncRecordingOutput())
+            {
+                DisposeRecordingSession();
+            }
+
             if (_playbackUseCase == null || _playbackUseCase.State != RecPlaybackState.Playing)
             {
                 return;
@@ -249,8 +286,42 @@ namespace Hidano.FacialControl.Rec.Adapters.Playable
             if (_streamWriter != null)
             {
                 _streamWriter.Dispose();
+                if (!SyncRecordingOutput())
+                {
+                    UnityEngine.Debug.LogWarning($"REC recording was discarded because the output file could not be created: {_requestedRecordingPath}");
+                }
+
                 _streamWriter = null;
             }
+
+            _requestedRecordingPath = null;
+        }
+
+        /// <summary>
+        /// ライタースレッドが開いた出力ファイルのパスを <see cref="LastRecordingName"/> / <see cref="LastRecordingPath"/>
+        /// に反映する。出力ファイルを開けなかったセッションなら false を返す（前回のテイクの値は残す）。
+        /// </summary>
+        private bool SyncRecordingOutput()
+        {
+            if (_streamWriter.HasOutputFailed)
+            {
+                return false;
+            }
+
+            string outputFilePath = _streamWriter.OutputFilePath;
+            if (outputFilePath == null || string.Equals(outputFilePath, _lastRecordingPath, StringComparison.Ordinal))
+            {
+                return true;
+            }
+
+            _lastRecordingPath = outputFilePath;
+            _lastRecordingName = Path.GetFileNameWithoutExtension(outputFilePath);
+            if (!string.Equals(outputFilePath, _requestedRecordingPath, StringComparison.Ordinal))
+            {
+                UnityEngine.Debug.Log($"REC recording '{Path.GetFileNameWithoutExtension(_requestedRecordingPath)}' already exists. Saving as '{_lastRecordingName}' instead.");
+            }
+
+            return true;
         }
 
         private void HandlePlaybackCompleted()
@@ -304,21 +375,6 @@ namespace Hidano.FacialControl.Rec.Adapters.Playable
             }
 
             return controller.gameObject.name;
-        }
-
-        private string ResolveRecordingName(string recordingName)
-        {
-            if (!string.IsNullOrWhiteSpace(recordingName))
-            {
-                return recordingName.Trim();
-            }
-
-            if (!string.IsNullOrWhiteSpace(_defaultRecordingName))
-            {
-                return _defaultRecordingName.Trim();
-            }
-
-            return "take-" + DateTime.Now.ToString("yyyyMMdd-HHmmss");
         }
 
         private static RecBaselineState CaptureBaseline(FacialProfile profile, IInputSourceRegistry registry)
