@@ -31,6 +31,30 @@ rec.StopPlayback();
 
 録画と再生は排他で、片方を開始するともう片方は自動停止する。`OnDisable` / `OnDestroy` でも録画・再生は停止され、録画中のファイルは末尾まで書き切られる。
 
+### uGUI / UnityEvent から操作する
+
+`StartRecording` / `LoadRecording` / `StartPlayback` は結果を `bool` で返すため、Button の OnClick など Inspector の UnityEvent には列挙されない。UnityEvent からはコード無しで次の void 版を選ぶ（`bool` 版はスクリプト向けにそのまま使える）。
+
+| UnityEvent で選ぶもの | 動作 |
+|---|---|
+| `RecordingName`（string） | テイク名を設定する（Inspector の Default Recording Name と同じ値）。InputField の On End Edit などの Dynamic string に繋ぐ |
+| `Record ()` | `RecordingName` で録画を始める。空なら `take-yyyyMMdd-HHmmss` |
+| `Record (string)` | 指定した名前で録画を始める |
+| `StopRecording ()` | 録画を止めて確定する |
+| `Load ()` | `RecordingName` で直近に録画したテイクを読み込む（同名衝突で `{名前}-2` などに保存していればそちら）。空なら直近に録画したテイク |
+| `Load (string)` | 指定した名前のテイクをそのまま読み込む。空なら `Load ()` と同じ |
+| `Play ()` / `StopPlayback ()` | 再生を開始 / 停止する |
+
+配線例（InputField 1 つと Button 4 つ）:
+
+1. InputField の **On End Edit (String)** → `RecCharacterBinding` の Dynamic string から `RecordingName`
+2. Record ボタンの **On Click ()** → `RecCharacterBinding.Record ()`
+3. Stop ボタン → `RecCharacterBinding.StopRecording ()`
+4. Load ボタン → `RecCharacterBinding.Load ()`
+5. Play ボタン → `RecCharacterBinding.Play ()`
+
+同じ `RecordingName` のまま Record → Stop → Load → Play を繰り返しても、毎回いま録ったテイクが再生される。録画中に Load を押した場合は録画を止めて確定してから読み込む。失敗時（未初期化・該当ファイルなし等）は `bool` 版と同じく Console にログが出る。読み込みに失敗すると前に読み込んだテイクも破棄されるので、続く Play が古いテイクを再生することはない。
+
 ## 記録される内容
 
 | 種別 | 内容 |
