@@ -70,5 +70,18 @@ namespace Hidano.FacialControl.Editor.Inspector.AdapterBindings
 
             SessionState.SetBool(sessionStateKey, open);
         }
+
+        /// <summary>
+        /// 保存済みの開閉状態を消す。キーが null の場合は何もしない。
+        /// </summary>
+        public static void Erase(string sessionStateKey)
+        {
+            if (string.IsNullOrEmpty(sessionStateKey))
+            {
+                return;
+            }
+
+            SessionState.EraseBool(sessionStateKey);
+        }
     }
 }

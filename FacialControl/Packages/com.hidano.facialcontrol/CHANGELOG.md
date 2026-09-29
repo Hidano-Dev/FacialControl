@@ -6,7 +6,7 @@
 
 ### Changed
 
-- `FacialCharacterProfileSO` Inspector の Adapter Bindings タブ — 各 Adapter を折り畳める `Foldout` で包んだ。ヘッダーに表示名と slug を出し、ヘッダーの `−` ボタンからその Adapter を削除できる。開閉状態は Adapter ごとに SessionState へ保存し、Inspector の再選択・ドメインリロード・Adapter の追加 / 削除 / 並べ替えの後も同じ Adapter に保持する（Editor 再起動でリセット）。フッターに「すべて展開」「すべて折り畳む」ボタンを追加した
+- `FacialCharacterProfileSO` Inspector の Adapter Bindings タブ — 各 Adapter を折り畳める `Foldout` で包んだ。ヘッダーに表示名と slug を出し、ヘッダーの `−` ボタンから確認のうえその Adapter を削除できる（型が解決できない行の削除もこのボタンに集約）。開閉状態は Adapter ごとに SessionState へ保存し、Inspector の再選択・ドメインリロード・Adapter の追加 / 削除 / 並べ替えの後も同じ Adapter に保持する（Editor 再起動でリセット）。フッターに「すべて展開」「すべて折り畳む」ボタンを追加した
 
 ## [1.0.0] - 2026-09-25
 
