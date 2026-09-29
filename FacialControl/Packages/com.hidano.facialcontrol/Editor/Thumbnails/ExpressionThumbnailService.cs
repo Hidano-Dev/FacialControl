@@ -1,5 +1,7 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
+using System.Text;
 using Hidano.FacialControl.Domain.Models;
 using Hidano.FacialControl.Editor.Sampling;
 using UnityEditor;
@@ -18,9 +20,16 @@ namespace Hidano.FacialControl.Editor.Thumbnails
     /// 2 と 3 は <see cref="EditorApplication.update"/> から少しずつ進める（遅延生成）。
     /// </para>
     /// <para>
-    /// キャッシュキーは参照モデルと Expression の中身から決まる（<see cref="ExpressionThumbnailCacheKey"/>）。
-    /// AnimationClip の中身の変更は <see cref="CheckForClipChanges"/> が dirty count と依存ハッシュで検知し、
-    /// キーが変わったサムネイルを作り直す。
+    /// キャッシュキー（<see cref="ExpressionThumbnailCacheKey"/>）は次から決まる:
+    /// <list type="bullet">
+    /// <item>参照モデル: GUID + ローカル ID + 依存アセット（FBX・マテリアル・テクスチャ等）すべての依存ハッシュ。
+    /// 再インポートやマテリアルの保存で変わる</item>
+    /// <item>AnimationClip: GUID + ローカル ID + 中身（全カーブの時刻 0 の値と参照オブジェクト）。
+    /// 中身を変えずに保存しただけでは変わらない</item>
+    /// </list>
+    /// 変更の検知は 2 系統で行う。AnimationClip のメモリ上の編集は <see cref="CheckForClipChanges"/> が
+    /// dirty count で拾い（AssetDatabase を引かない軽い確認。編集中の連続変更は落ち着くまで待つ）、
+    /// ディスク上の変更（保存・再インポート・外部変更）は <see cref="NotifyAssetsImported"/> が拾う。
     /// </para>
     /// <para>
     /// メモリ上のテクスチャと描画用の一時オブジェクトは <see cref="Dispose"/>（Inspector の OnDisable、
@@ -41,11 +50,21 @@ namespace Hidano.FacialControl.Editor.Thumbnails
         /// <summary>1 回の <see cref="Pump"/> で読み込むディスクキャッシュの上限件数。</summary>
         public const int MaxDiskLoadsPerPump = 8;
 
+        /// <summary>
+        /// ディスクキャッシュに残すファイル数の上限。ドメインロード後に最初の <see cref="CreateDefault"/> で
+        /// 超過分を古い順に消す。
+        /// </summary>
+        public const int MaxDiskCacheFiles = 500;
+
         /// <summary>AnimationClip の変更を確認する間隔（秒）。</summary>
         private const double ChangePollIntervalSeconds = 0.5;
 
         /// <summary>どの行からも参照されなくなったテクスチャを、この件数を超えたら破棄する。</summary>
         private const int SpareCachedTextureCount = 32;
+
+        private const string InstanceIdentityPrefix = "instance:";
+
+        private static bool s_diskCachePruned;
 
         private readonly IExpressionThumbnailRenderer _renderer;
         private readonly ExpressionThumbnailDiskCache _diskCache;
@@ -56,10 +75,14 @@ namespace Hidano.FacialControl.Editor.Thumbnails
             new Dictionary<string, Texture2D>(StringComparer.Ordinal);
         private readonly Dictionary<AnimationClip, SampledClip> _sampledClips =
             new Dictionary<AnimationClip, SampledClip>();
+        private readonly Dictionary<UnityEngine.Object, ObjectIdentity> _identities =
+            new Dictionary<UnityEngine.Object, ObjectIdentity>();
         private readonly List<Binding> _bindings = new List<Binding>();
         private readonly List<Binding> _queue = new List<Binding>();
         private readonly HashSet<string> _referencedKeysBuffer = new HashSet<string>(StringComparer.Ordinal);
+        private readonly HashSet<UnityEngine.Object> _referencedObjectsBuffer = new HashSet<UnityEngine.Object>();
         private readonly List<string> _keysBuffer = new List<string>();
+        private readonly List<UnityEngine.Object> _objectsBuffer = new List<UnityEngine.Object>();
 
         private double _lastPollTime;
         private bool _disposed;
@@ -72,15 +95,28 @@ namespace Hidano.FacialControl.Editor.Thumbnails
             public string Key;
             public bool UseDiskCache;
             public ExpressionSnapshot Snapshot;
-            public string ClipIdentity;
             public int ClipDirtyCount;
+
+            // 編集中の連続変更で毎回描画しないよう、変化後の dirty count が次の確認でも同じ（= 編集が
+            // 落ち着いた）ときにだけ作り直す。
+            public bool HasPendingChange;
+            public int PendingDirtyCount;
         }
 
         private struct SampledClip
         {
-            public string Identity;
             public int DirtyCount;
             public ExpressionSnapshot Snapshot;
+            public string ContentSignature;
+        }
+
+        private sealed class ObjectIdentity
+        {
+            public string Value;
+            public bool Persistent;
+
+            /// <summary>この識別子が依存するアセットのパス。これらがインポートされたら識別子を作り直す。</summary>
+            public HashSet<string> DependencyPaths;
         }
 
         /// <param name="renderer">描画の実装。所有権を受け取り、<see cref="Dispose"/> で破棄する</param>
@@ -88,7 +124,8 @@ namespace Hidano.FacialControl.Editor.Thumbnails
         /// <param name="sampler">AnimationClip → snapshot のサンプラ</param>
         /// <param name="autoPump">
         /// true なら <see cref="EditorApplication.update"/> から <see cref="Pump"/> / <see cref="CheckForClipChanges"/>
-        /// を自動で呼び、ドメインリロード直前に <see cref="Dispose"/> する。テストでは false にして手動で進める
+        /// を、アセットのインポート時に <see cref="NotifyAssetsImported"/> を自動で呼び、ドメインリロード直前に
+        /// <see cref="Dispose"/> する。テストでは false にして手動で進める
         /// </param>
         public ExpressionThumbnailService(
             IExpressionThumbnailRenderer renderer,
@@ -105,6 +142,7 @@ namespace Hidano.FacialControl.Editor.Thumbnails
             {
                 EditorApplication.update += OnEditorUpdate;
                 AssemblyReloadEvents.beforeAssemblyReload += Dispose;
+                ExpressionThumbnailAssetWatcher.AssetsImported += NotifyAssetsImported;
             }
         }
 
@@ -113,9 +151,16 @@ namespace Hidano.FacialControl.Editor.Thumbnails
         /// </summary>
         public static ExpressionThumbnailService CreateDefault(IExpressionAnimationClipSampler sampler)
         {
+            var diskCache = new ExpressionThumbnailDiskCache(ExpressionThumbnailDiskCache.DefaultDirectory);
+            if (!s_diskCachePruned)
+            {
+                s_diskCachePruned = true;
+                diskCache.Prune(MaxDiskCacheFiles);
+            }
+
             return new ExpressionThumbnailService(
                 new ExpressionThumbnailRenderer(),
-                new ExpressionThumbnailDiskCache(ExpressionThumbnailDiskCache.DefaultDirectory),
+                diskCache,
                 sampler,
                 autoPump: true);
         }
@@ -186,6 +231,7 @@ namespace Hidano.FacialControl.Editor.Thumbnails
             if (_disposed) return;
 
             _sampledClips.Clear();
+            _identities.Clear();
             for (int i = 0; i < _bindings.Count; i++)
             {
                 var key = _bindings[i].Key;
@@ -202,8 +248,9 @@ namespace Hidano.FacialControl.Editor.Thumbnails
         }
 
         /// <summary>
-        /// 割り当て中の AnimationClip / 参照モデルが変更・破棄されていないかを確認し、
-        /// キーが変わったサムネイルを作り直す。
+        /// 割り当て中の AnimationClip がメモリ上で編集された・参照が破棄されたかを確認し、作り直す。
+        /// AssetDatabase は引かず dirty count だけを見る。dirty count が変わった直後は作り直さず、
+        /// 次の確認でも同じ値（編集が落ち着いた）なら作り直す。
         /// </summary>
         public void CheckForClipChanges()
         {
@@ -227,14 +274,69 @@ namespace Hidano.FacialControl.Editor.Thumbnails
                 if (binding.Clip == null || binding.Model == null || binding.Key == null) continue;
 
                 int dirtyCount = EditorUtility.GetDirtyCount(binding.Clip);
-                if (dirtyCount == binding.ClipDirtyCount
-                    && string.Equals(GetObjectIdentity(binding.Clip, out _), binding.ClipIdentity, StringComparison.Ordinal))
+                if (dirtyCount == binding.ClipDirtyCount)
                 {
+                    binding.HasPendingChange = false;
+                    continue;
+                }
+
+                if (!binding.HasPendingChange || binding.PendingDirtyCount != dirtyCount)
+                {
+                    binding.HasPendingChange = true;
+                    binding.PendingDirtyCount = dirtyCount;
                     continue;
                 }
 
                 Resolve(binding);
             }
+        }
+
+        /// <summary>
+        /// アセットがインポートされた（保存・再インポート・外部変更）ことを知らせる。
+        /// 参照モデルの依存アセット、または AnimationClip のアセットが含まれていれば、識別子と
+        /// サンプリング結果を作り直して該当行を解決し直す。
+        /// </summary>
+        public void NotifyAssetsImported(string[] assetPaths)
+        {
+            if (_disposed || assetPaths == null || assetPaths.Length == 0) return;
+
+            _objectsBuffer.Clear();
+            foreach (var pair in _identities)
+            {
+                var dependencies = pair.Value.DependencyPaths;
+                if (dependencies == null) continue;
+
+                for (int i = 0; i < assetPaths.Length; i++)
+                {
+                    if (dependencies.Contains(assetPaths[i]))
+                    {
+                        _objectsBuffer.Add(pair.Key);
+                        break;
+                    }
+                }
+            }
+
+            if (_objectsBuffer.Count == 0) return;
+
+            for (int i = 0; i < _objectsBuffer.Count; i++)
+            {
+                var obj = _objectsBuffer[i];
+                _identities.Remove(obj);
+                if (obj is AnimationClip clip)
+                {
+                    _sampledClips.Remove(clip);
+                }
+            }
+
+            for (int i = 0; i < _bindings.Count; i++)
+            {
+                var binding = _bindings[i];
+                if (ContainsReference(_objectsBuffer, binding.Model) || ContainsReference(_objectsBuffer, binding.Clip))
+                {
+                    Resolve(binding);
+                }
+            }
+            _objectsBuffer.Clear();
         }
 
         /// <summary>
@@ -281,7 +383,7 @@ namespace Hidano.FacialControl.Editor.Thumbnails
 
             if (_queue.Count == 0)
             {
-                PruneUnreferencedTextures();
+                PruneUnreferencedCaches();
             }
         }
 
@@ -320,6 +422,7 @@ namespace Hidano.FacialControl.Editor.Thumbnails
             {
                 EditorApplication.update -= OnEditorUpdate;
                 AssemblyReloadEvents.beforeAssemblyReload -= Dispose;
+                ExpressionThumbnailAssetWatcher.AssetsImported -= NotifyAssetsImported;
             }
 
             for (int i = 0; i < _bindings.Count; i++)
@@ -333,6 +436,7 @@ namespace Hidano.FacialControl.Editor.Thumbnails
             _bindings.Clear();
             _queue.Clear();
             _sampledClips.Clear();
+            _identities.Clear();
 
             foreach (var texture in _displayTextures.Values)
             {
@@ -377,7 +481,7 @@ namespace Hidano.FacialControl.Editor.Thumbnails
         {
             _queue.Remove(binding);
             binding.Key = null;
-            binding.ClipIdentity = null;
+            binding.HasPendingChange = false;
 
             if (binding.Model == null)
             {
@@ -397,17 +501,19 @@ namespace Hidano.FacialControl.Editor.Thumbnails
                 return;
             }
 
-            var modelIdentity = GetObjectIdentity(binding.Model, out bool modelPersistent);
-            bool clipPersistent = !sampled.Identity.StartsWith(InstanceIdentityPrefix, StringComparison.Ordinal);
+            var modelIdentity = GetIdentity(binding.Model, includeDependencyHashes: true);
+            var clipIdentity = GetIdentity(binding.Clip, includeDependencyHashes: false);
 
             binding.Snapshot = sampled.Snapshot;
-            binding.ClipIdentity = sampled.Identity;
             binding.ClipDirtyCount = sampled.DirtyCount;
             // 永続化されていない（シーン上・メモリ上の）オブジェクトの InstanceID はセッションをまたいで
             // 別オブジェクトに再利用されうるため、ディスクキャッシュのキーに使わない。
-            binding.UseDiskCache = _diskCache != null && modelPersistent && clipPersistent;
+            binding.UseDiskCache = _diskCache != null && modelIdentity.Persistent && clipIdentity.Persistent;
             binding.Key = ExpressionThumbnailCacheKey.Compute(
-                modelIdentity, sampled.Identity, sampled.Snapshot, CaptureResolution);
+                modelIdentity.Value,
+                clipIdentity.Value + "|" + sampled.ContentSignature,
+                sampled.Snapshot,
+                CaptureResolution);
 
             if (TryShowFromMemory(binding)) return;
 
@@ -429,20 +535,20 @@ namespace Hidano.FacialControl.Editor.Thumbnails
 
         private bool TrySample(AnimationClip clip, out SampledClip sampled)
         {
-            var identity = GetObjectIdentity(clip, out _);
             int dirtyCount = EditorUtility.GetDirtyCount(clip);
-
-            if (_sampledClips.TryGetValue(clip, out sampled)
-                && sampled.DirtyCount == dirtyCount
-                && string.Equals(sampled.Identity, identity, StringComparison.Ordinal))
+            if (_sampledClips.TryGetValue(clip, out sampled) && sampled.DirtyCount == dirtyCount)
             {
                 return true;
             }
 
             try
             {
-                var snapshot = _sampler.SampleSnapshot(clip.name, clip);
-                sampled = new SampledClip { Identity = identity, DirtyCount = dirtyCount, Snapshot = snapshot };
+                sampled = new SampledClip
+                {
+                    DirtyCount = dirtyCount,
+                    Snapshot = _sampler.SampleSnapshot(clip.name, clip),
+                    ContentSignature = ComputeClipContentSignature(clip),
+                };
                 _sampledClips[clip] = sampled;
                 return true;
             }
@@ -519,29 +625,55 @@ namespace Hidano.FacialControl.Editor.Thumbnails
             }
         }
 
-        private void PruneUnreferencedTextures()
+        /// <summary>
+        /// どの行からも参照されなくなったテクスチャ（一定数を超えた分）と、サンプリング結果・識別子を捨てる。
+        /// </summary>
+        private void PruneUnreferencedCaches()
         {
             _referencedKeysBuffer.Clear();
+            _referencedObjectsBuffer.Clear();
             for (int i = 0; i < _bindings.Count; i++)
             {
-                if (_bindings[i].Key != null)
-                    _referencedKeysBuffer.Add(_bindings[i].Key);
+                var binding = _bindings[i];
+                if (binding.Key != null) _referencedKeysBuffer.Add(binding.Key);
+                if (binding.Model != null) _referencedObjectsBuffer.Add(binding.Model);
+                if (binding.Clip != null) _referencedObjectsBuffer.Add(binding.Clip);
             }
 
-            if (_displayTextures.Count <= _referencedKeysBuffer.Count + SpareCachedTextureCount) return;
-
-            _keysBuffer.Clear();
-            foreach (var key in _displayTextures.Keys)
+            if (_displayTextures.Count > _referencedKeysBuffer.Count + SpareCachedTextureCount)
             {
-                if (!_referencedKeysBuffer.Contains(key))
-                    _keysBuffer.Add(key);
+                _keysBuffer.Clear();
+                foreach (var key in _displayTextures.Keys)
+                {
+                    if (!_referencedKeysBuffer.Contains(key))
+                        _keysBuffer.Add(key);
+                }
+
+                for (int i = 0; i < _keysBuffer.Count; i++)
+                {
+                    DestroyDisplayTexture(_keysBuffer[i]);
+                }
+                _keysBuffer.Clear();
             }
 
-            for (int i = 0; i < _keysBuffer.Count; i++)
+            _objectsBuffer.Clear();
+            foreach (var clip in _sampledClips.Keys)
             {
-                DestroyDisplayTexture(_keysBuffer[i]);
+                if (clip == null || !_referencedObjectsBuffer.Contains(clip))
+                    _objectsBuffer.Add(clip);
             }
-            _keysBuffer.Clear();
+            foreach (var obj in _identities.Keys)
+            {
+                if (obj == null || !_referencedObjectsBuffer.Contains(obj))
+                    _objectsBuffer.Add(obj);
+            }
+            for (int i = 0; i < _objectsBuffer.Count; i++)
+            {
+                var obj = _objectsBuffer[i];
+                if (obj is AnimationClip clip) _sampledClips.Remove(clip);
+                _identities.Remove(obj);
+            }
+            _objectsBuffer.Clear();
         }
 
         private void OnEnlargeRequested(ExpressionThumbnailView view, string key)
@@ -556,25 +688,120 @@ namespace Hidano.FacialControl.Editor.Thumbnails
             UnityEditor.PopupWindow.Show(view.worldBound, new ExpressionThumbnailPopup(texture, owned, title));
         }
 
-        private const string InstanceIdentityPrefix = "instance:";
+        private static bool ContainsReference(List<UnityEngine.Object> objects, UnityEngine.Object target)
+        {
+            if (ReferenceEquals(target, null)) return false;
+
+            for (int i = 0; i < objects.Count; i++)
+            {
+                if (ReferenceEquals(objects[i], target)) return true;
+            }
+            return false;
+        }
 
         /// <summary>
-        /// キャッシュキー用のオブジェクト識別子を返す。アセットなら GUID + ローカル ID + 依存ハッシュ
-        /// （再インポート・保存で変わる）、アセットでなければ InstanceID。
+        /// キャッシュキー用のオブジェクト識別子を返す（インポートされるまでキャッシュする）。
+        /// アセットなら GUID + ローカル ID（<paramref name="includeDependencyHashes"/> なら依存アセットすべての
+        /// 依存ハッシュも）、アセットでなければ InstanceID。
         /// </summary>
-        private static string GetObjectIdentity(UnityEngine.Object obj, out bool persistent)
+        private ObjectIdentity GetIdentity(UnityEngine.Object obj, bool includeDependencyHashes)
         {
-            if (obj != null
-                && EditorUtility.IsPersistent(obj)
+            if (_identities.TryGetValue(obj, out var cached)) return cached;
+
+            var identity = new ObjectIdentity();
+            if (EditorUtility.IsPersistent(obj)
                 && AssetDatabase.TryGetGUIDAndLocalFileIdentifier(obj, out string guid, out long localId))
             {
-                persistent = true;
                 var path = AssetDatabase.GUIDToAssetPath(guid);
-                return guid + ":" + localId + ":" + AssetDatabase.GetAssetDependencyHash(path);
+                var builder = new StringBuilder(guid.Length + 24);
+                builder.Append(guid).Append(':').Append(localId.ToString(CultureInfo.InvariantCulture));
+
+                identity.Persistent = true;
+                identity.DependencyPaths = new HashSet<string>(StringComparer.Ordinal) { path };
+                if (includeDependencyHashes)
+                {
+                    var dependencies = AssetDatabase.GetDependencies(path, true);
+                    Array.Sort(dependencies, StringComparer.Ordinal);
+                    for (int i = 0; i < dependencies.Length; i++)
+                    {
+                        identity.DependencyPaths.Add(dependencies[i]);
+                        builder.Append('|').Append(dependencies[i]).Append('=')
+                            .Append(AssetDatabase.GetAssetDependencyHash(dependencies[i]).ToString());
+                    }
+                }
+                identity.Value = builder.ToString();
+            }
+            else
+            {
+                identity.Persistent = false;
+                identity.Value = InstanceIdentityPrefix + obj.GetInstanceID().ToString(CultureInfo.InvariantCulture);
             }
 
-            persistent = false;
-            return InstanceIdentityPrefix + (obj != null ? obj.GetInstanceID() : 0);
+            _identities[obj] = identity;
+            return identity;
+        }
+
+        /// <summary>
+        /// AnimationClip の中身の署名。全 float カーブの時刻 0 の値と、全参照カーブ（マテリアル差し替え等）の
+        /// 時刻 0 の参照先から作る。snapshot に現れないプロパティ（マテリアル・UV 等）の変更も拾うため。
+        /// </summary>
+        private static string ComputeClipContentSignature(AnimationClip clip)
+        {
+            var builder = new StringBuilder(256);
+
+            var curveBindings = AnimationUtility.GetCurveBindings(clip);
+            for (int i = 0; i < curveBindings.Length; i++)
+            {
+                var binding = curveBindings[i];
+                var curve = AnimationUtility.GetEditorCurve(clip, binding);
+                if (curve == null) continue;
+
+                AppendBinding(builder, binding);
+                builder.Append(curve.Evaluate(0f).ToString("R", CultureInfo.InvariantCulture)).Append('\u001e');
+            }
+
+            var referenceBindings = AnimationUtility.GetObjectReferenceCurveBindings(clip);
+            for (int i = 0; i < referenceBindings.Length; i++)
+            {
+                var binding = referenceBindings[i];
+                var keyframes = AnimationUtility.GetObjectReferenceCurve(clip, binding);
+
+                // 時刻 0 で有効な参照 = 時刻 0 以下で最後のキー（無ければ先頭のキー）。
+                UnityEngine.Object value = null;
+                if (keyframes != null && keyframes.Length > 0)
+                {
+                    value = keyframes[0].value;
+                    for (int k = 1; k < keyframes.Length && keyframes[k].time <= 0f; k++)
+                    {
+                        value = keyframes[k].value;
+                    }
+                }
+
+                AppendBinding(builder, binding);
+                builder.Append(GetReferenceSignature(value)).Append('\u001e');
+            }
+
+            return builder.ToString();
+        }
+
+        private static void AppendBinding(StringBuilder builder, EditorCurveBinding binding)
+        {
+            builder.Append(binding.path).Append('\u001f')
+                .Append(binding.type != null ? binding.type.FullName : string.Empty).Append('\u001f')
+                .Append(binding.propertyName).Append('=');
+        }
+
+        private static string GetReferenceSignature(UnityEngine.Object value)
+        {
+            if (value == null) return "null";
+
+            if (EditorUtility.IsPersistent(value)
+                && AssetDatabase.TryGetGUIDAndLocalFileIdentifier(value, out string guid, out long localId))
+            {
+                return guid + ":" + localId.ToString(CultureInfo.InvariantCulture);
+            }
+
+            return InstanceIdentityPrefix + value.GetInstanceID().ToString(CultureInfo.InvariantCulture);
         }
 
         private static Texture2D CreateDisplayTextureFromPng(byte[] pngBytes)

@@ -11,7 +11,9 @@ namespace Hidano.FacialControl.Editor.Thumbnails
     /// <see cref="PreviewRenderUtility"/> で参照モデルの顔を描画する <see cref="IExpressionThumbnailRenderer"/> 実装。
     /// <para>
     /// 描画のたびに参照モデルを複製し直す。前の Expression で動かした BlendShape・ボーン・マテリアルを
-    /// 戻す処理を持たずに済み、どの Expression も同じ初期姿勢から適用される。
+    /// 戻す処理を持たずに済み、どの Expression も同じ初期姿勢から適用される。複製はプレビューシーン内の
+    /// ルートの子として直接作るため、ユーザーのアクティブシーンには一瞬も入らない。
+    /// 描画はキャッシュに無いときだけ行われる（<see cref="ExpressionThumbnailService"/>）。
     /// </para>
     /// <para>
     /// Expression の適用は 2 段階で行う:
@@ -30,16 +32,21 @@ namespace Hidano.FacialControl.Editor.Thumbnails
         private const float KeyLightIntensity = 1.2f;
         private const float FillLightIntensity = 0.6f;
 
-        /// <summary>キーライトの向き（カメラ基準）。カメラの左上後方から当てる。</summary>
+        /// <summary>
+        /// キーライトの向き（カメラ基準）。光はカメラの前方を左下へ進む（= カメラの右上後方から当たる）。
+        /// </summary>
         private static readonly Quaternion KeyLightRotationFromCamera = Quaternion.Euler(30f, -30f, 0f);
 
-        /// <summary>フィルライトの向き（カメラ基準）。キーライトの反対側の下から弱く当てる。</summary>
+        /// <summary>
+        /// フィルライトの向き（カメラ基準）。光はカメラの前方を右上へ進む（= キーライトの反対側、左下から弱く当たる）。
+        /// </summary>
         private static readonly Quaternion FillLightRotationFromCamera = Quaternion.Euler(-15f, 40f, 0f);
 
         private static readonly Color BackgroundColor = new Color(0.22f, 0.22f, 0.22f, 1f);
         private static readonly Color AmbientColor = new Color(0.35f, 0.35f, 0.35f, 1f);
 
         private PreviewRenderUtility _previewRenderUtility;
+        private GameObject _previewRoot;
         private GameObject _instance;
         private bool _disposed;
 
@@ -57,8 +64,7 @@ namespace Hidano.FacialControl.Editor.Thumbnails
             try
             {
                 DestroyInstance();
-                _instance = InstantiatePreviewInstance(referenceModel);
-                _previewRenderUtility.AddSingleGO(_instance);
+                _instance = InstantiatePreviewInstance(referenceModel, _previewRoot.transform);
 
                 // 構図は Expression 適用前の姿勢で決める（ボーンを動かす Expression で構図がぶれないように）。
                 var pose = ComputeCameraPose(_instance);
@@ -98,6 +104,11 @@ namespace Hidano.FacialControl.Editor.Thumbnails
             _disposed = true;
 
             DestroyInstance();
+            if (_previewRoot != null)
+            {
+                UnityEngine.Object.DestroyImmediate(_previewRoot);
+                _previewRoot = null;
+            }
             if (_previewRenderUtility != null)
             {
                 _previewRenderUtility.Cleanup();
@@ -114,6 +125,13 @@ namespace Hidano.FacialControl.Editor.Thumbnails
             camera.clearFlags = CameraClearFlags.SolidColor;
             camera.backgroundColor = BackgroundColor;
             _previewRenderUtility.ambientColor = AmbientColor;
+
+            // 複製先の親。レンダラーごとに 1 度だけ作り、プレビューシーンへ移す。
+            _previewRoot = new GameObject("ExpressionThumbnailPreviewRoot")
+            {
+                hideFlags = HideFlags.HideAndDontSave,
+            };
+            _previewRenderUtility.AddSingleGO(_previewRoot);
         }
 
         private void DestroyInstance()
@@ -125,9 +143,11 @@ namespace Hidano.FacialControl.Editor.Thumbnails
             }
         }
 
-        private static GameObject InstantiatePreviewInstance(GameObject referenceModel)
+        private static GameObject InstantiatePreviewInstance(GameObject referenceModel, Transform previewRoot)
         {
-            var instance = UnityEngine.Object.Instantiate(referenceModel);
+            // プレビューシーン内の親を指定して複製し、アクティブシーンを経由させない
+            // （hierarchyChanged の発火やシーンの dirty 化を避ける）。
+            var instance = UnityEngine.Object.Instantiate(referenceModel, previewRoot, false);
             instance.hideFlags = HideFlags.HideAndDontSave;
             instance.transform.SetPositionAndRotation(Vector3.zero, Quaternion.identity);
 
@@ -144,7 +164,7 @@ namespace Hidano.FacialControl.Editor.Thumbnails
 
         private static ExpressionThumbnailCameraPose ComputeCameraPose(GameObject instance)
         {
-            var bounds = CalculateBounds(instance);
+            var bounds = PreviewModelBounds.Calculate(instance);
             var faceJoint = FaceTrackTargetResolver.Resolve(instance);
             var root = instance.transform;
             return ExpressionThumbnailFraming.Compute(
@@ -153,20 +173,6 @@ namespace Hidano.FacialControl.Editor.Thumbnails
                 faceJoint != null ? faceJoint.position : Vector3.zero,
                 root.forward,
                 root.up);
-        }
-
-        private static Bounds CalculateBounds(GameObject go)
-        {
-            var renderers = go.GetComponentsInChildren<Renderer>(true);
-            if (renderers.Length == 0)
-                return new Bounds(go.transform.position, Vector3.one);
-
-            var bounds = renderers[0].bounds;
-            for (int i = 1; i < renderers.Length; i++)
-            {
-                bounds.Encapsulate(renderers[i].bounds);
-            }
-            return bounds;
         }
 
         /// <summary>

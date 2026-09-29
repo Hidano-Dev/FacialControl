@@ -7,7 +7,7 @@
 ### Changed
 
 - **Breaking**: `FaceTrackTargetResolver` を core の `Hidano.FacialControl.Editor.Common` へ移動した（Inspector の Expression サムネイルと共用するため）。`Hidano.FacialControl.ExpressionCreator.FaceTrackTargetResolver` を参照していたコードは名前空間を `Hidano.FacialControl.Editor.Common` に変更する
-- `PreviewRenderWrapper.CapturePreviewTexture` の描画処理を core の `PreviewRenderCapture` に共通化した（挙動は変えていない）
+- `PreviewRenderWrapper.CapturePreviewTexture` の描画処理を core の `PreviewRenderCapture` に、`PreviewRenderWrapper.CalculateBounds` を core の `PreviewModelBounds` に共通化した（挙動は変えていない）
 
 ## [1.0.0] - 2026-09-26
 

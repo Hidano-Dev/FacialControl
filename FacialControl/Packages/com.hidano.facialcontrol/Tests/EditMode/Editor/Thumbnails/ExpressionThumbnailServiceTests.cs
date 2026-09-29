@@ -1,5 +1,4 @@
 using System.Collections.Generic;
-using Hidano.FacialControl.Domain.Models;
 using Hidano.FacialControl.Editor.Sampling;
 using Hidano.FacialControl.Editor.Thumbnails;
 using Hidano.FacialControl.Testing;
@@ -26,13 +25,13 @@ namespace Hidano.FacialControl.Tests.EditMode.Editor.Thumbnails
     public class ExpressionThumbnailServiceTests : SizedTestFixture
     {
         private readonly List<Object> _tracked = new List<Object>();
-        private FakeThumbnailRenderer _renderer;
+        private FakeExpressionThumbnailRenderer _renderer;
         private ExpressionThumbnailService _service;
 
         [SetUp]
         public void SetUp()
         {
-            _renderer = new FakeThumbnailRenderer();
+            _renderer = new FakeExpressionThumbnailRenderer();
             _service = new ExpressionThumbnailService(
                 renderer: _renderer,
                 diskCache: null,
@@ -165,12 +164,38 @@ namespace Hidano.FacialControl.Tests.EditMode.Editor.Thumbnails
 
             SetBlendShapeCurve(clip, "smile", 0.9f);
             EditorUtility.SetDirty(clip);
-            _service.CheckForClipChanges();
 
+            // 変化を見た直後は作り直さない（編集中の連続変更で毎回描画しない）。
+            _service.CheckForClipChanges();
+            Assert.That(view.CacheKey, Is.EqualTo(before));
+
+            // 次の確認でも変化が落ち着いていれば作り直す。
+            _service.CheckForClipChanges();
             Assert.That(view.StatusText, Is.EqualTo(ExpressionThumbnailView.PendingMessage));
             _service.Pump();
             Assert.That(_renderer.RenderCount, Is.EqualTo(2));
             Assert.That(view.CacheKey, Is.Not.EqualTo(before));
+        }
+
+        [Test]
+        public void CheckForClipChanges_StillEditing_WaitsUntilChangesSettle()
+        {
+            var clip = CreateClip("smile", 0.5f);
+            var view = new ExpressionThumbnailView();
+            _service.Bind(view, CreateModel(), clip);
+            _service.Pump();
+
+            // 確認のたびに値が変わり続けている間（スライダー操作中など）は作り直さない。
+            for (int i = 0; i < 3; i++)
+            {
+                SetBlendShapeCurve(clip, "smile", 0.6f + i * 0.1f);
+                EditorUtility.SetDirty(clip);
+                _service.CheckForClipChanges();
+                _service.Pump();
+            }
+
+            Assert.That(_renderer.RenderCount, Is.EqualTo(1));
+            Assert.That(view.Texture, Is.Not.Null);
         }
 
         [Test]
@@ -320,46 +345,6 @@ namespace Hidano.FacialControl.Tests.EditMode.Editor.Thumbnails
         {
             var binding = EditorCurveBinding.FloatCurve("Body", typeof(SkinnedMeshRenderer), "blendShape." + blendShapeName);
             AnimationUtility.SetEditorCurve(clip, binding, AnimationCurve.Constant(0f, 0f, normalizedValue * 100f));
-        }
-
-        private sealed class FakeThumbnailRenderer : IExpressionThumbnailRenderer
-        {
-            private readonly List<Texture2D> _rendered = new List<Texture2D>();
-
-            public int RenderCount { get; private set; }
-            public int LastResolution { get; private set; }
-            public bool ReturnNull { get; set; }
-            public bool Disposed { get; private set; }
-
-            /// <summary>このフェイクが返したテクスチャのうち、まだ破棄されていない数。</summary>
-            public int LiveTextureCount
-            {
-                get
-                {
-                    int count = 0;
-                    for (int i = 0; i < _rendered.Count; i++)
-                    {
-                        if (_rendered[i] != null) count++;
-                    }
-                    return count;
-                }
-            }
-
-            public Texture2D Render(GameObject referenceModel, AnimationClip clip, in ExpressionSnapshot snapshot, int resolution)
-            {
-                RenderCount++;
-                LastResolution = resolution;
-                if (ReturnNull) return null;
-
-                var texture = new Texture2D(resolution, resolution, TextureFormat.RGBA32, false);
-                _rendered.Add(texture);
-                return texture;
-            }
-
-            public void Dispose()
-            {
-                Disposed = true;
-            }
         }
     }
 }

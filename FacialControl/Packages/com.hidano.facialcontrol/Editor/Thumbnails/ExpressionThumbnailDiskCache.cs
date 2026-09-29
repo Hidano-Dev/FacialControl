@@ -54,14 +54,13 @@ namespace Hidano.FacialControl.Editor.Thumbnails
             {
                 if (!File.Exists(path)) return false;
                 pngBytes = File.ReadAllBytes(path);
-                return pngBytes.Length > 0;
+                if (pngBytes.Length == 0) return false;
+
+                // 使われたキャッシュを Prune で残すため、最終更新時刻を読み込み時刻へ進める。
+                File.SetLastWriteTimeUtc(path, DateTime.UtcNow);
+                return true;
             }
-            catch (IOException e)
-            {
-                Debug.LogWarning($"[ExpressionThumbnail] サムネイルキャッシュを読み込めませんでした: {path} ({e.Message})");
-                return false;
-            }
-            catch (UnauthorizedAccessException e)
+            catch (Exception e) when (e is IOException || e is UnauthorizedAccessException)
             {
                 Debug.LogWarning($"[ExpressionThumbnail] サムネイルキャッシュを読み込めませんでした: {path} ({e.Message})");
                 return false;
@@ -87,11 +86,7 @@ namespace Hidano.FacialControl.Editor.Thumbnails
                     File.Delete(path);
                 File.Move(tempPath, path);
             }
-            catch (IOException e)
-            {
-                Debug.LogWarning($"[ExpressionThumbnail] サムネイルキャッシュを保存できませんでした: {path} ({e.Message})");
-            }
-            catch (UnauthorizedAccessException e)
+            catch (Exception e) when (e is IOException || e is UnauthorizedAccessException)
             {
                 Debug.LogWarning($"[ExpressionThumbnail] サムネイルキャッシュを保存できませんでした: {path} ({e.Message})");
             }
@@ -110,13 +105,50 @@ namespace Hidano.FacialControl.Editor.Thumbnails
                 if (File.Exists(path))
                     File.Delete(path);
             }
-            catch (IOException e)
+            catch (Exception e) when (e is IOException || e is UnauthorizedAccessException)
             {
                 Debug.LogWarning($"[ExpressionThumbnail] サムネイルキャッシュを削除できませんでした: {path} ({e.Message})");
             }
-            catch (UnauthorizedAccessException e)
+        }
+
+        /// <summary>
+        /// キャッシュのファイル数が <paramref name="maxFiles"/> を超えていれば、最終更新（最後に保存・読み込み
+        /// された時刻）の古いものから削除する。Expression や参照モデルを編集するたびにキーが変わり、古い PNG が
+        /// 残り続けるのを抑えるために、サービス生成時に呼ぶ。
+        /// </summary>
+        /// <returns>削除したファイル数</returns>
+        public int Prune(int maxFiles)
+        {
+            if (maxFiles < 0) maxFiles = 0;
+
+            try
             {
-                Debug.LogWarning($"[ExpressionThumbnail] サムネイルキャッシュを削除できませんでした: {path} ({e.Message})");
+                if (!System.IO.Directory.Exists(_directory)) return 0;
+
+                var files = new DirectoryInfo(_directory).GetFiles("*" + FileExtension);
+                if (files.Length <= maxFiles) return 0;
+
+                // 新しい順に並べ、上限より後ろを消す。
+                Array.Sort(files, (a, b) => b.LastWriteTimeUtc.CompareTo(a.LastWriteTimeUtc));
+                int deleted = 0;
+                for (int i = maxFiles; i < files.Length; i++)
+                {
+                    try
+                    {
+                        files[i].Delete();
+                        deleted++;
+                    }
+                    catch (Exception e) when (e is IOException || e is UnauthorizedAccessException)
+                    {
+                        // 使用中などで消せないファイルは次回に回す。
+                    }
+                }
+                return deleted;
+            }
+            catch (Exception e) when (e is IOException || e is UnauthorizedAccessException)
+            {
+                Debug.LogWarning($"[ExpressionThumbnail] サムネイルキャッシュを整理できませんでした: {_directory} ({e.Message})");
+                return 0;
             }
         }
 

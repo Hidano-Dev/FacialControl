@@ -183,7 +183,7 @@ namespace Hidano.FacialControl.Editor.Inspector
         protected IExpressionAnimationClipSampler _sampler;
         private bool _autoSavePending;
 
-        // Expression 行のサムネイル生成。CreateInspectorGUI で生成し、OnDisable で破棄する
+        // Expression 行のサムネイル生成。最初の CreateInspectorGUI で生成し、OnDisable で破棄する
         // （プレビュー用の一時オブジェクトとテクスチャを Inspector より長く残さない）。
         private ExpressionThumbnailService _thumbnailService;
 
@@ -279,8 +279,8 @@ namespace Hidano.FacialControl.Editor.Inspector
             OnResolveDerivedSerializedProperties();
             _gazeChannelsProperty = serializedObject.FindProperty("_gazeChannels");
             _sampler = new AnimationClipExpressionSampler();
-            // 前回の CreateInspectorGUI で作った行の割り当て・生成待ちを持ち越さないよう作り直す。
-            DisposeThumbnailService();
+            // 同じ Editor で UI を作り直す場合はサービスを使い回し、メモリ上のサムネイルを即表示に使う
+            // （前回の行の割り当ては Expression 一覧の構築時に ClearBindings で外れる）。
             EnsureThumbnailService();
 
             var root = new VisualElement();
@@ -1163,7 +1163,8 @@ namespace Hidano.FacialControl.Editor.Inspector
         {
             if (this == null || target == null) return null;
 
-            if (_thumbnailService == null)
+            // ドメインリロード直前に自身で Dispose 済みのものは作り直す。
+            if (_thumbnailService == null || _thumbnailService.IsDisposed)
             {
                 _thumbnailService = ExpressionThumbnailService.CreateDefault(
                     _sampler ?? new AnimationClipExpressionSampler());

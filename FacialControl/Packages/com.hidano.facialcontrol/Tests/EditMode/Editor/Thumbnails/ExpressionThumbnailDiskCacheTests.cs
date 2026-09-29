@@ -81,6 +81,36 @@ namespace Hidano.FacialControl.Tests.EditMode.Editor.Thumbnails
             Assert.DoesNotThrow(() => _cache.Delete(Key));
         }
 
+        [Test]
+        public void Prune_OverLimit_DeletesLeastRecentlyUsedFiles()
+        {
+            const string oldKey = "0000000000000001";
+            const string usedKey = "0000000000000002";
+            const string newKey = "0000000000000003";
+            _cache.Save(oldKey, new byte[] { 1 });
+            _cache.Save(usedKey, new byte[] { 2 });
+            _cache.Save(newKey, new byte[] { 3 });
+            var baseTime = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+            File.SetLastWriteTimeUtc(_cache.GetPath(oldKey), baseTime);
+            File.SetLastWriteTimeUtc(_cache.GetPath(usedKey), baseTime.AddMinutes(1));
+            File.SetLastWriteTimeUtc(_cache.GetPath(newKey), baseTime.AddMinutes(2));
+
+            // 読み込んだキャッシュは最近使ったものとして残る。
+            Assert.That(_cache.TryLoad(usedKey, out _), Is.True);
+            int deleted = _cache.Prune(2);
+
+            Assert.That(deleted, Is.EqualTo(1));
+            Assert.That(File.Exists(_cache.GetPath(oldKey)), Is.False);
+            Assert.That(File.Exists(_cache.GetPath(usedKey)), Is.True);
+            Assert.That(File.Exists(_cache.GetPath(newKey)), Is.True);
+        }
+
+        [Test]
+        public void Prune_MissingDirectory_ReturnsZero()
+        {
+            Assert.That(_cache.Prune(0), Is.Zero);
+        }
+
         [TestCase("../evil")]
         [TestCase("ABCDEF")]
         [TestCase("")]
