@@ -173,6 +173,49 @@ namespace Hidano.FacialControl.Rec.Adapters.Playable
             return _playbackUseCase.Load(_loadedTimeline, profile) != null;
         }
 
+        /// <summary>
+        /// このキャラクターの保存済み録画を、更新日時の新しい順に列挙する（録画中のテイクは含めない）。
+        /// 各要素の <see cref="RecRecordingEntry.Name"/> はそのまま <see cref="LoadRecording"/> に渡せる。
+        /// Play モード外でも呼べる。ファイル I/O と GC 確保を伴うため、毎フレームではなく一覧の更新が必要なとき
+        /// （画面を開いた・録画を止めた等）だけ呼ぶこと。
+        /// </summary>
+        public IReadOnlyList<RecRecordingEntry> GetRecordings()
+        {
+            FacialController controller = _facialController != null
+                ? _facialController
+                : GetComponent<FacialController>();
+            if (controller == null)
+            {
+                return Array.Empty<RecRecordingEntry>();
+            }
+
+            if (!RecSidecarPath.TryListRecordings(
+                ResolveAssetName(controller),
+                CurrentRecordingPath,
+                out IReadOnlyList<RecRecordingEntry> recordings,
+                out string error))
+            {
+                UnityEngine.Debug.LogWarning($"REC recordings could not be listed because the recording folder path was invalid: {error}");
+            }
+
+            return recordings;
+        }
+
+        /// <summary>
+        /// <see cref="GetRecordings"/> のテイク名だけを同じ順で返す。uGUI の Dropdown 等の選択肢にそのまま使える。
+        /// </summary>
+        public IReadOnlyList<string> GetRecordingNames()
+        {
+            IReadOnlyList<RecRecordingEntry> recordings = GetRecordings();
+            var names = new string[recordings.Count];
+            for (int i = 0; i < names.Length; i++)
+            {
+                names[i] = recordings[i].Name;
+            }
+
+            return names;
+        }
+
         public bool StartPlayback()
         {
             if (!TryEnsureReady(out FacialController controller, out FacialProfile profile))
