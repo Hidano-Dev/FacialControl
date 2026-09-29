@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using Hidano.FacialControl.Rec.Domain.Models;
 
 namespace Hidano.FacialControl.Rec.Domain.Services
@@ -26,10 +27,55 @@ namespace Hidano.FacialControl.Rec.Domain.Services
 
         public void Load(RecTimeline timeline)
         {
-            _timeline = timeline ?? throw new ArgumentNullException(nameof(timeline));
-            _nextEventIndex = 0;
-            ElapsedSeconds = 0d;
-            IsCompleted = timeline.Events.Count == 0 && timeline.DurationSeconds <= 0d;
+            Load(timeline, 0d);
+        }
+
+        /// <summary>
+        /// Loads a timeline and resumes from <paramref name="startOffsetSeconds"/>. Events stamped before the offset are skipped
+        /// (fold them into the injection baseline with <see cref="RecTimelineSeek"/>); events stamped exactly at the offset fire on the next tick.
+        /// </summary>
+        public void Load(RecTimeline timeline, double startOffsetSeconds)
+        {
+            if (timeline == null)
+            {
+                throw new ArgumentNullException(nameof(timeline));
+            }
+
+            ValidateStartOffset(startOffsetSeconds, nameof(startOffsetSeconds));
+
+            _timeline = timeline;
+            _nextEventIndex = FindFirstEventIndexAtOrAfter(timeline, startOffsetSeconds);
+            ElapsedSeconds = startOffsetSeconds;
+            IsCompleted = _nextEventIndex >= timeline.Events.Count && startOffsetSeconds >= timeline.DurationSeconds;
+        }
+
+        /// <summary>
+        /// Returns the index of the first event whose timestamp is not earlier than <paramref name="offsetSeconds"/>
+        /// (the event count when every event is earlier). Events are stored in timestamp order.
+        /// </summary>
+        public static int FindFirstEventIndexAtOrAfter(RecTimeline timeline, double offsetSeconds)
+        {
+            if (timeline == null)
+            {
+                throw new ArgumentNullException(nameof(timeline));
+            }
+
+            IReadOnlyList<RecEvent> events = timeline.Events;
+            int index = 0;
+            while (index < events.Count && events[index].TimestampSeconds < offsetSeconds)
+            {
+                index++;
+            }
+
+            return index;
+        }
+
+        internal static void ValidateStartOffset(double startOffsetSeconds, string paramName)
+        {
+            if (double.IsNaN(startOffsetSeconds) || double.IsInfinity(startOffsetSeconds) || startOffsetSeconds < 0d)
+            {
+                throw new ArgumentOutOfRangeException(paramName, startOffsetSeconds, "Start offset must be a finite, non-negative number of seconds.");
+            }
         }
 
         /// <summary>

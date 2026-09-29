@@ -26,6 +26,7 @@ rec.StopRecording();
 rec.LoadRecording();            // 名前を省略すると直近に録画したテイク（rec.LastRecordingName）を読み込む
 rec.LoadRecording("take01");    // 名前を指定すればそのテイクを読み込む
 rec.StartPlayback();            // 完了時は rec.Completed イベント
+rec.StartPlayback(12.5);        // 録画の 12.5 秒の位置から再生する
 rec.StopPlayback();
 ```
 
@@ -52,6 +53,19 @@ Expression id や入力源 id は文字列として先頭で 1 度だけ定義�
 - **Trigger**: 各トリガー入力源を suspend し、スタックを baseline に置き換えてから記録イベントを注入する。停止時は suspend を解除するが、スタックは元に戻さない
 - **Analog / Gaze**: baseline にある入力源は記録値を seed にした再生用 source で置き換え、その他のアナログ入力源も 0 seed で置き換える。停止時は自分が置き換えたものだけを元に戻す
 - 再生開始後に新しく登録された入力源は遮断の対象外
+- 再生が最後まで進んでも遮断は解除されない。`StopPlayback` を呼ぶまで最後の状態が保たれる
+
+## 途中からの再生
+
+`StartPlayback(startOffsetSeconds)` は録画の途中から再生する。開始位置より前のイベントを時刻順に瞬時に畳み込み、その結果を baseline として注入してから、開始位置以降のイベントを通常どおり発火させる。
+
+- **Trigger**: 各入力源のスタックを最終的な on/off の状態にする（on は同じ id を末尾へ移動、off は取り除く）
+- **Analog / Gaze**: 各入力源の最後のサンプル値にする
+- 開始位置ちょうどのイベントは畳み込まず、最初のフレームで発火する。開始位置 0 は `StartPlayback()` と同じ動作になる
+- 録画長以上を指定すると、最終状態を注入して即座に完了する（`Completed` が発火する）
+- 負値・NaN・無限大は警告を出して false を返す
+
+制限事項: 開始位置で遷移途中だった表情は、遷移の進行度までは再現できない。その時点の目標状態（遷移完了後の状態）から始まる。
 - `com.hidano.facialcontrol.timeline` の状態 sink もトリガー入力源の一種なので、REC 再生中は Timeline からの表情 on/off も抑止される
 
 ## 構成

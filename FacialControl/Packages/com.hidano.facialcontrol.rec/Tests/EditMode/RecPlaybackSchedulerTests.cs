@@ -105,6 +105,80 @@ namespace Hidano.FacialControl.Rec.Tests.EditMode
             Assert.That(visitor.Entries, Is.EqualTo(new[] { "on:trigger:late" }));
         }
 
+        [Test]
+        public void Load_WithStartOffset_SkipsEventsBeforeOffsetAndStartsElapsedAtOffset()
+        {
+            var scheduler = new RecPlaybackScheduler();
+            scheduler.Load(CreateTimeline(), 0.25d);
+            var visitor = new RecordingVisitor();
+
+            Assert.That(scheduler.ElapsedSeconds, Is.EqualTo(0.25d));
+            Assert.That(scheduler.IsCompleted, Is.False);
+
+            scheduler.Tick(0f, visitor);
+
+            // 開始位置ちょうどのイベントはスケジューラ側で発火させる（baseline へは畳み込まない）
+            Assert.That(visitor.Entries, Is.EqualTo(new[]
+            {
+                "analog:gaze:0.25,-0.50",
+                "off:trigger:a",
+            }));
+
+            scheduler.Tick(0.15f, visitor);
+
+            Assert.That(visitor.Entries, Has.Count.EqualTo(3));
+            Assert.That(visitor.Entries[2], Is.EqualTo("on:trigger:b"));
+        }
+
+        [Test]
+        public void Load_WithZeroOffset_BehavesLikeLoadWithoutOffset()
+        {
+            var scheduler = new RecPlaybackScheduler();
+            scheduler.Load(CreateTimeline(), 0d);
+            var visitor = new RecordingVisitor();
+
+            scheduler.Tick(0.5f, visitor);
+
+            Assert.That(visitor.Entries, Has.Count.EqualTo(4));
+            Assert.That(scheduler.IsCompleted, Is.True);
+        }
+
+        [Test]
+        public void Load_WithOffsetAtOrBeyondDuration_IsCompletedImmediately()
+        {
+            var scheduler = new RecPlaybackScheduler();
+            scheduler.Load(CreateTimeline(), 0.5d);
+
+            Assert.That(scheduler.IsCompleted, Is.True);
+
+            scheduler.Load(CreateTimeline(), 10d);
+
+            Assert.That(scheduler.IsCompleted, Is.True);
+            Assert.That(scheduler.ElapsedSeconds, Is.EqualTo(10d));
+        }
+
+        [Test]
+        public void Load_WithNegativeOrNonFiniteOffset_Throws()
+        {
+            var scheduler = new RecPlaybackScheduler();
+
+            Assert.Throws<ArgumentOutOfRangeException>(() => scheduler.Load(CreateTimeline(), -0.01d));
+            Assert.Throws<ArgumentOutOfRangeException>(() => scheduler.Load(CreateTimeline(), double.NaN));
+            Assert.Throws<ArgumentOutOfRangeException>(() => scheduler.Load(CreateTimeline(), double.PositiveInfinity));
+        }
+
+        [Test]
+        public void FindFirstEventIndexAtOrAfter_ReturnsIndexOfFirstEventNotBeforeOffset()
+        {
+            RecTimeline timeline = CreateTimeline();
+
+            Assert.That(RecPlaybackScheduler.FindFirstEventIndexAtOrAfter(timeline, 0d), Is.EqualTo(0));
+            Assert.That(RecPlaybackScheduler.FindFirstEventIndexAtOrAfter(timeline, 0.2d), Is.EqualTo(0));
+            Assert.That(RecPlaybackScheduler.FindFirstEventIndexAtOrAfter(timeline, 0.21d), Is.EqualTo(1));
+            Assert.That(RecPlaybackScheduler.FindFirstEventIndexAtOrAfter(timeline, 0.3d), Is.EqualTo(3));
+            Assert.That(RecPlaybackScheduler.FindFirstEventIndexAtOrAfter(timeline, 1d), Is.EqualTo(4));
+        }
+
         private static RecTimeline CreateTimeline()
         {
             return new RecTimeline(
