@@ -8,10 +8,12 @@ using NUnit.Framework;
 using UnityEngine;
 using UnityEngine.TestTools;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.Tests.EditMode.Adapters
 {
     [TestFixture]
-    public sealed class OscBundleBuilderTests
+    [MediumTest]
+    public sealed class OscBundleBuilderTests : SizedTestFixture
     {
         [Test]
         public void BuildFloatBundle_PreencodedAddresses_WritesParseableOscBundle()

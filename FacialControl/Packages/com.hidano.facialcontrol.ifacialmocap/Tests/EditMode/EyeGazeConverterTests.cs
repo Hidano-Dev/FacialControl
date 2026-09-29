@@ -2,9 +2,11 @@ using Hidano.FacialControl.Adapters.IFacialMocap;
 using NUnit.Framework;
 using UnityEngine;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.IFacialMocap.Tests.EditMode
 {
-    public class EyeGazeConverterTests
+    [SmallTest]
+    public class EyeGazeConverterTests : SizedTestFixture
     {
         [Test]
         public void Convert_NoValue_ReturnsZero()

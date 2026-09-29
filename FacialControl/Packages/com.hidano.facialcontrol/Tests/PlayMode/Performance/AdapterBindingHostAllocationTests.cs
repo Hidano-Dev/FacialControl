@@ -16,6 +16,7 @@ using VContainer.Unity;
 using Hidano.FacialControl.Adapters.AdapterBindings;
 using Hidano.FacialControl.Adapters.AdapterBindings.ARKit;
 using Hidano.FacialControl.Adapters.AdapterBindings.InputSystem;
+using Hidano.FacialControl.Testing;
 #endif
 
 namespace Hidano.FacialControl.Tests.PlayMode.Performance
@@ -27,7 +28,8 @@ namespace Hidano.FacialControl.Tests.PlayMode.Performance
     /// InputSystem / OSC モジュールが存在する場合は実 binding（OscReceiver / InputSystem / ArKitOsc）の両方で確認する。
     /// </summary>
     [TestFixture]
-    public class AdapterBindingHostAllocationTests
+    [MediumTest]
+    public class AdapterBindingHostAllocationTests : SizedTestFixture
     {
         private const int CharacterCount = 10;
         private const int BindingsPerCharacter = 3;

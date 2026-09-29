@@ -14,6 +14,7 @@ using Hidano.FacialControl.Domain.Interfaces;
 using Hidano.FacialControl.Domain.Models;
 using Hidano.FacialControl.Domain.Services;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.Tests.PlayMode.Integration
 {
     /// <summary>
@@ -25,7 +26,8 @@ namespace Hidano.FacialControl.Tests.PlayMode.Integration
     /// 。
     /// </remarks>
     [TestFixture]
-    public class FacialControllerInputSourceWeightTests
+    [MediumTest]
+    public class FacialControllerInputSourceWeightTests : SizedTestFixture
     {
         private GameObject _gameObject;
         private Mesh _mesh;

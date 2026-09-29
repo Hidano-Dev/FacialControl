@@ -8,7 +8,8 @@
         "Hidano.FacialControl.LipSync",
         "uLipSync.Runtime",
         "uLipSync.Runtime.Windows",
-        "UnityEngine.TestRunner"
+        "UnityEngine.TestRunner",
+        "Hidano.FacialControl.Testing"
     ],
     "includePlatforms": [
         "Editor",

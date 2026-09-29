@@ -4,10 +4,12 @@ using Hidano.FacialControl.Rec.Domain.Models;
 using Hidano.FacialControl.Rec.Domain.Services;
 using NUnit.Framework;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.Rec.Tests.EditMode
 {
     [TestFixture]
-    public class RecEventChunkQueueTests
+    [SmallTest]
+    public class RecEventChunkQueueTests : SizedTestFixture
     {
         [Test]
         public void TryDequeue_ReturnsEventsInFifoOrderAcrossSegments()

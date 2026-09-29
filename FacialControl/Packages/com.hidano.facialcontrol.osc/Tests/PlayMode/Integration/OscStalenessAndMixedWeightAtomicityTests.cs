@@ -11,6 +11,7 @@ using Hidano.FacialControl.Domain.Interfaces;
 using Hidano.FacialControl.Domain.Models;
 using Hidano.FacialControl.Domain.Services;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.Tests.PlayMode.Integration
 {
     /// <summary>
@@ -31,7 +32,8 @@ namespace Hidano.FacialControl.Tests.PlayMode.Integration
     /// </list>
     /// </remarks>
     [TestFixture]
-    public class OscStalenessAndMixedWeightAtomicityTests
+    [MediumTest]
+    public class OscStalenessAndMixedWeightAtomicityTests : SizedTestFixture
     {
         // ================================================================
         // 実 UnityTimeProvider 下で staleness 超過 → IsValid=false

@@ -6,6 +6,7 @@ using Hidano.FacialControl.Adapters.Playable;
 using Hidano.FacialControl.Adapters.ScriptableObject;
 using Hidano.FacialControl.Domain.Models;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.Tests.PlayMode.Integration
 {
     /// <summary>
@@ -13,7 +14,8 @@ namespace Hidano.FacialControl.Tests.PlayMode.Integration
     /// 複数の Renderer を持つキャラクターでの FacialController 動作を検証する。
     /// </summary>
     [TestFixture]
-    public class MultiRendererTests
+    [MediumTest]
+    public class MultiRendererTests : SizedTestFixture
     {
         private GameObject _gameObject;
 

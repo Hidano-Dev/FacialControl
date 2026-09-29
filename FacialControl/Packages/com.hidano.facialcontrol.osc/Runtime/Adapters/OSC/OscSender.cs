@@ -3,6 +3,7 @@ using System.Globalization;
 using System.Net;
 using System.Net.Sockets;
 using System.Text;
+using Hidano.FacialControl.Domain.Interfaces;
 using Hidano.FacialControl.Domain.Models;
 using UnityEngine;
 using uOSC;
@@ -80,7 +81,8 @@ namespace Hidano.FacialControl.Adapters.OSC
         private bool _autoStart = true;
 
         private uOSC.uOscClient _client;
-        private UdpClient _bundleClient;
+        private UdpDatagramSender _udpBundleSender;
+        private IDatagramSender _bundleSenderOverride;
         private IPEndPoint _bundleEndpoint;
         private string _bundleEndpointAddress;
         private int _bundleEndpointPort;
@@ -403,7 +405,7 @@ namespace Hidano.FacialControl.Adapters.OSC
             for (int i = 0; i < packetCount; i++)
             {
                 OscBundlePacket packet = _bundleBuilder.GetPacket(i);
-                _bundleClient.Send(packet.Buffer, packet.Length, _bundleEndpoint);
+                SendBundlePacket(packet);
             }
         }
 
@@ -448,7 +450,7 @@ namespace Hidano.FacialControl.Adapters.OSC
             for (int i = 0; i < packetCount; i++)
             {
                 OscBundlePacket packet = _bundleBuilder.GetPacket(i);
-                _bundleClient.Send(packet.Buffer, packet.Length, _bundleEndpoint);
+                SendBundlePacket(packet);
             }
         }
 
@@ -504,7 +506,7 @@ namespace Hidano.FacialControl.Adapters.OSC
             for (int i = 0; i < packetCount; i++)
             {
                 OscBundlePacket packet = _bundleBuilder.GetPacket(i);
-                _bundleClient.Send(packet.Buffer, packet.Length, _bundleEndpoint);
+                SendBundlePacket(packet);
             }
         }
 
@@ -556,7 +558,7 @@ namespace Hidano.FacialControl.Adapters.OSC
                 IPAddress ipAddress = ResolveIpAddress(_endpoint);
                 IPEndPoint endpoint = new IPEndPoint(ipAddress, _port);
 
-                if (_bundleClient != null && _bundleClient.Client.AddressFamily != ipAddress.AddressFamily)
+                if (_udpBundleSender != null && _udpBundleSender.AddressFamily != ipAddress.AddressFamily)
                 {
                     CloseBundleClient();
                 }
@@ -566,10 +568,31 @@ namespace Hidano.FacialControl.Adapters.OSC
                 _bundleEndpointPort = _port;
             }
 
-            if (_bundleClient == null)
+            if (_bundleSenderOverride == null && _udpBundleSender == null)
             {
-                _bundleClient = new UdpClient(_bundleEndpoint.AddressFamily);
+                _udpBundleSender = new UdpDatagramSender(_bundleEndpoint.AddressFamily);
             }
+        }
+
+        /// <summary>
+        /// bundle 送信に使う <see cref="IDatagramSender"/> を差し替える（テスト用）。
+        /// 差し替え中は UDP ソケットを開かない。<c>null</c> を渡すと既定の <see cref="UdpDatagramSender"/> に戻る。
+        /// 送信先エンドポイントの解決（<see cref="EnsureBundleClient"/>）は差し替え後も同じ経路で行われる。
+        /// </summary>
+        internal void SetBundleSender(IDatagramSender sender)
+        {
+            _bundleSenderOverride = sender;
+            if (sender != null && _udpBundleSender != null)
+            {
+                _udpBundleSender.Dispose();
+                _udpBundleSender = null;
+            }
+        }
+
+        private void SendBundlePacket(in OscBundlePacket packet)
+        {
+            IDatagramSender sender = _bundleSenderOverride ?? _udpBundleSender;
+            sender.Send(packet.Buffer, packet.Length, _bundleEndpoint);
         }
 
         private static IPAddress ResolveIpAddress(string address)
@@ -598,10 +621,10 @@ namespace Hidano.FacialControl.Adapters.OSC
 
         private void CloseBundleClient()
         {
-            if (_bundleClient != null)
+            if (_udpBundleSender != null)
             {
-                _bundleClient.Close();
-                _bundleClient = null;
+                _udpBundleSender.Dispose();
+                _udpBundleSender = null;
             }
 
             _bundleEndpoint = null;

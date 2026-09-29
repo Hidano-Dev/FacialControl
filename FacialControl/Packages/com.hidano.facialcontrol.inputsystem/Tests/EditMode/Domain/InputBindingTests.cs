@@ -2,10 +2,12 @@ using System;
 using NUnit.Framework;
 using Hidano.FacialControl.Domain.Models;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.Tests.EditMode.Domain
 {
     [TestFixture]
-    public class InputBindingTests
+    [SmallTest]
+    public class InputBindingTests : SizedTestFixture
     {
         // --- 正常系 ---
 

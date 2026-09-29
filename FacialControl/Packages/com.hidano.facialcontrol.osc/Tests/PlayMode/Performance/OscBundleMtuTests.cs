@@ -8,10 +8,12 @@ using UnityEngine;
 using UnityEngine.Profiling;
 using UnityEngine.TestTools;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.Tests.PlayMode.Performance
 {
     [TestFixture]
-    public sealed class OscBundleMtuTests
+    [MediumTest]
+    public sealed class OscBundleMtuTests : SizedTestFixture
     {
         private const int FrameCount = 100;
         private const int MappingCount = 1000;

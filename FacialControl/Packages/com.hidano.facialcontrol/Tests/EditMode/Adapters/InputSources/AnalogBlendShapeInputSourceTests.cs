@@ -8,6 +8,7 @@ using Hidano.FacialControl.Domain.Models;
 #if FACIALCONTROL_HAS_OSC_MODULE
 using UnityEngine;
 using Hidano.FacialControl.Adapters.OSC;
+using Hidano.FacialControl.Testing;
 #endif
 
 namespace Hidano.FacialControl.Tests.EditMode.Adapters.InputSources
@@ -19,7 +20,8 @@ namespace Hidano.FacialControl.Tests.EditMode.Adapters.InputSources
     /// binding map から導出される <c>ContributeMask</c> が束縛先 BlendShape index 集合と一致することを検証する。
     /// </summary>
     [TestFixture]
-    public class AnalogBlendShapeInputSourceTests
+    [MediumTest]
+    public class AnalogBlendShapeInputSourceTests : SizedTestFixture
     {
 #if FACIALCONTROL_HAS_OSC_MODULE
         private GameObject _receiverObject;

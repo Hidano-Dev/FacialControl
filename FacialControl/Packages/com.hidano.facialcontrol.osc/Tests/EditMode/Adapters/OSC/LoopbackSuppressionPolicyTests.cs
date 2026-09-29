@@ -3,10 +3,12 @@ using Hidano.FacialControl.Adapters.OSC;
 using Hidano.FacialControl.Domain.Adapters;
 using NUnit.Framework;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.Tests.EditMode.Adapters
 {
     [TestFixture]
-    public sealed class LoopbackSuppressionPolicyTests
+    [SmallTest]
+    public sealed class LoopbackSuppressionPolicyTests : SizedTestFixture
     {
         [Test]
         public void FromBindings_OscReceiverWithSameEndpointAndPort_SuppressesSenderEndpoint()

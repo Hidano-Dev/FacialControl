@@ -5,6 +5,7 @@ using UnityEngine;
 using UnityEngine.TestTools;
 using Hidano.FacialControl.Adapters.Bone;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.Tests.PlayMode.Adapters.Bone
 {
     /// <summary>
@@ -25,7 +26,8 @@ namespace Hidano.FacialControl.Tests.PlayMode.Adapters.Bone
     ///   - Adapters/Bone 配下に配置されていること。
     /// </summary>
     [TestFixture]
-    public class HumanoidBoneAutoAssignerTests
+    [MediumTest]
+    public class HumanoidBoneAutoAssignerTests : SizedTestFixture
     {
         private GameObject _rootGo;
         private Avatar _avatar;

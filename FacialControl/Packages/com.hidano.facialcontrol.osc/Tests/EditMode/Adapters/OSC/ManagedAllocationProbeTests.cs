@@ -1,13 +1,15 @@
 using Hidano.FacialControl.Tests.Shared;
 using NUnit.Framework;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.Tests.EditMode.Adapters.OSC
 {
     /// <summary>
     /// <see cref="ManagedAllocationProbe"/> の自己検証。
     /// 「確保 0」を assert するテスト群が空振りしていないこと（計測器が実際の確保を検出すること）を保証する。
     /// </summary>
-    public sealed class ManagedAllocationProbeTests
+    [MediumTest]
+    public sealed class ManagedAllocationProbeTests : SizedTestFixture
     {
         private const int AllocationBytes = 64 * 1024;
 

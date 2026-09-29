@@ -6,10 +6,12 @@ using Hidano.FacialControl.Domain.Models;
 using Hidano.FacialControl.LipSync.Adapters;
 using NUnit.Framework;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.Tests.EditMode.Domain
 {
     [TestFixture]
-    public class IAdapterBindingDefaultLayerInputsContractTests
+    [SmallTest]
+    public class IAdapterBindingDefaultLayerInputsContractTests : SizedTestFixture
     {
         [Test]
         public void GetDefaultLayerInputSources_OverlayLayer_ReturnsPhonemeSlotIds()

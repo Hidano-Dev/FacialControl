@@ -20,10 +20,12 @@ using UnityEngine;
 using UnityEngine.Playables;
 using UnityEngine.Timeline;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.Timeline.Tests.PlayMode
 {
     [TestFixture]
-    public sealed class TimelineLiveEquivalenceIntegrationTests
+    [MediumTest]
+    public sealed class TimelineLiveEquivalenceIntegrationTests : SizedTestFixture
     {
         private const float LinearTolerance = 0.0001f;
         private const float CurveTolerance = 0.02f;

@@ -5,9 +5,11 @@ using System.Text;
 using Hidano.FacialControl.Domain.Models;
 using NUnit.Framework;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.Adapters.OSC.Tests
 {
-    public sealed class OscMessageClassifierTests
+    [SmallTest]
+    public sealed class OscMessageClassifierTests : SizedTestFixture
     {
         [Test]
         public void TryClassify_KnownMapping_ProducesResolvedRecordWithoutAllocating()

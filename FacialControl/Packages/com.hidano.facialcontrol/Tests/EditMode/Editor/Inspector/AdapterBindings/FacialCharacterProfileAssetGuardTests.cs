@@ -9,6 +9,7 @@ using UnityEditor;
 using UnityEngine;
 using UnityEngine.TestTools;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.Tests.EditMode.Editor.Inspector.AdapterBindings
 {
     [Serializable]
@@ -25,7 +26,8 @@ namespace Hidano.FacialControl.Tests.EditMode.Editor.Inspector.AdapterBindings
     /// の save をブロックし、修復後は save が通ることを assert する。
     /// </summary>
     [TestFixture]
-    public class FacialCharacterProfileAssetGuardTests
+    [MediumTest]
+    public class FacialCharacterProfileAssetGuardTests : SizedTestFixture
     {
         private const string TempFolderParent = "Assets";
         private const string TempFolderName = "__Temp_FacialCharacterProfileAssetGuardTests";

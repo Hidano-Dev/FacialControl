@@ -9,6 +9,7 @@ using Hidano.FacialControl.Domain.Services;
 using Hidano.FacialControl.Tests.Shared;
 using NUnit.Framework;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.Tests.EditMode.Adapters.InputSources
 {
     /// <summary>
@@ -18,7 +19,8 @@ namespace Hidano.FacialControl.Tests.EditMode.Adapters.InputSources
     /// および mapping index → mesh index 変換付きコンストラクタの ContributeMask / 書き込み位置と Aggregator 経由の長さ整合を検証する。
     /// </summary>
     [TestFixture]
-    public class OscInputSourceTests
+    [SmallTest]
+    public class OscInputSourceTests : SizedTestFixture
     {
         // ---------------------------------------------------------------
         // 基本契約: Id / Type / BlendShapeCount / Tick

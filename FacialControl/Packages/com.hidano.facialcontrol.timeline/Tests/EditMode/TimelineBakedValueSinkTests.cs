@@ -3,9 +3,11 @@ using Hidano.FacialControl.Domain.Models;
 using Hidano.FacialControl.Timeline.Adapters.InputSources;
 using NUnit.Framework;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.Timeline.Tests.EditMode
 {
-    public sealed class TimelineBakedValueSinkTests
+    [SmallTest]
+    public sealed class TimelineBakedValueSinkTests : SizedTestFixture
     {
         [Test]
         public void ContributeMask_TracksOnlyBakedBlendShapes()

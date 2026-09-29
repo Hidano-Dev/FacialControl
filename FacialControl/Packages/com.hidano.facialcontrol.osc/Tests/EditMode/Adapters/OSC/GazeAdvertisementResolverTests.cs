@@ -2,10 +2,12 @@ using System.Collections.Generic;
 using Hidano.FacialControl.Adapters.OSC;
 using NUnit.Framework;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.Tests.EditMode.Adapters
 {
     [TestFixture]
-    public sealed class GazeAdvertisementResolverTests
+    [SmallTest]
+    public sealed class GazeAdvertisementResolverTests : SizedTestFixture
     {
         [Test]
         public void Parse_FlatPairs_ReturnsEntriesInPayloadOrder()

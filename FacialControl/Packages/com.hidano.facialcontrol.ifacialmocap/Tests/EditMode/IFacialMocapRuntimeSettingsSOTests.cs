@@ -5,9 +5,11 @@ using Hidano.FacialControl.Adapters.RuntimeSettings;
 using NUnit.Framework;
 using UnityEngine;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.IFacialMocap.Tests.EditMode
 {
-    public class IFacialMocapRuntimeSettingsSOTests
+    [SmallTest]
+    public class IFacialMocapRuntimeSettingsSOTests : SizedTestFixture
     {
         [Test]
         public void FromJson_AppliesAllFields()

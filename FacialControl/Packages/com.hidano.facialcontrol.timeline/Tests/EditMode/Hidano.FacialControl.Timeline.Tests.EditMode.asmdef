@@ -14,7 +14,8 @@
         "Unity.Timeline",
         "Unity.Timeline.Editor",
         "UnityEngine.TestRunner",
-        "UnityEditor.TestRunner"
+        "UnityEditor.TestRunner",
+        "Hidano.FacialControl.Testing"
     ],
     "includePlatforms": [
         "Editor"

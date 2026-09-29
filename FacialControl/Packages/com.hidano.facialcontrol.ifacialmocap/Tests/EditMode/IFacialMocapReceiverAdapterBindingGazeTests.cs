@@ -4,9 +4,11 @@ using Hidano.FacialControl.Domain.Adapters;
 using Hidano.FacialControl.Domain.Models;
 using NUnit.Framework;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.IFacialMocap.Tests.EditMode
 {
-    public sealed class IFacialMocapReceiverAdapterBindingGazeTests
+    [SmallTest]
+    public sealed class IFacialMocapReceiverAdapterBindingGazeTests : SizedTestFixture
     {
         [Test]
         public void GazeSourceDeclarations_AdvertiseDefaultChannelAsLeftRightPair()

@@ -2,6 +2,7 @@ using NUnit.Framework;
 using UnityEngine;
 using Hidano.FacialControl.Adapters.Playable;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.Tests.EditMode.Adapters.Playable
 {
     /// <summary>
@@ -10,7 +11,8 @@ namespace Hidano.FacialControl.Tests.EditMode.Adapters.Playable
     /// どちらを生かすかは「階層上位（祖先側）優先、親子関係が無ければ先着優先」で決まる。
     /// </summary>
     [TestFixture]
-    public class FacialControllerConflictResolverTests
+    [SmallTest]
+    public class FacialControllerConflictResolverTests : SizedTestFixture
     {
         private GameObject _root;
 

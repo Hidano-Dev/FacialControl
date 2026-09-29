@@ -7,6 +7,7 @@ using Hidano.FacialControl.Adapters.Json;
 using Hidano.FacialControl.Adapters.Json.Dto;
 using Hidano.FacialControl.Domain.Models;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.Tests.EditMode.Adapters.Json
 {
     /// <summary>
@@ -24,7 +25,8 @@ namespace Hidano.FacialControl.Tests.EditMode.Adapters.Json
     ///      <c>expressions[].snapshot.rendererPaths</c> がトップレベル <c>rendererPaths</c> の subset として保持されること。
     /// </summary>
     [TestFixture]
-    public class IntermediateJsonSchemaV2Tests
+    [SmallTest]
+    public class IntermediateJsonSchemaV2Tests : SizedTestFixture
     {
         // ================================================================
         // Test 1: RoundTrip_FullSnapshot_PreservesAllFields

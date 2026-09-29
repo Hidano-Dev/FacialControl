@@ -8,6 +8,7 @@ using Hidano.FacialControl.Domain.Models;
 using NUnit.Framework;
 using UnityEngine;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.Tests.PlayMode.Adapters.Playable
 {
     /// <summary>
@@ -15,7 +16,8 @@ namespace Hidano.FacialControl.Tests.PlayMode.Adapters.Playable
     /// <see cref="IGazeChannelConsumer"/> を実装する adapter binding へ配布する公開契約を検証する。
     /// </summary>
     [TestFixture]
-    public class FacialControllerGazeChannelTests
+    [MediumTest]
+    public class FacialControllerGazeChannelTests : SizedTestFixture
     {
         private GameObject _gameObject;
         private GazeChannelProfileSO _profileAsset;

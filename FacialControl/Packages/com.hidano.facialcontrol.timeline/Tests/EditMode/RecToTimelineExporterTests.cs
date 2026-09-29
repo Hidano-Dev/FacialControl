@@ -9,9 +9,11 @@ using UnityEngine;
 using UnityEngine.TestTools;
 using UnityEngine.Timeline;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.Timeline.Tests.EditMode
 {
-    public sealed class RecToTimelineExporterTests
+    [SmallTest]
+    public sealed class RecToTimelineExporterTests : SizedTestFixture
     {
         [Test]
         public void CreateTimelineAsset_BuildsExpressionLanes_ClosesDanglingOnAtDuration_AndWarnsForMissingExpressions()

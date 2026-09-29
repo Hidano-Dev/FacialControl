@@ -7,10 +7,12 @@ using Hidano.FacialControl.Rec.Domain.Models;
 using Hidano.FacialControl.Rec.Domain.Services;
 using NUnit.Framework;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.Rec.Tests.EditMode
 {
     [TestFixture]
-    public class RecDomainContractsTests
+    [SmallTest]
+    public class RecDomainContractsTests : SizedTestFixture
     {
         [Test]
         public void RecEvent_CreateAnalogSample_RejectsZeroAxisCount()

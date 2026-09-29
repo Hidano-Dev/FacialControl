@@ -13,10 +13,12 @@ using UnityEditor;
 using UnityEngine;
 using UnityEngine.TestTools;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.LipSync.Tests.EditMode.Adapters
 {
     [TestFixture]
-    public class PhonemeSnapshotBuilderTests
+    [MediumTest]
+    public class PhonemeSnapshotBuilderTests : SizedTestFixture
     {
         private const string TempFolderParent = "Assets";
         private const string TempFolderName = "__Temp_ULipSyncPhonemeSnapshotBuilderTests";

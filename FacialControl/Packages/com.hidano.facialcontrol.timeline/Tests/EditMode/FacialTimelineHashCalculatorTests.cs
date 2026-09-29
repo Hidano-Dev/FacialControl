@@ -6,9 +6,11 @@ using NUnit.Framework;
 using UnityEngine;
 using UnityEngine.Timeline;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.Timeline.Tests.EditMode
 {
-    public sealed class FacialTimelineHashCalculatorTests
+    [SmallTest]
+    public sealed class FacialTimelineHashCalculatorTests : SizedTestFixture
     {
         [Test]
         public void ComputeHash_SameSource_ReturnsSameValue()

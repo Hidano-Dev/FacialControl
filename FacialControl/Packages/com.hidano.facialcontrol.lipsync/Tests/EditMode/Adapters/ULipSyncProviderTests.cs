@@ -7,13 +7,15 @@ using NUnit.Framework;
 using UnityEngine;
 using UnityEngine.TestTools;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.LipSync.Tests.EditMode.Adapters
 {
     // volume 正規化・SmoothDamp・sum=1 正規化は uLipSync 公式（IPhonemeWeightSource 実装）へ
     // 委譲済み。本 provider の責務は「source から読んだ確定 weight × volume を snapshot へ適用する」
     // ことのみ。テストは FakePhonemeWeightSource で weight/volume を直接与えて合成結果を検証する。
     [TestFixture]
-    public class ULipSyncProviderTests
+    [SmallTest]
+    public class ULipSyncProviderTests : SizedTestFixture
     {
         private const float Tolerance = 1e-4f;
 

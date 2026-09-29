@@ -4,6 +4,7 @@ using Unity.Profiling;
 using UnityEngine.InputSystem;
 using Hidano.FacialControl.Adapters.Processors;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.InputSystem.Tests.PlayMode.Performance
 {
     /// <summary>
@@ -25,7 +26,8 @@ namespace Hidano.FacialControl.InputSystem.Tests.PlayMode.Performance
     /// </para>
     /// </remarks>
     [TestFixture]
-    public class AnalogProcessorAllocationTests
+    [MediumTest]
+    public class AnalogProcessorAllocationTests : SizedTestFixture
     {
         private const int IterationCount = 1000;
 

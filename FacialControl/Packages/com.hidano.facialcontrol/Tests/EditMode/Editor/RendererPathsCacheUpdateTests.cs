@@ -2,6 +2,7 @@ using NUnit.Framework;
 using Hidano.FacialControl.Adapters.Json;
 using Hidano.FacialControl.Domain.Models;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.Tests.EditMode.Editor
 {
     /// <summary>
@@ -9,7 +10,8 @@ namespace Hidano.FacialControl.Tests.EditMode.Editor
     /// FacialProfile に RendererPaths を差し替えて再構築 → シリアライズ → パース → RendererPaths が一致するか検証する。
     /// </summary>
     [TestFixture]
-    public class RendererPathsCacheUpdateTests
+    [SmallTest]
+    public class RendererPathsCacheUpdateTests : SizedTestFixture
     {
         private SystemTextJsonParser _parser;
 

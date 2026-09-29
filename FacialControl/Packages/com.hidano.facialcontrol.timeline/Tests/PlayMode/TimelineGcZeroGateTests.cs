@@ -19,10 +19,12 @@ using UnityEngine;
 using UnityEngine.Playables;
 using UnityEngine.Timeline;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.Timeline.Tests.PlayMode
 {
     [TestFixture]
-    public sealed class TimelineGcZeroGateTests
+    [MediumTest]
+    public sealed class TimelineGcZeroGateTests : SizedTestFixture
     {
         private const int WarmupFrames = 8;
         private const int MeasurementFrames = 120;

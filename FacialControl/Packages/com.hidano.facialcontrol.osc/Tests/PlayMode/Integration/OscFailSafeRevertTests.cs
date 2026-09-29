@@ -11,10 +11,12 @@ using Hidano.FacialControl.Tests.Shared;
 using NUnit.Framework;
 using UnityEngine;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.Tests.PlayMode.Integration
 {
     [TestFixture]
-    public sealed class OscFailSafeRevertTests
+    [MediumTest]
+    public sealed class OscFailSafeRevertTests : SizedTestFixture
     {
         private const int PortBase = 19580;
         private const string BlendShapeName = "smile";

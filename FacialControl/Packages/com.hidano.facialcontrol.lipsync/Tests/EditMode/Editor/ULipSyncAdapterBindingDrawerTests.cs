@@ -10,6 +10,7 @@ using UnityEditor;
 using UnityEngine;
 using UnityEngine.UIElements;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.LipSync.Tests.EditMode.Editor
 {
     /// <summary>
@@ -18,7 +19,8 @@ namespace Hidano.FacialControl.LipSync.Tests.EditMode.Editor
     /// 「デバイス選択が <see cref="LipSyncDeviceStore"/> と往復する（デバイス未選択でリップシンクが
     /// 全滅する実機症状の入口）」だけを守る。
     /// </summary>
-    public class ULipSyncAdapterBindingDrawerTests
+    [MediumTest]
+    public class ULipSyncAdapterBindingDrawerTests : SizedTestFixture
     {
         private const string TempFolderParent = "Assets";
         private const string TempFolderName = "__Temp_ULipSyncAdapterBindingDrawerTests";

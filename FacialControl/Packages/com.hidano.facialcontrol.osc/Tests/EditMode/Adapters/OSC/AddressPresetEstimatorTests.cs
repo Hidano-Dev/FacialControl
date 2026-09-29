@@ -6,10 +6,12 @@ using NUnit.Framework;
 using UnityEngine;
 using UnityEngine.TestTools;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.Tests.EditMode.Adapters
 {
     [TestFixture]
-    public sealed class AddressPresetEstimatorTests
+    [SmallTest]
+    public sealed class AddressPresetEstimatorTests : SizedTestFixture
     {
         [Test]
         public void Estimate_VrChatPresetName_ReturnsVrChat()

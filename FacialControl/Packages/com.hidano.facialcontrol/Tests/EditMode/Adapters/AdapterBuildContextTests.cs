@@ -8,6 +8,7 @@ using Hidano.FacialControl.Tests.Shared;
 using NUnit.Framework;
 using UnityEngine;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.Tests.EditMode.Adapters
 {
     /// <summary>
@@ -16,7 +17,8 @@ namespace Hidano.FacialControl.Tests.EditMode.Adapters
     /// 加えて、null 必須依存への <see cref="ArgumentNullException"/> もここで assert する。
     /// </summary>
     [TestFixture]
-    public class AdapterBuildContextTests
+    [SmallTest]
+    public class AdapterBuildContextTests : SizedTestFixture
     {
         private sealed class StubInputSourceRegistry : IInputSourceRegistry
         {

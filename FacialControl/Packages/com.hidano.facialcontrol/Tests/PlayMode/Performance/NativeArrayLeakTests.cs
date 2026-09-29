@@ -9,10 +9,12 @@ using Unity.Collections;
 using UnityEngine;
 using UnityEngine.TestTools;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.Tests.PlayMode.Performance
 {
     [TestFixture]
-    public class NativeArrayLeakTests
+    [MediumTest]
+    public class NativeArrayLeakTests : SizedTestFixture
     {
         private GameObject _controllerGameObject;
         private Mesh _mesh;

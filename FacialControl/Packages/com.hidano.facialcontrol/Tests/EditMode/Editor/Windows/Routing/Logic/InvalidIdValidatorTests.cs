@@ -8,10 +8,12 @@ using Hidano.FacialControl.Tests.EditMode.Adapters.ScriptableObjectTests.Adapter
 using NUnit.Framework;
 using UnityEngine;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.Tests.EditMode.Editor.Windows.Routing.Logic
 {
     [TestFixture]
-    public class InvalidIdValidatorTests
+    [SmallTest]
+    public class InvalidIdValidatorTests : SizedTestFixture
     {
         private TestFacialCharacterProfileSO _profile;
 

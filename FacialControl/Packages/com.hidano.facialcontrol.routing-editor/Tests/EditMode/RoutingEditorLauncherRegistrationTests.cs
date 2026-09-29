@@ -3,6 +3,7 @@ using Hidano.FacialControl.Editor.Windows.Routing;
 using NUnit.Framework;
 using UnityEditor;
 using UnityEngine;
+using Hidano.FacialControl.Testing;
 using Object = UnityEngine.Object;
 
 namespace Hidano.FacialControl.RoutingEditor.Tests.EditMode
@@ -12,7 +13,8 @@ namespace Hidano.FacialControl.RoutingEditor.Tests.EditMode
     /// <see cref="RoutingEditorWindow"/> に繋がることを守る。
     /// </summary>
     [TestFixture]
-    public class RoutingEditorLauncherRegistrationTests
+    [MediumTest]
+    public class RoutingEditorLauncherRegistrationTests : SizedTestFixture
     {
         private FacialCharacterProfileSO _profile;
         private EditorWindow _window;

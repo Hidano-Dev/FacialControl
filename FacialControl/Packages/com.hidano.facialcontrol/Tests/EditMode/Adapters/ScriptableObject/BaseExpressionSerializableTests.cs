@@ -3,12 +3,14 @@ using Hidano.FacialControl.Adapters.Json.Dto;
 using Hidano.FacialControl.Adapters.ScriptableObject.Serializable;
 using NUnit.Framework;
 using UnityEngine;
+using Hidano.FacialControl.Testing;
 using Object = UnityEngine.Object;
 
 namespace Hidano.FacialControl.Tests.EditMode.Adapters.ScriptableObjectTests
 {
     [TestFixture]
-    public class BaseExpressionSerializableTests
+    [SmallTest]
+    public class BaseExpressionSerializableTests : SizedTestFixture
     {
         [Test]
         public void IsEmpty_NewInstance_ReturnsTrueAndProvidesEmptyBlendShapeList()

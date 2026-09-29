@@ -6,12 +6,14 @@ using Hidano.FacialControl.Tests.EditMode.Adapters.ScriptableObjectTests.Adapter
 using NUnit.Framework;
 using UnityEditor;
 using UnityEngine;
+using Hidano.FacialControl.Testing;
 using Object = UnityEngine.Object;
 
 namespace Hidano.FacialControl.Tests.EditMode.Editor.Windows.Routing.Logic
 {
     [TestFixture]
-    public class WiringSerializedMapperTests
+    [SmallTest]
+    public class WiringSerializedMapperTests : SizedTestFixture
     {
         private TestFacialCharacterProfileSO _profile;
         private SerializedObject _serializedObject;

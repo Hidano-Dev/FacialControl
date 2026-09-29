@@ -8,6 +8,7 @@ using Hidano.FacialControl.Domain.Interfaces;
 using Hidano.FacialControl.Domain.Models;
 using Hidano.FacialControl.Domain.Services;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.Tests.PlayMode.Performance
 {
     /// <summary>
@@ -24,7 +25,8 @@ namespace Hidano.FacialControl.Tests.PlayMode.Performance
     /// 同時稼働時の Aggregator パイプライン自体のスループットを計測する。
     /// </remarks>
     [TestFixture]
-    public class MultiCharacterAggregatorPerformanceTests
+    [MediumTest]
+    public class MultiCharacterAggregatorPerformanceTests : SizedTestFixture
     {
         private const int CharacterCount = 10;
         private const int LayerCount = 3;

@@ -9,6 +9,7 @@ using NUnit.Framework;
 using UnityEditor;
 using UnityEngine;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.Osc.Tests.EditMode.Adapters.AdapterBindings
 {
     /// <summary>
@@ -20,7 +21,8 @@ namespace Hidano.FacialControl.Osc.Tests.EditMode.Adapters.AdapterBindings
     /// 同時に保持して round-trip できることを assert する。
     /// </summary>
     [TestFixture]
-    public class ArKitOscAdapterBindingTests
+    [MediumTest]
+    public class ArKitOscAdapterBindingTests : SizedTestFixture
     {
         private const string ExpectedDisplayName = "ARKit / PerfectSync";
 

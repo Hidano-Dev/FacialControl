@@ -2,6 +2,7 @@ using System;
 using NUnit.Framework;
 using Hidano.FacialControl.Adapters.Processors;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.InputSystem.Tests.PlayMode.Adapters.Processors
 {
     /// <summary>
@@ -15,7 +16,8 @@ namespace Hidano.FacialControl.InputSystem.Tests.PlayMode.Adapters.Processors
     /// 公開 API <see cref="UnityEngine.InputSystem.InputSystem.TryGetProcessor(string)"/> で名前解決できる必要がある。
     /// </remarks>
     [TestFixture]
-    public class AnalogProcessorRegistrationTests
+    [MediumTest]
+    public class AnalogProcessorRegistrationTests : SizedTestFixture
     {
         [OneTimeSetUp]
         public void OneTimeSetUp()

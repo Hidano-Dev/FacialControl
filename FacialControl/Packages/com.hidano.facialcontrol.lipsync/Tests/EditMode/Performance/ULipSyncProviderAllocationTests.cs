@@ -12,10 +12,12 @@ using NUnit.Framework;
 using Unity.Profiling;
 using UnityEngine;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.LipSync.Tests.EditMode.Performance
 {
     [TestFixture]
-    public class ULipSyncProviderAllocationTests
+    [MediumTest]
+    public class ULipSyncProviderAllocationTests : SizedTestFixture
     {
         private const int Iterations = 10000;
 

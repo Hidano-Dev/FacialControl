@@ -13,6 +13,7 @@ FacialControl は、3D キャラクターの表情をリアルタイムに制御
 - **作業手順書**: `docs/work-procedure.md` — 実装作業のフェーズ・タスク分解。「作業手順書」と呼ばれたらこのファイルを参照
 - **Backlog**: `docs/backlog.md` — 「別 PR ネタ」「preview.2 以降」「別 spec で対処」と先送りされたタスクの集約先。HANDOVER.md の優先度低項目はここへ昇格させる
 - **テスト方針**: `docs/test-policy.md` — 何を守るテストを残すかの分類（A〜F）と判定基準。テストを書く・直す・消すときはここに従う
+- **テストサイズ**: `docs/testing.md` — Small / Medium / Large の定義、`[SmallTest]` 等の書き方、CI での回し方、Small で書けないときの Humble Object 対処。導入時の全テスト分類は `docs/test-size-migration.md`
 - **Copilot 指示**: `.github/copilot-instructions.md`
 
 ## 開発環境
@@ -38,12 +39,26 @@ FacialControl は、3D キャラクターの表情をリアルタイムに制御
 
 ### テスト実行
 ```bash
-# EditModeテスト（単体テスト）
+# テストサイズ静的チェック（Unity 不要。サイズ未宣言・Small の禁止 API・Small asmdef の参照を検査）
+pwsh ./scripts/check-test-sizes.ps1
+
+# Small テスト（EditMode、PR ごとに CI で実行）
+"<UnityPath>/Unity.exe" -batchmode -nographics -projectPath ./FacialControl \
+    -runTests -testPlatform EditMode -testCategory Small \
+    -testResults ./test-results/small-editmode.xml
+
+# Medium テスト（EditMode / PlayMode 両方。マージ前に CI で実行）
+"<UnityPath>/Unity.exe" -batchmode -nographics -projectPath ./FacialControl \
+    -runTests -testPlatform EditMode -testCategory Medium \
+    -testResults ./test-results/medium-editmode.xml
+"<UnityPath>/Unity.exe" -batchmode -nographics -projectPath ./FacialControl \
+    -runTests -testPlatform PlayMode -testCategory Medium \
+    -testResults ./test-results/medium-playmode.xml
+
+# 全 EditMode / PlayMode（サイズを問わず）
 "<UnityPath>/Unity.exe" -batchmode -nographics -projectPath ./FacialControl \
     -runTests -testPlatform EditMode \
     -testResults ./test-results/editmode.xml
-
-# PlayModeテスト（統合テスト）
 "<UnityPath>/Unity.exe" -batchmode -nographics -projectPath ./FacialControl \
     -runTests -testPlatform PlayMode \
     -testResults ./test-results/playmode.xml
@@ -156,10 +171,17 @@ Red-Green-Refactorサイクル:
 - メソッド名: `{メソッド}_{条件}_{期待結果}`
 - 例: `SetProfile_ValidJson_ReturnsProfileWithCorrectBlendShapes`
 
+### テストサイズ（Small / Medium / Large）
+- すべての fixture クラスに `[SmallTest]` / `[MediumTest]` / `[LargeTest]`（`Hidano.FacialControl.Testing`）を 1 つ付け、基底クラスがなければ `SizedTestFixture` を継承する
+- Small はシーン・MonoBehaviour ライフサイクル・UnityWebRequest・PlayerPrefs・ファイル I/O・Resources/AssetDatabase・WaitForSeconds・Time.* 直接参照を禁止。守れないなら Medium にする
+- 詳細と Small で書けないときの対処は `docs/testing.md`
+
 ### テストフォルダ構造
 ```
 Tests/
-├── EditMode/           # PlayMode不要なテスト（単体・Fake統合）
+├── Small/              # Domain / Application のみに依存する Small（最小参照の asmdef）
+├── Testing/            # サイズ属性・SizedTestFixture（engine 非依存、core パッケージのみ）
+├── EditMode/           # PlayMode不要なテスト（単体・Fake統合）。Small と EditMode の Medium が混在
 │   ├── Domain/         # プロファイル、ブレンドシェイプ等のドメインロジック
 │   ├── Application/    # ユースケーステスト
 │   └── Adapters/       # リポジトリ、JSONパーサー等
@@ -192,6 +214,7 @@ Tests/
 
 ### CI/CD
 - GitHub Actions + セルフホストランナー（Windows マシン）
+- 現状セルフホストランナーは未登録のため、CI は手動実行（workflow_dispatch）のみ（`docs/backlog.md` S-22）。PR のテスト根拠はローカル実行結果を PR 本文に書く
 - TDD 厳守（Red-Green-Refactor）。カバレッジ数値目標は設定しない
 
 ### リリース計画

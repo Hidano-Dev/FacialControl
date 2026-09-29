@@ -12,10 +12,12 @@ using UnityEngine;
 using Unity.Profiling;
 using UnityEngine.Profiling;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.Tests.PlayMode.Performance
 {
     [TestFixture]
-    public sealed class OscSenderGCAllocationTests
+    [MediumTest]
+    public sealed class OscSenderGCAllocationTests : SizedTestFixture
     {
         private const int FrameCount = 100;
         private const int PortBase = 19600;

@@ -5,6 +5,7 @@ using Hidano.FacialControl.Domain.Models;
 using NUnit.Framework;
 using UnityEngine;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.Osc.Tests.EditMode.Adapters.RuntimeSettings
 {
     /// <summary>
@@ -14,7 +15,8 @@ namespace Hidano.FacialControl.Osc.Tests.EditMode.Adapters.RuntimeSettings
     /// <see cref="ISerializationCallbackReceiver.OnAfterDeserialize"/> による不正値補正・enum 正規化を検証する。
     /// </summary>
     [TestFixture]
-    public class OscRuntimeSettingsSOTests
+    [SmallTest]
+    public class OscRuntimeSettingsSOTests : SizedTestFixture
     {
         private OscRuntimeSettingsSO _instance;
 
@@ -359,7 +361,8 @@ namespace Hidano.FacialControl.Osc.Tests.EditMode.Adapters.RuntimeSettings
     /// 不正な enum 文字列・数値・空 JSON が既定値へ正規化されることを検証する。
     /// </summary>
     [TestFixture]
-    public class OscRuntimeSettingsSOJsonRoundTripTests
+    [SmallTest]
+    public class OscRuntimeSettingsSOJsonRoundTripTests : SizedTestFixture
     {
         private OscRuntimeSettingsSO _source;
         private OscRuntimeSettingsSO _restored;

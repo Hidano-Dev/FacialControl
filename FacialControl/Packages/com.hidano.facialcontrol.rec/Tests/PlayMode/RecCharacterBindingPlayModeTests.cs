@@ -21,10 +21,12 @@ using NUnit.Framework;
 using UnityEngine;
 using UnityEngine.TestTools;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.Rec.Tests.PlayMode
 {
     [TestFixture]
-    public class RecCharacterBindingPlayModeTests
+    [MediumTest]
+    public class RecCharacterBindingPlayModeTests : SizedTestFixture
     {
         private GameObject _gameObject;
         private TestCharacterProfileSO _characterSo;

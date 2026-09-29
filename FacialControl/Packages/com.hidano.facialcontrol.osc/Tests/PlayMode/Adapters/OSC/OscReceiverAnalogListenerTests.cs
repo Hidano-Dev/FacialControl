@@ -4,6 +4,7 @@ using UnityEngine;
 using Hidano.FacialControl.Adapters.OSC;
 using Hidano.FacialControl.Domain.Models;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.Tests.PlayMode.Adapters.OSC
 {
     /// <summary>
@@ -11,7 +12,8 @@ namespace Hidano.FacialControl.Tests.PlayMode.Adapters.OSC
     /// <see cref="OscReceiver.UnregisterAnalogListener"/> の追加 API テスト。
     /// </summary>
     [TestFixture]
-    public class OscReceiverAnalogListenerTests
+    [MediumTest]
+    public class OscReceiverAnalogListenerTests : SizedTestFixture
     {
         private GameObject _receiverObj;
         private OscReceiver _receiver;

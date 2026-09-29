@@ -8,10 +8,12 @@ using Hidano.FacialControl.Tests.Shared;
 using NUnit.Framework;
 using Unity.Profiling;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.LipSync.Tests.EditMode.Performance
 {
     [TestFixture]
-    public sealed class LipSyncPhonemeOverlayInputSourceAllocationTests
+    [MediumTest]
+    public sealed class LipSyncPhonemeOverlayInputSourceAllocationTests : SizedTestFixture
     {
         private const int FramesToMeasure = 1000;
         private const double FrameDt = 1.0 / 60.0;

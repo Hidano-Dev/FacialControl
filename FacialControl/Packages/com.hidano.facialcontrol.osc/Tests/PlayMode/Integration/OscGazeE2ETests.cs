@@ -21,9 +21,11 @@ using UnityEngine.InputSystem;
 using UnityEngine.InputSystem.LowLevel;
 using UnityEngine.TestTools;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.Tests.PlayMode.Integration
 {
     [TestFixture]
+    [MediumTest]
     public class OscGazeE2ETests : InputTestFixture
     {
         private const string Endpoint = "127.0.0.1";

@@ -8,6 +8,7 @@ using Hidano.FacialControl.InputSystem.Adapters.ScriptableObject;
 using NUnit.Framework;
 using UnityEditor;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.InputSystem.Tests.EditMode.Adapters.AdapterBindings
 {
     /// <summary>
@@ -24,7 +25,8 @@ namespace Hidano.FacialControl.InputSystem.Tests.EditMode.Adapters.AdapterBindin
     /// （task 10.2 の Green 化対象）。
     /// </remarks>
     [TestFixture]
-    public class InputSystemAdapterBindingTests
+    [MediumTest]
+    public class InputSystemAdapterBindingTests : SizedTestFixture
     {
         private const string ExpectedDisplayName = "Input System";
 

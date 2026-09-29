@@ -7,9 +7,11 @@ using UnityEngine;
 using UnityEngine.TestTools;
 using Hidano.FacialControl.Adapters.OSC;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.Tests.PlayMode.Integration
 {
-    public sealed class OscUdpReceiveLoopTests
+    [MediumTest]
+    public sealed class OscUdpReceiveLoopTests : SizedTestFixture
     {
         [UnityTest]
         public IEnumerator Start_ReceivesDatagramDirectlyIntoRing()

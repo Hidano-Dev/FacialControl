@@ -7,10 +7,12 @@ using Hidano.FacialControl.Domain.Models;
 using Hidano.FacialControl.Domain.Services;
 using NUnit.Framework;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.Tests.PlayMode.Integration
 {
     [TestFixture]
-    public sealed class ArkitProfileRegressionTests
+    [MediumTest]
+    public sealed class ArkitProfileRegressionTests : SizedTestFixture
     {
         private const float Tolerance = 0.0001f;
 

@@ -7,6 +7,7 @@ using Hidano.FacialControl.Adapters.OSC;
 using Hidano.FacialControl.Adapters.Playable;
 using Hidano.FacialControl.Domain.Models;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.Tests.EditMode.Adapters
 {
     /// <summary>
@@ -14,7 +15,8 @@ namespace Hidano.FacialControl.Tests.EditMode.Adapters
     /// OscDoubleBuffer からの値読み取りと PlayableGraph への統合を検証する。
     /// </summary>
     [TestFixture]
-    public class OscReceiverPlayableTests
+    [SmallTest]
+    public class OscReceiverPlayableTests : SizedTestFixture
     {
         private PlayableGraph _graph;
         private OscDoubleBuffer _buffer;

@@ -4,9 +4,11 @@ using NUnit.Framework;
 using UnityEditor;
 using UnityEngine;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.Timeline.Tests.EditMode
 {
-    public sealed class FacialTimelineBakeAssetTests
+    [SmallTest]
+    public sealed class FacialTimelineBakeAssetTests : SizedTestFixture
     {
         [Test]
         public void Properties_WhenAssignedNull_NormalizeToEmptyCollectionsAndStrings()

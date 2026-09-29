@@ -5,6 +5,7 @@ using NUnit.Framework;
 using UnityEngine;
 using UnityEngine.UIElements;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.Rec.Tests.EditMode
 {
     /// <summary>
@@ -12,7 +13,8 @@ namespace Hidano.FacialControl.Rec.Tests.EditMode
     /// 「CreateInspectorGUI が例外なく VisualElement を返す」「破棄で例外を出さない」だけを守る。
     /// </summary>
     [TestFixture]
-    public class RecCharacterBindingInspectorTests
+    [MediumTest]
+    public class RecCharacterBindingInspectorTests : SizedTestFixture
     {
         private GameObject _host;
         private UnityEditor.Editor _editor;

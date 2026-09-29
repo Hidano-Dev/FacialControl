@@ -4,6 +4,7 @@ using UnityEngine;
 using Hidano.FacialControl.Adapters.Playable;
 using Hidano.FacialControl.Domain.Models;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.Tests.EditMode.Adapters
 {
     /// <summary>
@@ -11,7 +12,8 @@ namespace Hidano.FacialControl.Tests.EditMode.Adapters
     /// LRU 動作、キャッシュヒット / ミスを検証する。
     /// </summary>
     [TestFixture]
-    public class AnimationClipCacheTests
+    [SmallTest]
+    public class AnimationClipCacheTests : SizedTestFixture
     {
         private AnimationClipCache _cache;
 

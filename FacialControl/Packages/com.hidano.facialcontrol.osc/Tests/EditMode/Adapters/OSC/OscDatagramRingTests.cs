@@ -6,9 +6,11 @@ using System.Text;
 using Hidano.FacialControl.Domain.Models;
 using Hidano.FacialControl.Adapters.OSC;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.Tests.EditMode.Adapters.OSC
 {
-    public sealed class OscDatagramRingTests
+    [SmallTest]
+    public sealed class OscDatagramRingTests : SizedTestFixture
     {
         private static OscReceiveOptions Options => new OscReceiveOptions(512, 4, 0);
 

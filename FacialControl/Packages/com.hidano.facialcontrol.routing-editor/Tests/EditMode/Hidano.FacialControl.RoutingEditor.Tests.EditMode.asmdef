@@ -9,7 +9,8 @@
         "Hidano.FacialControl.RoutingEditor",
         "Unity.Collections",
         "UnityEngine.TestRunner",
-        "UnityEditor.TestRunner"
+        "UnityEditor.TestRunner",
+        "Hidano.FacialControl.Testing"
     ],
     "includePlatforms": [
         "Editor"

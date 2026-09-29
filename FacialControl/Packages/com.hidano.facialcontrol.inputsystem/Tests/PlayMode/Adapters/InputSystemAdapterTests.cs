@@ -10,6 +10,7 @@ using Hidano.FacialControl.Adapters.Playable;
 using Hidano.FacialControl.Adapters.ScriptableObject;
 using Hidano.FacialControl.Domain.Models;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.Tests.PlayMode.Adapters
 {
     /// <summary>
@@ -17,6 +18,7 @@ namespace Hidano.FacialControl.Tests.PlayMode.Adapters
     /// InputTestFixture を使用して InputAction のシミュレーションを行う。
     /// </summary>
     [TestFixture]
+    [MediumTest]
     public class InputSystemAdapterTests : InputTestFixture
     {
         private GameObject _gameObject;

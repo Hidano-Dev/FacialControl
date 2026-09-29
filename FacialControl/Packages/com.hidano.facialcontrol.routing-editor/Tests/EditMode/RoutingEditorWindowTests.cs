@@ -11,6 +11,7 @@ using UnityEditor.Experimental.GraphView;
 using UnityEngine;
 using UnityEngine.TestTools;
 using UnityEngine.UIElements;
+using Hidano.FacialControl.Testing;
 using Object = UnityEngine.Object;
 
 namespace Hidano.FacialControl.RoutingEditor.Tests.EditMode
@@ -26,7 +27,8 @@ namespace Hidano.FacialControl.RoutingEditor.Tests.EditMode
     /// </list>
     /// </summary>
     [TestFixture]
-    public class RoutingEditorWindowTests
+    [MediumTest] // RoutingEditorWindow（EditorWindow）の生成と Resources.FindObjectsOfTypeAll による後始末を伴うため Small 不可
+    public class RoutingEditorWindowTests : SizedTestFixture
     {
         private FacialCharacterProfileSO _profile;
         private SerializedObject _serializedObject;

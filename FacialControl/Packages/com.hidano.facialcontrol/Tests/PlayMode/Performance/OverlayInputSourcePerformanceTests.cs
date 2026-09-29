@@ -6,10 +6,12 @@ using Hidano.FacialControl.Domain.Models;
 using NUnit.Framework;
 using UnityEngine.TestTools;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.Tests.PlayMode.Performance
 {
     [TestFixture]
-    public class OverlayInputSourcePerformanceTests
+    [MediumTest]
+    public class OverlayInputSourcePerformanceTests : SizedTestFixture
     {
         private const int WarmUpFrames = 10;
         private const int MeasuredFrames = 1000;

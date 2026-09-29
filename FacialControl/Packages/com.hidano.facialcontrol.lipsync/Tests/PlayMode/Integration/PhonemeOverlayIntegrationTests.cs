@@ -9,6 +9,7 @@ using Hidano.FacialControl.LipSync.Tests.Shared;
 using NUnit.Framework;
 using UnityEngine.TestTools;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.LipSync.Tests.PlayMode.Integration
 {
     /// <summary>
@@ -19,7 +20,8 @@ namespace Hidano.FacialControl.LipSync.Tests.PlayMode.Integration
     /// <see cref="PhonemeOverlayPreemptionTests"/> が担う。
     /// </summary>
     [TestFixture]
-    public sealed class PhonemeOverlayIntegrationTests
+    [MediumTest]
+    public sealed class PhonemeOverlayIntegrationTests : SizedTestFixture
     {
         private const string EmotionLayer = "emotion";
         private const string FacePath = "Face";

@@ -2,9 +2,11 @@ using System;
 using NUnit.Framework;
 using Hidano.FacialControl.Adapters.OSC;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.Osc.Tests.EditMode.Adapters.OSC
 {
-    public sealed class OscReceiveFoundationTests
+    [SmallTest]
+    public sealed class OscReceiveFoundationTests : SizedTestFixture
     {
         [Test]
         public void ReceiveOptions_UsesDefaultsAndRejectsValuesOutsideContract()

@@ -4,10 +4,12 @@ using UnityEngine;
 using UnityEngine.Rendering;
 using Hidano.FacialControl.ExpressionCreator;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.ExpressionCreator.Tests.EditMode
 {
     [TestFixture]
-    public class PreviewRenderWrapperTests
+    [SmallTest]
+    public class PreviewRenderWrapperTests : SizedTestFixture
     {
         private PreviewRenderWrapper _wrapper;
         private Rect _rect;

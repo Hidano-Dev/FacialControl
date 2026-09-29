@@ -5,10 +5,12 @@ using NUnit.Framework;
 using UnityEngine;
 using UnityEngine.TestTools;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.Tests.EditMode.Adapters
 {
     [TestFixture]
-    public sealed class ZombieEvictionPolicyTests
+    [SmallTest]
+    public sealed class ZombieEvictionPolicyTests : SizedTestFixture
     {
         [Test]
         public void Observe_MultipleSenderIdentities_AdoptsNewestStartedAtUnixMs()

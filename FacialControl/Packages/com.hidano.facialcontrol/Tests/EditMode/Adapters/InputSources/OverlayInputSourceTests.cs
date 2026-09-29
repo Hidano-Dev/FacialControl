@@ -13,6 +13,7 @@ using UnityEngine;
 using UnityEngine.TestTools;
 using VContainer.Unity;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.Tests.EditMode.Adapters.InputSources
 {
     /// <summary>
@@ -21,7 +22,8 @@ namespace Hidano.FacialControl.Tests.EditMode.Adapters.InputSources
     /// active 切替時のクロスフェード、予約音素 slot の静的出力禁止、未宣言 slot の警告を検証する。
     /// </summary>
     [TestFixture]
-    public class OverlayInputSourceTests
+    [SmallTest]
+    public class OverlayInputSourceTests : SizedTestFixture
     {
         private const string LayerName = "emotion";
         private const string BlinkSlot = "blink";
@@ -474,7 +476,8 @@ namespace Hidano.FacialControl.Tests.EditMode.Adapters.InputSources
     /// Host 用の GameObject を要するため、直接構築する上記 fixture とは分離している。
     /// </summary>
     [TestFixture]
-    public class OverlayInputSourceHostRegistrationTests
+    [SmallTest]
+    public class OverlayInputSourceHostRegistrationTests : SizedTestFixture
     {
         private sealed class NoopAdapterBinding : AdapterBindingBase
         {

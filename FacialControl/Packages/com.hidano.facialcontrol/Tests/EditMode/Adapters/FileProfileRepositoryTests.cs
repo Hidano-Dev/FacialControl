@@ -5,10 +5,12 @@ using Hidano.FacialControl.Domain.Interfaces;
 using Hidano.FacialControl.Domain.Models;
 using Hidano.FacialControl.Adapters.FileSystem;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.Tests.EditMode.Adapters
 {
     [TestFixture]
-    public class FileProfileRepositoryTests
+    [MediumTest]
+    public class FileProfileRepositoryTests : SizedTestFixture
     {
         // --- Fake 実装 ---
 

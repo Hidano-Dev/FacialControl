@@ -2,6 +2,7 @@ using Hidano.FacialControl.Application.UseCases;
 using Hidano.FacialControl.Domain.Models;
 using NUnit.Framework;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.Tests.PlayMode.Integration
 {
     /// <summary>
@@ -10,7 +11,8 @@ namespace Hidano.FacialControl.Tests.PlayMode.Integration
     /// へ付け替えた遷移補間の非回帰テスト。
     /// </summary>
     [TestFixture]
-    public class TransitionIntegrationTests
+    [MediumTest]
+    public class TransitionIntegrationTests : SizedTestFixture
     {
         private const float Tolerance = 0.01f;
 

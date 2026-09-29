@@ -12,6 +12,7 @@ using Unity.Profiling;
 using UnityEngine;
 using UnityEngine.TestTools;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.Tests.PlayMode.Performance
 {
     /// <summary>
@@ -22,7 +23,8 @@ namespace Hidano.FacialControl.Tests.PlayMode.Performance
     ///   M3 = GC.GetTotalMemory(false) の窓前後差分（記録のみ。ブロック粒度）。
     /// - positive control: 受信スレッドのデータグラムコミット時フックで 1 KB × 5 を注入し、M2 が注入量以上を計上することを assert する。
     /// </summary>
-    public sealed class OscReceiverGCWorkloadSelfValidationTests
+    [MediumTest]
+    public sealed class OscReceiverGCWorkloadSelfValidationTests : SizedTestFixture
     {
         private const int MaxPacketSize = OscBundleBuilder.DefaultMaxPacketSize;
         private const int PositiveControlBytesPerDatagram = 1024;

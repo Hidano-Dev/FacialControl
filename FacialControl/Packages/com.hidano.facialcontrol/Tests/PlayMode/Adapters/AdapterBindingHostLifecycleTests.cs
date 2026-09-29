@@ -15,6 +15,7 @@ using UnityEngine.TestTools;
 using VContainer;
 using VContainer.Unity;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.Tests.PlayMode.Adapters
 {
     /// <summary>
@@ -22,7 +23,8 @@ namespace Hidano.FacialControl.Tests.PlayMode.Adapters
     /// 挿入され、複数 binding の lifecycle dispatch と例外 isolation を PlayMode で満たすことを検証する。
     /// </summary>
     [TestFixture]
-    public class AdapterBindingHostLifecycleTests
+    [MediumTest]
+    public class AdapterBindingHostLifecycleTests : SizedTestFixture
     {
         private static readonly Regex AdapterBindingHostErrorPattern =
             new Regex("AdapterBindingHost", RegexOptions.IgnoreCase);

@@ -21,6 +21,7 @@ using Hidano.FacialControl.Adapters.Json;
 using Hidano.FacialControl.Editor.AutoExport;
 using Hidano.FacialControl.Editor.Windows.Routing.Logic;
 using Hidano.FacialControl.LipSync.Adapters;
+using Hidano.FacialControl.Testing;
 #endif
 
 namespace Hidano.FacialControl.Tests.EditMode.Adapters.ScriptableObjectTests
@@ -32,7 +33,8 @@ namespace Hidano.FacialControl.Tests.EditMode.Adapters.ScriptableObjectTests
     /// 自動配線後の SO から export した profile.json の配線 / slots 保持を検証する。
     /// </summary>
     [TestFixture]
-    public class FacialCharacterProfileSOTests
+    [MediumTest]
+    public class FacialCharacterProfileSOTests : SizedTestFixture
     {
         private const string TempFolderParent = "Assets";
         private const string TempFolderName = "__Temp_FacialCharacterProfileSOTests";

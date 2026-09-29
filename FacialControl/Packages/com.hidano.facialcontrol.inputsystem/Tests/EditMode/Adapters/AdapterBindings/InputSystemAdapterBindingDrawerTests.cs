@@ -9,6 +9,7 @@ using NUnit.Framework;
 using UnityEditor;
 using UnityEngine;
 using UnityEngine.UIElements;
+using Hidano.FacialControl.Testing;
 using InputBindingMode = Hidano.FacialControl.InputSystem.Adapters.ScriptableObject.BindingMode;
 using Object = UnityEngine.Object;
 
@@ -22,7 +23,8 @@ namespace Hidano.FacialControl.InputSystem.Tests.EditMode.Adapters.AdapterBindin
     /// 大量発生させる」不具合の再発（m_NativeObjectPtr ガード＋タイマー停止）だけを守る。
     /// </summary>
     [TestFixture]
-    public class InputSystemAdapterBindingDrawerTests
+    [MediumTest]
+    public class InputSystemAdapterBindingDrawerTests : SizedTestFixture
     {
         private const string BlinkSlotName = "blink";
         private const string WinkSlotName = "wink";

@@ -10,10 +10,12 @@ using NUnit.Framework;
 using UnityEngine;
 using UnityEngine.TestTools;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.Rec.Tests.EditMode
 {
     [TestFixture]
-    public class RecAnalogInjectorTests
+    [SmallTest]
+    public class RecAnalogInjectorTests : SizedTestFixture
     {
         // ログ文言の完全一致は避け、文言改善で変わらない sourceId のみ照合する。
         private static readonly Regex RegisteredLogPattern =

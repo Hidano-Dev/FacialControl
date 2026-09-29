@@ -4,6 +4,7 @@ using Hidano.FacialControl.LipSync.Editor.Inspector;
 using Hidano.FacialControl.LipSync.Tests.Shared;
 using NUnit.Framework;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.LipSync.Tests.EditMode.Editor
 {
     /// <summary>
@@ -11,7 +12,8 @@ namespace Hidano.FacialControl.LipSync.Tests.EditMode.Editor
     /// 「列挙器を与えて生成でき、初期値が <see cref="DeviceDescriptorPopup.CurrentDescriptor"/> に反映される」
     /// 「手入力の確定が変更コールバックへ届く」だけを守る。UI ツリーの細部は検証しない。
     /// </summary>
-    public class DeviceDescriptorPopupTests
+    [SmallTest]
+    public class DeviceDescriptorPopupTests : SizedTestFixture
     {
         private DeviceDescriptor _capturedDescriptor;
         private int _changedCallCount;

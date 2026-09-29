@@ -3,9 +3,11 @@ using Hidano.FacialControl.Timeline.Adapters.InputSources;
 using NUnit.Framework;
 using UnityEngine;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.Timeline.Tests.EditMode
 {
-    public sealed class TimelineGazeInputSourceTests
+    [SmallTest]
+    public sealed class TimelineGazeInputSourceTests : SizedTestFixture
     {
         [Test]
         public void Type_ImplementsInjectedInputSourceMarker()

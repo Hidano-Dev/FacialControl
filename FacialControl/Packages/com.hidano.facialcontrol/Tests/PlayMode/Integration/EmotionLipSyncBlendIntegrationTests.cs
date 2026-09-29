@@ -9,6 +9,7 @@ using Hidano.FacialControl.Domain.Services;
 using NUnit.Framework;
 using UnityEngine.TestTools;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.Tests.PlayMode.Integration
 {
     /// <summary>
@@ -17,7 +18,8 @@ namespace Hidano.FacialControl.Tests.PlayMode.Integration
     /// に付け替えて検証する。
     /// </summary>
     [TestFixture]
-    public class EmotionLipSyncBlendIntegrationTests
+    [MediumTest]
+    public class EmotionLipSyncBlendIntegrationTests : SizedTestFixture
     {
         private const float Tolerance = 0.0001f;
 

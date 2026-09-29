@@ -4,6 +4,7 @@ using Hidano.FacialControl.Adapters.Json;
 using Hidano.FacialControl.Domain.Models;
 using Hidano.FacialControl.Editor.Windows;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.Tests.EditMode.Editor
 {
     /// <summary>
@@ -11,7 +12,8 @@ namespace Hidano.FacialControl.Tests.EditMode.Editor
     /// デフォルトレイヤー構成、空 Expression リスト、スキーマバージョン "2.0" を検証する。
     /// </summary>
     [TestFixture]
-    public class ProfileCreationTests
+    [SmallTest]
+    public class ProfileCreationTests : SizedTestFixture
     {
         private SystemTextJsonParser _parser;
 

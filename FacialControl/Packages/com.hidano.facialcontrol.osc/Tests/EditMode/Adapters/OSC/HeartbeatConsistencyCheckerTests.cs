@@ -5,10 +5,12 @@ using NUnit.Framework;
 using UnityEngine;
 using UnityEngine.TestTools;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.Tests.EditMode.Adapters
 {
     [TestFixture]
-    public sealed class HeartbeatConsistencyCheckerTests
+    [SmallTest]
+    public sealed class HeartbeatConsistencyCheckerTests : SizedTestFixture
     {
         [Test]
         public void Constructor_WithReceiverMappings_InitializesReceiverNameCount()

@@ -3,10 +3,12 @@ using UnityEditor;
 using UnityEngine;
 using Hidano.FacialControl.Adapters.ScriptableObject.Serializable;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.Tests.EditMode.Adapters.Profile
 {
     [TestFixture]
-    public sealed class FacialCharacterProfileSOGazeAccessorPerformanceTests
+    [SmallTest]
+    public sealed class FacialCharacterProfileSOGazeAccessorPerformanceTests : SizedTestFixture
     {
         [Test]
         public void GazeChannels_AfterSelfRepair_RepeatedAccessDoesNotReallocateOrReenter()

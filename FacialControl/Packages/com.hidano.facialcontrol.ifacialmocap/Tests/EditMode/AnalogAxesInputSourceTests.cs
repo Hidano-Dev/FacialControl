@@ -3,9 +3,11 @@ using Hidano.FacialControl.Adapters.InputSources;
 using Hidano.FacialControl.Domain.Models;
 using NUnit.Framework;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.IFacialMocap.Tests.EditMode
 {
-    public class AnalogAxesInputSourceTests
+    [SmallTest]
+    public class AnalogAxesInputSourceTests : SizedTestFixture
     {
         private static AnalogAxesInputSource Create(int axisCount)
         {

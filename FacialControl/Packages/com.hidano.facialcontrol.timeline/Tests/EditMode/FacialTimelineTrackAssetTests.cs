@@ -6,9 +6,11 @@ using UnityEngine;
 using UnityEngine.Playables;
 using UnityEngine.Timeline;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.Timeline.Tests.EditMode
 {
-    public sealed class FacialTimelineTrackAssetTests
+    [SmallTest]
+    public sealed class FacialTimelineTrackAssetTests : SizedTestFixture
     {
         [Test]
         public void ExpressionTrack_CreatesExpressionClip_WithClipCapsNone()

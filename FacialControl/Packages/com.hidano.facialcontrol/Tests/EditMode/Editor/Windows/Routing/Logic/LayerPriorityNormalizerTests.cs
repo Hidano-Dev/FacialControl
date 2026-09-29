@@ -1,10 +1,12 @@
 using Hidano.FacialControl.Editor.Windows.Routing.Logic;
 using NUnit.Framework;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.Tests.EditMode.Editor.Windows.Routing.Logic
 {
     [TestFixture]
-    public class LayerPriorityNormalizerTests
+    [SmallTest]
+    public class LayerPriorityNormalizerTests : SizedTestFixture
     {
         [Test]
         public void Normalize_DistinctAscending_ReturnsSameValues()

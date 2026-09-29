@@ -10,6 +10,7 @@ using NUnit.Framework;
 using UnityEditor;
 using UnityEngine;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.Tests.EditMode.Editor
 {
     [Serializable]
@@ -40,7 +41,8 @@ namespace Hidano.FacialControl.Tests.EditMode.Editor
     /// 既定レイヤーと入力ソース宣言を SO へ自動補完すること（公開 API 経由の SO 観測）を守る。
     /// </summary>
     [TestFixture]
-    public class AdapterBindingsListViewDefaultLayerInputsTests
+    [MediumTest]
+    public class AdapterBindingsListViewDefaultLayerInputsTests : SizedTestFixture
     {
         private const string TempFolderParent = "Assets";
         private const string TempFolderName = "__Temp_AdapterBindingsListViewDefaultLayerInputsTests";

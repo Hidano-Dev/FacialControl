@@ -5,12 +5,14 @@ using Hidano.FacialControl.Domain.Models;
 using Hidano.FacialControl.Tests.Shared;
 using NUnit.Framework;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.Tests.EditMode.Adapters.OSC
 {
     /// <summary>
     /// 受信スレッドの解析 <see cref="OscMessageClassifier.ParseAndClassify"/> がマネージド確保ゼロで動くことを固定する。
     /// </summary>
-    public sealed class OscMessageClassifierAllocationTests
+    [MediumTest]
+    public sealed class OscMessageClassifierAllocationTests : SizedTestFixture
     {
         private const int Datagrams = 20;
 

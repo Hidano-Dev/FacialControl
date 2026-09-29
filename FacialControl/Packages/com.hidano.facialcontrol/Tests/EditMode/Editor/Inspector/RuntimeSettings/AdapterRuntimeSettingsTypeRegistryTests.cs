@@ -5,6 +5,7 @@ using Hidano.FacialControl.Editor.Inspector.RuntimeSettings;
 using NUnit.Framework;
 using UnityEngine;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.Tests.EditMode.Editor.Inspector.RuntimeSettings
 {
     /// <summary>
@@ -13,7 +14,8 @@ namespace Hidano.FacialControl.Tests.EditMode.Editor.Inspector.RuntimeSettings
     /// を含む) を列挙し、abstract Base 自身は含まないことを検証する。
     /// </summary>
     [TestFixture]
-    public class AdapterRuntimeSettingsTypeRegistryTests
+    [SmallTest]
+    public class AdapterRuntimeSettingsTypeRegistryTests : SizedTestFixture
     {
         public sealed class FakeRegistryConcreteSettings : AdapterRuntimeSettingsBase
         {

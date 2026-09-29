@@ -1,9 +1,10 @@
 using System.Collections.Generic;
 using Hidano.FacialControl.LipSync.Adapters.Devices;
+using Hidano.FacialControl.Testing;
 
 namespace Hidano.FacialControl.LipSync.Tests.Shared
 {
-    internal sealed class FakePlayerPrefsBackend : IPlayerPrefsBackend
+    internal sealed class FakePlayerPrefsBackend : IPlayerPrefsBackend, IFakeDependency
     {
         private readonly Dictionary<string, string> _strings = new Dictionary<string, string>();
         private readonly Dictionary<string, int> _ints = new Dictionary<string, int>();

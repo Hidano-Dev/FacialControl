@@ -5,6 +5,7 @@ using UnityEngine.TestTools;
 using Hidano.FacialControl.Adapters.OSC;
 using Hidano.FacialControl.Domain.Models;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.Tests.PlayMode.Integration
 {
     /// <summary>
@@ -13,7 +14,8 @@ namespace Hidano.FacialControl.Tests.PlayMode.Integration
     /// ダブルバッファリング動作、および OscSender の送信機能を検証する。
     /// </summary>
     [TestFixture]
-    public class OscSendReceiveTests
+    [MediumTest]
+    public class OscSendReceiveTests : SizedTestFixture
     {
         private GameObject _receiverObj;
         private OscReceiver _receiver;

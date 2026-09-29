@@ -3,10 +3,12 @@ using Hidano.FacialControl.ExpressionCreator;
 using NUnit.Framework;
 using UnityEngine;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.ExpressionCreator.Tests.EditMode
 {
     [TestFixture]
-    public class FaceTrackTargetResolverTests
+    [SmallTest]
+    public class FaceTrackTargetResolverTests : SizedTestFixture
     {
         private readonly List<Object> _trackedObjects = new List<Object>();
 

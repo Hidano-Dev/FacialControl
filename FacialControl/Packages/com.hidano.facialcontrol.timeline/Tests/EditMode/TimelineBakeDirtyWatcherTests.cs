@@ -17,9 +17,11 @@ using UnityEngine;
 using UnityEngine.TestTools;
 using UnityEngine.Timeline;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.Timeline.Tests.EditMode
 {
-    public sealed class TimelineBakeDirtyWatcherTests
+    [MediumTest]
+    public sealed class TimelineBakeDirtyWatcherTests : SizedTestFixture
     {
         [Test]
         public void ProcessTrackedAssetPathsNow_WhenTimelineSaved_RebakesStaleTimeline()

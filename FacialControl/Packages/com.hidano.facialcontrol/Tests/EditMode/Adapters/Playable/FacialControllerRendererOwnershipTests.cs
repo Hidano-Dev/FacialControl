@@ -3,6 +3,7 @@ using NUnit.Framework;
 using UnityEngine;
 using Hidano.FacialControl.Adapters.Playable;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.Tests.EditMode.Adapters.Playable
 {
     /// <summary>
@@ -11,7 +12,8 @@ namespace Hidano.FacialControl.Tests.EditMode.Adapters.Playable
     /// 初期化時に検出できることが目的。
     /// </summary>
     [TestFixture]
-    public class FacialControllerRendererOwnershipTests
+    [MediumTest]
+    public class FacialControllerRendererOwnershipTests : SizedTestFixture
     {
         private readonly List<GameObject> _created = new List<GameObject>();
         private readonly List<Mesh> _meshes = new List<Mesh>();

@@ -1,6 +1,7 @@
 using NUnit.Framework;
 using Hidano.FacialControl.Adapters.Input;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.Tests.EditMode.Adapters.Input
 {
     /// <summary>
@@ -14,7 +15,8 @@ namespace Hidano.FacialControl.Tests.EditMode.Adapters.Input
     /// </list>
     /// </remarks>
     [TestFixture]
-    public class InputDeviceCategorizerTests
+    [SmallTest]
+    public class InputDeviceCategorizerTests : SizedTestFixture
     {
         [Test]
         public void Categorize_Keyboard_ReturnsKeyboard()

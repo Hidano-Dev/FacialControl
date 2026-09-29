@@ -10,6 +10,7 @@ using UnityEditor;
 using UnityEditor.UIElements;
 using UnityEngine;
 using UnityEngine.UIElements;
+using Hidano.FacialControl.Testing;
 using Object = UnityEngine.Object;
 
 namespace Hidano.FacialControl.Tests.EditMode.Editor.Inspector
@@ -27,7 +28,8 @@ namespace Hidano.FacialControl.Tests.EditMode.Editor.Inspector
     /// </list>
     /// </summary>
     [TestFixture]
-    public class FacialCharacterProfileSOInspectorTests
+    [MediumTest]
+    public class FacialCharacterProfileSOInspectorTests : SizedTestFixture
     {
         private const string ProfileName = "FacialCharacterProfileSOInspectorTestProfile";
         private const string EmotionLayerName = "Emotion";

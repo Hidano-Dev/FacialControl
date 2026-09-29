@@ -15,6 +15,7 @@ using NUnit.Framework;
 using UnityEngine;
 using UnityEngine.TestTools;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.LipSync.Tests.PlayMode.Lifecycle
 {
     /// <summary>
@@ -28,6 +29,7 @@ namespace Hidano.FacialControl.LipSync.Tests.PlayMode.Lifecycle
     /// DeviceDescriptor を明示 Configure するテストでは DeviceStore は参照されないため副作用は無い。
     /// </remarks>
     [TestFixture]
+    [MediumTest]
     internal class ULipSyncAdapterBindingLifecycleTests : LipSyncDeviceStoreTestBase
     {
         private const string Slug = "ulipsync";

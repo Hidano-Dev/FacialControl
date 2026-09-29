@@ -2,6 +2,7 @@ using NUnit.Framework;
 using UnityEngine;
 using Hidano.FacialControl.Domain.Services;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.Tests.PlayMode.Domain
 {
     /// <summary>
@@ -20,7 +21,8 @@ namespace Hidano.FacialControl.Tests.PlayMode.Domain
     ///     （body tilt が gaze に漏れないことの構造的保証）。
     /// </summary>
     [TestFixture]
-    public class BonePoseComposerTests
+    [MediumTest]
+    public class BonePoseComposerTests : SizedTestFixture
     {
         private const float Tolerance = 1e-5f;
 

@@ -9,10 +9,12 @@ using NUnit.Framework;
 using UnityEngine;
 using UnityEngine.TestTools;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.LipSync.Tests.EditMode.Adapters
 {
     [TestFixture]
-    public sealed class LipSyncPhonemeOverlayInputSourceTests
+    [SmallTest]
+    public sealed class LipSyncPhonemeOverlayInputSourceTests : SizedTestFixture
     {
         private const int BlendShapeCount = 3;
 

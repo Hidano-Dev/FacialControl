@@ -3,10 +3,12 @@ using Hidano.FacialControl.Adapters.AdapterBindings;
 using Hidano.FacialControl.Adapters.OSC;
 using NUnit.Framework;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.Tests.EditMode.Adapters
 {
     [TestFixture]
-    public sealed class SenderIdentityTests
+    [SmallTest]
+    public sealed class SenderIdentityTests : SizedTestFixture
     {
         [Test]
         public void Constructor_ValidUuidAndStartedAtUnixMs_StoresValues()

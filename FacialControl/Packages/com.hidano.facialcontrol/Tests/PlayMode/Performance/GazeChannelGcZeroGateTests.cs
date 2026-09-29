@@ -9,10 +9,12 @@ using NUnit.Framework;
 using Unity.Profiling;
 using UnityEngine;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.Tests.PlayMode.Performance
 {
     [TestFixture]
-    public sealed class GazeChannelGcZeroGateTests
+    [MediumTest]
+    public sealed class GazeChannelGcZeroGateTests : SizedTestFixture
     {
         private const int WarmupFrames = 8;
         private const int MeasurementFrames = 100;

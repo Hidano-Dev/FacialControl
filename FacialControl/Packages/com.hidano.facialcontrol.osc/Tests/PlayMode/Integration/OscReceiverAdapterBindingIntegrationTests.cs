@@ -15,6 +15,7 @@ using NUnit.Framework;
 using UnityEngine;
 using UnityEngine.TestTools;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.Tests.PlayMode.Integration
 {
     /// <summary>
@@ -24,7 +25,8 @@ namespace Hidano.FacialControl.Tests.PlayMode.Integration
     /// Gaze VRChat_XY バンドル経路、<c>Dispose</c> による helper 破棄と socket 解放を検証する。
     /// </summary>
     [TestFixture]
-    public class OscReceiverAdapterBindingIntegrationTests
+    [MediumTest]
+    public class OscReceiverAdapterBindingIntegrationTests : SizedTestFixture
     {
         private const string TestEndpoint = "127.0.0.1";
 
@@ -629,7 +631,8 @@ namespace Hidano.FacialControl.Tests.PlayMode.Integration
     /// VRChat_XY 左右独立指定の警告、Dispose による runtime 状態解放を検証する。
     /// </summary>
     [TestFixture]
-    public sealed class OscReceiverAdapterBindingWithMeshRendererTests
+    [MediumTest]
+    public sealed class OscReceiverAdapterBindingWithMeshRendererTests : SizedTestFixture
     {
         private const string Endpoint = "127.0.0.1";
         private const string Slug = "osc-auto-mapping";
@@ -988,7 +991,8 @@ namespace Hidano.FacialControl.Tests.PlayMode.Integration
     /// 同一 SO を Receiver と Sender に注入したとき同じ port で値が往復することを検証する。
     /// </summary>
     [TestFixture]
-    public sealed class OscReceiverAdapterBindingWithRuntimeSettingsTests
+    [MediumTest]
+    public sealed class OscReceiverAdapterBindingWithRuntimeSettingsTests : SizedTestFixture
     {
         private const string Endpoint = "127.0.0.1";
         private const string BlendShapeNameA = "smile";

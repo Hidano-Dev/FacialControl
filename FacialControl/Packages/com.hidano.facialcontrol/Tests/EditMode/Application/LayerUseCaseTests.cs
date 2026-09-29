@@ -7,6 +7,7 @@ using Hidano.FacialControl.Domain.Interfaces;
 using Hidano.FacialControl.Domain.Models;
 using Hidano.FacialControl.Domain.Services;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.Tests.EditMode.Application
 {
     /// <summary>
@@ -16,7 +17,8 @@ namespace Hidano.FacialControl.Tests.EditMode.Application
     /// 3 レイヤー（emotion / lipsync / eye）の既定プロファイルを SetUp で構築する。
     /// </summary>
     [TestFixture]
-    public class LayerUseCaseTests
+    [SmallTest]
+    public class LayerUseCaseTests : SizedTestFixture
     {
         // --- ヘルパー ---
 
@@ -979,7 +981,8 @@ namespace Hidano.FacialControl.Tests.EditMode.Application
     /// contribute する index はレイヤー出力で上書きされる。
     /// </summary>
     [TestFixture]
-    public class LayerUseCaseWithBaseExpressionTests
+    [SmallTest]
+    public class LayerUseCaseWithBaseExpressionTests : SizedTestFixture
     {
         private static readonly string[] BlendShapeNames = { "bs_a", "bs_b" };
 
@@ -1149,7 +1152,8 @@ namespace Hidano.FacialControl.Tests.EditMode.Application
     /// アナログ入力値（<see cref="FakeScalarSource"/>）から転写して与える。
     /// </summary>
     [TestFixture]
-    public class LayerUseCaseWithOverlayLayerTests
+    [SmallTest]
+    public class LayerUseCaseWithOverlayLayerTests : SizedTestFixture
     {
         private const string BlinkSlot = "blink";
         private const string EmotionLayer = "emotion";
@@ -1520,7 +1524,8 @@ namespace Hidano.FacialControl.Tests.EditMode.Application
     /// アナログ加算表情と inline overlay がともにトリガー値へ線形に追従することを検証する。
     /// </summary>
     [TestFixture]
-    public class LayerUseCaseWithAnalogExpressionAdditionTests
+    [SmallTest]
+    public class LayerUseCaseWithAnalogExpressionAdditionTests : SizedTestFixture
     {
         private const string BlinkSlot = "blink";
         private const string EmotionLayer = "emotion";

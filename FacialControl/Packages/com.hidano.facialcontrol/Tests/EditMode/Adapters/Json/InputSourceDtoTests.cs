@@ -2,6 +2,7 @@ using NUnit.Framework;
 using UnityEngine;
 using Hidano.FacialControl.Adapters.Json.Dto;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.Tests.EditMode.Adapters.Json
 {
     /// <summary>
@@ -13,7 +14,8 @@ namespace Hidano.FacialControl.Tests.EditMode.Adapters.Json
     /// </para>
     /// </summary>
     [TestFixture]
-    public class InputSourceDtoTests
+    [SmallTest]
+    public class InputSourceDtoTests : SizedTestFixture
     {
         // ================================================================
         // InputSourceDto — JSON 往復

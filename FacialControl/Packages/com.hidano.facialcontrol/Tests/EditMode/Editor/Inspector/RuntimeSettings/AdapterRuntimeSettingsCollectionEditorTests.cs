@@ -5,6 +5,7 @@ using NUnit.Framework;
 using UnityEditor;
 using UnityEngine;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.Tests.EditMode.Editor.Inspector.RuntimeSettings
 {
     /// <summary>
@@ -13,7 +14,8 @@ namespace Hidano.FacialControl.Tests.EditMode.Editor.Inspector.RuntimeSettings
     /// 重複追加がブロックされないこと (要件 3.1, 3.3, 6.3, 6.4, 6.8) を検証する。
     /// </summary>
     [TestFixture]
-    public class AdapterRuntimeSettingsCollectionEditorTests
+    [MediumTest]
+    public class AdapterRuntimeSettingsCollectionEditorTests : SizedTestFixture
     {
         public sealed class FakeAlphaEditorSettings : AdapterRuntimeSettingsBase
         {

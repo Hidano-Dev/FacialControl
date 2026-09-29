@@ -11,9 +11,11 @@ using Hidano.FacialControl.Timeline.Domain.Models;
 using Hidano.FacialControl.Timeline.Domain.Services;
 using Hidano.FacialControl.Timeline.Tracks;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.Timeline.Tests.EditMode
 {
-    public sealed class TimelineBakeServiceTests
+    [SmallTest]
+    public sealed class TimelineBakeServiceTests : SizedTestFixture
     {
         [Test]
         public void Bake_WhenClipBoundariesAreOffGrid_ContainsKeysAtExactEventTimes()

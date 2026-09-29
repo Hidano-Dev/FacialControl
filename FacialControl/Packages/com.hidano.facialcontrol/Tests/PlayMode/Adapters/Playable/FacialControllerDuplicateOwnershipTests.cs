@@ -9,6 +9,7 @@ using Hidano.FacialControl.Adapters.ScriptableObject.Serializable;
 using Hidano.FacialControl.Domain.Adapters;
 using Hidano.FacialControl.Domain.Models;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.Tests.PlayMode.Adapters.Playable
 {
     /// <summary>
@@ -25,7 +26,8 @@ namespace Hidano.FacialControl.Tests.PlayMode.Adapters.Playable
     /// </para>
     /// </summary>
     [TestFixture]
-    public class FacialControllerDuplicateOwnershipTests
+    [MediumTest]
+    public class FacialControllerDuplicateOwnershipTests : SizedTestFixture
     {
         private readonly List<Object> _created = new List<Object>();
 

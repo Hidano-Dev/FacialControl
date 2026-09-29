@@ -11,6 +11,7 @@ using NUnit.Framework;
 using UnityEngine;
 using UnityEngine.TestTools;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.LipSync.Tests.EditMode.Adapters
 {
     /// <summary>
@@ -19,7 +20,8 @@ namespace Hidano.FacialControl.LipSync.Tests.EditMode.Adapters
     /// phoneme overlay slot の二重書き込み警告検出を検証する。
     /// </summary>
     [TestFixture]
-    public sealed class ULipSyncAdapterBindingTests
+    [SmallTest]
+    public sealed class ULipSyncAdapterBindingTests : SizedTestFixture
     {
         private const string Slug = "ulipsync";
         private const string BlendShapeName = "Mouth_A";

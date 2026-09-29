@@ -4,6 +4,7 @@ using NUnit.Framework;
 using Hidano.FacialControl.Domain.Models;
 using Hidano.FacialControl.Editor.Windows;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.Tests.EditMode.Editor
 {
     /// <summary>
@@ -11,7 +12,8 @@ namespace Hidano.FacialControl.Tests.EditMode.Editor
     /// 命名規則プリセット（VRM / ARKit / None）と <see cref="ProfileCreationData.BuildProfile"/> の統合挙動を検証する。
     /// </summary>
     [TestFixture]
-    public class SampleExpressionsTests
+    [SmallTest]
+    public class SampleExpressionsTests : SizedTestFixture
     {
         // --- BuildSampleExpressions: VRM プリセット ---
 

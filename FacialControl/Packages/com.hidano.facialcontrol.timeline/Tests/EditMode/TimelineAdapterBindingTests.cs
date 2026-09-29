@@ -13,9 +13,11 @@ using NUnit.Framework;
 using UnityEditor;
 using UnityEngine;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.Timeline.Tests.EditMode
 {
-    public sealed class TimelineAdapterBindingTests
+    [SmallTest]
+    public sealed class TimelineAdapterBindingTests : SizedTestFixture
     {
         private const string ExpectedDisplayName = "Timeline";
 

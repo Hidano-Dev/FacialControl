@@ -15,10 +15,12 @@ using NUnit.Framework;
 using UnityEngine;
 using UnityEngine.TestTools;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.LipSync.Tests.PlayMode.MultiCharacter
 {
     [TestFixture]
-    public class TenCharacterIsolationTests
+    [MediumTest]
+    public class TenCharacterIsolationTests : SizedTestFixture
     {
         private const int CharacterCount = 10;
         private const int SwapCharacterIndex = 4;

@@ -8,6 +8,7 @@ using NUnit.Framework;
 using UnityEngine;
 using UnityEngine.TestTools;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.Tests.EditMode.Editor.Inspector.AdapterBindings
 {
     // ---------------------------------------------------------------
@@ -42,7 +43,8 @@ namespace Hidano.FacialControl.Tests.EditMode.Editor.Inspector.AdapterBindings
     /// コンパイル時に CS0246 / CS0234 が発生して Red 状態となる（task 5.2 の Green 化対象）。
     /// </remarks>
     [TestFixture]
-    public class AdapterBindingDiscoveryTests
+    [SmallTest]
+    public class AdapterBindingDiscoveryTests : SizedTestFixture
     {
         private const string SingleDisplayName = "ZZZ_DiscoveryTest_AAA_Single";
         private const string DuplicateDisplayName = "ZZZ_DiscoveryTest_BBB_Duplicate";

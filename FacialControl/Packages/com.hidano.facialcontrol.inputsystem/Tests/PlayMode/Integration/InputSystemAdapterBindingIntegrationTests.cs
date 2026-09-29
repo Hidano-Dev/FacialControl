@@ -14,6 +14,7 @@ using UnityEngine;
 using UnityEngine.InputSystem;
 using UnityEngine.TestTools;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.InputSystem.Tests.PlayMode.Integration
 {
     /// <summary>
@@ -33,7 +34,8 @@ namespace Hidano.FacialControl.InputSystem.Tests.PlayMode.Integration
     /// （task 10.2 の Green 化対象）。
     /// </remarks>
     [TestFixture]
-    public class InputSystemAdapterBindingIntegrationTests
+    [MediumTest]
+    public class InputSystemAdapterBindingIntegrationTests : SizedTestFixture
     {
         private GameObject _hostGameObject;
         private InputSourceRegistry _registry;

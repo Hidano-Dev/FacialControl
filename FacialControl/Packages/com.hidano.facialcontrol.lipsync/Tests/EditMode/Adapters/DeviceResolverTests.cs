@@ -3,10 +3,12 @@ using Hidano.FacialControl.LipSync.Adapters.Devices;
 using Hidano.FacialControl.LipSync.Tests.Shared;
 using NUnit.Framework;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.LipSync.Tests.EditMode.Adapters
 {
     [TestFixture]
-    public class DeviceResolverTests
+    [SmallTest]
+    public class DeviceResolverTests : SizedTestFixture
     {
         [Test]
         public void Resolve_AsioMatch_ReturnsAsioKind()

@@ -5,9 +5,11 @@ using Hidano.FacialControl.Domain.Models;
 using Hidano.FacialControl.Tests.Shared;
 using NUnit.Framework;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.Adapters.OSC.Tests
 {
-    public sealed class OscAddressKeyTableTests
+    [SmallTest]
+    public sealed class OscAddressKeyTableTests : SizedTestFixture
     {
         [Test]
         public void Builder_UsesExactAddressBeforeFallbackAndLastMappingWins()

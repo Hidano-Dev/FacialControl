@@ -9,10 +9,12 @@ using Hidano.FacialControl.LipSync.Adapters.PhonemeEntries;
 using Hidano.FacialControl.LipSync.Tests.Shared;
 using NUnit.Framework;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.LipSync.Tests.PlayMode
 {
     [TestFixture]
-    public sealed class LipSyncPhonemeOverlayRegressionTests
+    [MediumTest]
+    public sealed class LipSyncPhonemeOverlayRegressionTests : SizedTestFixture
     {
         private const float Tolerance = 0.0001f;
         private const string OverlayLayer = "overlay";

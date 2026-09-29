@@ -4,10 +4,12 @@ using System.Text;
 using Hidano.FacialControl.Adapters.OSC;
 using NUnit.Framework;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.Tests.EditMode.Adapters
 {
     [TestFixture]
-    public class OscAddressFormatterTests
+    [SmallTest]
+    public class OscAddressFormatterTests : SizedTestFixture
     {
         [Test]
         public void TryFormatBlendShapeAddress_VRChatNameWithMultibyteAndSymbols_WritesCompleteAddress()

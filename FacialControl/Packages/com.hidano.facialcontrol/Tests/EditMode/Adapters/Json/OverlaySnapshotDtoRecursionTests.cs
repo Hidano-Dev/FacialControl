@@ -3,6 +3,7 @@ using Hidano.FacialControl.Adapters.Json.Dto;
 using Hidano.FacialControl.Adapters.ScriptableObject.Serializable;
 using NUnit.Framework;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.Tests.EditMode.Adapters.Json
 {
     /// <summary>
@@ -16,7 +17,8 @@ namespace Hidano.FacialControl.Tests.EditMode.Adapters.Json
     /// </para>
     /// </summary>
     [TestFixture]
-    public class OverlaySnapshotDtoRecursionTests
+    [SmallTest]
+    public class OverlaySnapshotDtoRecursionTests : SizedTestFixture
     {
         [Test]
         public void OverlaySnapshotDto_DoesNotExposeOverlaysField_TerminatesRecursion()

@@ -6,10 +6,12 @@ using System.Text;
 using NUnit.Framework;
 using UnityEngine;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.Tests.EditMode.Editor.Inspector
 {
     [TestFixture]
-    public class SampleAssetsAreInSyncTests
+    [MediumTest]
+    public class SampleAssetsAreInSyncTests : SizedTestFixture
     {
         private const string DevStreamingProfilePath =
             "Assets/StreamingAssets/FacialControl/MultiSourceBlendDemoCharacter/profile.json";

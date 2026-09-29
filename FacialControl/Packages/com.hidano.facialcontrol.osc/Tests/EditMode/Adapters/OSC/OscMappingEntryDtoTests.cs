@@ -6,10 +6,12 @@ using NUnit.Framework;
 using UnityEngine;
 using UnityEngine.TestTools;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.Tests.EditMode.Adapters.Json
 {
     [TestFixture]
-    public sealed class OscMappingEntryDtoTests
+    [SmallTest]
+    public sealed class OscMappingEntryDtoTests : SizedTestFixture
     {
         [Test]
         public void Type_SerializableAttribute_IsDefined()

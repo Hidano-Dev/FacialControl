@@ -9,7 +9,8 @@
         "Hidano.FacialControl.Timeline.Tests.Shared",
         "Unity.Timeline",
         "UnityEngine.TestRunner",
-        "UnityEditor.TestRunner"
+        "UnityEditor.TestRunner",
+        "Hidano.FacialControl.Testing"
     ],
     "includePlatforms": [],
     "excludePlatforms": [],
