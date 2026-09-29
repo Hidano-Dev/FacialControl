@@ -1,0 +1,2 @@
+# テストデータ（キャッシュキー形式の 16 進文字列）を generic-api-key と誤検知したもの（HID-44 / PR #28）
+c6fbedace8b0fec12d48e49e4ac8808debdb1f02:FacialControl/Packages/com.hidano.facialcontrol/Tests/EditMode/Editor/Thumbnails/ExpressionThumbnailDiskCacheTests.cs:generic-api-key:17

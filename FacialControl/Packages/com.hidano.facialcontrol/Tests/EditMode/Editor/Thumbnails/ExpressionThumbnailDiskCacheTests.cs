@@ -14,7 +14,8 @@ namespace Hidano.FacialControl.Tests.EditMode.Editor.Thumbnails
     [MediumTest]
     public class ExpressionThumbnailDiskCacheTests : SizedTestFixture
     {
-        private const string Key = "0123456789abcdef";
+        // 16 桁の 16 進小文字（キャッシュキーの形式）。
+        private const string Key = "000000000000000a";
 
         private string _directory;
         private ExpressionThumbnailDiskCache _cache;
