@@ -328,8 +328,8 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
                 // FQN で UnityEngine.ScriptableObject を指定する。Adapters 配下に同名の
                 // namespace (Hidano.FacialControl.Adapters.ScriptableObject) が存在するため
                 // 短縮形だと CS0234 で解決失敗するのを回避する。
-                _runtimeSettings = UnityEngine.ScriptableObject.CreateInstance<OscSenderRuntimeSettingsSO>();
-                _runtimeSettings.hideFlags = HideFlags.HideAndDontSave;
+                _runtimeSettings = OscRuntimeSettingsInstances.MarkTransient(
+                    UnityEngine.ScriptableObject.CreateInstance<OscSenderRuntimeSettingsSO>());
             }
             return _runtimeSettings;
         }
@@ -338,23 +338,23 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
         {
             if (_legacyConvertedSettings == null || !ReferenceEquals(_legacyConvertedFrom, _legacySettings))
             {
-                if (_legacyConvertedSettings != null)
-                {
-                    if (UnityEngine.Application.isPlaying)
-                    {
-                        UnityEngine.Object.Destroy(_legacyConvertedSettings);
-                    }
-                    else
-                    {
-                        UnityEngine.Object.DestroyImmediate(_legacyConvertedSettings);
-                    }
-                }
-
-                _legacyConvertedSettings = OscSenderRuntimeSettingsSO.CreateFromLegacy(_legacySettings);
-                _legacyConvertedSettings.hideFlags = HideFlags.HideAndDontSave;
-                _legacyConvertedFrom = _legacySettings;
+                RefreshLegacyConvertedSettings();
             }
             return _legacyConvertedSettings;
+        }
+
+        /// <summary>
+        /// 旧設定の値を写し直す。旧アセットの値が後から編集されても、次の起動で反映されるようにする。
+        /// </summary>
+        private void RefreshLegacyConvertedSettings()
+        {
+            OscRuntimeSettingsInstances.Destroy(ref _legacyConvertedSettings);
+            _legacyConvertedFrom = _legacySettings;
+            if (_legacySettings != null)
+            {
+                _legacyConvertedSettings = OscRuntimeSettingsInstances.MarkTransient(
+                    OscSenderRuntimeSettingsSO.CreateFromLegacy(_legacySettings));
+            }
         }
 
         public override void OnStart(in AdapterBuildContext ctx)
@@ -390,6 +390,11 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
                 Debug.LogWarning(
                     $"[OscSenderAdapterBinding] 旧形式の設定 '{_legacySettings.name}' が割り当てられたままです。その送信先で起動します。"
                     + $" Inspector の「旧設定から移行」で binding 側へ移行してください。slug='{Slug}'");
+            }
+
+            if (_legacySettings != null)
+            {
+                RefreshLegacyConvertedSettings();
             }
 
             OscSenderRuntimeSettingsSO settings = EffectiveSettings;
@@ -586,6 +591,9 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
             _sendHeartbeatOnNextTick = false;
             _hasPublishedFrame = false;
             _effectiveSettings = null;
+            OscRuntimeSettingsInstances.Destroy(ref _runtimeSettings);
+            OscRuntimeSettingsInstances.Destroy(ref _legacyConvertedSettings);
+            _legacyConvertedFrom = null;
             _warnedCustomGazeAdvertisement = false;
             _started = false;
         }

@@ -23,7 +23,7 @@ Gaze の送信対象は Profile の目線タブに宣言されたチャネルが
 | フィールド | 型 | 既定値 | 説明 |
 |---|---|---|---|
 | `heartbeatIntervalSeconds` | float | `5.0` | heartbeat 周期。実行時に 0.5〜60 秒にクランプ |
-| `suppressLoopback` | bool | `true` | 同じ Profile 内の OSC Receiver と同じポートへの loopback 送信を抑止 |
+| `suppressLoopback` | bool | `true` | 同じ Profile 内の OSC Receiver と同じポートへの送信のうち、宛先が loopback か自機のインターフェースアドレス（LAN IP 等）のものを抑止 |
 
 `ToJson()` / `FromJson()` は `schemaVersion` / `label` / `heartbeatIntervalSeconds` / `suppressLoopback` を読み書きする。
 

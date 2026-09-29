@@ -612,8 +612,8 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
                 // FQN で UnityEngine.ScriptableObject を指定する。Adapters 配下に同名の
                 // namespace (Hidano.FacialControl.Adapters.ScriptableObject) が存在するため
                 // 短縮形だと CS0234 で解決失敗するのを回避する。
-                _runtimeSettings = UnityEngine.ScriptableObject.CreateInstance<OscReceiverRuntimeSettingsSO>();
-                _runtimeSettings.hideFlags = HideFlags.HideAndDontSave;
+                _runtimeSettings = OscRuntimeSettingsInstances.MarkTransient(
+                    UnityEngine.ScriptableObject.CreateInstance<OscReceiverRuntimeSettingsSO>());
             }
             return _runtimeSettings;
         }
@@ -622,27 +622,22 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
         {
             if (_legacyConvertedSettings == null || !ReferenceEquals(_legacyConvertedFrom, _legacySettings))
             {
-                if (_legacyConvertedSettings != null)
-                {
-                    DestroySettingsInstance(_legacyConvertedSettings);
-                }
-
-                _legacyConvertedSettings = OscReceiverRuntimeSettingsSO.CreateFromLegacy(_legacySettings);
-                _legacyConvertedSettings.hideFlags = HideFlags.HideAndDontSave;
-                _legacyConvertedFrom = _legacySettings;
+                RefreshLegacyConvertedSettings();
             }
             return _legacyConvertedSettings;
         }
 
-        private static void DestroySettingsInstance(UnityEngine.Object instance)
+        /// <summary>
+        /// 旧設定の値を写し直す。旧アセットの値が後から編集されても、次の起動で反映されるようにする。
+        /// </summary>
+        private void RefreshLegacyConvertedSettings()
         {
-            if (UnityEngine.Application.isPlaying)
+            OscRuntimeSettingsInstances.Destroy(ref _legacyConvertedSettings);
+            _legacyConvertedFrom = _legacySettings;
+            if (_legacySettings != null)
             {
-                UnityEngine.Object.Destroy(instance);
-            }
-            else
-            {
-                UnityEngine.Object.DestroyImmediate(instance);
+                _legacyConvertedSettings = OscRuntimeSettingsInstances.MarkTransient(
+                    OscReceiverRuntimeSettingsSO.CreateFromLegacy(_legacySettings));
             }
         }
 
@@ -681,6 +676,11 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
                 Debug.LogWarning(
                     $"[OscReceiverAdapterBinding] 受信ポート {port} が不正 (1〜65535) のため OSC Adapter は起動しません。slug='{Slug}'");
                 return;
+            }
+
+            if (_legacySettings != null)
+            {
+                RefreshLegacyConvertedSettings();
             }
 
             OscReceiverRuntimeSettingsSO settings = EffectiveSettings;
@@ -861,6 +861,9 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
 
             _bundleAccumulator = null;
             _effectiveSettings = null;
+            OscRuntimeSettingsInstances.Destroy(ref _runtimeSettings);
+            OscRuntimeSettingsInstances.Destroy(ref _legacyConvertedSettings);
+            _legacyConvertedFrom = null;
             _runtimeMappings = null;
             _mappingOrigins = null;
             _runtimeManualEntries = null;
