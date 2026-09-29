@@ -1,4 +1,6 @@
 using System;
+using System.Collections.Generic;
+using System.Linq;
 using Hidano.FacialControl.Domain.Adapters;
 using Hidano.FacialControl.Domain.Models;
 using Hidano.FacialControl.Editor.Inspector.AdapterBindings;
@@ -84,7 +86,8 @@ namespace Hidano.FacialControl.Tests.EditMode.Editor.Inspector.AdapterBindings
     /// <summary>
     /// <see cref="AdapterBindingsListView"/> の smoke テスト。
     /// 「null 要素 / 例外を投げる Drawer を含んでも構築できる」「Add 操作が SerializedObject へ書き込まれる」
-    /// 「SerializeReference 追加直後に Drawer の PropertyField が出る（スロットが出ない不具合の回帰）」を守る。
+    /// 「SerializeReference 追加直後に Drawer の PropertyField が出る（スロットが出ない不具合の回帰）」、
+    /// 「各行が Foldout で包まれ、開閉状態が要素単位に保持される（追加・削除・並べ替えでずれない）」を守る。
     /// slug 重複の検出は <c>FacialCharacterProfileAssetGuardTests</c> 側で保証する。
     /// </summary>
     [TestFixture]
@@ -121,6 +124,7 @@ namespace Hidano.FacialControl.Tests.EditMode.Editor.Inspector.AdapterBindings
         [TearDown]
         public void TearDown()
         {
+            EraseFoldoutStates();
             _serializedObject = null;
             _listProperty = null;
             _so = null;
@@ -138,6 +142,30 @@ namespace Hidano.FacialControl.Tests.EditMode.Editor.Inspector.AdapterBindings
                     AssetDatabase.DeleteAsset(TempFolderPath);
                 }
             }
+        }
+
+        private void ReloadSerializedObject()
+        {
+            EditorUtility.SetDirty(_so);
+            _serializedObject = new SerializedObject(_so);
+            _listProperty = _serializedObject.FindProperty("_adapterBindings");
+        }
+
+        private void EraseFoldoutStates()
+        {
+            if (_so == null) return;
+            var so = new SerializedObject(_so);
+            var list = so.FindProperty("_adapterBindings");
+            for (int i = 0; list != null && i < list.arraySize; i++)
+            {
+                string key = AdapterBindingFoldoutState.GetSessionStateKey(list.GetArrayElementAtIndex(i));
+                if (!string.IsNullOrEmpty(key)) SessionState.EraseBool(key);
+            }
+        }
+
+        private static List<Foldout> GetRowFoldouts(AdapterBindingsListView view)
+        {
+            return view.Query<Foldout>(className: AdapterBindingsListView.RowFoldoutClassName).ToList();
         }
 
         private static AdapterBindingDescriptor RequireDescriptor(Type concreteType)
@@ -213,6 +241,141 @@ namespace Hidano.FacialControl.Tests.EditMode.Editor.Inspector.AdapterBindings
             var propertyField = view.Q<PropertyField>(name: MockListViewWithSerializedFieldDrawer.SettingsFieldElementName);
             Assert.IsNotNull(propertyField,
                 "SerializeReference 追加直後でも Drawer の PropertyField が DOM に存在するべき。");
+        }
+
+        // ---------------------------------------------------------------
+        // Foldout: 全種別を包む / ヘッダー表示
+        // ---------------------------------------------------------------
+
+        [Test]
+        public void Construct_WithNullElementAndThrowingDrawer_WrapsEveryRowInFoldout()
+        {
+            _so.WritableAdapterBindings.Add(new MockListViewSimpleBinding { Slug = "ok-front" });
+            _so.WritableAdapterBindings.Add(null);
+            _so.WritableAdapterBindings.Add(new MockListViewThrowingDrawerBinding { Slug = "boom" });
+            ReloadSerializedObject();
+
+            var view = new AdapterBindingsListView(_listProperty);
+
+            var foldouts = GetRowFoldouts(view);
+            Assert.AreEqual(3, foldouts.Count,
+                "Drawer あり・null 要素・Drawer 例外のフォールバックを含む全行が Foldout で包まれるべき。");
+            Assert.IsNotNull(foldouts[1].Q<MissingAdapterPlaceholderElement>(),
+                "null 要素の placeholder は Foldout の中に置かれるべき。");
+            Assert.IsNotNull(foldouts[2].Q(className: AdapterBindingsListView.FallbackRowClassName),
+                "Drawer 例外時のフォールバック表示は Foldout の中に置かれるべき。");
+        }
+
+        [Test]
+        public void Construct_BindingWithSlug_FoldoutHeaderShowsDisplayNameAndSlug()
+        {
+            _so.WritableAdapterBindings.Add(new MockListViewSimpleBinding { Slug = "my-slug" });
+            ReloadSerializedObject();
+
+            var view = new AdapterBindingsListView(_listProperty);
+
+            var foldout = GetRowFoldouts(view).Single();
+            StringAssert.Contains("ZZZ_ListViewTest_AAA_Simple", foldout.text);
+            StringAssert.Contains("my-slug", foldout.text);
+            Assert.IsNotNull(foldout.Q<Button>(className: AdapterBindingsListView.HeaderRemoveButtonClassName),
+                "Foldout ヘッダーに削除ボタンがあるべき。");
+        }
+
+        [Test]
+        public void Construct_NoSavedState_FoldoutsStartExpanded()
+        {
+            _so.WritableAdapterBindings.Add(new MockListViewSimpleBinding { Slug = "a" });
+            ReloadSerializedObject();
+
+            var view = new AdapterBindingsListView(_listProperty);
+
+            Assert.IsTrue(GetRowFoldouts(view).Single().value, "保存済みの開閉状態がなければ展開で開始するべき。");
+        }
+
+        // ---------------------------------------------------------------
+        // Foldout: 開閉状態の保持
+        // ---------------------------------------------------------------
+
+        [Test]
+        public void SetAllExpanded_False_CollapsesAllAndPersistsAcrossReconstruction()
+        {
+            _so.WritableAdapterBindings.Add(new MockListViewSimpleBinding { Slug = "a" });
+            _so.WritableAdapterBindings.Add(new MockListViewWithSerializedField { Slug = "b" });
+            ReloadSerializedObject();
+
+            var view = new AdapterBindingsListView(_listProperty);
+            view.SetAllExpanded(false);
+
+            Assert.IsTrue(GetRowFoldouts(view).All(f => !f.value), "SetAllExpanded(false) で全行が折り畳まれるべき。");
+
+            // Inspector の再選択（= ListView の再構築）を模す。
+            ReloadSerializedObject();
+            var rebuilt = new AdapterBindingsListView(_listProperty);
+            Assert.IsTrue(GetRowFoldouts(rebuilt).All(f => !f.value),
+                "再構築後も折り畳み状態が復元されるべき。");
+        }
+
+        [Test]
+        public void RemoveBindingAt_AfterCollapsingLaterRow_StateStaysWithSameElement()
+        {
+            _so.WritableAdapterBindings.Add(new MockListViewSimpleBinding { Slug = "first" });
+            _so.WritableAdapterBindings.Add(new MockListViewWithSerializedField { Slug = "second" });
+            _so.WritableAdapterBindings.Add(new MockListViewSimpleBinding { Slug = "third" });
+            ReloadSerializedObject();
+
+            var view = new AdapterBindingsListView(_listProperty);
+            GetRowFoldouts(view)[1].value = false;
+
+            view.RemoveBindingAt(0);
+
+            var foldouts = GetRowFoldouts(view);
+            Assert.AreEqual(2, foldouts.Count);
+            StringAssert.Contains("second", foldouts[0].text);
+            Assert.IsFalse(foldouts[0].value, "削除で index がずれても、折り畳んだ要素の状態が維持されるべき。");
+            Assert.IsTrue(foldouts[1].value, "折り畳んでいない要素に状態が移ってはならない。");
+        }
+
+        [Test]
+        public void Reorder_CollapsedElementMoved_StateFollowsElement()
+        {
+            _so.WritableAdapterBindings.Add(new MockListViewSimpleBinding { Slug = "first" });
+            _so.WritableAdapterBindings.Add(new MockListViewWithSerializedField { Slug = "second" });
+            ReloadSerializedObject();
+
+            string firstKey = AdapterBindingFoldoutState.GetSessionStateKey(_listProperty.GetArrayElementAtIndex(0));
+            AdapterBindingFoldoutState.Save(firstKey, false);
+
+            var bindings = _so.WritableAdapterBindings;
+            (bindings[0], bindings[1]) = (bindings[1], bindings[0]);
+            ReloadSerializedObject();
+
+            Assert.AreEqual(firstKey,
+                AdapterBindingFoldoutState.GetSessionStateKey(_listProperty.GetArrayElementAtIndex(1)),
+                "並べ替え後も要素の保存キーは変わらないべき。");
+
+            var view = new AdapterBindingsListView(_listProperty);
+            var foldouts = GetRowFoldouts(view);
+            StringAssert.Contains("first", foldouts[1].text);
+            Assert.IsFalse(foldouts[1].value, "並べ替えで移動した要素に折り畳み状態が付いて回るべき。");
+            Assert.IsTrue(foldouts[0].value, "入れ替わった先の要素に状態が移ってはならない。");
+        }
+
+        [Test]
+        public void GetSessionStateKey_DifferentElements_ProduceDifferentKeys()
+        {
+            _so.WritableAdapterBindings.Add(new MockListViewSimpleBinding { Slug = "a" });
+            _so.WritableAdapterBindings.Add(new MockListViewSimpleBinding { Slug = "b" });
+            _so.WritableAdapterBindings.Add(null);
+            ReloadSerializedObject();
+
+            string key0 = AdapterBindingFoldoutState.GetSessionStateKey(_listProperty.GetArrayElementAtIndex(0));
+            string key1 = AdapterBindingFoldoutState.GetSessionStateKey(_listProperty.GetArrayElementAtIndex(1));
+            string keyNull = AdapterBindingFoldoutState.GetSessionStateKey(_listProperty.GetArrayElementAtIndex(2));
+
+            Assert.IsNotNull(key0);
+            Assert.IsNotNull(key1);
+            Assert.AreNotEqual(key0, key1, "別の要素は別のキーを持つべき。");
+            Assert.IsNull(keyNull, "null 要素は参照 ID を持たないためキーを作らない。");
         }
     }
 }
