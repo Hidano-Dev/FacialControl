@@ -114,11 +114,11 @@
 - **内容**: `Runtime/Domain/Services/ARKitDetector.cs` / `Runtime/Application/UseCases/ARKitUseCase.cs` / `Editor/Windows/ARKitDetectorWindow.cs` / `Editor/Tools/ARKitEditorService.cs` は **Apple ARKit SDK / ARFoundation / `UnityEngine.XR` には一切依存していない**（grep ヒット 0、manifest.json に XR 系パッケージなし）。実体は ARKit 52 + PerfectSync 13 個の **BlendShape 名文字列定数** と、name → layerGroup (eye/mouth/brow/cheek/nose) の Dictionary、および完全一致検出ロジックのみ。バイナリ依存ゼロなので preview.1 リリースのブロッカーではない。
   - ただし以下 2 点が中期的な整理候補:
     - (1) **クラス名・API 名に "ARKit" が固定**されている。将来 VRoid / iFacialMocap 独自命名 / VRM Standard Expressions などの別命名規約データセットが追加された場合、`PerfectSyncDetector` を別途作るか `ARKitDetector` に詰め込み続けるかが曖昧。データセットとロジックを分離して `BlendShapeNamingDetector` + `IBlendShapeNamingScheme`（ARKit / PerfectSync / VRM 等の datasource を差し替え可能）にする方が拡張に強い。
-    - (2) `ARKitUseCase.GenerateOscMapping(string[])` が **OSC 互換マッピング (`/avatar/parameters/{name}`)** を生成しているが、OSC binding 本体は `com.hidano.facialcontrol.osc` に分離済み。マッピング生成だけ core 側にあるのは命名上の責務漏れ気味。ただし `OscMapping` / `OscConfiguration` 型自体は Domain にいて profile JSON の `osc` セクションを担うため、Domain 配置の理屈は通る。整理するなら `OscMappingAutoGenerator` のような中立名 + 生成器の所属再考。
-  - 候補対応: (a) `ARKitDetector` → `BlendShapeNamingDetector` リネーム + 命名規約データセットを `IBlendShapeNamingScheme` 抽象化、(b) `ARKitUseCase.GenerateOscMapping` を OSC パッケージへ移管、(c) Editor ツール (`ARKitDetectorWindow`) を `BlendShapeNamingDetectorWindow` 化、(d) 将来別 UPM (`com.hidano.facialcontrol.arkit-detection`) への切り出しは現状の規模ではオーバーキルなので不採用。
+    - (2) 【HID-34 で消滅】`ARKitUseCase.GenerateOscMapping(string[])` が **OSC 互換マッピング (`/avatar/parameters/{name}`)** を生成しているが、OSC binding 本体は `com.hidano.facialcontrol.osc` に分離済み。マッピング生成だけ core 側にあるのは命名上の責務漏れ気味。ただし `OscMapping` / `OscConfiguration` 型自体は Domain にいて profile JSON の `osc` セクションを担うため、Domain 配置の理屈は通る。整理するなら `OscMappingAutoGenerator` のような中立名 + 生成器の所属再考。
+  - 候補対応: (a) `ARKitDetector` → `BlendShapeNamingDetector` リネーム + 命名規約データセットを `IBlendShapeNamingScheme` 抽象化、(b) 【消滅】`ARKitUseCase.GenerateOscMapping` を OSC パッケージへ移管、(c) 【消滅】Editor ツール (`ARKitDetectorWindow`) を `BlendShapeNamingDetectorWindow` 化、(d) 将来別 UPM (`com.hidano.facialcontrol.arkit-detection`) への切り出しは現状の規模ではオーバーキルなので不採用。
 - **トリガ**: ARKit 以外の命名規約サポート要望が出たとき（VRoid / VRM Standard Expressions / iFacialMocap 独自命名等） / 1.0 リリース前の Public API 凍結タイミング（preview 中なら破壊的リネーム可）
-- **影響範囲**: `Runtime/Domain/Services/ARKitDetector.cs`、対応 Small テスト（`Tests/Small/Domain/ARKitDetectorTests.cs`）、OSC パッケージの利用箇所（`RuntimeMappingResolver` / `AddressPresetEstimator` / `ArKitOscAdapterBinding`）、Public API 名変更による下流影響
-- **関連**: `osc-output-binding` spec（OSC 側の mode 別 mapping / Drawer / Samples は同 spec で回収済み。`GenerateOscMapping` の core 残置を将来リネームする場合のみ再検討）
+- **影響範囲**: `Runtime/Domain/Services/ARKitDetector.cs`、対応 Small テスト（`Tests/Small/Domain/ARKitDetectorTests.cs`）、OSC パッケージの利用箇所（`RuntimeMappingResolver` / `AddressPresetEstimator`）、Public API 名変更による下流影響
+- **関連**: `osc-output-binding` spec（OSC 側の mode 別 mapping / Drawer / Samples は同 spec で回収済み）。HID-34（ARKit 検出ツール削除。(2) / (b) / (c) はこれで消滅）
 
 ### M-14: Domain への「動的 Expression driver」概念導入
 - **出典**: `.kiro/specs/gaze-config-promotion/` セッションでの user 指摘（2026-05-06）

@@ -16,7 +16,7 @@ FacialControl は、3D キャラクターの表情をリアルタイムに制御
 
 ## Target Use Cases
 
-- **VTuber 配信向けフェイシャルキャプチャ連動** — ARKit 52 / PerfectSync を初回プレリリースから完全対応。自動検出 + プロファイル自動生成、未対応パラメータは警告なしでスキップ。
+- **VTuber 配信向けフェイシャルキャプチャ連動** — ARKit 52 / PerfectSync を初回プレリリースから完全対応。命名検出（`ARKitDetector`）+ OSC の ARKit プリセット / heartbeat 自動マッピング、未対応パラメータは警告なしでスキップ（Expression 自動生成ツールは HID-34 で廃止）。
 - **GUI エディタでの AnimationClip 作成支援** — 専用プレビューウィンドウで BlendShape スライダー操作、JSON インポート/エクスポート、Expression の追加・編集・削除・検索を Inspector で一元管理。
 - **ゲーム / アプリ内のリアルタイム表情制御** — 同時 10 体以上のキャラクター制御を想定。Animator ベースのリアルタイム制御（Timeline 統合は将来対応）。
 

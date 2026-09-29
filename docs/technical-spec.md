@@ -706,7 +706,7 @@ controller.ReloadProfile();           // 現在のプロファイルを JSON か
 ### 16.4 ARKit 検出ツール（廃止）
 
 - 2026-09 に廃止した（HID-34）。Expression / OSC マッピングの自動生成は使われていなかったため
-- ARKit 52 / PerfectSync の命名検出（完全一致）は core の `ARKitDetector` として残り、OSC パッケージ（`RuntimeMappingResolver` / `AddressPresetEstimator` / `ArKitOscAdapterBinding`）が使う
+- ARKit 52 / PerfectSync の命名検出（完全一致）は core の `ARKitDetector` として残り、OSC パッケージ（`RuntimeMappingResolver` / `AddressPresetEstimator`）が `ARKit52Names` を使う
 
 ### 16.5 Editor ディレクトリ構造
 
