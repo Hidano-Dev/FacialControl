@@ -1,7 +1,6 @@
 using System;
 using System.Collections;
 using System.Collections.Generic;
-using System.Diagnostics;
 using System.IO;
 using Hidano.FacialControl.Adapters.InputSources;
 using Hidano.FacialControl.Adapters.Playable;
@@ -13,6 +12,7 @@ using Hidano.FacialControl.Rec.Adapters.FileSystem;
 using Hidano.FacialControl.Rec.Adapters.Playback;
 using Hidano.FacialControl.Rec.Adapters.Recording;
 using Hidano.FacialControl.Rec.Application.UseCases;
+using Hidano.FacialControl.Rec.Domain.Interfaces;
 using Hidano.FacialControl.Rec.Domain.Models;
 using Hidano.FacialControl.Rec.Domain.Services;
 using UnityEngine;
@@ -32,6 +32,10 @@ namespace Hidano.FacialControl.Rec.Adapters.Playable
         [SerializeField]
         [Tooltip("Recording Name を省略したときの既定名。空のままなら take-yyyyMMdd-HHmmss で命名する。")]
         private string _defaultRecordingName = string.Empty;
+
+        [SerializeField]
+        [Tooltip("記録タイムスタンプに加算する開始オフセット（秒、0 以上）。録画長にも加算されるため、再生時はこの秒数の先頭待ちが入る。次の録画開始から反映される。")]
+        private double _recordingStartOffsetSeconds;
 
         private FacialController _runtimeController;
         private PlaybackUseCase _playbackUseCase;
@@ -88,6 +92,31 @@ namespace Hidano.FacialControl.Rec.Adapters.Playable
             set => _facialController = value;
         }
 
+        /// <summary>
+        /// 記録に使うクロック。null（既定）なら <see cref="RecStopwatchClock"/> を使う。
+        /// 外部タイムコード等に同期させたいときに差し替える。<see cref="StartRecording"/> 時に読まれ、
+        /// 録画中に差し替えても次の録画から反映される。契約は <see cref="IRecClock"/> を参照。
+        /// </summary>
+        public IRecClock RecordingClock { get; set; }
+
+        /// <summary>
+        /// 記録タイムスタンプ（と録画長）に加算する開始オフセット（秒）。有限かつ 0 以上。
+        /// <see cref="StartRecording"/> 時に読まれ、録画中に変更しても次の録画から反映される。
+        /// </summary>
+        public double RecordingStartOffsetSeconds
+        {
+            get => _recordingStartOffsetSeconds;
+            set
+            {
+                if (!RecOffsetClock.IsValidOffset(value))
+                {
+                    throw new ArgumentOutOfRangeException(nameof(value), "Recording start offset must be a finite, non-negative number of seconds.");
+                }
+
+                _recordingStartOffsetSeconds = value;
+            }
+        }
+
         public bool StartRecording(string recordingName = null)
         {
             if (!TryEnsureReady(out FacialController controller, out FacialProfile profile))
@@ -118,7 +147,7 @@ namespace Hidano.FacialControl.Rec.Adapters.Playable
             _streamWriter = new RecStreamWriter(requestedFilePath);
             _recordingUseCase = new RecordingUseCase(
                 controller.InputObservationBus,
-                new StopwatchRecClock(),
+                CreateRecordingClock(),
                 _streamWriter);
             _recordingUseCase.StartRecording(baseline);
             return true;
@@ -215,6 +244,14 @@ namespace Hidano.FacialControl.Rec.Adapters.Playable
             _playbackUseCase.Tick(Time.deltaTime);
         }
 
+        private void OnValidate()
+        {
+            if (!RecOffsetClock.IsValidOffset(_recordingStartOffsetSeconds))
+            {
+                _recordingStartOffsetSeconds = 0d;
+            }
+        }
+
         private void OnDisable()
         {
             StopSession();
@@ -224,6 +261,20 @@ namespace Hidano.FacialControl.Rec.Adapters.Playable
         {
             StopSession();
             DisposePlaybackSession();
+        }
+
+        private IRecClock CreateRecordingClock()
+        {
+            IRecClock clock = RecordingClock ?? new RecStopwatchClock();
+            double offsetSeconds = _recordingStartOffsetSeconds;
+            if (!RecOffsetClock.IsValidOffset(offsetSeconds))
+            {
+                // シリアライズ値を直接書き換えた場合など、setter / OnValidate を通らない不正値だけがここに来る。
+                UnityEngine.Debug.LogWarning($"REC recording start offset {offsetSeconds} was invalid and was treated as 0.");
+                return clock;
+            }
+
+            return offsetSeconds > 0d ? new RecOffsetClock(clock, offsetSeconds) : clock;
         }
 
         private void StopSession()
@@ -439,18 +490,6 @@ namespace Hidano.FacialControl.Rec.Adapters.Playable
             }
 
             return triggerSources;
-        }
-
-        private sealed class StopwatchRecClock : Hidano.FacialControl.Rec.Domain.Interfaces.IRecClock
-        {
-            private readonly Stopwatch _stopwatch = new Stopwatch();
-
-            public double ElapsedSeconds => _stopwatch.Elapsed.TotalSeconds;
-
-            public void Reset()
-            {
-                _stopwatch.Restart();
-            }
         }
     }
 }

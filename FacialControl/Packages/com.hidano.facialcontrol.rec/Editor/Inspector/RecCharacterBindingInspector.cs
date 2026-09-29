@@ -34,6 +34,7 @@ namespace Hidano.FacialControl.Rec.Editor.Inspector
 
             root.Add(new PropertyField(serializedObject.FindProperty("_facialController")));
             root.Add(new PropertyField(serializedObject.FindProperty("_defaultRecordingName")));
+            root.Add(new PropertyField(serializedObject.FindProperty("_recordingStartOffsetSeconds")));
 
             var editModeHelp = new HelpBox(
                 "Play モード中のみ記録/再生ボタンを操作できます。",

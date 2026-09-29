@@ -16,7 +16,9 @@ using Hidano.FacialControl.Rec.Adapters.FileSystem;
 using Hidano.FacialControl.Rec.Adapters.Playable;
 using Hidano.FacialControl.Rec.Adapters.Recording;
 using Hidano.FacialControl.Rec.Application.UseCases;
+using Hidano.FacialControl.Rec.Domain.Interfaces;
 using Hidano.FacialControl.Rec.Domain.Models;
+using Hidano.FacialControl.Rec.Domain.Services;
 using NUnit.Framework;
 using UnityEngine;
 using UnityEngine.TestTools;
@@ -137,6 +139,57 @@ namespace Hidano.FacialControl.Rec.Tests.PlayMode
 
             Assert.That(binding.LoadRecording(), Is.True);
             Assert.That(binding.LoadedRecordingPath, Is.EqualTo(binding.LastRecordingPath));
+        }
+
+        [UnityTest]
+        public IEnumerator StartRecording_WithInjectedClockAndStartOffset_WritesShiftedTimestampsAndDuration()
+        {
+            SetupHarness(out _, out RecCharacterBinding binding, out FakeObservationBus bus, out _, out TestTriggerSource triggerSource, out _);
+            var clock = new ManualRecClock();
+            binding.RecordingClock = clock;
+            binding.RecordingStartOffsetSeconds = 10d;
+
+            Assert.That(binding.StartRecording("offset"), Is.True);
+            Assert.That(clock.ResetCallCount, Is.EqualTo(1));
+            clock.ElapsedSeconds = 0.5d;
+            Assert.That(binding.ElapsedSeconds, Is.EqualTo(10.5d));
+            bus.PublishTriggerOn(triggerSource.Id, "smile");
+            clock.ElapsedSeconds = 1d;
+            binding.StopRecording();
+            yield return null;
+
+            Assert.That(RecFileReader.TryRead(binding.LastRecordingPath, out RecBinaryFormat.ReadResult result), Is.True);
+            RecEvent triggerOn = result.Timeline.Events.First(evt => evt.Kind == RecEventKind.TriggerOn);
+            Assert.That(triggerOn.TimestampSeconds, Is.EqualTo(10.5d));
+            Assert.That(result.Timeline.DurationSeconds, Is.EqualTo(11d));
+        }
+
+        [UnityTest]
+        public IEnumerator StartRecording_WithoutInjectedClockOrOffset_StartsTimestampsNearZero()
+        {
+            SetupHarness(out _, out RecCharacterBinding binding, out FakeObservationBus bus, out _, out TestTriggerSource triggerSource, out _);
+
+            Assert.That(binding.RecordingClock, Is.Null);
+            Assert.That(binding.RecordingStartOffsetSeconds, Is.EqualTo(0d));
+            Assert.That(binding.StartRecording("default-clock"), Is.True);
+            bus.PublishTriggerOn(triggerSource.Id, "smile");
+            binding.StopRecording();
+            yield return null;
+
+            Assert.That(RecFileReader.TryRead(binding.LastRecordingPath, out RecBinaryFormat.ReadResult result), Is.True);
+            RecEvent triggerOn = result.Timeline.Events.First(evt => evt.Kind == RecEventKind.TriggerOn);
+            Assert.That(triggerOn.TimestampSeconds, Is.LessThan(1d));
+        }
+
+        [Test]
+        public void RecordingStartOffsetSeconds_InvalidValue_ThrowsAndKeepsPreviousValue()
+        {
+            SetupHarness(out _, out RecCharacterBinding binding, out _, out _, out _, out _);
+            binding.RecordingStartOffsetSeconds = 2d;
+
+            Assert.Throws<ArgumentOutOfRangeException>(() => binding.RecordingStartOffsetSeconds = -1d);
+            Assert.Throws<ArgumentOutOfRangeException>(() => binding.RecordingStartOffsetSeconds = double.NaN);
+            Assert.That(binding.RecordingStartOffsetSeconds, Is.EqualTo(2d));
         }
 
         [UnityTest]
@@ -690,6 +743,19 @@ namespace Hidano.FacialControl.Rec.Tests.PlayMode
             public override FacialProfile LoadProfile()
             {
                 return CreateProfile();
+            }
+        }
+
+        private sealed class ManualRecClock : IRecClock
+        {
+            public double ElapsedSeconds { get; set; }
+
+            public int ResetCallCount { get; private set; }
+
+            public void Reset()
+            {
+                ResetCallCount++;
+                ElapsedSeconds = 0d;
             }
         }
     }

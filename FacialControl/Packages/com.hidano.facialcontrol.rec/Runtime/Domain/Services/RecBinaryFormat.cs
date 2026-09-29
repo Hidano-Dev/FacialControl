@@ -13,6 +13,8 @@ namespace Hidano.FacialControl.Rec.Domain.Services
     public static class RecBinaryFormat
     {
         public const ushort CurrentFormatVersion = 1;
+        // flags は予約（常に 0）。読み込み側は値を検証しないため、将来ビットを割り当てても
+        // （例: 開始時刻の出自 = 壁時計 / 外部タイムコード）formatVersion を上げずに済む。
         public const ushort DefaultFlags = 0;
         public const int HeaderSize = 16;
         public const int FooterRecordSize = 13;

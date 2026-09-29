@@ -5,6 +5,7 @@ using Hidano.FacialControl.Domain.Adapters;
 using Hidano.FacialControl.Rec.Application.UseCases;
 using Hidano.FacialControl.Rec.Domain.Interfaces;
 using Hidano.FacialControl.Rec.Domain.Models;
+using Hidano.FacialControl.Rec.Domain.Services;
 using NUnit.Framework;
 using UnityEngine;
 using UnityEngine.TestTools;
@@ -127,6 +128,27 @@ namespace Hidano.FacialControl.Rec.Tests.EditMode
             Assert.That(sink.AppendedEvents[5].axes, Is.EqualTo(new[] { 0.25f, -0.5f }));
             Assert.That(sink.CompletedEventCount, Is.EqualTo(6));
             Assert.That(sink.CompletedDurationSeconds, Is.EqualTo(0.75d));
+        }
+
+        [Test]
+        public void ObservedEvents_WithOffsetClock_ShiftTimestampsAndDurationByOffset()
+        {
+            var bus = new FakeObservationBus();
+            var innerClock = new FakeClock();
+            var sink = new FakeRecEventSink();
+            using var useCase = new RecordingUseCase(bus, new RecOffsetClock(innerClock, 10d), sink);
+            useCase.StartRecording(RecBaselineState.Empty);
+
+            innerClock.ElapsedSeconds = 0.25d;
+            bus.PublishTriggerOn("input:trigger", "smile");
+            innerClock.ElapsedSeconds = 0.5d;
+
+            useCase.StopRecording();
+
+            Assert.That(innerClock.ResetCallCount, Is.EqualTo(1));
+            Assert.That(sink.AppendedEvents[2].evt.Kind, Is.EqualTo(RecEventKind.TriggerOn));
+            Assert.That(sink.AppendedEvents[2].evt.TimestampSeconds, Is.EqualTo(10.25d));
+            Assert.That(sink.CompletedDurationSeconds, Is.EqualTo(10.5d));
         }
 
         [Test]

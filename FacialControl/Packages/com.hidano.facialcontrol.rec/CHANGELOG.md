@@ -8,6 +8,10 @@
 
 - `RecCharacterBinding.LastRecordingName` — 直近の録画で実際に保存したテイク名（連番付与後）
 - `RecCharacterBinding.LoadRecording()` の名前省略 — 直近に録画したテイクを読み込む。Inspector の Load Recording も Recording Name が空なら同じ動作になる
+- `RecCharacterBinding.RecordingClock` — 記録に使う `IRecClock` を差し替えられるようにした（null なら既定の `RecStopwatchClock`）。外部タイムコード同期の下準備で、タイムコードの受信自体はスコープ外
+- `RecCharacterBinding.RecordingStartOffsetSeconds`（Inspector の Recording Start Offset Seconds） — 記録タイムスタンプと録画長に加算する開始オフセット（秒、0 以上）
+- `RecOffsetClock`（Domain） — 任意の `IRecClock` に固定オフセットを加算するクロック
+- `RecStopwatchClock`（Adapters） — 従来 `RecCharacterBinding` の private だった既定クロックを公開した
 
 ### Changed
 
