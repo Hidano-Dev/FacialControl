@@ -26,6 +26,8 @@ namespace Hidano.FacialControl.Rec.Tests.PlayMode
     [TestFixture]
     public class RecCharacterBindingPlayModeTests
     {
+        private const string TestAssetName = "RecCharacterBindingPlayModeTestsAsset";
+
         private GameObject _gameObject;
         private TestCharacterProfileSO _characterSo;
 
@@ -136,6 +138,34 @@ namespace Hidano.FacialControl.Rec.Tests.PlayMode
         }
 
         [UnityTest]
+        public IEnumerator StartRecording_WhenOutputFileCannotBeCreated_StopsRecordingAndKeepsPreviousTake()
+        {
+            SetupHarness(out _, out RecCharacterBinding binding, out FakeObservationBus bus, out _, out TestTriggerSource triggerSource, out _);
+
+            Assert.That(binding.StartRecording("kept"), Is.True);
+            bus.PublishTriggerOn(triggerSource.Id, "smile");
+            binding.StopRecording();
+            string keptPath = binding.LastRecordingPath;
+
+            // 出力ファイルと同名のディレクトリを置き、ライタースレッドでのオープンを失敗させる。
+            Assert.That(RecSidecarPath.TryBuildRecordingFilePath(TestAssetName, "blocked", out string blockedPath, out _), Is.True);
+            Directory.CreateDirectory(blockedPath);
+            LogAssert.Expect(LogType.Error, new Regex("could not open"));
+            LogAssert.Expect(LogType.Warning, new Regex("could not be created"));
+
+            Assert.That(binding.StartRecording("blocked"), Is.True);
+            float deadline = Time.realtimeSinceStartup + 5f;
+            while (binding.IsRecording && Time.realtimeSinceStartup < deadline)
+            {
+                yield return null;
+            }
+
+            Assert.That(binding.IsRecording, Is.False);
+            Assert.That(binding.LastRecordingPath, Is.EqualTo(keptPath));
+            Assert.That(binding.LastRecordingName, Is.EqualTo("kept"));
+        }
+
+        [UnityTest]
         public IEnumerator OnDisable_WhileRecording_FinalizesTheRecordingFile()
         {
             SetupHarness(out _, out RecCharacterBinding binding, out FakeObservationBus bus, out _, out TestTriggerSource triggerSource, out FakeAnalogSource analogSource);
@@ -163,12 +193,13 @@ namespace Hidano.FacialControl.Rec.Tests.PlayMode
             bus.PublishTriggerOn(triggerSource.Id, "smile");
             bus.PublishAnalog(analogSource.Id, 0.35f, -0.15f);
 
-            string recordingPath = binding.LastRecordingPath;
             GameObject host = _gameObject;
             _gameObject = null;
             UnityEngine.Object.Destroy(host);
             yield return null;
 
+            // 出力ファイルはライタースレッドが開くため、パスは録画を閉じた後に確定している。
+            string recordingPath = binding.LastRecordingPath;
             Assert.That(recordingPath, Is.Not.Null.And.Not.Empty);
             Assert.That(RecFileReader.TryRead(recordingPath, out _), Is.True);
         }
@@ -297,7 +328,7 @@ namespace Hidano.FacialControl.Rec.Tests.PlayMode
             binding.FacialController = controller;
 
             _characterSo = ScriptableObject.CreateInstance<TestCharacterProfileSO>();
-            _characterSo.name = "RecCharacterBindingPlayModeTestsAsset";
+            _characterSo.name = TestAssetName;
             controller.CharacterSO = _characterSo;
 
             FacialProfile profile = CreateProfile();
@@ -319,7 +350,7 @@ namespace Hidano.FacialControl.Rec.Tests.PlayMode
             string recordingsDirectory = Path.Combine(
                 UnityEngine.Application.streamingAssetsPath,
                 FacialCharacterProfileSO.StreamingAssetsRootFolder,
-                "RecCharacterBindingPlayModeTestsAsset",
+                TestAssetName,
                 RecSidecarPath.RecordingsFolderName);
             if (!Directory.Exists(recordingsDirectory))
             {
@@ -335,6 +366,12 @@ namespace Hidano.FacialControl.Rec.Tests.PlayMode
                 {
                     File.Delete(metaFilePath);
                 }
+            }
+
+            // オープン失敗を再現するために置いた「出力ファイルと同名のディレクトリ」も消す。
+            foreach (string directoryPath in Directory.GetDirectories(recordingsDirectory))
+            {
+                Directory.Delete(directoryPath, true);
             }
         }
 

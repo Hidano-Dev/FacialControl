@@ -12,7 +12,7 @@
 ### Changed
 
 - 同名の録画がすでにある場合は上書きせず、`{名前}-2`, `{名前}-3`… と連番を付けて保存するようにした。実際に保存した名前とパスは `LastRecordingName` / `LastRecordingPath` と Inspector の Path 表示に反映される
-- `RecStreamWriter` は出力ファイルを `FileMode.CreateNew` で `Open` 時に同期的に開き、既存ファイルを決して上書きしない。開けなかった場合は `IsOutputAvailable` が false になり、`RecCharacterBinding.StartRecording` は警告を出して false を返す
+- `RecStreamWriter` は出力先の予約（連番付与）と `FileMode.CreateNew` でのオープンをライタースレッドで行い、既存ファイルを決して上書きしない（呼び出し元をストレージ I/O 待ちでブロックしない）。実際に開いたパスは `OutputFilePath`、開けなかったことは `HasOutputFailed` で分かる。`RecCharacterBinding` はオープン失敗に気づいた時点（Update または StopRecording）で録画を止めて警告を出す（従来は書き込み失敗が背景スレッドの throttled LogError だけで、成功扱いのまま録画が失われていた）。`LastRecordingName` / `LastRecordingPath` はファイルを開いた後に反映される
 - `RecCharacterBinding` の Default Recording Name の初期値を `take` から空にし、Recording Name / Default Recording Name の両方が空なら `take-yyyyMMdd-HHmmss` で命名する（README の記述と実装を一致させた）。Inspector の Recording Name 欄を Default Recording Name で埋めるのをやめた
 - 録画名の解決ロジックを `RecRecordingNaming` に切り出した
 

@@ -44,6 +44,7 @@ namespace Hidano.FacialControl.Rec.Adapters.Playable
         private string _loadedRecordingPath;
         private string _lastRecordingName;
         private string _lastRecordingPath;
+        private string _requestedRecordingPath;
 
         public bool IsRecording => _recordingUseCase != null && _recordingUseCase.IsRecording;
 
@@ -64,10 +65,14 @@ namespace Hidano.FacialControl.Rec.Adapters.Playable
             }
         }
 
-        /// <summary>直近の録画で実際に保存したテイク名（同名衝突時の連番付与後）。<see cref="LoadRecording"/> にそのまま渡せる。</summary>
+        /// <summary>
+        /// 直近の録画で実際に保存したテイク名（同名衝突時の連番付与後）。<see cref="LoadRecording"/> にそのまま渡せる。
+        /// 出力ファイルはライタースレッドが開くため、<see cref="StartRecording"/> 直後はまだ前回の値のことがある
+        /// （開いた後の Update か <see cref="StopRecording"/> で反映される）。
+        /// </summary>
         public string LastRecordingName => _lastRecordingName;
 
-        /// <summary>直近の録画で実際に保存したファイルパス（同名衝突時の連番付与後）。</summary>
+        /// <summary>直近の録画で実際に保存したファイルパス（同名衝突時の連番付与後）。反映タイミングは <see cref="LastRecordingName"/> と同じ。</summary>
         public string LastRecordingPath => _lastRecordingPath;
 
         public string LoadedRecordingPath => _loadedRecordingPath;
@@ -103,30 +108,16 @@ namespace Hidano.FacialControl.Rec.Adapters.Playable
                 return false;
             }
 
-            // 同名テイクは上書きせず連番を付与して保存する（REC データは代替が効かない）。
-            string filePath = RecSidecarPath.ResolveUniqueFilePath(requestedFilePath);
-            string savedRecordingName = Path.GetFileNameWithoutExtension(filePath);
-            if (!string.Equals(filePath, requestedFilePath, StringComparison.Ordinal))
-            {
-                UnityEngine.Debug.Log($"REC recording '{resolvedRecordingName}' already exists. Saving as '{savedRecordingName}' instead.");
-            }
-
+            // 出力先の予約（同名衝突時の連番付与）とファイルのオープンは RecStreamWriter がライタースレッドで行う。
+            // 結果（実際のパス / オープン失敗）は Update と StopRecording で SyncRecordingOutput が拾う。
             RecBaselineState baseline = CaptureBaseline(profile, controller.InputSourceRegistry);
-            _streamWriter = new RecStreamWriter(filePath);
+            _requestedRecordingPath = requestedFilePath;
+            _streamWriter = new RecStreamWriter(requestedFilePath);
             _recordingUseCase = new RecordingUseCase(
                 controller.InputObservationBus,
                 new StopwatchRecClock(),
                 _streamWriter);
             _recordingUseCase.StartRecording(baseline);
-            if (!_streamWriter.IsOutputAvailable)
-            {
-                UnityEngine.Debug.LogWarning($"REC recording start was ignored because the output file could not be created: {filePath}");
-                DisposeRecordingSession();
-                return false;
-            }
-
-            _lastRecordingName = savedRecordingName;
-            _lastRecordingPath = filePath;
             return true;
         }
 
@@ -207,6 +198,12 @@ namespace Hidano.FacialControl.Rec.Adapters.Playable
 
         private void Update()
         {
+            // オープン失敗はライタースレッドで判明するので、気づいた時点で録画を止めて警告する。
+            if (_streamWriter != null && !SyncRecordingOutput())
+            {
+                DisposeRecordingSession();
+            }
+
             if (_playbackUseCase == null || _playbackUseCase.State != RecPlaybackState.Playing)
             {
                 return;
@@ -286,8 +283,42 @@ namespace Hidano.FacialControl.Rec.Adapters.Playable
             if (_streamWriter != null)
             {
                 _streamWriter.Dispose();
+                if (!SyncRecordingOutput())
+                {
+                    UnityEngine.Debug.LogWarning($"REC recording was discarded because the output file could not be created: {_requestedRecordingPath}");
+                }
+
                 _streamWriter = null;
             }
+
+            _requestedRecordingPath = null;
+        }
+
+        /// <summary>
+        /// ライタースレッドが開いた出力ファイルのパスを <see cref="LastRecordingName"/> / <see cref="LastRecordingPath"/>
+        /// に反映する。出力ファイルを開けなかったセッションなら false を返す（前回のテイクの値は残す）。
+        /// </summary>
+        private bool SyncRecordingOutput()
+        {
+            if (_streamWriter.HasOutputFailed)
+            {
+                return false;
+            }
+
+            string outputFilePath = _streamWriter.OutputFilePath;
+            if (outputFilePath == null || string.Equals(outputFilePath, _lastRecordingPath, StringComparison.Ordinal))
+            {
+                return true;
+            }
+
+            _lastRecordingPath = outputFilePath;
+            _lastRecordingName = Path.GetFileNameWithoutExtension(outputFilePath);
+            if (!string.Equals(outputFilePath, _requestedRecordingPath, StringComparison.Ordinal))
+            {
+                UnityEngine.Debug.Log($"REC recording '{Path.GetFileNameWithoutExtension(_requestedRecordingPath)}' already exists. Saving as '{_lastRecordingName}' instead.");
+            }
+
+            return true;
         }
 
         private void HandlePlaybackCompleted()

@@ -28,7 +28,6 @@ namespace Hidano.FacialControl.Rec.Adapters.Recording
         private readonly object _gate = new object();
 
         private Thread _thread;
-        private Stream _pendingStream;
         private RecBaselineState _baseline = RecBaselineState.Empty;
         private long _startedAtUnixMilliseconds;
         private int _baselineRecordCount;
@@ -36,8 +35,10 @@ namespace Hidano.FacialControl.Rec.Adapters.Recording
         private int _runtimeEventCount;
         private volatile bool _accepting;
         private volatile bool _stopRequested;
+        private volatile string _outputFilePath;
+        private volatile bool _outputFailed;
+        private string _outputFailureMessage;
         private bool _sessionOpen;
-        private bool _outputAvailable;
         private bool _disposed;
 
         public RecStreamWriter(
@@ -75,9 +76,16 @@ namespace Hidano.FacialControl.Rec.Adapters.Recording
         }
 
         /// <summary>
-        /// 直近の <see cref="Open"/> で出力ファイルを開けたか。false のセッションではイベントを書き出さない。
+        /// 直近のセッションで実際に開いた出力ファイルのパス（同名衝突時は連番付与後）。
+        /// ライタースレッドがファイルを開くまでは null。
         /// </summary>
-        public bool IsOutputAvailable => _outputAvailable;
+        public string OutputFilePath => _outputFilePath;
+
+        /// <summary>
+        /// 直近のセッションで出力ファイルを開けなかったか。ライタースレッドが判定するため
+        /// <see cref="Open"/> 直後は false のことがある。true になったセッションではイベントを書き出さない。
+        /// </summary>
+        public bool HasOutputFailed => _outputFailed;
 
         public void Open(RecBaselineState baseline)
         {
@@ -97,18 +105,15 @@ namespace Hidano.FacialControl.Rec.Adapters.Recording
                 _durationSeconds = 0d;
                 _runtimeEventCount = 0;
                 _stopRequested = false;
+                _outputFilePath = null;
+                _outputFailed = false;
+                _outputFailureMessage = null;
                 _sessionOpen = true;
+                _accepting = true;
 
-                // 出力ファイルは呼び出し元スレッドで同期的に開く。失敗（既存ファイルとの衝突など）を
-                // 呼び出し元が IsOutputAvailable で検知できるようにするため、ライタースレッドには委ねない。
-                _pendingStream = TryCreateStream();
-                _outputAvailable = _pendingStream != null;
-                _accepting = _outputAvailable;
-                if (!_outputAvailable)
-                {
-                    return;
-                }
-
+                // 出力先の予約（連番付与）とファイルのオープンはライタースレッドで行い、呼び出し元
+                // （通常は Unity メインスレッド）をストレージ I/O 待ちでブロックしない。
+                // 開くまでに届いたイベントはキューに溜まり、オープン後にまとめて書き出される。
                 _thread = new Thread(WriterLoop)
                 {
                     IsBackground = true,
@@ -137,7 +142,6 @@ namespace Hidano.FacialControl.Rec.Adapters.Recording
         public void Complete(double durationSeconds, int eventCount)
         {
             Thread threadToJoin;
-            bool outputAvailable;
             lock (_gate)
             {
                 if (!_sessionOpen)
@@ -152,12 +156,6 @@ namespace Hidano.FacialControl.Rec.Adapters.Recording
                 threadToJoin = _thread;
                 _thread = null;
                 _sessionOpen = false;
-                outputAvailable = _outputAvailable;
-            }
-
-            if (!outputAvailable)
-            {
-                return;
             }
 
             if (threadToJoin != null && threadToJoin.IsAlive && !threadToJoin.Join(ThreadJoinTimeoutMs))
@@ -166,7 +164,14 @@ namespace Hidano.FacialControl.Rec.Adapters.Recording
                 return;
             }
 
-            Debug.Log($"REC writer finalized '{_filePath}' with {_baselineRecordCount + eventCount} records. QueueGrowthCount={_queue.GrowthCount}.");
+            if (_outputFailed)
+            {
+                // オープン失敗はライタースレッドで判明するが、ログは呼び出し元スレッドで出す。
+                Debug.LogError($"REC writer could not open '{_filePath}': {_outputFailureMessage}");
+                return;
+            }
+
+            Debug.Log($"REC writer finalized '{_outputFilePath}' with {_baselineRecordCount + eventCount} records. QueueGrowthCount={_queue.GrowthCount}.");
             _postFinalizeAction?.Invoke();
         }
 
@@ -190,19 +195,27 @@ namespace Hidano.FacialControl.Rec.Adapters.Recording
 
             try
             {
-                stream = _pendingStream;
-                _pendingStream = null;
-
-                try
+                stream = TryCreateStream(out string outputFilePath);
+                if (stream == null)
                 {
-                    WriteHeader(stream, ref buffer);
-                    WriteBaseline(stream, ref buffer);
+                    _accepting = false;
+                    _outputFailed = true;
                 }
-                catch (Exception ex)
+                else
                 {
-                    LogThrottledError(ex, startedAtUtc, ref nextErrorLogSeconds);
-                    stream.Dispose();
-                    stream = null;
+                    _outputFilePath = outputFilePath;
+
+                    try
+                    {
+                        WriteHeader(stream, ref buffer);
+                        WriteBaseline(stream, ref buffer);
+                    }
+                    catch (Exception ex)
+                    {
+                        LogThrottledError(ex, startedAtUtc, ref nextErrorLogSeconds);
+                        stream.Dispose();
+                        stream = null;
+                    }
                 }
 
                 while (!_stopRequested || !_queue.IsEmpty)
@@ -383,8 +396,9 @@ namespace Hidano.FacialControl.Rec.Adapters.Recording
             Array.Resize(ref buffer, requiredCapacity);
         }
 
-        private Stream TryCreateStream()
+        private Stream TryCreateStream(out string outputFilePath)
         {
+            outputFilePath = null;
             try
             {
                 string directory = Path.GetDirectoryName(_filePath);
@@ -393,18 +407,23 @@ namespace Hidano.FacialControl.Rec.Adapters.Recording
                     Directory.CreateDirectory(directory);
                 }
 
-                return _streamFactory(_filePath);
+                // 同名テイクは上書きせず連番を付与して保存する（REC データは代替が効かない）。
+                string resolvedFilePath = RecSidecarPath.ResolveUniqueFilePath(_filePath);
+                Stream stream = _streamFactory(resolvedFilePath);
+                outputFilePath = resolvedFilePath;
+                return stream;
             }
             catch (Exception ex)
             {
-                Debug.LogError($"REC writer could not open '{_filePath}': {ex.Message}");
+                // ログは Complete で出す。_outputFailed（volatile）より先に書くので、失敗を観測した側から読める。
+                _outputFailureMessage = ex.Message;
                 return null;
             }
         }
 
         private static Stream CreateFileStream(string filePath)
         {
-            // 既存の録画を絶対に上書きしない。呼び出し側が RecSidecarPath.ResolveUniqueFilePath で
+            // 既存の録画を絶対に上書きしない。TryCreateStream が RecSidecarPath.ResolveUniqueFilePath で
             // 衝突を避けている前提だが、競合した場合も CreateNew が失敗してファイルを守る。
             return new FileStream(filePath, FileMode.CreateNew, FileAccess.Write, FileShare.Read);
         }
