@@ -74,6 +74,8 @@ namespace Hidano.FacialControl.Rec.Adapters.Recording
 
         /// <summary>
         /// <paramref name="directoryPath"/> 直下の <c>*.fcrec</c> を、更新日時の新しい順（同時刻ならテイク名の順）で列挙する。
+        /// テイク名として読み込めない名前（前後の空白や <c>..</c> を含む等、<see cref="TryBuildRecordingFilePath"/> で
+        /// 同じファイルに戻らないもの）のファイルは含めない。
         /// <paramref name="excludedFilePath"/> には録画中のファイルなど、一覧に出したくないファイルを指定する。
         /// ファイル I/O を伴うため、毎フレームではなく一覧の更新が必要なときだけ呼ぶこと。
         /// </summary>
@@ -102,21 +104,27 @@ namespace Hidano.FacialControl.Rec.Adapters.Recording
                 string filePath = filePaths[i];
 
                 // 検索パターンの拡張子一致は OS 依存の揺れがあるため、拡張子を明示的に比較する。
-                if (!string.Equals(Path.GetExtension(filePath), FileExtension, StringComparison.OrdinalIgnoreCase))
+                // 読み込み側は常に小文字の FileExtension でパスを組み立てるので、大文字小文字も区別する。
+                if (!string.Equals(Path.GetExtension(filePath), FileExtension, StringComparison.Ordinal))
                 {
                     continue;
                 }
 
                 if (excludedFullPath != null
-                    && string.Equals(Path.GetFullPath(filePath), excludedFullPath, StringComparison.OrdinalIgnoreCase))
+                    && string.Equals(Path.GetFullPath(filePath), excludedFullPath, StringComparison.Ordinal))
                 {
                     continue;
                 }
 
-                recordings.Add(new RecRecordingEntry(
-                    Path.GetFileNameWithoutExtension(filePath),
-                    filePath,
-                    File.GetLastWriteTimeUtc(filePath)));
+                // 一覧の Name はそのまま LoadRecording に渡される前提なので、正規化で別名になるものは出さない。
+                string name = Path.GetFileNameWithoutExtension(filePath);
+                if (!TryNormalizeSegment(name, "recordingName", out string normalizedName, out _)
+                    || !string.Equals(normalizedName, name, StringComparison.Ordinal))
+                {
+                    continue;
+                }
+
+                recordings.Add(new RecRecordingEntry(name, filePath, File.GetLastWriteTimeUtc(filePath)));
             }
 
             recordings.Sort(CompareNewestFirst);

@@ -87,6 +87,18 @@ namespace Hidano.FacialControl.Rec.Tests.EditMode
         }
 
         [Test]
+        public void ListRecordings_NameThatCannotBeLoadedAsIs_IsOmitted()
+        {
+            CreateFile("take01" + RecSidecarPath.FileExtension, new DateTime(2026, 9, 1, 0, 0, 0, DateTimeKind.Utc));
+            CreateFile("v1..2" + RecSidecarPath.FileExtension, new DateTime(2026, 9, 2, 0, 0, 0, DateTimeKind.Utc));
+
+            IReadOnlyList<RecRecordingEntry> recordings = RecSidecarPath.ListRecordings(_tempDirectory);
+
+            Assert.That(recordings.Count, Is.EqualTo(1));
+            Assert.That(recordings[0].Name, Is.EqualTo("take01"));
+        }
+
+        [Test]
         public void ListRecordings_SubdirectoryWithRecordingExtension_IsIgnored()
         {
             Directory.CreateDirectory(Path.Combine(_tempDirectory, "folder" + RecSidecarPath.FileExtension));

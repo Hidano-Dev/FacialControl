@@ -26,12 +26,15 @@ rec.StopRecording();
 rec.LoadRecording();            // 名前を省略すると直近に録画したテイク（rec.LastRecordingName）を読み込む
 rec.LoadRecording("take01");    // 名前を指定すればそのテイクを読み込む
 IReadOnlyList<string> takes = rec.GetRecordingNames(); // 保存済みテイク名（新しい順）。uGUI の Dropdown の選択肢などに使う
-rec.LoadRecording(takes[0]);
+if (takes.Count > 0)
+{
+    rec.LoadRecording(takes[0]);
+}
 rec.StartPlayback();            // 完了時は rec.Completed イベント
 rec.StopPlayback();
 ```
 
-`GetRecordingNames()` / `GetRecordings()`（テイク名・パス・更新日時）は録画フォルダを読むファイル I/O なので、毎フレームではなく画面を開いたときや録画を止めたときなど、一覧の更新が必要なときだけ呼ぶ。Play モード外でも呼べ、録画中のテイクは含めない。
+`GetRecordingNames()` / `GetRecordings()`（テイク名・パス・更新日時）は録画フォルダを読むファイル I/O なので、毎フレームではなく画面を開いたときや録画を止めたときなど、一覧の更新が必要なときだけ呼ぶ。Play モード外でも呼べ、録画中のテイクと、テイク名としてそのまま読み込めない名前（`..` や前後の空白を含む等）のファイルは含めない。
 
 録画と再生は排他で、片方を開始するともう片方は自動停止する。`OnDisable` / `OnDestroy` でも録画・再生は停止され、録画中のファイルは末尾まで書き切られる。
 
