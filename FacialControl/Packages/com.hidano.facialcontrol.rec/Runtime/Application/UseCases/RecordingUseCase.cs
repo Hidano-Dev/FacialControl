@@ -15,23 +15,43 @@ namespace Hidano.FacialControl.Rec.Application.UseCases
         private readonly IFacialInputObservationBus _observationBus;
         private readonly IRecClock _clock;
         private readonly IRecEventSink _sink;
+        private readonly double _startOffsetSeconds;
 
         private RecIdTable _idTable = new RecIdTable();
         private RecordingState _state;
         private int _eventCount;
-        private double _lastTimestampSeconds;
+        private double _lastClockSeconds;
         private bool _invalidClockWarned;
         private bool _disposed;
 
+        /// <param name="startOffsetSeconds">
+        /// 記録タイムスタンプと録画長に加算する開始オフセット（秒、有限かつ 0 以上）。
+        /// クロックの値を検証してから加算するため、クロックの不正値がオフセットで隠れることはない。
+        /// </param>
         public RecordingUseCase(
             IFacialInputObservationBus observationBus,
             IRecClock clock,
-            IRecEventSink sink)
+            IRecEventSink sink,
+            double startOffsetSeconds = 0d)
         {
             _observationBus = observationBus ?? throw new ArgumentNullException(nameof(observationBus));
             _clock = clock ?? throw new ArgumentNullException(nameof(clock));
             _sink = sink ?? throw new ArgumentNullException(nameof(sink));
+            if (!IsValidStartOffset(startOffsetSeconds))
+            {
+                throw new ArgumentOutOfRangeException(nameof(startOffsetSeconds), "Start offset must be a finite, non-negative number of seconds.");
+            }
+
+            _startOffsetSeconds = startOffsetSeconds;
             _state = RecordingState.Idle;
+        }
+
+        public double StartOffsetSeconds => _startOffsetSeconds;
+
+        /// <summary>記録タイムスタンプは非負でなければならないため、有限かつ 0 以上だけを許す。</summary>
+        public static bool IsValidStartOffset(double offsetSeconds)
+        {
+            return !double.IsNaN(offsetSeconds) && !double.IsInfinity(offsetSeconds) && offsetSeconds >= 0d;
         }
 
         public RecordingState State => _state;
@@ -54,7 +74,7 @@ namespace Hidano.FacialControl.Rec.Application.UseCases
             _idTable = CreateSeededIdTable(baseline);
             _eventCount = 0;
             _clock.Reset();
-            _lastTimestampSeconds = 0d;
+            _lastClockSeconds = 0d;
             _invalidClockWarned = false;
             _sink.Open(baseline);
             _observationBus.Subscribe(this);
@@ -166,9 +186,10 @@ namespace Hidano.FacialControl.Rec.Application.UseCases
         }
 
         /// <summary>
-        /// クロックの現在値を記録用タイムスタンプとして読む。クロックは差し替え可能なので、例外・非有限・負の値は
-        /// 直前のタイムスタンプで置き換えて警告を 1 セッション 1 回だけ出し、逆行はクランプする
-        /// （逆行や負値のタイムスタンプを含むテイクは読み込めず、例外は入力の発行元まで伝播してしまうため）。
+        /// クロックの現在値に開始オフセットを加えて記録用タイムスタンプとして読む。クロックは差し替え可能なので、
+        /// オフセット加算前の値を検証し、例外・非有限・負の値は直前の値で置き換えて警告を 1 セッション 1 回だけ出し、
+        /// 逆行はクランプする（逆行や負値のタイムスタンプを含むテイクは読み込めず、例外は入力の発行元まで伝播して
+        /// しまうため）。置き換え時もオフセットは維持される。
         /// </summary>
         private double SampleClock()
         {
@@ -180,21 +201,21 @@ namespace Hidano.FacialControl.Rec.Application.UseCases
             catch (Exception ex)
             {
                 WarnInvalidClockOnce($"threw {ex.GetType().Name}: {ex.Message}");
-                return _lastTimestampSeconds;
+                return _lastClockSeconds + _startOffsetSeconds;
             }
 
             if (double.IsNaN(value) || double.IsInfinity(value) || value < 0d)
             {
                 WarnInvalidClockOnce($"returned {value}");
-                return _lastTimestampSeconds;
+                return _lastClockSeconds + _startOffsetSeconds;
             }
 
-            if (value > _lastTimestampSeconds)
+            if (value > _lastClockSeconds)
             {
-                _lastTimestampSeconds = value;
+                _lastClockSeconds = value;
             }
 
-            return _lastTimestampSeconds;
+            return _lastClockSeconds + _startOffsetSeconds;
         }
 
         private void WarnInvalidClockOnce(string detail)
@@ -205,7 +226,7 @@ namespace Hidano.FacialControl.Rec.Application.UseCases
             }
 
             _invalidClockWarned = true;
-            Debug.LogWarning($"Recording clock {detail}. The previous timestamp {_lastTimestampSeconds} was used instead.");
+            Debug.LogWarning($"Recording clock {detail}. The previous timestamp {_lastClockSeconds + _startOffsetSeconds} was used instead.");
         }
 
         private bool TryResolveTriggerIds(string sourceId, string expressionId, out ushort sourceIndex, out ushort expressionIndex)

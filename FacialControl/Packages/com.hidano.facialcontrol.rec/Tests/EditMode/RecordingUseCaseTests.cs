@@ -5,7 +5,6 @@ using Hidano.FacialControl.Domain.Adapters;
 using Hidano.FacialControl.Rec.Application.UseCases;
 using Hidano.FacialControl.Rec.Domain.Interfaces;
 using Hidano.FacialControl.Rec.Domain.Models;
-using Hidano.FacialControl.Rec.Domain.Services;
 using NUnit.Framework;
 using UnityEngine;
 using UnityEngine.TestTools;
@@ -131,24 +130,74 @@ namespace Hidano.FacialControl.Rec.Tests.EditMode
         }
 
         [Test]
-        public void ObservedEvents_WithOffsetClock_ShiftTimestampsAndDurationByOffset()
+        public void ObservedEvents_WithStartOffset_ShiftTimestampsAndDurationByOffset()
         {
             var bus = new FakeObservationBus();
-            var innerClock = new FakeClock();
+            var clock = new FakeClock();
             var sink = new FakeRecEventSink();
-            using var useCase = new RecordingUseCase(bus, new RecOffsetClock(innerClock, 10d), sink);
+            using var useCase = new RecordingUseCase(bus, clock, sink, 10d);
             useCase.StartRecording(RecBaselineState.Empty);
 
-            innerClock.ElapsedSeconds = 0.25d;
+            clock.ElapsedSeconds = 0.25d;
             bus.PublishTriggerOn("input:trigger", "smile");
-            innerClock.ElapsedSeconds = 0.5d;
+            clock.ElapsedSeconds = 0.5d;
+            Assert.That(useCase.ElapsedSeconds, Is.EqualTo(10.5d));
 
             useCase.StopRecording();
 
-            Assert.That(innerClock.ResetCallCount, Is.EqualTo(1));
+            Assert.That(clock.ResetCallCount, Is.EqualTo(1));
             Assert.That(sink.AppendedEvents[2].evt.Kind, Is.EqualTo(RecEventKind.TriggerOn));
             Assert.That(sink.AppendedEvents[2].evt.TimestampSeconds, Is.EqualTo(10.25d));
             Assert.That(sink.CompletedDurationSeconds, Is.EqualTo(10.5d));
+        }
+
+        [Test]
+        public void ObservedEvents_WithStartOffsetAndNegativeClock_ValidateClockBeforeAddingOffset()
+        {
+            var bus = new FakeObservationBus();
+            var clock = new FakeClock();
+            var sink = new FakeRecEventSink();
+            using var useCase = new RecordingUseCase(bus, clock, sink, 10d);
+            useCase.StartRecording(RecBaselineState.Empty);
+
+            LogAssert.Expect(LogType.Warning, new Regex("Recording clock returned -1"));
+            clock.ElapsedSeconds = -1d;
+            bus.PublishTriggerOn("input:trigger", "smile");
+            useCase.StopRecording();
+
+            Assert.That(sink.AppendedEvents[2].evt.TimestampSeconds, Is.EqualTo(10d));
+            Assert.That(sink.CompletedDurationSeconds, Is.EqualTo(10d));
+        }
+
+        [Test]
+        public void ObservedEvents_WithStartOffsetAndThrowingFirstRead_KeepOffsetInFallback()
+        {
+            var bus = new FakeObservationBus();
+            var clock = new FakeClock();
+            var sink = new FakeRecEventSink();
+            using var useCase = new RecordingUseCase(bus, clock, sink, 10d);
+            useCase.StartRecording(RecBaselineState.Empty);
+
+            LogAssert.Expect(LogType.Warning, new Regex("Recording clock threw"));
+            clock.ExceptionToThrow = new InvalidOperationException("not locked");
+            bus.PublishTriggerOn("input:trigger", "smile");
+            clock.ExceptionToThrow = null;
+            clock.ElapsedSeconds = 0.5d;
+            useCase.StopRecording();
+
+            Assert.That(sink.AppendedEvents[2].evt.TimestampSeconds, Is.EqualTo(10d));
+            Assert.That(sink.CompletedDurationSeconds, Is.EqualTo(10.5d));
+        }
+
+        [TestCase(-0.001d)]
+        [TestCase(double.NaN)]
+        [TestCase(double.PositiveInfinity)]
+        [TestCase(double.NegativeInfinity)]
+        public void Constructor_InvalidStartOffset_ThrowsArgumentOutOfRange(double offsetSeconds)
+        {
+            Assert.That(RecordingUseCase.IsValidStartOffset(offsetSeconds), Is.False);
+            Assert.Throws<ArgumentOutOfRangeException>(
+                () => new RecordingUseCase(new FakeObservationBus(), new FakeClock(), new FakeRecEventSink(), offsetSeconds));
         }
 
         [Test]

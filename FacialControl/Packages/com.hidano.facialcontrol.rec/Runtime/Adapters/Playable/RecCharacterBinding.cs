@@ -113,7 +113,7 @@ namespace Hidano.FacialControl.Rec.Adapters.Playable
             get => _recordingStartOffsetSeconds;
             set
             {
-                if (!RecOffsetClock.IsValidOffset(value))
+                if (!RecordingUseCase.IsValidStartOffset(value))
                 {
                     throw new ArgumentOutOfRangeException(nameof(value), "Recording start offset must be a finite, non-negative number of seconds.");
                 }
@@ -152,8 +152,9 @@ namespace Hidano.FacialControl.Rec.Adapters.Playable
             _streamWriter = new RecStreamWriter(requestedFilePath);
             _recordingUseCase = new RecordingUseCase(
                 controller.InputObservationBus,
-                CreateRecordingClock(),
-                _streamWriter);
+                RecordingClock ?? new RecStopwatchClock(),
+                _streamWriter,
+                ResolveStartOffsetSeconds());
             _recordingUseCase.StartRecording(baseline);
             return true;
         }
@@ -251,7 +252,7 @@ namespace Hidano.FacialControl.Rec.Adapters.Playable
 
         private void OnValidate()
         {
-            if (!RecOffsetClock.IsValidOffset(_recordingStartOffsetSeconds))
+            if (!RecordingUseCase.IsValidStartOffset(_recordingStartOffsetSeconds))
             {
                 _recordingStartOffsetSeconds = 0d;
             }
@@ -268,18 +269,17 @@ namespace Hidano.FacialControl.Rec.Adapters.Playable
             DisposePlaybackSession();
         }
 
-        private IRecClock CreateRecordingClock()
+        private double ResolveStartOffsetSeconds()
         {
-            IRecClock clock = RecordingClock ?? new RecStopwatchClock();
             double offsetSeconds = _recordingStartOffsetSeconds;
-            if (!RecOffsetClock.IsValidOffset(offsetSeconds))
+            if (RecordingUseCase.IsValidStartOffset(offsetSeconds))
             {
-                // シリアライズ値を直接書き換えた場合など、setter / OnValidate を通らない不正値だけがここに来る。
-                UnityEngine.Debug.LogWarning($"REC recording start offset {offsetSeconds} was invalid and was treated as 0.");
-                return clock;
+                return offsetSeconds;
             }
 
-            return offsetSeconds > 0d ? new RecOffsetClock(clock, offsetSeconds) : clock;
+            // シリアライズ値を直接書き換えた場合など、setter / OnValidate を通らない不正値だけがここに来る。
+            UnityEngine.Debug.LogWarning($"REC recording start offset {offsetSeconds} was invalid and was treated as 0.");
+            return 0d;
         }
 
         private void StopSession()
