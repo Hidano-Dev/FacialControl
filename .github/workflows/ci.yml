@@ -6,13 +6,24 @@
 #   - Large : 手動 / 夜間（.github/workflows/ci-large.yml）
 # サイズ未宣言テストは test-size-check ジョブ（静的）と Small ジョブ内の
 # TestSizeDeclarationTests（reflection）の両方で検出する。
+#
+# 【応急措置】全ジョブが runs-on: self-hosted だが、登録済みのセルフホストランナーが 0 台のため、
+# push / pull_request で起動すると永久に queued のまま 24 時間後に自動キャンセルされる
+# （docs/backlog.md S-22）。ランナーを登録するまで自動起動を止め、手動実行（workflow_dispatch）のみにする。
+# ランナー登録後は下の push / pull_request のコメントを外して元に戻す。
 name: CI
 
 on:
-  push:
-    branches: [main, "feature/**"]
-  pull_request:
-    branches: [main]
+  # push:
+  #   branches: [main, "feature/**"]
+  # pull_request:
+  #   branches: [main]
+  workflow_dispatch:
+    inputs:
+      include_medium:
+        description: "Medium テスト（EditMode + PlayMode）も実行する"
+        type: boolean
+        default: true
 
 env:
   UNITY_PROJECT_PATH: FacialControl
@@ -89,7 +100,7 @@ jobs:
     needs: [package-validation, test-size-check]
     name: Medium テスト（EditMode + PlayMode, マージ前）
     # マージ前ゲート: PR と main への push で実行（feature ブランチへの push では Small のみ）
-    if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main'
+    if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main' || (github.event_name == 'workflow_dispatch' && inputs.include_medium)
     runs-on: self-hosted
     timeout-minutes: 30
     steps:
@@ -179,7 +190,7 @@ jobs:
   lipsync-medium-tests:
     needs: [package-validation, test-size-check]
     name: uLipSync Medium テスト（EditMode + PlayMode, マージ前）
-    if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main'
+    if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main' || (github.event_name == 'workflow_dispatch' && inputs.include_medium)
     runs-on: self-hosted
     timeout-minutes: 30
     steps:

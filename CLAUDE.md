@@ -214,6 +214,7 @@ Tests/
 
 ### CI/CD
 - GitHub Actions + セルフホストランナー（Windows マシン）
+- 現状セルフホストランナーは未登録のため、CI は手動実行（workflow_dispatch）のみ（`docs/backlog.md` S-22）。PR のテスト根拠はローカル実行結果を PR 本文に書く
 - TDD 厳守（Red-Green-Refactor）。カバレッジ数値目標は設定しない
 
 ### リリース計画

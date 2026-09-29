@@ -74,6 +74,8 @@ public sealed class StalenessMonitorTests : SizedTestFixture
 
 ## CI での回し方
 
+> **現状（応急措置）**: セルフホストランナーが未登録のため（`docs/backlog.md` S-22）、`ci.yml` と `ci-large.yml` の自動起動（push / pull_request / 夜間 schedule）は止めてあり、GitHub の Actions 画面から手動実行（Run workflow）したときだけ動く。下表は**ランナー登録後の本来の運用**。それまでは PR のテスト根拠として、ローカルでの静的チェックと batchmode 実行結果を PR 本文に書く。手動実行時は `include_medium` で Medium ジョブの有無を選べる。
+
 | ジョブ | 内容 | タイミング |
 |---|---|---|
 | `test-size-check` | `scripts/check-test-sizes.ps1`（Unity 不要）。サイズ未宣言 fixture、Small ファイルの禁止 API、Small asmdef の参照逸脱を検出 | すべての push / PR |

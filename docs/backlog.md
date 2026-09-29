@@ -39,6 +39,7 @@
 - **背景**: `.github/workflows/ci.yml` の全ジョブは `runs-on: self-hosted` だが、リポジトリに登録済みのセルフホストランナーは 0 台。P16-01 の「セルフホストランナー（Windows）設定」が未実施のため、CI は一度も成功しておらず全 run が 24 時間後に自動キャンセルされている。開発マシンは用途が多く常時稼働でもないため CI ランナーには不向きと判断し、1.0.0 のマージはローカルの batchmode テスト結果（EditMode 2124 / PlayMode 426、既知 4 件のみ赤）を根拠にした。
 - **候補**: (a) 常時稼働の別 Windows マシンをセルフホストランナーとして登録し `UNITY_PATH` を設定する、(b) GitHub ホストランナー + Unity ライセンス認証（game-ci の `unity-test-runner` 等）へ切り替える、(c) 当面 CI を手動トリガー（`workflow_dispatch`）のみにして push / PR での自動起動を止め、queued の山を作らない。
 - **トリガ**: 1.0.0 公開後、次のリリースサイクルを始めるとき。それまでは PR のテスト根拠をローカル実行結果として PR 本文に明記する。
+- **応急措置（2026-09-29, PR #21）**: 候補 (c) を実施。`ci.yml` の push / pull_request と `ci-large.yml` の夜間 schedule をコメントアウトし、`workflow_dispatch` のみにした。ランナー登録後にコメントを外して戻す。gitleaks（ubuntu-latest）と harness-sync は対象外で従来どおり動く。
 
 ---
 

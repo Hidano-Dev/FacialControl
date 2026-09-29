@@ -1,16 +1,18 @@
 # FacialControl CI - Large テスト（手動 / 夜間）
 #
 # Large は実機ビルドや外部システム接続を含むテスト（docs/testing.md）。PR ごとには回さず、
-# workflow_dispatch と夜間スケジュールで EditMode / PlayMode の -testCategory Large を実行する。
+# workflow_dispatch と夜間スケジュール（現在は停止中、下記）で EditMode / PlayMode の -testCategory Large を実行する。
 # 現時点で Large に分類されたテストは 0 件（docs/test-size-migration.md）。フィルタに一致する
 # テストがない場合の Unity Test Runner の終了コードは環境依存のため、ジョブは continue-on-error とし
 # 結果 XML の有無で判断する。Large テストを追加したら continue-on-error を外す。
 name: CI (Large)
 
+# 【応急措置】セルフホストランナーが 0 台のため、夜間 schedule は毎晩 queued の run を作るだけになる
+# （docs/backlog.md S-22）。ランナー登録までは手動実行のみとし、登録後に schedule のコメントを外す。
 on:
   workflow_dispatch:
-  schedule:
-    - cron: '0 18 * * *'   # 毎日 03:00 JST
+  # schedule:
+  #   - cron: '0 18 * * *'   # 毎日 03:00 JST
 
 env:
   UNITY_PROJECT_PATH: FacialControl
