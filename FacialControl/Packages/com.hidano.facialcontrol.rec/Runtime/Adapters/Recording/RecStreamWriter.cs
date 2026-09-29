@@ -20,12 +20,15 @@ namespace Hidano.FacialControl.Rec.Adapters.Recording
         private const int DefaultAxisFloatCapacityPerSegment = 128;
         private const double ErrorLogThrottleSeconds = 5d;
         private const int ThreadJoinTimeoutMs = 2000;
+        private const int OpenWaitTimeoutMs = 5000;
+        private const int MaxOpenAttempts = 16;
 
         private readonly string _filePath;
         private readonly RecEventChunkQueue _queue;
         private readonly Func<string, Stream> _streamFactory;
         private readonly Action _postFinalizeAction;
         private readonly object _gate = new object();
+        private readonly ManualResetEventSlim _openAttempted = new ManualResetEventSlim(false);
 
         private Thread _thread;
         private RecBaselineState _baseline = RecBaselineState.Empty;
@@ -38,6 +41,8 @@ namespace Hidano.FacialControl.Rec.Adapters.Recording
         private volatile string _outputFilePath;
         private volatile bool _outputFailed;
         private string _outputFailureMessage;
+        private volatile bool _completeAbandoned;
+        private int _failureReported;
         private bool _sessionOpen;
         private bool _disposed;
 
@@ -108,6 +113,9 @@ namespace Hidano.FacialControl.Rec.Adapters.Recording
                 _outputFilePath = null;
                 _outputFailed = false;
                 _outputFailureMessage = null;
+                _completeAbandoned = false;
+                _failureReported = 0;
+                _openAttempted.Reset();
                 _sessionOpen = true;
                 _accepting = true;
 
@@ -158,16 +166,21 @@ namespace Hidano.FacialControl.Rec.Adapters.Recording
                 _sessionOpen = false;
             }
 
-            if (threadToJoin != null && threadToJoin.IsAlive && !threadToJoin.Join(ThreadJoinTimeoutMs))
+            // オープンが遅いストレージでも結果（実パス / 失敗）を確定させてから終了処理に入るため、
+            // 書き出しの Join とは別枠でオープン完了を待つ。
+            if (threadToJoin != null
+                && (!_openAttempted.Wait(OpenWaitTimeoutMs) || (threadToJoin.IsAlive && !threadToJoin.Join(ThreadJoinTimeoutMs))))
             {
+                _completeAbandoned = true;
+                Thread.MemoryBarrier();
                 Debug.LogError($"REC writer timed out while finalizing '{_filePath}'.");
+                ReportOutputFailureOnce();
                 return;
             }
 
             if (_outputFailed)
             {
-                // オープン失敗はライタースレッドで判明するが、ログは呼び出し元スレッドで出す。
-                Debug.LogError($"REC writer could not open '{_filePath}': {_outputFailureMessage}");
+                ReportOutputFailureOnce();
                 return;
             }
 
@@ -204,7 +217,20 @@ namespace Hidano.FacialControl.Rec.Adapters.Recording
                 else
                 {
                     _outputFilePath = outputFilePath;
+                }
 
+                _openAttempted.Set();
+
+                // Complete が待ちきれずに戻った後で失敗が判明した場合は、ここでログを出す
+                // （Complete 側と二重にならないよう ReportOutputFailureOnce で 1 回に絞る）。
+                Thread.MemoryBarrier();
+                if (stream == null && _completeAbandoned)
+                {
+                    ReportOutputFailureOnce();
+                }
+
+                if (stream != null)
+                {
                     try
                     {
                         WriteHeader(stream, ref buffer);
@@ -408,10 +434,20 @@ namespace Hidano.FacialControl.Rec.Adapters.Recording
                 }
 
                 // 同名テイクは上書きせず連番を付与して保存する（REC データは代替が効かない）。
-                string resolvedFilePath = RecSidecarPath.ResolveUniqueFilePath(_filePath);
-                Stream stream = _streamFactory(resolvedFilePath);
-                outputFilePath = resolvedFilePath;
-                return stream;
+                // 同じパスへ同時に録画を始めた別ライターに先を越された場合は、連番を取り直して再試行する。
+                for (int attempt = 1; ; attempt++)
+                {
+                    string resolvedFilePath = RecSidecarPath.ResolveUniqueFilePath(_filePath);
+                    try
+                    {
+                        Stream stream = _streamFactory(resolvedFilePath);
+                        outputFilePath = resolvedFilePath;
+                        return stream;
+                    }
+                    catch (IOException) when (attempt < MaxOpenAttempts && File.Exists(resolvedFilePath))
+                    {
+                    }
+                }
             }
             catch (Exception ex)
             {
@@ -419,6 +455,16 @@ namespace Hidano.FacialControl.Rec.Adapters.Recording
                 _outputFailureMessage = ex.Message;
                 return null;
             }
+        }
+
+        private void ReportOutputFailureOnce()
+        {
+            if (!_outputFailed || Interlocked.Exchange(ref _failureReported, 1) != 0)
+            {
+                return;
+            }
+
+            Debug.LogError($"REC writer could not open '{_filePath}': {_outputFailureMessage}");
         }
 
         private static Stream CreateFileStream(string filePath)

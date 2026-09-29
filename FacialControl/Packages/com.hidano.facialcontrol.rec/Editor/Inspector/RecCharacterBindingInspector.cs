@@ -162,8 +162,15 @@ namespace Hidano.FacialControl.Rec.Editor.Inspector
 
         private static string ResolveDisplayPath(RecCharacterBinding binding, bool preferRecordingPath)
         {
-            // 録画中、または最後の操作が録画なら、実際に保存したパス（連番付与後）を表示する。
-            if ((binding.IsRecording || preferRecordingPath) && !string.IsNullOrWhiteSpace(binding.LastRecordingPath))
+            // 録画中は今のテイクのパスを表示する。ライタースレッドがファイルを開くまでは前回のテイクと
+            // 取り違えないよう空表示にする。
+            if (binding.IsRecording)
+            {
+                return binding.CurrentRecordingPath ?? EmptyPathText;
+            }
+
+            // 最後の操作が録画なら、実際に保存したパス（連番付与後）を表示する。
+            if (preferRecordingPath && !string.IsNullOrWhiteSpace(binding.LastRecordingPath))
             {
                 return binding.LastRecordingPath;
             }

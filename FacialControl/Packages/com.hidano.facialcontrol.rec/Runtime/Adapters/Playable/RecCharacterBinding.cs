@@ -75,6 +75,9 @@ namespace Hidano.FacialControl.Rec.Adapters.Playable
         /// <summary>直近の録画で実際に保存したファイルパス（同名衝突時の連番付与後）。反映タイミングは <see cref="LastRecordingName"/> と同じ。</summary>
         public string LastRecordingPath => _lastRecordingPath;
 
+        /// <summary>録画中のテイクの出力ファイルパス。録画中でない、またはライタースレッドがまだファイルを開いていなければ null。</summary>
+        public string CurrentRecordingPath => IsRecording ? _streamWriter?.OutputFilePath : null;
+
         public string LoadedRecordingPath => _loadedRecordingPath;
 
         public event Action Completed;

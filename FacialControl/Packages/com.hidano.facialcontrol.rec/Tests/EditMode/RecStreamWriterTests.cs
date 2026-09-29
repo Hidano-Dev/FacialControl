@@ -113,6 +113,38 @@ namespace Hidano.FacialControl.Rec.Tests.EditMode
         }
 
         [Test]
+        public void Open_TwoWritersRacingForTheSamePath_KeepBothTakes()
+        {
+            string filePath = Path.Combine(_tempDirectory, "race.fcrec");
+            using var bothResolved = new Barrier(2);
+            int factoryCalls = 0;
+
+            // 両ライターが同じパスを解決し終えてから CreateNew させ、衝突を必ず起こす。
+            Func<string, Stream> factory = path =>
+            {
+                if (Interlocked.Increment(ref factoryCalls) <= 2)
+                {
+                    bothResolved.SignalAndWait(TimeSpan.FromSeconds(2d));
+                }
+
+                return new FileStream(path, FileMode.CreateNew, FileAccess.Write, FileShare.Read);
+            };
+
+            using var first = new RecStreamWriter(filePath, 2, 2, 8, factory, null);
+            using var second = new RecStreamWriter(filePath, 2, 2, 8, factory, null);
+            first.Open(RecBaselineState.Empty);
+            second.Open(RecBaselineState.Empty);
+            first.Complete(0d, 0);
+            second.Complete(0d, 0);
+
+            Assert.That(first.HasOutputFailed, Is.False);
+            Assert.That(second.HasOutputFailed, Is.False);
+            Assert.That(
+                new[] { first.OutputFilePath, second.OutputFilePath },
+                Is.EquivalentTo(new[] { filePath, Path.Combine(_tempDirectory, "race-2.fcrec") }));
+        }
+
+        [Test]
         public void Open_WhenStreamCannotBeCreated_ReportsFailureAndDropsEvents()
         {
             string filePath = Path.Combine(_tempDirectory, "unavailable.fcrec");
