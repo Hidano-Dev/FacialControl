@@ -84,7 +84,7 @@ pwsh ./scripts/check-test-sizes.ps1
 - FBX: プロトタイプから標準対応
 - VRM: リリース後の早期マイルストーン
 - ブレンドシェイプ命名規則は固定しない（2 バイト文字・特殊記号を正しく扱う）
-- ARKit 52 / PerfectSync: 初回プレリリースから完全対応。自動検出+プロファイル自動生成。未対応パラメータは警告なしでスキップ
+- ARKit 52 / PerfectSync: 初回プレリリースから完全対応。命名検出（`ARKitDetector` の完全一致）+ OSC プリセット（`/ARKit/{name}`）/ heartbeat 自動マッピングで対応。未対応パラメータは警告なしでスキップ（Expression 自動生成ツールは 2026-09 に廃止。HID-34）
 
 ### パッケージ情報
 
