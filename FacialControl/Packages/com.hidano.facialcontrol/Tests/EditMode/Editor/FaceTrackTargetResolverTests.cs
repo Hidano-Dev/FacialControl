@@ -1,10 +1,10 @@
 using System.Collections.Generic;
-using Hidano.FacialControl.ExpressionCreator;
+using Hidano.FacialControl.Editor.Common;
+using Hidano.FacialControl.Testing;
 using NUnit.Framework;
 using UnityEngine;
 
-using Hidano.FacialControl.Testing;
-namespace Hidano.FacialControl.ExpressionCreator.Tests.EditMode
+namespace Hidano.FacialControl.Tests.EditMode.Editor
 {
     [TestFixture]
     [SmallTest]

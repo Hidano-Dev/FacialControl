@@ -2,6 +2,17 @@
 
 [Keep a Changelog](https://keepachangelog.com/ja/1.1.0/) の形式に準拠し、[セマンティックバージョニング](https://semver.org/lang/ja/) に従う。
 
+## [Unreleased]
+
+### Added
+
+- `FacialCharacterProfileSO` Inspector の Expression List に、参照モデルへ各 Expression を適用した顔のサムネイル（128px 表示、クリックで 512px を拡大表示）を追加した
+  - 参照モデル・AnimationClip が未設定のときはプレースホルダを表示する
+  - 生成は遅延で行う。キャッシュはメモリと `Library/FacialControl/ExpressionThumbnails/`（コミット対象外）に置き、Expression の中身・参照モデルが変わったときだけ作り直す
+  - 「サムネイルを再生成」ボタンでキャッシュを破棄して作り直せる
+  - Inspector を閉じたとき・ドメインリロード前に、プレビュー用の一時オブジェクトとテクスチャを破棄する
+- Editor 共通ユーティリティ `FaceTrackTargetResolver`（`com.hidano.facialcontrol.expression-creator` から移動）と `PreviewRenderCapture`（`PreviewRenderUtility` のオフスクリーン描画 → `Texture2D`）
+
 ## [1.0.0] - 2026-09-25
 
 初回リリース。

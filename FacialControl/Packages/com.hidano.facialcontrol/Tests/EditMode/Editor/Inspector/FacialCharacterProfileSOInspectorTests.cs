@@ -4,6 +4,7 @@ using System.IO;
 using System.Reflection;
 using Hidano.FacialControl.Adapters.ScriptableObject.Serializable;
 using Hidano.FacialControl.Editor.Inspector;
+using Hidano.FacialControl.Editor.Thumbnails;
 using Hidano.FacialControl.Editor.Windows.Routing;
 using NUnit.Framework;
 using UnityEditor;
@@ -275,6 +276,43 @@ namespace Hidano.FacialControl.Tests.EditMode.Editor.Inspector
 
             Assert.That(foldout.value, Is.False,
                 "Inspector 再構築後も直前の Foldout 折りたたみ状態が復元される必要があります。");
+        }
+
+        // ====================================================================
+        // Expression サムネイル: 参照モデル・clip が無くても例外を出さずプレースホルダを出す
+        // ====================================================================
+
+        [Test]
+        public void CreateInspectorGUI_NoReferenceModel_ExpressionRowShowsReferenceModelPlaceholder()
+        {
+            _so = CreateProfileWithSlots(BlinkSlotName);
+            var expression = CreateExpression(new OverlaySlotBindingSerializable { slot = BlinkSlotName });
+            expression.animationClip = CreateClip("Thumbnail_NoReferenceModel_Clip");
+            _so.Expressions.Add(expression);
+
+            var root = BuildInspectorRoot();
+
+            var thumbnail = root.Q<ExpressionThumbnailView>(ExpressionThumbnailView.ElementName);
+            Assert.That(thumbnail, Is.Not.Null);
+            Assert.That(thumbnail.StatusText, Is.EqualTo(ExpressionThumbnailView.NoReferenceModelMessage));
+            Assert.That(thumbnail.Texture, Is.Null);
+            Assert.That(root.Q<Button>(FacialCharacterProfileSOInspector.ExpressionThumbnailRegenerateButtonName), Is.Not.Null);
+        }
+
+        [Test]
+        public void CreateInspectorGUI_ReferenceModelWithoutClip_ExpressionRowShowsClipPlaceholder()
+        {
+            _so = CreateProfileWithSlots(BlinkSlotName);
+            var model = new GameObject("Thumbnail_ReferenceModel");
+            _tracked.Add(model);
+            _so.ReferenceModel = model;
+            _so.Expressions.Add(CreateExpression(new OverlaySlotBindingSerializable { slot = BlinkSlotName }));
+
+            var root = BuildInspectorRoot();
+
+            var thumbnail = root.Q<ExpressionThumbnailView>(ExpressionThumbnailView.ElementName);
+            Assert.That(thumbnail, Is.Not.Null);
+            Assert.That(thumbnail.StatusText, Is.EqualTo(ExpressionThumbnailView.NoClipMessage));
         }
 
         // ====================================================================
