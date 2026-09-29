@@ -18,7 +18,7 @@ namespace Hidano.FacialControl.Osc.Editor.AdapterBindings
     public sealed class OscReceiverAdapterBindingDrawer : PropertyDrawer
     {
         private const string SlugFieldName = "Slug";
-        private const string SettingsFieldName = "_settings";
+        private const string PortFieldName = "_port";
         private const string MappingsFieldName = "_mappings";
 
         private const string EntryModeFieldName = "mode";
@@ -29,8 +29,10 @@ namespace Hidano.FacialControl.Osc.Editor.AdapterBindings
         private const string EntryLeftRightIndependentFieldName = "leftRightIndependent";
 
         public const string RootClassName = "facial-control-osc-adapter-binding";
-        public const string SettingsFieldElementName = "osc-adapter-binding-settings";
-        public const string SettingsMissingHelpBoxName = "osc-adapter-binding-settings-missing";
+        public const string PortFieldElementName = "osc-adapter-binding-port";
+        public const string AdvancedFoldoutName = "osc-adapter-binding-advanced";
+        public const string AdvancedSettingsFieldElementName = "osc-adapter-binding-advanced-settings";
+        public const string LegacyMigrationContainerName = "osc-adapter-binding-legacy-migration";
         public const string MappingListName = "osc-adapter-binding-mapping-list";
         public const string MappingRowClassName = "osc-adapter-binding-mapping-row";
         public const string MappingSkippedClassName = "osc-adapter-binding-mapping-skip-target";
@@ -52,49 +54,39 @@ namespace Hidano.FacialControl.Osc.Editor.AdapterBindings
             root.AddToClassList(RootClassName);
 
             AddSlugField(root, property);
-            AddSettingsField(root, property);
+            AddPortField(root, property);
+            OscAdapterBindingSettingsSection.AddLegacyMigrationBox(
+                root,
+                property,
+                LegacyMigrationContainerName,
+                "旧形式の OSC Runtime Settings が割り当てられたままです。起動時はその値が優先されます。"
+                + "「旧設定から移行」で受信ポートを binding へ、既定値と異なる上級設定を新しい OscReceiverRuntimeSettingsSO へ移します。",
+                OscAdapterBindingSettingsSection.MigrateReceiver);
+            OscAdapterBindingSettingsSection.AddAdvancedFoldout(
+                root,
+                property,
+                AdvancedFoldoutName,
+                AdvancedSettingsFieldElementName,
+                "OscReceiverRuntimeSettingsSO");
             AddMappingsList(root, property);
 
             return root;
         }
 
-        private static void AddSettingsField(VisualElement root, SerializedProperty property)
+        private static void AddPortField(VisualElement root, SerializedProperty property)
         {
-            SerializedProperty settingsProp = property.FindPropertyRelative(SettingsFieldName);
-            if (settingsProp == null)
+            SerializedProperty portProp = property.FindPropertyRelative(PortFieldName);
+            if (portProp == null)
             {
-                AddMissingFieldLabel(root, SettingsFieldName);
+                AddMissingFieldLabel(root, PortFieldName);
                 return;
             }
 
-            var settingsField = new PropertyField(settingsProp, "OSC Runtime Settings")
+            root.Add(new PropertyField(portProp, "受信ポート")
             {
-                name = SettingsFieldElementName,
-            };
-            root.Add(settingsField);
-
-            var missingHelpBox = new HelpBox(
-                "OSC Runtime Settings が未設定のため、この OSC Receiver は起動しません。"
-                + "Collection (AdapterRuntimeSettingsCollection) 内の sub-asset を削除すると、この参照も null になる可能性があります。",
-                HelpBoxMessageType.Warning)
-            {
-                name = SettingsMissingHelpBoxName,
-            };
-            root.Add(missingHelpBox);
-
-            RefreshSettingsMissingHelpBox(missingHelpBox, settingsProp);
-            missingHelpBox.TrackPropertyValue(settingsProp, prop => RefreshSettingsMissingHelpBox(missingHelpBox, prop));
-        }
-
-        private static void RefreshSettingsMissingHelpBox(HelpBox helpBox, SerializedProperty settingsProp)
-        {
-            if (helpBox == null)
-            {
-                return;
-            }
-
-            bool isMissing = settingsProp == null || settingsProp.objectReferenceValue == null;
-            helpBox.style.display = isMissing ? DisplayStyle.Flex : DisplayStyle.None;
+                name = PortFieldElementName,
+                tooltip = "この UDP ポートで受信します。受信は常に全インターフェース (0.0.0.0) で行います。",
+            });
         }
 
         private static void AddMappingsList(VisualElement root, SerializedProperty property)

@@ -7,8 +7,7 @@
 | ファイル | 役割 |
 |---|---|
 | `OscOutputDemo.unity` | `FacialController` と `OscOutputDemoProfile` を結線済みの最小 Scene |
-| `OscOutputDemoProfile.asset` | デモ信号源 binding（slug `demo`）と `OscSenderAdapterBinding`（slug `osc-output`）を持つ `FacialCharacterProfileSO` |
-| `OscOutputDemoSettings.asset` | `OscRuntimeSettingsSO` を sub-asset に持つ `AdapterRuntimeSettingsCollectionSO`。endpoint / heartbeat / loopback 抑制はここ |
+| `OscOutputDemoProfile.asset` | デモ信号源 binding（slug `demo`）と `OscSenderAdapterBinding`（slug `osc-output`）を持つ `FacialCharacterProfileSO`。送信先リストは binding 本体にある |
 | `OscOutputDemoBootstrap.cs` | `Application.runInBackground = true` と、sin 波で `demo:blendshape` / `demo:gaze` を登録するデモ信号 binding |
 | `OscSenderOptions.json` | 設定内容を JSON で表した参考ファイル（ランタイムは読まない） |
 
@@ -27,12 +26,13 @@
 
 1. `OscOutputDemo.unity` を開く
 2. お手持ちのモデル prefab を Hierarchy の **`Character` の子** に配置する。`FacialController` が子の `SkinnedMeshRenderer` を自動探索する
-3. 送信先を変えるときは `OscOutputDemoSettings.asset` の sub-asset **OscOutputSettings → Sender → Endpoints** を編集する
+3. 送信先を変えるときは `OscOutputDemoProfile.asset` の **OSC Sender → 送信先** を編集する
 4. Play。受信側で `/avatar/parameters/...` または `/ARKit/...` が届くことを確認する
 
 ## 補足
 
 - 一部の BlendShape だけ送りたい場合は `OscOutputDemoProfile.asset` の **OSC Sender → BlendShape Names (Optional Filter)** に名前を列挙する
-- 同一プロセスで `OscReceiverDemo` も動かす場合は Settings の **Suppress Loopback** を OFF にする
+- heartbeat 間隔と loopback 抑制は既定値のまま（上級設定アセットは割り当てていない）。変えたい場合は `AdapterRuntimeSettingsCollection` に `OscSenderRuntimeSettingsSO` を追加し、**OSC Sender → 上級設定** に割り当てる
+- 同一プロセスで `OscReceiverDemo` も動かす場合は、上記の上級設定アセットで **Suppress Loopback** を OFF にする
 - 受信側の自動マッピングは heartbeat 到着後に成立する。最初の数フレームは反映されない
 - デモ信号 binding は動作確認専用。実運用では Input System / iFacialMocap などの入力源 binding に差し替える

@@ -22,7 +22,6 @@ namespace Hidano.FacialControl.Tests.EditMode.Adapters.Json
         {
             var source = new OscReceiverOptionsDto
             {
-                listenEndpoint = "0.0.0.0",
                 listenPort = 9100,
                 mappings = new[]
                 {
@@ -57,7 +56,8 @@ namespace Hidano.FacialControl.Tests.EditMode.Adapters.Json
             string json = source.ToJson();
             OscReceiverOptionsDto result = OscReceiverOptionsDto.FromJson(json);
 
-            Assert.AreEqual("0.0.0.0", result.listenEndpoint);
+            StringAssert.DoesNotContain("listenEndpoint", json,
+                "受信 IP は廃止したため JSON に書き出さない。");
             Assert.AreEqual(9100, result.listenPort);
             Assert.AreEqual(3, result.mappings.Length);
             Assert.AreEqual(OscMappingEntryDto.ModeBlendShape, result.mappings[0].mode);
@@ -82,6 +82,7 @@ namespace Hidano.FacialControl.Tests.EditMode.Adapters.Json
         [Test]
         public void FromJson_UnknownKeys_IgnoresUnknownKeys()
         {
+            // listenEndpoint は廃止した旧キー。旧形式の JSON を読んでも他の値は壊れない。
             const string Json =
                 "{" +
                 "\"unknownRoot\":123," +
@@ -102,7 +103,6 @@ namespace Hidano.FacialControl.Tests.EditMode.Adapters.Json
 
             OscReceiverOptionsDto result = OscReceiverOptionsDto.FromJson(Json);
 
-            Assert.AreEqual("127.0.0.1", result.listenEndpoint);
             Assert.AreEqual(9200, result.listenPort);
             Assert.AreEqual(1, result.mappings.Length);
             Assert.AreEqual("Blink_L", result.mappings[0].expressionId);
@@ -119,7 +119,6 @@ namespace Hidano.FacialControl.Tests.EditMode.Adapters.Json
         {
             OscReceiverOptionsDto result = OscReceiverOptionsDto.FromJson("{}");
 
-            Assert.AreEqual(OscReceiverOptionsDto.DefaultListenEndpoint, result.listenEndpoint);
             Assert.AreEqual(OscConfiguration.DefaultReceivePort, result.listenPort);
             Assert.IsNotNull(result.mappings);
             Assert.IsEmpty(result.mappings);

@@ -11,13 +11,12 @@ namespace Hidano.FacialControl.Tests.EditMode.Adapters
     public sealed class LoopbackSuppressionPolicyTests : SizedTestFixture
     {
         [Test]
-        public void FromBindings_OscReceiverWithSameEndpointAndPort_SuppressesSenderEndpoint()
+        public void FromBindings_OscReceiverOnSamePort_SuppressesLoopbackSenderEndpoint()
         {
             int port = 19501;
             var receiver = new OscReceiverAdapterBinding
             {
                 Slug = "osc-receiver",
-                Endpoint = "127.0.0.1",
                 Port = port
             };
 

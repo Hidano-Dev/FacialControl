@@ -897,7 +897,6 @@ namespace Hidano.FacialControl.Tests.PlayMode.Integration
             _binding = new OscReceiverAdapterBinding
             {
                 Slug = Slug,
-                Endpoint = Endpoint,
                 Port = OscReceiverAdapterBindingTestSupport.AllocatePort(),
                 BundleMode = BundleInterpretationMode.IndividualMessage,
                 Mappings = new List<OscMappingEntry>(mappings)
@@ -986,9 +985,9 @@ namespace Hidano.FacialControl.Tests.PlayMode.Integration
 
     /// <summary>
     /// <see cref="OscReceiverAdapterBinding"/> / <see cref="OscSenderAdapterBinding"/> の PlayMode 統合テスト
-    /// (<see cref="OscRuntimeSettingsSO"/> 経由で設定を注入する前提)。
-    /// SO の listenPort / endpoints が各 helper MonoBehaviour に伝播し実 UDP loopback で送受信が成立すること、
-    /// 同一 SO を Receiver と Sender に注入したとき同じ port で値が往復することを検証する。
+    /// (受信ポート・送信先を binding 本体に、上級設定を任意の SO に持たせる構成)。
+    /// 上級設定アセットなしでもポートだけで受信できること、binding の送信先へ実 UDP で送信できること、
+    /// 未移行の旧 <see cref="OscRuntimeSettingsSO"/> を割り当てたままでも従来どおり送受信できることを検証する。
     /// </summary>
     [TestFixture]
     [MediumTest]
@@ -1001,7 +1000,7 @@ namespace Hidano.FacialControl.Tests.PlayMode.Integration
 
         private readonly List<AdapterBindingBase> _startedBindings = new List<AdapterBindingBase>();
         private readonly List<GameObject> _gameObjects = new List<GameObject>();
-        private readonly List<OscRuntimeSettingsSO> _settingsAssets = new List<OscRuntimeSettingsSO>();
+        private readonly List<ScriptableObject> _settingsAssets = new List<ScriptableObject>();
 
         [TearDown]
         public void TearDown()
@@ -1034,7 +1033,7 @@ namespace Hidano.FacialControl.Tests.PlayMode.Integration
 
             for (int i = _settingsAssets.Count - 1; i >= 0; i--)
             {
-                OscRuntimeSettingsSO so = _settingsAssets[i];
+                ScriptableObject so = _settingsAssets[i];
                 if (so != null)
                 {
                     UnityEngine.Object.DestroyImmediate(so);
@@ -1044,17 +1043,16 @@ namespace Hidano.FacialControl.Tests.PlayMode.Integration
         }
 
         // ---------------------------------------------------------------
-        // Receiver: SettingsSO.ListenPort 経由で UDP loopback メッセージを受信できる
+        // Receiver: 上級設定アセットなし・ポートだけで UDP loopback メッセージを受信できる
         // ---------------------------------------------------------------
 
         [UnityTest]
-        public IEnumerator Receiver_SettingsListenPort_ReceivesUdpLoopbackValue()
+        public IEnumerator Receiver_PortOnlyWithoutAdvancedAsset_ReceivesUdpLoopbackValue()
         {
-            const string slug = "osc-receiver-settings-port";
+            const string slug = "osc-receiver-port-only";
             int port = AllocatePort();
 
-            OscRuntimeSettingsSO settings = CreateSettings(BuildReceiverJson(port));
-            OscReceiverAdapterBinding receiver = CreateReceiver(slug, settings);
+            OscReceiverAdapterBinding receiver = CreateReceiver(slug, port, advancedSettings: null);
             GameObject receiverHost = CreateGameObject("OscReceiverAdapterBindingWithRuntimeSettingsTests_Receiver");
             var registry = new InputSourceRegistry();
 
@@ -1062,11 +1060,12 @@ namespace Hidano.FacialControl.Tests.PlayMode.Integration
                 new[] { BlendShapeNameA, BlendShapeNameB }));
 
             Assert.That(receiver.IsStarted, Is.True,
-                "OscReceiverAdapterBinding は _settings 経由でも起動できるべき。");
+                "OscReceiverAdapterBinding は上級設定アセットなしでも起動できるべき。");
+            Assert.That(receiver.AdvancedSettings, Is.Null);
             Assert.That(receiver.HelperHost, Is.Not.Null,
                 "OnStart 後は OscReceiverHost が AddComponent されているべき。");
             Assert.That(receiver.HelperHost.Port, Is.EqualTo(port),
-                "_settings.ListenPort が OscReceiverHost.Configure に伝播するべき。");
+                "binding の受信ポートが OscReceiverHost.Configure に伝播するべき。");
 
             yield return new WaitForSecondsRealtime(0.2f);
 
@@ -1105,20 +1104,21 @@ namespace Hidano.FacialControl.Tests.PlayMode.Integration
 
             sender.StopSending();
             Assert.That(received, Is.True,
-                "_settings.ListenPort 経由で bind した OscReceiver が UDP loopback 値を受信できるべき。");
+                "binding の受信ポートで bind した OscReceiver が UDP loopback 値を受信できるべき。");
         }
 
         // ---------------------------------------------------------------
-        // Sender: SettingsSO.Endpoints 経由で UDP 送信が行われる
+        // Sender: binding の送信先へ UDP 送信が行われる（上級設定アセットの値も反映される）
         // ---------------------------------------------------------------
 
         [UnityTest]
-        public IEnumerator Sender_SettingsEndpoints_SendsBlendShapeValueOverUdp()
+        public IEnumerator Sender_BindingEndpoints_SendsBlendShapeValueOverUdp()
         {
             int port = AllocatePort();
 
-            OscRuntimeSettingsSO settings = CreateSettings(BuildSenderJson(port));
-            OscSenderAdapterBinding sender = CreateSender("osc-sender-settings-endpoints", settings,
+            OscSenderRuntimeSettingsSO advanced = CreateSenderAdvancedSettings(
+                "{\"heartbeatIntervalSeconds\":60,\"suppressLoopback\":false}");
+            OscSenderAdapterBinding sender = CreateSender("osc-sender-binding-endpoints", port, advanced,
                 new[] { BlendShapeNameA });
             GameObject senderHost = CreateGameObject("OscReceiverAdapterBindingWithRuntimeSettingsTests_Sender");
             var outputBus = new FacialOutputBus();
@@ -1143,11 +1143,13 @@ namespace Hidano.FacialControl.Tests.PlayMode.Integration
                     new[] { BlendShapeNameA }));
 
                 Assert.That(sender.IsStarted, Is.True,
-                    "OscSenderAdapterBinding は _settings 経由でも起動できるべき。");
+                    "OscSenderAdapterBinding は binding の送信先で起動できるべき。");
                 Assert.That(sender.HelperSenderCount, Is.EqualTo(1),
-                    "_settings.Endpoints の件数だけ OscSender が AddComponent されるべき。");
+                    "送信先の件数だけ OscSender が AddComponent されるべき。");
                 Assert.That(sender.GetHelperSender(0).Port, Is.EqualTo(port),
-                    "_settings.Endpoints[0].port が OscSender.Configure に伝播するべき。");
+                    "送信先の port が OscSender.Configure に伝播するべき。");
+                Assert.That(sender.HeartbeatIntervalSeconds, Is.EqualTo(60f),
+                    "上級設定アセットの値が反映されるべき。");
 
                 yield return new WaitForSecondsRealtime(0.2f);
 
@@ -1169,7 +1171,7 @@ namespace Hidano.FacialControl.Tests.PlayMode.Integration
                 }
 
                 Assert.That(received, Is.True,
-                    "_settings.Endpoints 経由で起動した OscSender が UDP 経由で値を送信するべき。");
+                    "binding の送信先で起動した OscSender が UDP 経由で値を送信するべき。");
             }
             finally
             {
@@ -1179,19 +1181,21 @@ namespace Hidano.FacialControl.Tests.PlayMode.Integration
         }
 
         // ---------------------------------------------------------------
-        // Shared SO: 同一 OscRuntimeSettingsSO を Receiver と Sender に注入したとき、
-        // listen / send が同じ port に対して一貫して動作する。
+        // Legacy SO: 未移行の旧 OscRuntimeSettingsSO を Receiver と Sender に割り当てたままでも、
+        // その listen / send port で従来どおり送受信できる。
         // ---------------------------------------------------------------
 
         [UnityTest]
-        public IEnumerator SharedSettings_ReceiverAndSender_UseSamePortAndExchangeValueOverUdp()
+        public IEnumerator LegacySharedSettings_ReceiverAndSender_StillExchangeValueOverUdp()
         {
             int port = AllocatePort();
 
-            OscRuntimeSettingsSO shared = CreateSettings(BuildSharedJson(port));
-            OscReceiverAdapterBinding receiver = CreateReceiver("osc-receiver-shared", shared);
-            OscSenderAdapterBinding sender = CreateSender("osc-sender-shared", shared,
+            OscRuntimeSettingsSO shared = CreateLegacySettings(BuildLegacySharedJson(port));
+            OscReceiverAdapterBinding receiver = CreateReceiver("osc-receiver-shared", AllocatePort(), advancedSettings: null);
+            receiver.LegacySettings = shared;
+            OscSenderAdapterBinding sender = CreateSender("osc-sender-shared", AllocatePort(), advancedSettings: null,
                 new[] { BlendShapeNameA });
+            sender.LegacySettings = shared;
 
             GameObject receiverHost = CreateGameObject("OscReceiverAdapterBindingWithRuntimeSettingsTests_SharedReceiver");
             GameObject senderHost = CreateGameObject("OscReceiverAdapterBindingWithRuntimeSettingsTests_SharedSender");
@@ -1208,11 +1212,9 @@ namespace Hidano.FacialControl.Tests.PlayMode.Integration
             Assert.That(receiver.IsStarted, Is.True);
             Assert.That(sender.IsStarted, Is.True);
             Assert.That(receiver.HelperHost.Port, Is.EqualTo(port),
-                "共有 SO の ListenPort が Receiver に反映されること。");
+                "旧設定の ListenPort が binding 側のポートより優先されること。");
             Assert.That(sender.GetHelperSender(0).Port, Is.EqualTo(port),
-                "共有 SO の Endpoints[0].port が Sender に反映され、Receiver と同じ値であること。");
-            Assert.That(receiver.Settings, Is.SameAs(sender.Settings),
-                "Receiver と Sender が同一 OscRuntimeSettingsSO インスタンスを参照していること。");
+                "旧設定の Endpoints[0].port が binding 側の送信先より優先されること。");
 
             yield return new WaitForSecondsRealtime(0.2f);
 
@@ -1237,19 +1239,19 @@ namespace Hidano.FacialControl.Tests.PlayMode.Integration
                 {
                     reached = true;
                     Assert.That(readBuffer[0], Is.EqualTo(0.47f).Within(Tolerance),
-                        "共有 SO の listen/send port を介して Sender 出力が Receiver に到達するべき。");
+                        "旧設定の listen/send port を介して Sender 出力が Receiver に到達するべき。");
                 }
             }
 
             Assert.That(reached, Is.True,
-                "Receiver/Sender が同一 OscRuntimeSettingsSO を参照したとき、SettingsSO の port 経由で値が送受信できるべき。");
+                "未移行の旧 OscRuntimeSettingsSO を割り当てたままでも、その port 経由で値が送受信できるべき。");
         }
 
         // ---------------------------------------------------------------
         // Helpers
         // ---------------------------------------------------------------
 
-        private OscRuntimeSettingsSO CreateSettings(string json)
+        private OscRuntimeSettingsSO CreateLegacySettings(string json)
         {
             var settings = ScriptableObject.CreateInstance<OscRuntimeSettingsSO>();
             settings.hideFlags = HideFlags.HideAndDontSave;
@@ -1258,12 +1260,25 @@ namespace Hidano.FacialControl.Tests.PlayMode.Integration
             return settings;
         }
 
-        private OscReceiverAdapterBinding CreateReceiver(string slug, OscRuntimeSettingsSO settings)
+        private OscSenderRuntimeSettingsSO CreateSenderAdvancedSettings(string json)
+        {
+            var settings = ScriptableObject.CreateInstance<OscSenderRuntimeSettingsSO>();
+            settings.hideFlags = HideFlags.HideAndDontSave;
+            settings.FromJson(json);
+            _settingsAssets.Add(settings);
+            return settings;
+        }
+
+        private OscReceiverAdapterBinding CreateReceiver(
+            string slug,
+            int port,
+            OscReceiverRuntimeSettingsSO advancedSettings)
         {
             return new OscReceiverAdapterBinding
             {
                 Slug = slug,
-                Settings = settings,
+                Port = port,
+                AdvancedSettings = advancedSettings,
                 Mappings = new List<OscMappingEntry>
                 {
                     new OscMappingEntry
@@ -1284,15 +1299,17 @@ namespace Hidano.FacialControl.Tests.PlayMode.Integration
 
         private OscSenderAdapterBinding CreateSender(
             string slug,
-            OscRuntimeSettingsSO settings,
+            int port,
+            OscSenderRuntimeSettingsSO advancedSettings,
             IReadOnlyList<string> blendShapeNames)
         {
             var binding = new OscSenderAdapterBinding
             {
                 Slug = slug,
-                Settings = settings,
+                AdvancedSettings = advancedSettings,
                 BlendShapeNames = new List<string>(blendShapeNames),
             };
+            binding.Configure(Endpoint, port);
             return binding;
         }
 
@@ -1325,21 +1342,7 @@ namespace Hidano.FacialControl.Tests.PlayMode.Integration
             return gameObject;
         }
 
-        private static string BuildReceiverJson(int port)
-        {
-            return "{\"receiverEnabled\":true,\"listenEndpoint\":\"" + Endpoint
-                + "\",\"listenPort\":" + port.ToString(CultureInfo.InvariantCulture)
-                + ",\"bundleMode\":\"individualMessage\"}";
-        }
-
-        private static string BuildSenderJson(int port)
-        {
-            return "{\"senderEnabled\":true,\"endpoints\":[{\"endpoint\":\"" + Endpoint
-                + "\",\"port\":" + port.ToString(CultureInfo.InvariantCulture)
-                + ",\"enabled\":true,\"preset\":0}],\"heartbeatIntervalSeconds\":60,\"suppressLoopback\":false}";
-        }
-
-        private static string BuildSharedJson(int port)
+        private static string BuildLegacySharedJson(int port)
         {
             string portText = port.ToString(CultureInfo.InvariantCulture);
             return "{\"receiverEnabled\":true,\"listenEndpoint\":\"" + Endpoint

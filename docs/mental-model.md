@@ -45,17 +45,17 @@ FacialCharacterProfileSO (1 個)
   - `vrchat`: `/avatar/parameters/{name}`、Gaze は `{channelId}X` / `{channelId}Y` の 2 メッセージ
   - `arkit`: `/ARKit/{name}`、Gaze は eyeLook 系 8 BlendShape に分解
 - 送信対象は **省略時に全自動**（モデルの全 BlendShape + Profile が宣言する全 Gaze チャネル）。subset 配信したいときだけ `BlendShape Names (Optional Filter)` を列挙して絞る。Gaze は FacialController が自動注入し、個別指定はしない。
-- endpoint / heartbeat 周期 / loopback 抑制は `OscRuntimeSettingsSO`（Adapter Runtime Settings Collection の sub-asset）に置く。
+- 送信先リスト（endpoint / port / 有効 / プリセット）は binding 本体に置く。heartbeat 周期 / loopback 抑制は任意の上級設定 `OscSenderRuntimeSettingsSO`（Adapter Runtime Settings Collection の sub-asset）に置き、未割り当てなら既定値で動く。
 - 起動時と `heartbeatIntervalSeconds` 周期（既定 5 秒）で `/_facialcontrol/blendshape_names` heartbeat を送出（受信側の名前整合性検査用）。bundle には送信元識別用 `/_facialcontrol/sender_id` と、gaze のチャネル id / 形式を知らせる `/_facialcontrol/gaze` 広告も同梱される。
 - `suppressLoopback`（既定 ON）: 同一 child scope 内の自分の受信 endpoint と一致する送信先を抑止する。
 - 別スレッド非同期送信で、メインスレッド負荷ゼロ。
 
 ## 4. OSC 受信（Receiver Binding）
 
-- `listenEndpoint` を設定して起動すると、送信側 FacialControl が heartbeat に同梱する `/_facialcontrol/gaze` 広告を受け取り、gaze の形式（`VRChat_XY` / `ARKit_8BS`）に応じた route と input source を自動生成する。受信側で gaze の mapping エントリをあらかじめ手入力したり、OnStart 時に固定したりする必要はない。
+- 受信ポートを設定して起動すると（受信は常に全インターフェース）、送信側 FacialControl が heartbeat に同梱する `/_facialcontrol/gaze` 広告を受け取り、gaze の形式（`VRChat_XY` / `ARKit_8BS`）に応じた route と input source を自動生成する。受信側で gaze の mapping エントリをあらかじめ手入力したり、OnStart 時に固定したりする必要はない。
 - **手動 mapping は上書き用のオプション**として残る。同じ gaze を手動で定義した場合は手動 route が優先され、広告から自動生成された route と併存できる。FacialControl 以外の外部 OSC 送信元を受ける場合は、従来どおり手動 mapping を設定する。
 - 自動 route は広告のチャネル id と受信側 Profile の Gaze チャネル id を照合して生成される。広告だけで目ボーン設定まで完全自動化するものではない。
-- `listenEndpoint` + **mapping エントリ（`mode` + `expressionId` + `addressPattern`）** を SO に並べる方式。BlendShape mapping と手動 gaze mapping はこの設定で定義する。
+- 受信ポート + **mapping エントリ（`mode` + `expressionId` + `addressPattern`）** を binding に並べる方式。staleness / fail-safe / bundle 解釈などは任意の上級設定 `OscReceiverRuntimeSettingsSO` に置く。BlendShape mapping と手動 gaze mapping はこの設定で定義する。
 - `mode` は 3 種類:
 
   | mode | 意味 | `addressPattern` |

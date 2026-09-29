@@ -468,7 +468,6 @@ namespace Hidano.FacialControl.Tests.PlayMode.Performance
             _binding = new OscReceiverAdapterBinding
             {
                 Slug = Slug,
-                Endpoint = Endpoint,
                 Port = AllocatePort(),
                 StalenessSeconds = 0f,
                 BundleMode = bundleMode,
@@ -508,7 +507,6 @@ namespace Hidano.FacialControl.Tests.PlayMode.Performance
             _binding = new OscReceiverAdapterBinding
             {
                 Slug = Slug,
-                Endpoint = Endpoint,
                 Port = AllocatePort(),
                 StalenessSeconds = 0f,
                 BundleMode = BundleInterpretationMode.IndividualMessage,

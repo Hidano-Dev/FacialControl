@@ -130,91 +130,31 @@ namespace Hidano.FacialControl.Tests.EditMode.Adapters.AdapterBindings
         }
 
         [Test]
-        public void OnStart_SettingsNull_LogsWarningAndSkipsStart()
+        public void Type_HasNoListenEndpointOrEnabledField()
         {
-            // task 5.1 観測可能完了条件: _settings 未代入時に warning が出て binding 起動がスキップされる。
-            // 本テストでは Configure / プロパティ setter を一切呼ばないため _settings と _runtimeSettings の
-            // どちらも null となり、EffectiveSettings は null になる。
-            var registry = new InputSourceRegistry();
-            var binding = new OscReceiverAdapterBinding { Slug = "osc-no-settings" };
+            // 受信は常に全インターフェースで行い、有効/無効は binding を置いたかどうかで決める。
+            const System.Reflection.BindingFlags Flags =
+                System.Reflection.BindingFlags.Instance
+                | System.Reflection.BindingFlags.Public
+                | System.Reflection.BindingFlags.NonPublic;
+            Type type = typeof(OscReceiverAdapterBinding);
 
-            var host = new GameObject("OscAdapterBindingSettingsNullTests");
-            try
-            {
-                LogAssert.Expect(LogType.Warning, new Regex("_settings が未代入"));
-                binding.OnStart(CreateContext(registry, host));
-
-                Assert.That(binding.IsStarted, Is.False,
-                    "_settings 未代入時は OnStart が start をスキップするべき。");
-                Assert.That(host.GetComponent<OscReceiverHost>(), Is.Null,
-                    "_settings 未代入時は OscReceiverHost が AddComponent されないべき。");
-            }
-            finally
-            {
-                binding.Dispose();
-                UnityEngine.Object.DestroyImmediate(host);
-            }
+            Assert.That(type.GetField("_listenEndpoint", Flags), Is.Null, "受信 IP のフィールドは持たない。");
+            Assert.That(type.GetField("_endpoint", Flags), Is.Null, "受信 IP のフィールドは持たない。");
+            Assert.That(type.GetField("_receiverEnabled", Flags), Is.Null, "受信の有効フラグは持たない。");
+            Assert.That(type.GetField("_port", Flags), Is.Not.Null, "受信ポートは binding 本体に持つ。");
         }
 
         [Test]
-        public void OnStart_SettingsReceiverDisabled_LogsWarningAndSkipsStart()
+        public void OnStart_NoAdvancedSettings_StartsWithPortAndDefaultValues()
         {
-            // task 5.1 観測可能完了条件補強: ReceiverEnabled=false の SO が割り当てられている場合も skip。
-            var registry = new InputSourceRegistry();
-            var settings = ScriptableObject.CreateInstance<OscRuntimeSettingsSO>();
-            settings.hideFlags = HideFlags.HideAndDontSave;
-            settings.FromJson(
-                "{\"receiverEnabled\":false,\"listenEndpoint\":\"127.0.0.1\",\"listenPort\":19999}");
-
-            var binding = new OscReceiverAdapterBinding
-            {
-                Slug = "osc-receiver-disabled",
-                Settings = settings,
-                Mappings = new List<OscMappingEntry>
-                {
-                    new OscMappingEntry
-                    {
-                        mode = OscMappingMode.Normal_BlendShape,
-                        expressionId = "smile",
-                        addressPattern = "/avatar/parameters/smile",
-                    }
-                }
-            };
-
-            var host = new GameObject("OscAdapterBindingReceiverDisabledTests");
-            try
-            {
-                LogAssert.Expect(LogType.Warning, new Regex("ReceiverEnabled=false"));
-                binding.OnStart(CreateContext(registry, host));
-
-                Assert.That(binding.IsStarted, Is.False,
-                    "ReceiverEnabled=false の場合は OnStart が skip するべき。");
-            }
-            finally
-            {
-                binding.Dispose();
-                UnityEngine.Object.DestroyImmediate(host);
-                UnityEngine.Object.DestroyImmediate(settings);
-            }
-        }
-
-        [Test]
-        public void OnStart_SettingsAssigned_ConfiguresHostWithSettingsValues()
-        {
-            // task 5.1 観測可能完了条件: _settings 経由で Host が configure される (EditMode 側で検証可能な範囲)。
-            // PlayMode で UDP 送受信を行う本格テストは task 8.5 で追加する。
+            // 上級設定アセットなしでも、ポートだけで受信を開始できる。
             var registry = new InputSourceRegistry();
             int port = AllocatePort();
-            var settings = ScriptableObject.CreateInstance<OscRuntimeSettingsSO>();
-            settings.hideFlags = HideFlags.HideAndDontSave;
-            settings.FromJson(
-                "{\"receiverEnabled\":true,\"listenEndpoint\":\"127.0.0.1\",\"listenPort\":" + port
-                + ",\"bundleMode\":\"individualMessage\"}");
-
             var binding = new OscReceiverAdapterBinding
             {
-                Slug = "osc-settings-applied",
-                Settings = settings,
+                Slug = "osc-port-only",
+                Port = port,
                 Mappings = new List<OscMappingEntry>
                 {
                     new OscMappingEntry
@@ -226,22 +166,173 @@ namespace Hidano.FacialControl.Tests.EditMode.Adapters.AdapterBindings
                 }
             };
 
-            var host = new GameObject("OscAdapterBindingSettingsAppliedTests");
+            var host = new GameObject("OscAdapterBindingPortOnlyTests");
             try
             {
                 binding.OnStart(CreateContext(registry, host));
 
                 Assert.That(binding.IsStarted, Is.True);
                 Assert.That(binding.HelperHost, Is.Not.Null);
-                Assert.That(binding.HelperHost.Port, Is.EqualTo(port),
-                    "_settings.ListenPort が OscReceiverHost.Configure に伝播するべき。");
-                Assert.That(binding.HelperHost.Endpoint, Is.EqualTo("127.0.0.1"));
+                Assert.That(binding.HelperHost.Port, Is.EqualTo(port));
+                Assert.That(binding.HelperHost.Endpoint, Is.EqualTo(OscReceiverAdapterBinding.ListenAllInterfaces),
+                    "受信は常に全インターフェースで行う。");
+                Assert.That(binding.AdvancedSettings, Is.Null);
+                Assert.That(binding.StalenessSeconds, Is.EqualTo(OscReceiverRuntimeSettingsSO.DefaultStalenessSeconds));
+                Assert.That(binding.FailSafeMode, Is.EqualTo(FailSafeMode.RevertToBase));
+                Assert.That(binding.ConsistencyCheckWarnLog, Is.True);
+                Assert.That(binding.BundleMode, Is.EqualTo(BundleInterpretationMode.AtomicSwap));
+                Assert.That(binding.BundleAccumulationTimeoutMs,
+                    Is.EqualTo(OscReceiverRuntimeSettingsSO.DefaultBundleAccumulationTimeoutMs));
             }
             finally
             {
                 binding.Dispose();
                 UnityEngine.Object.DestroyImmediate(host);
-                UnityEngine.Object.DestroyImmediate(settings);
+            }
+        }
+
+        [Test]
+        public void OnStart_InvalidPort_LogsWarningAndSkipsStart()
+        {
+            var registry = new InputSourceRegistry();
+            var binding = new OscReceiverAdapterBinding
+            {
+                Slug = "osc-invalid-port",
+                Port = 0,
+            };
+
+            var host = new GameObject("OscAdapterBindingInvalidPortTests");
+            try
+            {
+                LogAssert.Expect(LogType.Warning, new Regex("受信ポート 0 が不正"));
+                binding.OnStart(CreateContext(registry, host));
+
+                Assert.That(binding.IsStarted, Is.False);
+                Assert.That(host.GetComponent<OscReceiverHost>(), Is.Null);
+            }
+            finally
+            {
+                binding.Dispose();
+                UnityEngine.Object.DestroyImmediate(host);
+            }
+        }
+
+        [Test]
+        public void OnStart_AdvancedSettingsAssigned_AppliesAdvancedValues()
+        {
+            var registry = new InputSourceRegistry();
+            int port = AllocatePort();
+            var advanced = ScriptableObject.CreateInstance<OscReceiverRuntimeSettingsSO>();
+            advanced.hideFlags = HideFlags.HideAndDontSave;
+            advanced.FromJson(
+                "{\"stalenessSeconds\":0.5,\"failSafeMode\":\"holdLastValue\",\"consistencyCheckWarnLog\":false,"
+                + "\"bundleMode\":\"individualMessage\",\"bundleAccumulationTimeoutMs\":12.0}");
+
+            var binding = new OscReceiverAdapterBinding
+            {
+                Slug = "osc-advanced-applied",
+                Port = port,
+                AdvancedSettings = advanced,
+                Mappings = new List<OscMappingEntry>
+                {
+                    new OscMappingEntry
+                    {
+                        mode = OscMappingMode.Normal_BlendShape,
+                        expressionId = "smile",
+                        addressPattern = "/avatar/parameters/smile",
+                    }
+                }
+            };
+
+            var host = new GameObject("OscAdapterBindingAdvancedAppliedTests");
+            try
+            {
+                binding.OnStart(CreateContext(registry, host));
+
+                Assert.That(binding.IsStarted, Is.True);
+                Assert.That(binding.HelperHost.Port, Is.EqualTo(port));
+                Assert.That(binding.EffectiveSettings, Is.SameAs(advanced));
+                Assert.That(binding.StalenessSeconds, Is.EqualTo(0.5f));
+                Assert.That(binding.FailSafeMode, Is.EqualTo(FailSafeMode.HoldLastValue));
+                Assert.That(binding.ConsistencyCheckWarnLog, Is.False);
+                Assert.That(binding.BundleMode, Is.EqualTo(BundleInterpretationMode.IndividualMessage));
+                Assert.That(binding.BundleAccumulationTimeoutMs, Is.EqualTo(12f));
+            }
+            finally
+            {
+                binding.Dispose();
+                UnityEngine.Object.DestroyImmediate(host);
+                UnityEngine.Object.DestroyImmediate(advanced);
+            }
+        }
+
+        [Test]
+        public void OnStart_LegacySettingsReceiverDisabled_LogsWarningAndSkipsStart()
+        {
+            // 未移行の旧設定で受信が無効なら、従来どおり起動しない。
+            var registry = new InputSourceRegistry();
+            var legacy = ScriptableObject.CreateInstance<OscRuntimeSettingsSO>();
+            legacy.hideFlags = HideFlags.HideAndDontSave;
+            legacy.FromJson("{\"receiverEnabled\":false,\"listenPort\":19999}");
+
+            var binding = new OscReceiverAdapterBinding
+            {
+                Slug = "osc-legacy-disabled",
+                LegacySettings = legacy,
+            };
+
+            var host = new GameObject("OscAdapterBindingLegacyDisabledTests");
+            try
+            {
+                LogAssert.Expect(LogType.Warning, new Regex("receiverEnabled=false"));
+                binding.OnStart(CreateContext(registry, host));
+
+                Assert.That(binding.IsStarted, Is.False);
+                Assert.That(host.GetComponent<OscReceiverHost>(), Is.Null);
+            }
+            finally
+            {
+                binding.Dispose();
+                UnityEngine.Object.DestroyImmediate(host);
+                UnityEngine.Object.DestroyImmediate(legacy);
+            }
+        }
+
+        [Test]
+        public void OnStart_LegacySettingsAssigned_UsesLegacyValuesAndWarns()
+        {
+            // 未移行の旧設定が残っていれば、binding 側の値より旧設定の値を優先して起動する。
+            var registry = new InputSourceRegistry();
+            int legacyPort = AllocatePort();
+            var legacy = ScriptableObject.CreateInstance<OscRuntimeSettingsSO>();
+            legacy.hideFlags = HideFlags.HideAndDontSave;
+            legacy.FromJson(
+                "{\"receiverEnabled\":true,\"listenPort\":" + legacyPort
+                + ",\"bundleMode\":\"individualMessage\",\"stalenessSeconds\":0.25}");
+
+            var binding = new OscReceiverAdapterBinding
+            {
+                Slug = "osc-legacy-applied",
+                Port = AllocatePort(),
+                LegacySettings = legacy,
+            };
+
+            var host = new GameObject("OscAdapterBindingLegacyAppliedTests");
+            try
+            {
+                LogAssert.Expect(LogType.Warning, new Regex("旧形式の設定"));
+                binding.OnStart(CreateContext(registry, host));
+
+                Assert.That(binding.IsStarted, Is.True);
+                Assert.That(binding.HelperHost.Port, Is.EqualTo(legacyPort));
+                Assert.That(binding.BundleMode, Is.EqualTo(BundleInterpretationMode.IndividualMessage));
+                Assert.That(binding.StalenessSeconds, Is.EqualTo(0.25f));
+            }
+            finally
+            {
+                binding.Dispose();
+                UnityEngine.Object.DestroyImmediate(host);
+                UnityEngine.Object.DestroyImmediate(legacy);
             }
         }
 

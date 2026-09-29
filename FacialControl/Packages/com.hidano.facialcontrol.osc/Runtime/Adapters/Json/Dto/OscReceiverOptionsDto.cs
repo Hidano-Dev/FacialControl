@@ -9,7 +9,6 @@ namespace Hidano.FacialControl.Adapters.Json.Dto
     [Serializable]
     public sealed class OscReceiverOptionsDto : ISerializationCallbackReceiver
     {
-        public const string DefaultListenEndpoint = OscSenderEndpointConfig.DefaultEndpoint;
         public const float DefaultStalenessSeconds = 0f;
         public const float DefaultBundleAccumulationTimeoutMs = 5f;
         public const string FailSafeRevertToBase = "revertToBase";
@@ -17,7 +16,6 @@ namespace Hidano.FacialControl.Adapters.Json.Dto
         public const string BundleAtomicSwap = "atomicSwap";
         public const string BundleIndividualMessage = "individualMessage";
 
-        public string listenEndpoint = DefaultListenEndpoint;
         public int listenPort = OscConfiguration.DefaultReceivePort;
         public OscMappingEntryDto[] mappings = new OscMappingEntryDto[0];
         public float stalenessSeconds = DefaultStalenessSeconds;
@@ -145,15 +143,6 @@ namespace Hidano.FacialControl.Adapters.Json.Dto
 
         private void ApplyTopLevelDefaults()
         {
-            if (string.IsNullOrWhiteSpace(listenEndpoint))
-            {
-                listenEndpoint = DefaultListenEndpoint;
-            }
-            else
-            {
-                listenEndpoint = listenEndpoint.Trim();
-            }
-
             if (listenPort <= 0 || listenPort > 65535)
             {
                 listenPort = OscConfiguration.DefaultReceivePort;

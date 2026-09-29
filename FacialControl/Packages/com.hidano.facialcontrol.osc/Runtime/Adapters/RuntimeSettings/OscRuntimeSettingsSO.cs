@@ -8,18 +8,20 @@ using UnityEngine;
 namespace Hidano.FacialControl.Adapters.RuntimeSettings
 {
     /// <summary>
-    /// OSC Receiver / Sender セクションを 1 sub-asset に統合した
-    /// <see cref="AdapterRuntimeSettingsBase"/> 派生 SO。
+    /// 旧形式の OSC 設定 SO（移行専用）。
     /// </summary>
     /// <remarks>
-    /// task 3.2 で <c>_receiverEnabled</c> / <c>_senderEnabled</c> トグルと
-    /// <see cref="ISerializationCallbackReceiver.OnAfterDeserialize"/> による
-    /// 不正値の既定値補正・enum 正規化を実装した。
-    /// task 3.3 で <c>ToJson</c> / <c>FromJson</c> override により JSON ラウンドトリップを実装。
-    /// JSON では enum を文字列フィールドとして書き出し、フィールド名はアンダースコア無しの
-    /// camelCase に整形する (design.md の JSON 契約に準拠)。
-    /// <c>CreateAssetMenu</c> は付与しない (sub-asset 専用)。
+    /// <para>
+    /// 受信ポートは <c>OscReceiverAdapterBinding</c>、送信先リストは <c>OscSenderAdapterBinding</c> 本体へ移り、
+    /// 残りの上級設定は <see cref="OscReceiverRuntimeSettingsSO"/> / <see cref="OscSenderRuntimeSettingsSO"/> に分けた。
+    /// 本型は既存アセットを読み込んで移行するためだけに残している。Collection の Add 一覧には出さない。
+    /// </para>
+    /// <para>
+    /// binding に本型が割り当てられたまま（未移行）の場合、binding は本型の値を優先して起動し、移行を促す警告を出す。
+    /// Inspector の「旧設定から移行」ボタンで binding 側へ値を移せる。
+    /// </para>
     /// </remarks>
+    [HideInAdapterRuntimeSettingsMenu]
     public sealed class OscRuntimeSettingsSO : AdapterRuntimeSettingsBase, ISerializationCallbackReceiver
     {
         public const string DefaultListenEndpoint = "127.0.0.1";
@@ -204,60 +206,22 @@ namespace Hidano.FacialControl.Adapters.RuntimeSettings
 
         public static string ToFailSafeModeString(FailSafeMode mode)
         {
-            switch (mode)
-            {
-                case FailSafeMode.HoldLastValue:
-                    return FailSafeHoldLastValue;
-                case FailSafeMode.RevertToBase:
-                default:
-                    return FailSafeRevertToBase;
-            }
+            return OscReceiverRuntimeSettingsSO.ToFailSafeModeString(mode);
         }
 
         public static FailSafeMode ToFailSafeMode(string value)
         {
-            if (string.IsNullOrWhiteSpace(value))
-            {
-                return FailSafeMode.RevertToBase;
-            }
-
-            string normalized = value.Trim();
-            if (string.Equals(normalized, FailSafeHoldLastValue, StringComparison.OrdinalIgnoreCase)
-                || string.Equals(normalized, nameof(FailSafeMode.HoldLastValue), StringComparison.OrdinalIgnoreCase))
-            {
-                return FailSafeMode.HoldLastValue;
-            }
-
-            return FailSafeMode.RevertToBase;
+            return OscReceiverRuntimeSettingsSO.ToFailSafeMode(value);
         }
 
         public static string ToBundleModeString(BundleInterpretationMode mode)
         {
-            switch (mode)
-            {
-                case BundleInterpretationMode.IndividualMessage:
-                    return BundleIndividualMessage;
-                case BundleInterpretationMode.AtomicSwap:
-                default:
-                    return BundleAtomicSwap;
-            }
+            return OscReceiverRuntimeSettingsSO.ToBundleModeString(mode);
         }
 
         public static BundleInterpretationMode ToBundleInterpretationMode(string value)
         {
-            if (string.IsNullOrWhiteSpace(value))
-            {
-                return BundleInterpretationMode.AtomicSwap;
-            }
-
-            string normalized = value.Trim();
-            if (string.Equals(normalized, BundleIndividualMessage, StringComparison.OrdinalIgnoreCase)
-                || string.Equals(normalized, nameof(BundleInterpretationMode.IndividualMessage), StringComparison.OrdinalIgnoreCase))
-            {
-                return BundleInterpretationMode.IndividualMessage;
-            }
-
-            return BundleInterpretationMode.AtomicSwap;
+            return OscReceiverRuntimeSettingsSO.ToBundleInterpretationMode(value);
         }
 
         private static OscSenderEndpointConfig[] CloneEndpointsForJson(List<OscSenderEndpointConfig> source)

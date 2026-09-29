@@ -128,7 +128,6 @@ namespace Hidano.FacialControl.Tests.PlayMode.Integration
             return new OscReceiverAdapterBinding
             {
                 Slug = slug,
-                Endpoint = Endpoint,
                 Port = port,
                 StalenessSeconds = 0f,
                 BundleMode = BundleInterpretationMode.AtomicSwap,
