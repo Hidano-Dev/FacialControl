@@ -51,7 +51,7 @@ namespace Hidano.FacialControl.Adapters.Bone
         public GazeBonePoseProvider(
             BoneTransformResolver resolver,
             IReadOnlyList<GazeBoneBinding> bindings)
-            : this(resolver, bindings, default)
+            : this(resolver, bindings, default, useEyeFallback: false)
         {
         }
 
@@ -71,6 +71,19 @@ namespace Hidano.FacialControl.Adapters.Bone
             BoneTransformResolver resolver,
             IReadOnlyList<GazeBoneBinding> bindings,
             GazeEyeBoneFallback eyeFallback)
+            : this(resolver, bindings, eyeFallback, useEyeFallback: true)
+        {
+        }
+
+        /// <param name="useEyeFallback">
+        /// false のとき path 未指定の目は fallback を探さずに駆動しない。fallback を要求しない旧オーバーロードで
+        /// <see cref="HasUnresolvedFallbackEye"/> を立てないために使う。
+        /// </param>
+        private GazeBonePoseProvider(
+            BoneTransformResolver resolver,
+            IReadOnlyList<GazeBoneBinding> bindings,
+            GazeEyeBoneFallback eyeFallback,
+            bool useEyeFallback)
         {
             _resolver = resolver ?? throw new ArgumentNullException(nameof(resolver));
             if (bindings == null) throw new ArgumentNullException(nameof(bindings));
@@ -98,6 +111,7 @@ namespace Hidano.FacialControl.Adapters.Bone
                         cfg.leftEyeYawAxisLocal,
                         cfg.leftEyePitchAxisLocal,
                         isLeftEye: true,
+                        useEyeFallback,
                         eyeFallback.Left,
                         ref leftFallbackClaimed);
                 }
@@ -112,6 +126,7 @@ namespace Hidano.FacialControl.Adapters.Bone
                         cfg.rightEyeYawAxisLocal,
                         cfg.rightEyePitchAxisLocal,
                         isLeftEye: false,
+                        useEyeFallback,
                         eyeFallback.Right,
                         ref rightFallbackClaimed);
                 }
@@ -136,6 +151,7 @@ namespace Hidano.FacialControl.Adapters.Bone
             Vector3 yawAxisLocal,
             Vector3 pitchAxisLocal,
             bool isLeftEye,
+            bool useEyeFallback,
             GazeEyeBoneFallback.FallbackEye fallbackEye,
             ref bool fallbackClaimed)
         {
@@ -156,7 +172,7 @@ namespace Hidano.FacialControl.Adapters.Bone
                 return;
             }
 
-            if (fallbackClaimed)
+            if (!useEyeFallback || fallbackClaimed)
             {
                 return;
             }
