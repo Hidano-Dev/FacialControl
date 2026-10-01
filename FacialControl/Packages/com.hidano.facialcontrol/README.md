@@ -10,7 +10,7 @@
 - **Overlay slot** — まばたきや音素の口形状など「表情の上に重ねる」要素を slot 単位で管理。表情ごとに Default / Suppress / Override の 3 状態を選べる
 - **Gaze チャネル** — Vector2 入力を目ボーンの yaw / pitch に変換。入力源は各 binding が宣言し、Profile の目線タブでドロップダウン選択
 - **Adapter Binding 拡張点** — `AdapterBindingBase` 派生クラスに `[FacialAdapterBinding]` を付けるだけで Inspector の Add メニューに自動列挙。binding は `ctx.InputSourceRegistry.Register(slug, source)` で入力源を公開する
-- **Editor ツール** — UI Toolkit の Profile Inspector、ARKit 52 / PerfectSync 検出ツール、新規プロファイル作成ダイアログ。BlendShape スライダーで AnimationClip を作る Expression 作成ツールは `com.hidano.facialcontrol.expression-creator`、入力源とレイヤーをノードで配線するルーティングエディタは `com.hidano.facialcontrol.routing-editor` として別パッケージで提供
+- **Editor ツール** — UI Toolkit の Profile Inspector、新規プロファイル作成ダイアログ。BlendShape スライダーで AnimationClip を作る Expression 作成ツールは `com.hidano.facialcontrol.expression-creator`、入力源とレイヤーをノードで配線するルーティングエディタは `com.hidano.facialcontrol.routing-editor` として別パッケージで提供
 - **毎フレーム GC ゼロ** — 定常状態の `LateUpdate` 全経路、10 体同時制御、Gaze 適用を PlayMode の gate テストで GC.Alloc = 0 に固定
 
 ## 動作要件
@@ -87,7 +87,7 @@ Runtime/
 ├── Domain/        # 値オブジェクト・入力源の基底クラス・合成サービス・バス（Unity.Collections / UnityEngine に依存）
 ├── Application/   # ProfileUseCase / ExpressionUseCase / LayerUseCase
 └── Adapters/      # FacialController / FacialCharacterProfileSO / JSON パーサ / 入力源レジストリ / DI スコープ / ボーン適用
-Editor/            # UI Toolkit Inspector / ARKit 検出 / ルーティング配線ロジック（Windows/Routing/Logic）/ 自動エクスポート
+Editor/            # UI Toolkit Inspector / ルーティング配線ロジック（Windows/Routing/Logic）/ 自動エクスポート
 Templates/         # default_profile.json
 Samples~/          # MultiSourceBlendBasicSample
 ```
@@ -101,7 +101,6 @@ Samples~/          # MultiSourceBlendBasicSample
 | メニュー | 内容 |
 |---|---|
 | Tools → FacialControl → 新規プロファイル作成 | 命名規則（VRM / ARKit）を選んで `profile.json` の雛形を生成 |
-| Tools → FacialControl → ARKit 検出ツール | ARKit 52 / PerfectSync 命名を検出して Expression を自動生成 |
 | Create → FacialControl → Adapter Runtime Settings Collection | 環境依存設定（OSC の endpoint 等）をキャラクター Profile から分離する sub-asset コンテナ |
 
 **Tools → FacialControl → Expression 作成** と Profile Inspector の **ルーティングを編集** ボタンは、それぞれ `com.hidano.facialcontrol.expression-creator` / `com.hidano.facialcontrol.routing-editor` を追加すると現れる。ルーティングエディタは core の `RoutingEditorLauncher` に起動ハンドラを登録する方式で、core 側は拡張パッケージを参照しない。

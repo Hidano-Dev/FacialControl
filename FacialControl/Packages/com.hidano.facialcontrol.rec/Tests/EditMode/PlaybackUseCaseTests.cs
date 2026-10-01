@@ -241,6 +241,120 @@ namespace Hidano.FacialControl.Rec.Tests.EditMode
             Assert.That(playbackBlend, Is.EqualTo(recordedBlend).AsCollection.Within(1e-5f));
         }
 
+        [Test]
+        public void StartPlayback_WithOffset_BeginsInjectionWithStateRebuiltAtOffset()
+        {
+            var triggerPort = new FakeTriggerInjectionPort();
+            var analogPort = new FakeAnalogInjectionPort();
+            var useCase = new PlaybackUseCase(triggerPort, analogPort);
+            useCase.Load(CreateSeekTimeline(), CreateFullProfile());
+
+            bool started = useCase.StartPlayback(0.25d);
+
+            Assert.That(started, Is.True);
+            Assert.That(useCase.State, Is.EqualTo(RecPlaybackState.Playing));
+            Assert.That(useCase.ElapsedSeconds, Is.EqualTo(0.25d));
+            Assert.That(triggerPort.Baseline.TryGetTriggerStack("input:trigger", out IReadOnlyList<string> expressionIds), Is.True);
+            Assert.That(expressionIds, Is.EqualTo(new[] { "smile" }));
+            Assert.That(analogPort.Baseline.TryGetAnalogAxes("input:gaze", out IReadOnlyList<float> axes), Is.True);
+            Assert.That(axes, Is.EqualTo(new[] { 0.5f, -0.25f }));
+            Assert.That(triggerPort.TriggerOnEvents, Is.Empty);
+            Assert.That(analogPort.AnalogSamples, Is.Empty);
+        }
+
+        [Test]
+        public void StartPlayback_WithOffset_DispatchesOnlyEventsFromOffsetOnward()
+        {
+            var triggerPort = new FakeTriggerInjectionPort();
+            var analogPort = new FakeAnalogInjectionPort();
+            var useCase = new PlaybackUseCase(triggerPort, analogPort);
+            useCase.Load(CreateSeekTimeline(), CreateFullProfile());
+            useCase.StartPlayback(0.25d);
+
+            useCase.Tick(0.10f);
+
+            Assert.That(triggerPort.TriggerOnEvents, Is.Empty);
+            Assert.That(triggerPort.TriggerOffEvents, Is.EqualTo(new[] { ("input:trigger", "smile") }));
+            Assert.That(analogPort.AnalogSamples, Is.Empty);
+        }
+
+        [Test]
+        public void StartPlayback_WithOffset_FiltersMissingExpressionIdsFromRebuiltStack()
+        {
+            var triggerPort = new FakeTriggerInjectionPort();
+            var analogPort = new FakeAnalogInjectionPort();
+            var useCase = new PlaybackUseCase(triggerPort, analogPort);
+            useCase.Load(CreateTimelineWithMissingExpression(), CreateProfileWithoutMissingExpression());
+
+            LogAssert.Expect(LogType.Warning, new Regex("'missing'"));
+
+            useCase.StartPlayback(0.15d);
+
+            Assert.That(triggerPort.Baseline.TryGetTriggerStack("input:trigger", out IReadOnlyList<string> expressionIds), Is.True);
+            Assert.That(expressionIds, Is.EqualTo(new[] { "smile" }));
+        }
+
+        [Test]
+        public void StartPlayback_WithOffsetBeyondDuration_CompletesImmediatelyWithFinalState()
+        {
+            var triggerPort = new FakeTriggerInjectionPort();
+            var analogPort = new FakeAnalogInjectionPort();
+            var useCase = new PlaybackUseCase(triggerPort, analogPort);
+            useCase.Load(CreateSeekTimeline(), CreateFullProfile());
+            int completedCallCount = 0;
+            useCase.Completed += () => completedCallCount++;
+
+            bool started = useCase.StartPlayback(5d);
+
+            Assert.That(started, Is.True);
+            Assert.That(useCase.State, Is.EqualTo(RecPlaybackState.Completed));
+            Assert.That(completedCallCount, Is.EqualTo(1));
+            Assert.That(triggerPort.Baseline.TryGetTriggerStack("input:trigger", out IReadOnlyList<string> expressionIds), Is.True);
+            Assert.That(expressionIds, Is.Empty);
+            Assert.That(triggerPort.EndInjectionCallCount, Is.EqualTo(0));
+        }
+
+        [TestCase(-0.1d)]
+        [TestCase(double.NaN)]
+        [TestCase(double.PositiveInfinity)]
+        public void StartPlayback_WithInvalidOffset_LogsWarningAndReturnsFalse(double startOffsetSeconds)
+        {
+            var triggerPort = new FakeTriggerInjectionPort();
+            var analogPort = new FakeAnalogInjectionPort();
+            var useCase = new PlaybackUseCase(triggerPort, analogPort);
+            useCase.Load(CreateSeekTimeline(), CreateFullProfile());
+
+            LogAssert.Expect(LogType.Warning, new Regex("startOffsetSeconds"));
+
+            bool started = useCase.StartPlayback(startOffsetSeconds);
+
+            Assert.That(started, Is.False);
+            Assert.That(useCase.State, Is.EqualTo(RecPlaybackState.Idle));
+            Assert.That(triggerPort.BeginInjectionCallCount, Is.EqualTo(0));
+            Assert.That(analogPort.BeginInjectionCallCount, Is.EqualTo(0));
+        }
+
+        private static RecTimeline CreateSeekTimeline()
+        {
+            return new RecTimeline(
+                RecBaselineState.Empty,
+                new[]
+                {
+                    RecEvent.CreateTriggerOn(0.10d, 0, 0),
+                    RecEvent.CreateAnalogSample(0.20d, 1, 2),
+                    RecEvent.CreateTriggerOff(0.30d, 0, 0),
+                },
+                new[] { "input:trigger", "input:gaze" },
+                new[] { "smile" },
+                0.40d,
+                new IReadOnlyList<float>[]
+                {
+                    Array.Empty<float>(),
+                    new float[] { 0.5f, -0.25f },
+                    Array.Empty<float>(),
+                });
+        }
+
         private static RecTimeline CreateTimelineWithMissingExpression()
         {
             var baseline = new RecBaselineState(

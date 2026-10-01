@@ -1,5 +1,7 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
+using Hidano.FacialControl.Adapters.ScriptableObject;
 using UnityEngine;
 
 namespace Hidano.FacialControl.Adapters.OSC
@@ -8,10 +10,33 @@ namespace Hidano.FacialControl.Adapters.OSC
     /// Parses the flat string-pair payload used by /_facialcontrol/gaze and
     /// produces a deterministic content hash for change detection.
     /// </summary>
+    /// <remarks>
+    /// <para>
+    /// 各ペアは <c>(channelId, value)</c>。value が形式識別子 (<see cref="VrChatXyFormat"/> /
+    /// <see cref="ArKit8BsFormat"/>) のペアは自動 route を、<c>key=value</c> 形式の属性ペアは
+    /// そのチャネルの設定 (目ボーン path の上書き・可動範囲) を表す。
+    /// </para>
+    /// <list type="bullet">
+    /// <item><c>bone.left=&lt;path&gt;</c> / <c>bone.right=&lt;path&gt;</c>: 受信側の目ボーン path を上書きする。
+    /// 送信側で path が未指定の側は送らない。</item>
+    /// <item><c>range=&lt;lookUp&gt;,&lt;lookDown&gt;,&lt;outerYaw&gt;,&lt;innerYaw&gt;</c>: 可動範囲 (度、
+    /// InvariantCulture)。広告ごとに毎回送る。</item>
+    /// </list>
+    /// <para>
+    /// 属性ペアは route の解析 (<see cref="Parse"/>) と route のハッシュから除外する。属性ペアを知らない
+    /// 旧受信側は、未知の形式として警告 1 回でスキップする。
+    /// </para>
+    /// </remarks>
     public static class GazeAdvertisementResolver
     {
         public const string VrChatXyFormat = "VRChat_XY";
         public const string ArKit8BsFormat = "ARKit_8BS";
+        public const string LeftEyeBonePathAttributePrefix = "bone.left=";
+        public const string RightEyeBonePathAttributePrefix = "bone.right=";
+        public const string AngleLimitsAttributePrefix = "range=";
+
+        private const int AngleLimitsValueCount = 4;
+        private static readonly char[] s_angleLimitsSeparator = { ',' };
         private static readonly Comparison<GazeAdvertisement> s_compareByExpressionIdOrdinal =
             CompareByExpressionIdOrdinal;
 
@@ -52,6 +77,11 @@ namespace Hidano.FacialControl.Adapters.OSC
             {
                 string expressionId = payload[i * 2];
                 string format = payload[i * 2 + 1];
+                if (IsChannelAttribute(format))
+                {
+                    continue;
+                }
+
                 if (string.IsNullOrEmpty(expressionId) || !IsKnownFormat(format))
                 {
                     if (!string.IsNullOrEmpty(expressionId) && !IsKnownFormat(format))
@@ -164,6 +194,180 @@ namespace Hidano.FacialControl.Adapters.OSC
                     planResults.Add(entry);
                 }
             }
+        }
+
+        /// <summary>
+        /// <paramref name="channel"/> の目ボーン path (指定がある側のみ) と可動範囲を、
+        /// <paramref name="channelId"/> の属性ペアとして <paramref name="pairs"/> へ追加する。
+        /// </summary>
+        public static void AppendChannelAttributes(
+            IList<string> pairs,
+            string channelId,
+            GazeChannel channel)
+        {
+            if (pairs == null)
+            {
+                throw new ArgumentNullException(nameof(pairs));
+            }
+
+            if (string.IsNullOrEmpty(channelId) || channel == null)
+            {
+                return;
+            }
+
+            if (!string.IsNullOrWhiteSpace(channel.leftEyeBonePath))
+            {
+                pairs.Add(channelId);
+                pairs.Add(LeftEyeBonePathAttributePrefix + channel.leftEyeBonePath);
+            }
+
+            if (!string.IsNullOrWhiteSpace(channel.rightEyeBonePath))
+            {
+                pairs.Add(channelId);
+                pairs.Add(RightEyeBonePathAttributePrefix + channel.rightEyeBonePath);
+            }
+
+            pairs.Add(channelId);
+            pairs.Add(FormatAngleLimits(
+                channel.lookUpAngle,
+                channel.lookDownAngle,
+                channel.outerYawAngle,
+                channel.innerYawAngle));
+        }
+
+        /// <summary>
+        /// [id, value, ...] から属性ペアを集め、チャネル id ごとの上書きを <paramref name="destination"/> に入れる。
+        /// 形式識別子のペアは無視する。値が不正な属性ペアは警告 1 回でスキップする。
+        /// </summary>
+        /// <remarks>
+        /// 送信側はチャネルごとに目ボーン path → <c>range=</c> の順で属性ペアを並べ、<c>range=</c> は毎回送る。
+        /// そこで <c>range=</c> を受け取った時点でそのチャネルの属性がそろったとみなし、それまでの path と
+        /// 合わせて確定する。<c>range=</c> まで届いていないチャネル (MTU 分割された広告の途中など) は
+        /// <paramref name="destination"/> に入れない。
+        /// </remarks>
+        public static void ParseChannelOverrides(
+            IReadOnlyList<string> payload,
+            IDictionary<string, GazeChannelOverride> destination,
+            ref bool warnedOnInvalidAttribute)
+        {
+            if (destination == null)
+            {
+                throw new ArgumentNullException(nameof(destination));
+            }
+
+            destination.Clear();
+            if (payload == null)
+            {
+                return;
+            }
+
+            Dictionary<string, GazeChannelOverride> pending = null;
+            int pairCount = payload.Count / 2;
+            for (int i = 0; i < pairCount; i++)
+            {
+                string channelId = payload[i * 2];
+                string attribute = payload[i * 2 + 1];
+                if (string.IsNullOrEmpty(channelId) || !IsChannelAttribute(attribute))
+                {
+                    continue;
+                }
+
+                if (pending == null)
+                {
+                    pending = new Dictionary<string, GazeChannelOverride>(StringComparer.Ordinal);
+                }
+
+                pending.TryGetValue(channelId, out GazeChannelOverride current);
+                if (attribute.StartsWith(LeftEyeBonePathAttributePrefix, StringComparison.Ordinal))
+                {
+                    pending[channelId] = current.WithLeftEyeBonePath(
+                        attribute.Substring(LeftEyeBonePathAttributePrefix.Length));
+                    continue;
+                }
+
+                if (attribute.StartsWith(RightEyeBonePathAttributePrefix, StringComparison.Ordinal))
+                {
+                    pending[channelId] = current.WithRightEyeBonePath(
+                        attribute.Substring(RightEyeBonePathAttributePrefix.Length));
+                    continue;
+                }
+
+                // range= でそのチャネルの属性グループが確定する。
+                pending.Remove(channelId);
+                if (!TryParseAngleLimits(
+                        attribute.Substring(AngleLimitsAttributePrefix.Length),
+                        out float lookUp,
+                        out float lookDown,
+                        out float outerYaw,
+                        out float innerYaw))
+                {
+                    WarnInvalidAttributeOnce(channelId, attribute, ref warnedOnInvalidAttribute);
+                    continue;
+                }
+
+                destination[channelId] = current.WithAngleLimits(lookUp, lookDown, outerYaw, innerYaw);
+            }
+        }
+
+        /// <summary>value が属性ペア (目ボーン path・可動範囲) のキーで始まるとき true。</summary>
+        public static bool IsChannelAttribute(string value)
+        {
+            return value != null &&
+                (value.StartsWith(LeftEyeBonePathAttributePrefix, StringComparison.Ordinal) ||
+                    value.StartsWith(RightEyeBonePathAttributePrefix, StringComparison.Ordinal) ||
+                    value.StartsWith(AngleLimitsAttributePrefix, StringComparison.Ordinal));
+        }
+
+        public static string FormatAngleLimits(
+            float lookUpAngle,
+            float lookDownAngle,
+            float outerYawAngle,
+            float innerYawAngle)
+        {
+            return AngleLimitsAttributePrefix
+                + lookUpAngle.ToString("R", CultureInfo.InvariantCulture) + ","
+                + lookDownAngle.ToString("R", CultureInfo.InvariantCulture) + ","
+                + outerYawAngle.ToString("R", CultureInfo.InvariantCulture) + ","
+                + innerYawAngle.ToString("R", CultureInfo.InvariantCulture);
+        }
+
+        private static bool TryParseAngleLimits(
+            string value,
+            out float lookUpAngle,
+            out float lookDownAngle,
+            out float outerYawAngle,
+            out float innerYawAngle)
+        {
+            lookUpAngle = lookDownAngle = outerYawAngle = innerYawAngle = 0f;
+            string[] parts = value.Split(s_angleLimitsSeparator);
+            return parts.Length == AngleLimitsValueCount
+                && TryParseAngle(parts[0], out lookUpAngle)
+                && TryParseAngle(parts[1], out lookDownAngle)
+                && TryParseAngle(parts[2], out outerYawAngle)
+                && TryParseAngle(parts[3], out innerYawAngle);
+        }
+
+        private static bool TryParseAngle(string value, out float angle)
+        {
+            return float.TryParse(
+                    value,
+                    NumberStyles.Float,
+                    CultureInfo.InvariantCulture,
+                    out angle)
+                && !float.IsNaN(angle)
+                && !float.IsInfinity(angle);
+        }
+
+        private static void WarnInvalidAttributeOnce(string channelId, string attribute, ref bool warned)
+        {
+            if (warned)
+            {
+                return;
+            }
+
+            warned = true;
+            Debug.LogWarning(
+                $"[GazeAdvertisementResolver] Invalid gaze channel attribute '{attribute}' for channel '{channelId}'; the pair was skipped.");
         }
 
         private static bool IsKnownFormat(string format)

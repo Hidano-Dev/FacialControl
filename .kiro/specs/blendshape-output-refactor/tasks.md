@@ -127,6 +127,7 @@
   - 観測可能な完了条件: ARKit/PerfectSync・プロファイル仕様の非回帰テストが緑になり、自動生成・スキップ挙動が変更前と一致する
   - _Requirements: 5.1, 5.2, 5.3, 5.4, 8.3_
   - _Boundary: ArkitProfileRegressionTests_
+  - 注記（2026-09-29、HID-34）: ARKit 検出ツールと `ARKitUseCase` の削除に伴い `ArkitProfileRegressionTests` も削除した（自動生成経路そのものが無くなったため）。完全一致検出と未知パラメータのスキップは `ARKitDetectorTests`（Small）が引き続き検証する
   - _Depends: 4.2_
 
 - [x] 6. 毎フレーム GC ゼロ判定ゲートとリーク・10 体の性能検証

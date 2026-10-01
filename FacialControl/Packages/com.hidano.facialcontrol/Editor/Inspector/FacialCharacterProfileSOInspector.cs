@@ -1288,8 +1288,8 @@ namespace Hidano.FacialControl.Editor.Inspector
             row.Add(header);
             AddGazeProviderDropdown(row, index, channel);
             AddGazeChannelBoneResolutionControls(row, index, channel);
-            AddGazeChannelProperty(row, channel, "leftEyeBonePath", "左目ボーン", GazeChannelLeftBonePathName);
-            AddGazeChannelProperty(row, channel, "rightEyeBonePath", "右目ボーン", GazeChannelRightBonePathName);
+            AddGazeChannelProperty(row, channel, "leftEyeBonePath", "左目ボーン (任意)", GazeChannelLeftBonePathName);
+            AddGazeChannelProperty(row, channel, "rightEyeBonePath", "右目ボーン (任意)", GazeChannelRightBonePathName);
             AddGazeChannelProperty(row, channel, "lookUpAngle", "上方向角度", GazeConfigLookUpAngleFieldName);
             AddGazeChannelProperty(row, channel, "lookDownAngle", "下方向角度", GazeConfigLookDownAngleFieldName);
             AddGazeChannelProperty(row, channel, "outerYawAngle", "外側角度", GazeConfigOuterYawAngleFieldName);
@@ -1319,7 +1319,7 @@ namespace Hidano.FacialControl.Editor.Inspector
             };
             button.SetEnabled(HasReferenceModel());
             row.Add(button);
-            var help = MakeHelpBox(string.Empty, HelpBoxMessageType.Warning);
+            var help = MakeHelpBox(string.Empty, HelpBoxMessageType.Info);
             help.name = GazeChannelBoneResolutionHelpName + "-" + index;
             UpdateGazeChannelBoneResolutionHelp(help, channel);
             row.Add(help);
@@ -1366,14 +1366,38 @@ namespace Hidano.FacialControl.Editor.Inspector
                 channel.FindPropertyRelative("rightEyeYawAxisLocal"), channel.FindPropertyRelative("rightEyePitchAxisLocal"), overwrite);
         }
 
-        private static void UpdateGazeChannelBoneResolutionHelp(HelpBox help, SerializedProperty channel)
+        private void UpdateGazeChannelBoneResolutionHelp(HelpBox help, SerializedProperty channel)
         {
             if (help == null || channel == null) return;
             bool leftMissing = string.IsNullOrWhiteSpace(channel.FindPropertyRelative("leftEyeBonePath")?.stringValue);
             bool rightMissing = string.IsNullOrWhiteSpace(channel.FindPropertyRelative("rightEyeBonePath")?.stringValue);
             bool missing = leftMissing || rightMissing;
-            help.text = missing ? "目ボーンを解決できない側があります。Humanoid マッピングを確認するか、ボーン path を手動入力してください。" : string.Empty;
+            // 目ボーン path は任意。空欄の側はランタイムで Humanoid の LeftEye / RightEye を使う。
+            // 参照モデルが Humanoid の目を持たないと分かっている場合だけ警告にする。
+            bool referenceLacksHumanoidEyes = missing && ReferenceModelLacksHumanoidEyes(leftMissing, rightMissing);
+            help.messageType = referenceLacksHumanoidEyes ? HelpBoxMessageType.Warning : HelpBoxMessageType.Info;
+            help.text = !missing
+                ? string.Empty
+                : referenceLacksHumanoidEyes
+                    ? "参照モデルは Humanoid の目ボーン (LeftEye / RightEye) を持たないため、目ボーンが空欄の側は目線が動きません。"
+                        + "ボーン path を指定してください。"
+                    : "目ボーンが空欄の側は、実行時に Humanoid Avatar の目ボーン (LeftEye / RightEye) を使用します。"
+                        + "非 Humanoid モデルや Eye 未マップの場合は、ボーン path を指定しないと目線が動きません。";
             help.style.display = missing ? DisplayStyle.Flex : DisplayStyle.None;
+        }
+
+        /// <summary>
+        /// 参照モデルが割り当て済みで、空欄側の目に対応する Humanoid の Eye ボーンを持たないとき true。
+        /// 参照モデル未割り当てのときは判定できないため false。
+        /// </summary>
+        private bool ReferenceModelLacksHumanoidEyes(bool leftMissing, bool rightMissing)
+        {
+            var referenceModel = _referenceModelProperty?.objectReferenceValue as GameObject;
+            if (referenceModel == null) return false;
+            var animator = referenceModel.GetComponentInChildren<Animator>(includeInactive: true);
+            if (animator == null || animator.avatar == null || !animator.avatar.isHuman) return true;
+            return (leftMissing && animator.GetBoneTransform(HumanBodyBones.LeftEye) == null)
+                || (rightMissing && animator.GetBoneTransform(HumanBodyBones.RightEye) == null);
         }
 
         private void AddGazeProviderDropdown(VisualElement row, int index, SerializedProperty channel)
