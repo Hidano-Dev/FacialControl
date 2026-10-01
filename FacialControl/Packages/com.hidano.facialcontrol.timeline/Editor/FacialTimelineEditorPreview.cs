@@ -22,11 +22,14 @@ namespace Hidano.FacialControl.Timeline.Editor
 
         private static readonly HashSet<int> MissingBakeWarnings = new HashSet<int>();
 
-        // path 未指定の目に使う Humanoid の目ボーンと rest 回転・軸 (FacialController の instanceID ごと)。
+        // path 未指定の目に使う Humanoid の目ボーンと rest 回転・軸、および path 解決用の resolver
+        // (FacialController の instanceID ごと)。
         // rest 回転はプレビューで書き換える前の姿勢から取る必要があるため、GatherProperties (プレビュー開始時、
         // Timeline が対象プロパティを記録する時点) で取り直し、スクラブ中は使い回す。
-        private static readonly Dictionary<int, GazeEyeBoneFallback> GazeEyeFallbacks =
-            new Dictionary<int, GazeEyeBoneFallback>();
+        private static readonly Dictionary<int, CachedGazeEyeFallback> GazeEyeFallbacks =
+            new Dictionary<int, CachedGazeEyeFallback>();
+
+        private static readonly List<int> StaleGazeEyeFallbackKeys = new List<int>();
 
         private static readonly List<FacialTimelinePreviewEyeTarget> GazeTargetBuffer =
             new List<FacialTimelinePreviewEyeTarget>();
@@ -153,12 +156,14 @@ namespace Hidano.FacialControl.Timeline.Editor
                 return;
             }
 
+            // ランタイムは入力源の無い channel を駆動しない。プレビューではベイク値の無い channel がそれに当たる。
+            CachedGazeEyeFallback cached = GetGazeEyeFallback(controller);
             GazeTargetBuffer.Clear();
             FacialTimelinePreviewGazeTargets.Resolve(
-                controller.transform,
+                cached.Resolver,
                 gazeConfigs,
-                gazeChannels.Length,
-                GetGazeEyeFallback(controller),
+                index => index < gazeChannels.Length && HasAnyAxis(gazeChannels[index]),
+                cached.Fallback,
                 GazeTargetBuffer);
 
             for (int i = 0; i < GazeTargetBuffer.Count; i++)
@@ -175,6 +180,25 @@ namespace Hidano.FacialControl.Timeline.Editor
             }
 
             GazeTargetBuffer.Clear();
+        }
+
+        private static bool HasAnyAxis(ValueChannelBake bake)
+        {
+            AnimationCurve[] axes = bake.Axes;
+            if (axes == null)
+            {
+                return false;
+            }
+
+            for (int i = 0; i < axes.Length; i++)
+            {
+                if (axes[i] != null)
+                {
+                    return true;
+                }
+            }
+
+            return false;
         }
 
         private static ValueChannelBake[] CollectGazeChannels(FacialTimelineBakeAsset bakeAsset)
@@ -242,14 +266,17 @@ namespace Hidano.FacialControl.Timeline.Editor
             }
 
             // プレビュー開始時の姿勢から fallback の rest 回転・軸を取り直す。
-            GazeEyeFallbacks[controller.GetInstanceID()] = CreateGazeEyeFallback(controller);
+            PruneDestroyedGazeEyeFallbacks();
+            CachedGazeEyeFallback cached = CreateCachedGazeEyeFallback(controller);
+            GazeEyeFallbacks[controller.GetInstanceID()] = cached;
 
+            // 復元対象の登録はベイクの有無に依らず、駆動し得るボーンをすべて登録する。
             GazeTargetBuffer.Clear();
             FacialTimelinePreviewGazeTargets.Resolve(
-                controller.transform,
+                cached.Resolver,
                 gazeConfigs,
-                gazeConfigs.Count,
-                GazeEyeFallbacks[controller.GetInstanceID()],
+                null,
+                cached.Fallback,
                 GazeTargetBuffer);
 
             for (int i = 0; i < GazeTargetBuffer.Count; i++)
@@ -260,24 +287,46 @@ namespace Hidano.FacialControl.Timeline.Editor
             GazeTargetBuffer.Clear();
         }
 
-        private static GazeEyeBoneFallback GetGazeEyeFallback(FacialController controller)
+        private static CachedGazeEyeFallback GetGazeEyeFallback(FacialController controller)
         {
             int key = controller.GetInstanceID();
-            if (GazeEyeFallbacks.TryGetValue(key, out GazeEyeBoneFallback fallback)
-                && (fallback.LeftEye != null || fallback.RightEye != null))
+            if (GazeEyeFallbacks.TryGetValue(key, out CachedGazeEyeFallback cached))
             {
-                return fallback;
+                return cached;
             }
 
-            // GatherProperties を経ずに呼ばれた場合 (またはボーンが破棄された場合) は現在の姿勢から作る。
-            fallback = CreateGazeEyeFallback(controller);
-            GazeEyeFallbacks[key] = fallback;
-            return fallback;
+            // GatherProperties を経ずに呼ばれた場合 (スクリプトからの Evaluate 等) は現在の姿勢から作る。
+            // 目ボーンが無い (非 Humanoid) 場合も結果をキャッシュし、毎フレーム解決し直さない。
+            cached = CreateCachedGazeEyeFallback(controller);
+            GazeEyeFallbacks[key] = cached;
+            return cached;
         }
 
-        private static GazeEyeBoneFallback CreateGazeEyeFallback(FacialController controller)
+        private static void PruneDestroyedGazeEyeFallbacks()
         {
-            return GazeEyeBoneFallback.FromAnimator(controller.GetComponent<Animator>());
+            StaleGazeEyeFallbackKeys.Clear();
+            foreach (KeyValuePair<int, CachedGazeEyeFallback> entry in GazeEyeFallbacks)
+            {
+                if (entry.Value.Controller == null)
+                {
+                    StaleGazeEyeFallbackKeys.Add(entry.Key);
+                }
+            }
+
+            for (int i = 0; i < StaleGazeEyeFallbackKeys.Count; i++)
+            {
+                GazeEyeFallbacks.Remove(StaleGazeEyeFallbackKeys[i]);
+            }
+
+            StaleGazeEyeFallbackKeys.Clear();
+        }
+
+        private static CachedGazeEyeFallback CreateCachedGazeEyeFallback(FacialController controller)
+        {
+            return new CachedGazeEyeFallback(
+                controller,
+                new BoneTransformResolver(controller.transform),
+                GazeEyeBoneFallback.FromAnimator(controller.GetComponent<Animator>()));
         }
 
         private static void RegisterRotationProperties(Transform target, IPropertyCollector collector)
@@ -316,6 +365,23 @@ namespace Hidano.FacialControl.Timeline.Editor
             return receiver.GetComponent<FacialController>()
                    ?? receiver.GetComponentInParent<FacialController>()
                    ?? receiver.GetComponentInChildren<FacialController>();
+        }
+
+        private readonly struct CachedGazeEyeFallback
+        {
+            public CachedGazeEyeFallback(
+                FacialController controller,
+                BoneTransformResolver resolver,
+                GazeEyeBoneFallback fallback)
+            {
+                Controller = controller;
+                Resolver = resolver;
+                Fallback = fallback;
+            }
+
+            public FacialController Controller { get; }
+            public BoneTransformResolver Resolver { get; }
+            public GazeEyeBoneFallback Fallback { get; }
         }
 
         private static void WarnMissingBake(FacialTimelineReceiver receiver)

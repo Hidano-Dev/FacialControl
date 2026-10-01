@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using Hidano.FacialControl.Adapters.Bone;
 using UnityEngine;
@@ -10,7 +11,7 @@ namespace Hidano.FacialControl.Timeline.Editor
     /// rest 回転と yaw / pitch 軸は、path 指定なら <see cref="GazeChannel"/> の保存値、
     /// path 未指定なら <see cref="GazeEyeBoneFallback"/> の導出値。
     /// </summary>
-    public readonly struct FacialTimelinePreviewEyeTarget
+    internal readonly struct FacialTimelinePreviewEyeTarget
     {
         public FacialTimelinePreviewEyeTarget(
             int channelIndex,
@@ -48,26 +49,34 @@ namespace Hidano.FacialControl.Timeline.Editor
     /// </summary>
     /// <remarks>
     /// <list type="bullet">
-    /// <item>path を指定した側は character root からの相対 path で解決する (見つからなければ駆動しない)。</item>
+    /// <item>入力源の無い channel (<c>isChannelDriven</c> が false) は駆動せず、fallback も使わない。</item>
+    /// <item>path を指定した側はランタイムと同じ <see cref="BoneTransformResolver"/> で解決する
+    /// (root からの相対 path / ボーン名 / 末尾一致。見つからなければ駆動しない)。</item>
     /// <item>path が空・空白の側は <see cref="GazeEyeBoneFallback"/> の目ボーンを使う。目ごとに、path 未指定の
     /// 最初の channel だけが fallback を使う。fallback の目ボーンが無い側は駆動しない。</item>
     /// <item>path 指定の target が fallback と同じボーンを指す場合は path 指定側を優先し、fallback 側を外す。</item>
     /// </list>
     /// </remarks>
-    public static class FacialTimelinePreviewGazeTargets
+    internal static class FacialTimelinePreviewGazeTargets
     {
         /// <summary>
-        /// <paramref name="configs"/> の先頭 <paramref name="channelCount"/> 件について目ボーンを解決し、
-        /// <paramref name="results"/> に channel 順 (左目 → 右目) で追加する。
+        /// <paramref name="configs"/> の目ボーンを解決し、<paramref name="results"/> に channel 順 (左目 → 右目) で追加する。
         /// </summary>
+        /// <param name="isChannelDriven">
+        /// channel index を受け取り、その channel に入力 (ベイク値) があるかを返す。null なら全 channel を対象にする。
+        /// </param>
+        /// <param name="resolver">
+        /// path 指定の目ボーンを解決する resolver。解決失敗の警告は resolver ごとに 1 回なので、
+        /// 呼出側はスクラブ中に同じ resolver を使い回す。
+        /// </param>
         public static void Resolve(
-            Transform root,
+            BoneTransformResolver resolver,
             IReadOnlyList<GazeChannel> configs,
-            int channelCount,
+            Predicate<int> isChannelDriven,
             GazeEyeBoneFallback fallback,
             List<FacialTimelinePreviewEyeTarget> results)
         {
-            if (root == null || configs == null || results == null)
+            if (resolver == null || configs == null || results == null)
             {
                 return;
             }
@@ -75,17 +84,16 @@ namespace Hidano.FacialControl.Timeline.Editor
             int start = results.Count;
             bool leftFallbackClaimed = false;
             bool rightFallbackClaimed = false;
-            int count = Mathf.Min(channelCount, configs.Count);
-            for (int i = 0; i < count; i++)
+            for (int i = 0; i < configs.Count; i++)
             {
                 GazeChannel config = configs[i];
-                if (config == null)
+                if (config == null || (isChannelDriven != null && !isChannelDriven(i)))
                 {
                     continue;
                 }
 
-                AddEye(root, config, i, true, fallback.Left, ref leftFallbackClaimed, results);
-                AddEye(root, config, i, false, fallback.Right, ref rightFallbackClaimed, results);
+                AddEye(resolver, config, i, true, fallback.Left, ref leftFallbackClaimed, results);
+                AddEye(resolver, config, i, false, fallback.Right, ref rightFallbackClaimed, results);
             }
 
             RemoveFallbackOwnedByPath(results, start);
@@ -112,7 +120,7 @@ namespace Hidano.FacialControl.Timeline.Editor
         }
 
         private static void AddEye(
-            Transform root,
+            BoneTransformResolver resolver,
             GazeChannel config,
             int channelIndex,
             bool isLeftEye,
@@ -123,7 +131,7 @@ namespace Hidano.FacialControl.Timeline.Editor
             string bonePath = isLeftEye ? config.leftEyeBonePath : config.rightEyeBonePath;
             if (!string.IsNullOrWhiteSpace(bonePath))
             {
-                Transform bone = root.Find(bonePath);
+                Transform bone = resolver.Resolve(bonePath);
                 if (bone == null)
                 {
                     return;

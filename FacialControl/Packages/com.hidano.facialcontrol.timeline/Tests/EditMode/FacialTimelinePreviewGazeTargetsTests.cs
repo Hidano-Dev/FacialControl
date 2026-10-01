@@ -1,9 +1,12 @@
+using System;
 using System.Collections.Generic;
+using System.Text.RegularExpressions;
 using Hidano.FacialControl.Adapters.Bone;
 using Hidano.FacialControl.Adapters.ScriptableObject;
 using Hidano.FacialControl.Timeline.Editor;
 using NUnit.Framework;
 using UnityEngine;
+using UnityEngine.TestTools;
 
 using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.Timeline.Tests.EditMode
@@ -38,7 +41,7 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
         {
             if (_root != null)
             {
-                Object.DestroyImmediate(_root);
+                UnityEngine.Object.DestroyImmediate(_root);
             }
             _root = null;
         }
@@ -102,6 +105,7 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
         public void Resolve_ExplicitBonePathNotFound_SkipsThatEye()
         {
             var channel = new GazeChannel { id = "gaze", leftEyeBonePath = "Missing/Eye" };
+            LogAssert.Expect(LogType.Warning, new Regex("Missing/Eye"));
 
             Resolve(new[] { channel }, 1, CreateFallback());
 
@@ -155,6 +159,33 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
         }
 
         [Test]
+        public void Resolve_FirstEmptyPathChannelNotDriven_PassesFallbackToNextChannel()
+        {
+            var undriven = new GazeChannel { id = "gaze" };
+            var driven = new GazeChannel { id = "gaze-2" };
+
+            Resolve(new[] { undriven, driven }, index => index == 1, CreateFallback());
+
+            Assert.That(_results.Count, Is.EqualTo(2));
+            Assert.That(_results[0].ChannelIndex, Is.EqualTo(1));
+            Assert.That(_results[1].ChannelIndex, Is.EqualTo(1));
+        }
+
+        [Test]
+        public void Resolve_BareBoneName_ResolvesLikeRuntimeAndWinsOverFallback()
+        {
+            var fallbackChannel = new GazeChannel { id = "gaze" };
+            var nameChannel = new GazeChannel { id = "gaze-2", leftEyeBonePath = "LeftEye" };
+
+            Resolve(new[] { fallbackChannel, nameChannel }, 2, CreateFallback());
+
+            Assert.That(_results.Count, Is.EqualTo(2));
+            Assert.That(_results[0].Bone, Is.SameAs(_rightEye));
+            Assert.That(_results[1].Bone, Is.SameAs(_leftEye));
+            Assert.That(_results[1].IsFallback, Is.False);
+        }
+
+        [Test]
         public void Resolve_ChannelCountLimit_IgnoresChannelsBeyondCount()
         {
             var first = new GazeChannel { id = "gaze", leftEyeBonePath = "Head/LeftEye", rightEyeBonePath = "Head/RightEye" };
@@ -195,7 +226,12 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
 
         private void Resolve(IReadOnlyList<GazeChannel> channels, int channelCount, GazeEyeBoneFallback fallback)
         {
-            FacialTimelinePreviewGazeTargets.Resolve(_root.transform, channels, channelCount, fallback, _results);
+            Resolve(channels, index => index < channelCount, fallback);
+        }
+
+        private void Resolve(IReadOnlyList<GazeChannel> channels, Predicate<int> isChannelDriven, GazeEyeBoneFallback fallback)
+        {
+            FacialTimelinePreviewGazeTargets.Resolve(new BoneTransformResolver(_root.transform), channels, isChannelDriven, fallback, _results);
         }
 
         private GazeEyeBoneFallback CreateFallback()
