@@ -9,6 +9,7 @@ using UnityEditor;
 using UnityEditor.IMGUI.Controls;
 using UnityEditor.UIElements;
 using UnityEngine;
+using UnityEngine.Serialization;
 using UnityEngine.UIElements;
 
 namespace Hidano.FacialControl.Editor.Inspector.AdapterBindings
@@ -27,7 +28,9 @@ namespace Hidano.FacialControl.Editor.Inspector.AdapterBindings
     /// per-element fallback element を提供する。
     /// </para>
     /// <para>
-    /// 行は大きめのカード表示（タイトル + 内容）で、追加/削除はリスト末尾の +/- フッター操作に統一する。
+    /// 行は大きめのカード表示で、中身を Adapter 単位の <see cref="Foldout"/> で包む。ヘッダーに表示名と
+    /// slug を出し、開閉状態は <see cref="AdapterBindingFoldoutState"/> で要素単位に保持する。
+    /// 追加/削除はリスト末尾の +/- フッター操作に加え、Foldout ヘッダーの削除ボタンからも行える。
     /// </para>
     /// </remarks>
     public sealed class AdapterBindingsListView : VisualElement
@@ -40,9 +43,13 @@ namespace Hidano.FacialControl.Editor.Inspector.AdapterBindings
         public const string BoxTitleClassName = "facial-control-adapter-binding-box-title";
         public const string BoxTitleLabelClassName = "facial-control-adapter-binding-box-title-label";
         public const string RootClassName = "facial-control-adapter-bindings-list-view";
+        public const string RowFoldoutClassName = "facial-control-adapter-binding-foldout";
+        public const string HeaderRemoveButtonClassName = "facial-control-adapter-binding-header-remove";
 
         public const string FooterAddButtonName = "facial-control-adapter-bindings-add";
         public const string FooterRemoveButtonName = "facial-control-adapter-bindings-remove";
+        public const string FooterExpandAllButtonName = "facial-control-adapter-bindings-expand-all";
+        public const string FooterCollapseAllButtonName = "facial-control-adapter-bindings-collapse-all";
 
         private const string AdapterBindingsFieldName = "_adapterBindings";
 
@@ -53,6 +60,18 @@ namespace Hidano.FacialControl.Editor.Inspector.AdapterBindings
         private readonly Button _removeButton;
         private AdvancedDropdownState _addDropdownState;
         private int _selectedIndex = -1;
+
+        // 現在の行 Foldout と開閉状態の保存情報（Rebuild のたびに作り直す）。
+        private readonly List<RowFoldout> _rowFoldouts = new List<RowFoldout>();
+
+        private sealed class RowFoldout
+        {
+            public Foldout Foldout;
+            public string Key;
+            // 最後に SessionState と一致していた値。これと異なる行だけを後から保存し、
+            // 別 Inspector が保存した新しい状態を古い View が上書きしないようにする。
+            public bool SavedValue;
+        }
 
         /// <summary>
         /// Adapter Binding 追加時に <see cref="IAdapterBindingDefaultLayer"/> 経由で
@@ -86,6 +105,27 @@ namespace Hidano.FacialControl.Editor.Inspector.AdapterBindings
             _footer.style.justifyContent = Justify.FlexEnd;
             _footer.style.marginTop = 4;
 
+            var expandAllButton = new Button(() => SetAllExpanded(true))
+            {
+                name = FooterExpandAllButtonName,
+                text = "すべて展開",
+                tooltip = "すべての Adapter Binding を展開",
+            };
+            expandAllButton.style.marginRight = 2;
+            _footer.Add(expandAllButton);
+
+            var collapseAllButton = new Button(() => SetAllExpanded(false))
+            {
+                name = FooterCollapseAllButtonName,
+                text = "すべて折り畳む",
+                tooltip = "すべての Adapter Binding を折り畳む",
+            };
+            _footer.Add(collapseAllButton);
+
+            var footerSpacer = new VisualElement();
+            footerSpacer.style.flexGrow = 1;
+            _footer.Add(footerSpacer);
+
             _removeButton = new Button(RemoveSelected)
             {
                 name = FooterRemoveButtonName,
@@ -107,6 +147,16 @@ namespace Hidano.FacialControl.Editor.Inspector.AdapterBindings
             _footer.Add(addButton);
 
             Add(_footer);
+
+            // ChangeEvent は panel 未接続時にディスパッチされないため、detach 時にも
+            // 未保存の開閉状態を保存して破棄直前の変更を取りこぼさない。
+            // Undo / Redo で要素が戻っても行が古いままにならないよう、表示中は再構築する。
+            RegisterCallback<AttachToPanelEvent>(_ => Undo.undoRedoPerformed += OnUndoRedoPerformed);
+            RegisterCallback<DetachFromPanelEvent>(_ =>
+            {
+                Undo.undoRedoPerformed -= OnUndoRedoPerformed;
+                SaveFoldoutStates();
+            });
 
             Rebuild();
         }
@@ -386,9 +436,30 @@ namespace Hidano.FacialControl.Editor.Inspector.AdapterBindings
             if (list == null) return;
             if (index < 0 || index >= list.Count) return;
 
+            string removedKey = index < _listProperty.arraySize
+                ? AdapterBindingFoldoutState.GetSessionStateKey(_listProperty.GetArrayElementAtIndex(index))
+                : null;
+
             list.RemoveAt(index);
             if (_selectedIndex >= list.Count) _selectedIndex = list.Count - 1;
             CommitMutation();
+
+            // 削除した要素の開閉状態は不要になるため消す。
+            AdapterBindingFoldoutState.Erase(removedKey);
+        }
+
+        /// <summary>
+        /// すべての Adapter 行 Foldout を展開 / 折り畳みし、開閉状態を保存する。
+        /// </summary>
+        public void SetAllExpanded(bool expanded)
+        {
+            for (int i = 0; i < _rowFoldouts.Count; i++)
+            {
+                var row = _rowFoldouts[i];
+                row.Foldout.value = expanded;
+                AdapterBindingFoldoutState.Save(row.Key, expanded);
+                row.SavedValue = expanded;
+            }
         }
 
         // ------------------------------------------------------------------
@@ -397,6 +468,9 @@ namespace Hidano.FacialControl.Editor.Inspector.AdapterBindings
 
         private void Rebuild()
         {
+            // 行の作り直しで ChangeEvent を経ずに捨てられる開閉状態を先に保存する。
+            SaveFoldoutStates();
+            _rowFoldouts.Clear();
             _rowsContainer.Clear();
 
             int count = _listProperty.arraySize;
@@ -441,24 +515,35 @@ namespace Hidano.FacialControl.Editor.Inspector.AdapterBindings
 
             if (value == null)
             {
+                // 型が解決できない要素も参照 ID は残るため、キーを取れればその単位で保存する
+                // （本当に null の要素はキーが null になり、常に展開で開始する）。
+                var missingFoldout = BuildRowFoldout(
+                    index, "Missing Adapter Binding", prop);
+                row.Add(missingFoldout);
+                // 削除はヘッダーの − ボタンに集約する（placeholder 側の Remove は出さない）。
                 var placeholder = new MissingAdapterPlaceholderElement(
                     prop.managedReferenceFullTypename,
-                    () => RemoveBindingAt(capturedIndex));
-                row.Add(placeholder);
+                    onRemove: null);
+                missingFoldout.Add(placeholder);
                 return row;
             }
 
             var bindingType = value.GetType();
             var drawer = TryCreateCustomDrawer(bindingType);
 
-            // Title bar: binding type の表示名を太字で見せる。Remove ボタンはフッター側に集約した。
-            var titleBar = new VisualElement { name = $"adapter-binding-title-{index}" };
-            titleBar.AddToClassList(BoxTitleClassName);
-            var titleLabel = new Label(GetDisplayName(bindingType));
-            titleLabel.AddToClassList(BoxTitleLabelClassName);
-            titleLabel.style.unityFontStyleAndWeight = FontStyle.Bold;
-            titleBar.Add(titleLabel);
-            row.Add(titleBar);
+            // Foldout ヘッダーに binding type の表示名と slug を出す。
+            string displayName = GetDisplayName(bindingType);
+            var slugProp = prop.FindPropertyRelative(nameof(AdapterBindingBase.Slug));
+            var foldout = BuildRowFoldout(
+                index,
+                BuildHeaderText(displayName, slugProp?.stringValue),
+                prop);
+            if (slugProp != null)
+            {
+                // slug を編集したらヘッダー表示も追従させる。
+                foldout.TrackPropertyValue(slugProp, p => foldout.text = BuildHeaderText(displayName, p.stringValue));
+            }
+            row.Add(foldout);
 
             if (drawer != null)
             {
@@ -467,11 +552,11 @@ namespace Hidano.FacialControl.Editor.Inspector.AdapterBindings
                     var element = drawer.CreatePropertyGUI(prop);
                     if (element == null)
                     {
-                        row.Add(new PropertyField(prop));
+                        foldout.Add(new PropertyField(prop));
                     }
                     else
                     {
-                        row.Add(element);
+                        foldout.Add(element);
                     }
                 }
                 catch (Exception ex)
@@ -479,16 +564,142 @@ namespace Hidano.FacialControl.Editor.Inspector.AdapterBindings
                     Debug.LogWarning(
                         $"[FacialControl] PropertyDrawer for '{bindingType.FullName}' threw {ex.GetType().Name}: " +
                         $"{ex.Message}. A fallback element is shown for this row .");
-                    row.Add(BuildFallbackElement(bindingType, index));
+                    foldout.Add(BuildFallbackElement(bindingType, index));
                     return row;
                 }
             }
             else
             {
-                row.Add(new PropertyField(prop));
+                foldout.Add(new PropertyField(prop));
             }
 
             return row;
+        }
+
+        /// <summary>
+        /// Adapter 行の Foldout を組み立てる。ヘッダーに削除ボタンを置き、開閉状態を
+        /// <see cref="AdapterBindingFoldoutState"/> で要素単位に保存・復元する。
+        /// </summary>
+        private Foldout BuildRowFoldout(int index, string headerText, SerializedProperty elementProperty)
+        {
+            string sessionStateKey = AdapterBindingFoldoutState.GetSessionStateKey(elementProperty);
+            long referenceId = elementProperty.managedReferenceId;
+            bool open = AdapterBindingFoldoutState.Load(sessionStateKey);
+
+            var foldout = new Foldout
+            {
+                name = $"adapter-binding-foldout-{index}",
+                text = headerText,
+                value = open,
+            };
+            foldout.AddToClassList(RowFoldoutClassName);
+            // 行カード内で drawer の内容を従来どおり左端に揃える。
+            foldout.contentContainer.style.marginLeft = 0;
+
+            var headerLabel = foldout.Q<Label>(className: Foldout.textUssClassName);
+            if (headerLabel != null)
+            {
+                headerLabel.AddToClassList(BoxTitleLabelClassName);
+                headerLabel.style.unityFontStyleAndWeight = FontStyle.Bold;
+                headerLabel.style.flexGrow = 1;
+            }
+
+            var headerInput = foldout.Q(className: Foldout.inputUssClassName);
+            if (headerInput != null)
+            {
+                var removeButton = new Button(() => ConfirmAndRemove(foldout.text, referenceId, index))
+                {
+                    text = "−",
+                    tooltip = "この Adapter Binding を削除",
+                };
+                removeButton.AddToClassList(HeaderRemoveButtonClassName);
+                // ヘッダーのクリックで開閉・行選択が同時に起きないよう、押下をここで止める。
+                removeButton.RegisterCallback<PointerDownEvent>(evt => evt.StopPropagation());
+                removeButton.RegisterCallback<ClickEvent>(evt => evt.StopPropagation());
+                headerInput.Add(removeButton);
+            }
+
+            var rowFoldout = new RowFoldout { Foldout = foldout, Key = sessionStateKey, SavedValue = open };
+            foldout.RegisterValueChangedCallback(evt =>
+            {
+                // 内包する Toggle / 子 Foldout の ChangeEvent<bool> も bubble してくるため、
+                // この Foldout 自身の開閉のみを保存する。
+                if (evt.target == foldout)
+                {
+                    AdapterBindingFoldoutState.Save(sessionStateKey, evt.newValue);
+                    rowFoldout.SavedValue = evt.newValue;
+                }
+            });
+
+            _rowFoldouts.Add(rowFoldout);
+            return foldout;
+        }
+
+        /// <summary>
+        /// ヘッダーの − ボタン用。確認のうえ、組み立て時の参照 ID から現在の index を引き直して削除する
+        /// （Undo 等で行と要素の対応がずれていても別の要素を消さない）。
+        /// </summary>
+        private void ConfirmAndRemove(string headerText, long referenceId, int builtIndex)
+        {
+            if (!EditorUtility.DisplayDialog(
+                    "Adapter Binding を削除",
+                    $"「{headerText}」を削除しますか？",
+                    "削除",
+                    "キャンセル"))
+            {
+                return;
+            }
+
+            _listProperty.serializedObject.Update();
+            int index = builtIndex;
+            if (referenceId != ManagedReferenceUtility.RefIdNull)
+            {
+                index = FindIndexByReferenceId(referenceId);
+            }
+
+            if (index < 0 || index >= _listProperty.arraySize)
+            {
+                // 対応する要素が見つからない（行が古い）場合は消さずに表示を最新化する。
+                Rebuild();
+                return;
+            }
+
+            RemoveBindingAt(index);
+        }
+
+        private int FindIndexByReferenceId(long referenceId)
+        {
+            for (int i = 0; i < _listProperty.arraySize; i++)
+            {
+                if (_listProperty.GetArrayElementAtIndex(i).managedReferenceId == referenceId)
+                {
+                    return i;
+                }
+            }
+            return -1;
+        }
+
+        private void OnUndoRedoPerformed()
+        {
+            if (_listProperty.serializedObject.targetObject == null) return;
+            _listProperty.serializedObject.Update();
+            Rebuild();
+        }
+
+        private static string BuildHeaderText(string displayName, string slug)
+        {
+            return string.IsNullOrEmpty(slug) ? displayName : $"{displayName}  ({slug})";
+        }
+
+        private void SaveFoldoutStates()
+        {
+            for (int i = 0; i < _rowFoldouts.Count; i++)
+            {
+                var row = _rowFoldouts[i];
+                if (row.Foldout.value == row.SavedValue) continue;
+                AdapterBindingFoldoutState.Save(row.Key, row.Foldout.value);
+                row.SavedValue = row.Foldout.value;
+            }
         }
 
         private void ApplySelectionMarkers()

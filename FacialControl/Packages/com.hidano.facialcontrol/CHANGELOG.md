@@ -13,6 +13,7 @@
 
 - Gaze チャネルの目ボーン path（`leftEyeBonePath` / `rightEyeBonePath`）を任意にした。空欄の側は実行時に Humanoid Avatar の `LeftEye` / `RightEye` を使い、初期回転は初期化時の目ボーンの姿勢、yaw / pitch 軸はキャラクター root の上方向 / 右方向から導出する。path を指定した側の挙動は従来どおり。非 Humanoid（または Eye 未マップ）で path も空の目は駆動せず、初期化ごとに警告を 1 回だけ出す。Humanoid の目ボーン・rest 回転・軸は初期化時に 1 回だけ取得し、入力源の登録変化で provider を作り直しても取り直さない。path 未指定のチャネルが複数ある場合、Humanoid の目ボーンを駆動するのは目ごとに入力源が解決できた先頭のチャネルだけで、path 指定のチャネルが同じボーンを指していればそちらを優先する
 - 目線タブの目ボーン欄を「(任意)」表記にし、空欄時の案内を情報表示に変更。参照モデルが Humanoid の目ボーンを持たない場合だけ警告を出す
+- `FacialCharacterProfileSO` Inspector の Adapter Bindings タブ — 各 Adapter を折り畳める `Foldout` で包んだ。ヘッダーに表示名と slug を出し、ヘッダーの `−` ボタンから確認のうえその Adapter を削除できる（型が解決できない行の削除もこのボタンに集約）。開閉状態は Adapter ごとに SessionState へ保存し、Inspector の再選択・ドメインリロード・Adapter の追加 / 削除 / 並べ替えの後も同じ Adapter に保持する（Editor 再起動でリセット）。フッターに「すべて展開」「すべて折り畳む」ボタンを追加した
 
 ### Removed
 
