@@ -6,8 +6,11 @@
 
 ### Added
 
+- `RecCharacterBinding.StartPlayback(double startOffsetSeconds)` / `PlaybackUseCase.StartPlayback(double)` — 録画の途中から再生する。開始位置より前のイベントを畳み込んで状態を再構築する（トリガーは最終的な on/off、アナログは各入力源の最後の値）。遷移途中だった表情は遷移の進行度までは再現せず、その時点の目標状態から始まる
+- `RecTimelineSeek.BuildBaselineAt` と `RecPlaybackScheduler.Load(RecTimeline, double)` / `GetStartEventIndex` / `IsValidStartOffset` — 上記の Domain 側の実装
 - `RecCharacterBinding.LastRecordingName` — 直近の録画で実際に保存したテイク名（連番付与後）
-- `RecCharacterBinding.LoadRecording()` の名前省略 — 直近に録画したテイクを読み込む。Inspector の Load Recording も Recording Name が空なら同じ動作になる
+- `RecCharacterBinding.LoadRecording()` の名前省略 — 直近に録画したテイクを読み込む。Inspector の Load Recording も Load Target が空なら同じ動作になる
+- 保存済み録画の列挙 API — `RecCharacterBinding.GetRecordings()`（`RecRecordingEntry`: テイク名・パス・更新日時）/ `GetRecordingNames()`。更新日時の新しい順に並び、録画中のテイクは含めない。ランタイム asmdef にあるので uGUI の Dropdown 等の選択肢にそのまま使える。下位 API として `RecSidecarPath.ListRecordings` / `TryListRecordings`
 
 ### Changed
 
@@ -15,6 +18,7 @@
 - `RecStreamWriter` は出力先の予約（連番付与）と `FileMode.CreateNew` でのオープンをライタースレッドで行い、既存ファイルを決して上書きしない（呼び出し元をストレージ I/O 待ちでブロックしない）。実際に開いたパスは `OutputFilePath`、開けなかったことは `HasOutputFailed` で分かる。同じパスへ同時に録画を始めた場合も連番を取り直して両方のテイクを残す。`RecCharacterBinding.StartRecording` はファイルを開く前に true を返し、オープン失敗には気づいた時点（Update または StopRecording）で録画を止めて警告を出す（従来はオープン失敗が背景スレッドのログだけで、成功扱いのまま録画が失われていた。オープン後の書き込み失敗は従来どおりライタースレッドのログのみ）。`LastRecordingName` / `LastRecordingPath` はファイルを開いた後に反映され、録画中のテイクのパスは `CurrentRecordingPath` で分かる
 - `RecCharacterBinding` の Default Recording Name の初期値を `take` から空にし、Recording Name / Default Recording Name の両方が空なら `take-yyyyMMdd-HHmmss` で命名する（README の記述と実装を一致させた）。Inspector の Recording Name 欄を Default Recording Name で埋めるのをやめた
 - 録画名の解決ロジックを `RecRecordingNaming` に切り出した
+- Inspector の Load Recording は、テイク名の文字入力ではなく保存済み録画から選ぶ **Load Target** ドロップダウンで対象を指定するようにした。一覧は Inspector の表示時・録画停止時・Refresh ボタンで更新し、録画を止めると保存したテイクが選択される。Recording Name 欄は Start Recording 専用になった
 
 ## [1.0.0] - 2026-09-25
 
