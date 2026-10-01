@@ -82,10 +82,40 @@ namespace Hidano.FacialControl.Tests.EditMode.Editor.Inspector.AdapterBindings
     }
 
     /// <summary>
+    /// ヘッダー要約を提供する binding。<see cref="MockListViewSummaryBindingDrawer"/> が
+    /// <see cref="IAdapterBindingHeaderSummaryProvider"/> を実装し、<c>_port</c> を要約にする（0 なら要約なし）。
+    /// </summary>
+    [Serializable]
+    [FacialAdapterBinding(displayName: "ZZZ_ListViewTest_EEE_HeaderSummary")]
+    public sealed class MockListViewSummaryBinding : AdapterBindingBase
+    {
+        [SerializeField]
+        public int _port;
+    }
+
+    [CustomPropertyDrawer(typeof(MockListViewSummaryBinding))]
+    public sealed class MockListViewSummaryBindingDrawer : PropertyDrawer, IAdapterBindingHeaderSummaryProvider
+    {
+        public override VisualElement CreatePropertyGUI(SerializedProperty property)
+        {
+            return new VisualElement();
+        }
+
+        public AdapterBindingHeaderSummary GetHeaderSummary(SerializedProperty property)
+        {
+            int port = property.FindPropertyRelative("_port").intValue;
+            return port == 0
+                ? AdapterBindingHeaderSummary.None
+                : new AdapterBindingHeaderSummary(":" + port, "受信ポート: " + port);
+        }
+    }
+
+    /// <summary>
     /// <see cref="AdapterBindingsListView"/> の smoke テスト。
     /// 「null 要素 / 例外を投げる Drawer を含んでも構築できる」「Add 操作が SerializedObject へ書き込まれる」
     /// 「SerializeReference 追加直後に Drawer の PropertyField が出る（スロットが出ない不具合の回帰）」、
-    /// 「Foldout の開閉状態が要素単位に保持される（削除・並べ替えでずれない）」を守る。
+    /// 「Foldout の開閉状態が要素単位に保持される（削除・並べ替えでずれない）」、
+    /// 「Drawer が要約を提供すればヘッダーに出し、提供しなければ表示名だけにする」を守る。
     /// slug 重複の検出は <c>FacialCharacterProfileAssetGuardTests</c> 側で保証する。
     /// </summary>
     [TestFixture]
@@ -336,6 +366,53 @@ namespace Hidano.FacialControl.Tests.EditMode.Editor.Inspector.AdapterBindings
             Assert.IsNotNull(key1);
             Assert.AreNotEqual(key0, key1, "別の要素は別のキーを持つべき。");
             Assert.IsNull(keyNull, "null 要素は参照 ID を持たないためキーを作らない。");
+        }
+
+        // ---------------------------------------------------------------
+        // Foldout ヘッダーの要約（IAdapterBindingHeaderSummaryProvider）
+        // ---------------------------------------------------------------
+
+        [Test]
+        public void Construct_DrawerProvidesHeaderSummary_ShowsSummaryInFoldoutHeader()
+        {
+            _so.WritableAdapterBindings.Add(new MockListViewSummaryBinding { Slug = "osc", _port = 9001 });
+            ReloadSerializedObject();
+
+            var view = new AdapterBindingsListView(_listProperty);
+
+            var foldout = view.Q<Foldout>(className: AdapterBindingsListView.RowFoldoutClassName);
+            var summary = foldout.Q<Label>(className: AdapterBindingsListView.HeaderSummaryClassName);
+            Assert.IsNotNull(summary, "要約を提供する Drawer の行はヘッダーに要約ラベルを持つべき。");
+            Assert.AreEqual(":9001", summary.text);
+            Assert.AreEqual("受信ポート: 9001", summary.tooltip);
+            Assert.AreEqual(DisplayStyle.Flex, summary.style.display.value);
+            Assert.IsTrue(foldout.Q(className: Foldout.inputUssClassName).Contains(summary),
+                "要約は折り畳んでも見えるよう Foldout のヘッダー側に置くべき。");
+        }
+
+        [Test]
+        public void Construct_ProviderReturnsNone_HidesSummaryLabel()
+        {
+            _so.WritableAdapterBindings.Add(new MockListViewSummaryBinding { Slug = "osc", _port = 0 });
+            ReloadSerializedObject();
+
+            var view = new AdapterBindingsListView(_listProperty);
+
+            var summary = view.Q<Label>(className: AdapterBindingsListView.HeaderSummaryClassName);
+            Assert.IsNotNull(summary);
+            Assert.AreEqual(DisplayStyle.None, summary.style.display.value);
+        }
+
+        [Test]
+        public void Construct_DrawerWithoutSummaryProvider_HasNoSummaryLabel()
+        {
+            _so.WritableAdapterBindings.Add(new MockListViewSimpleBinding { Slug = "plain" });
+            ReloadSerializedObject();
+
+            var view = new AdapterBindingsListView(_listProperty);
+
+            Assert.IsNull(view.Q<Label>(className: AdapterBindingsListView.HeaderSummaryClassName),
+                "要約を提供しない binding のヘッダーは従来どおり表示名と slug だけにする。");
         }
     }
 }

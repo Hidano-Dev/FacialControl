@@ -32,7 +32,7 @@ namespace Hidano.FacialControl.Osc.Editor.AdapterBindings
     /// </para>
     /// </remarks>
     [CustomPropertyDrawer(typeof(ArKitOscAdapterBinding))]
-    public sealed class ArKitOscAdapterBindingDrawer : PropertyDrawer
+    public sealed class ArKitOscAdapterBindingDrawer : PropertyDrawer, IAdapterBindingHeaderSummaryProvider
     {
         private const string SlugFieldName = "Slug";
         private const string EndpointFieldName = "_endpoint";
@@ -55,6 +55,15 @@ namespace Hidano.FacialControl.Osc.Editor.AdapterBindings
             AddBoundField(root, property, ArKitParameterNamesFieldName, "ARKit Parameter Names");
 
             return root;
+        }
+
+        /// <summary>Foldout ヘッダーに受信ポート（例: <c>:9001</c>）を出す。</summary>
+        public AdapterBindingHeaderSummary GetHeaderSummary(SerializedProperty property)
+        {
+            var portProp = property.FindPropertyRelative(PortFieldName);
+            return portProp != null
+                ? OscAdapterBindingHeaderSummaryFormatter.FormatReceiver(portProp.intValue)
+                : AdapterBindingHeaderSummary.None;
         }
 
         private static void AddSlugField(VisualElement root, SerializedProperty property)
