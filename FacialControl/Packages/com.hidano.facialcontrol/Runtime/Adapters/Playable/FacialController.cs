@@ -86,6 +86,11 @@ namespace Hidano.FacialControl.Adapters.Playable
         // 目線(gaze)の目ボーン適用を集約する provider。各入力 binding(OSC/InputSystem/iFacialMocap)が
         // registry に登録した gaze 入力源を GazeChannelResolver 経由で解決し、単一 provider で適用する。
         private GazeBonePoseProvider _gazeBoneProvider;
+        private bool _gazeEyeFallbackWarned;
+        // 目ボーン path 未指定時に使う Humanoid の目ボーンと rest 回転・軸。初期化後最初の provider 構築時に
+        // 1 回だけ取得し、gaze 入力源の登録変化による再構築では使い回す (頭部が動いている最中の姿勢から取り直さない)。
+        private GazeEyeBoneFallback _gazeEyeFallback;
+        private bool _hasGazeEyeFallback;
 
         /// <summary>
         /// 初期化済みかどうか
@@ -554,7 +559,8 @@ namespace Hidano.FacialControl.Adapters.Playable
         /// (OSC / InputSystem / iFacialMocap) は gaze 入力源を registry に登録するのみで、
         /// 目ボーンは回さない。入力源は GazeChannelResolver が
         /// <c>{slug}:{expressionId}</c>（および <c>.left/.right</c>）で解決するため入力方式に依存しない。
-        /// bone path を持たない config（BlendShape 経路のみ想定）はスキップする。
+        /// bone path が未指定の側は Humanoid Avatar の LeftEye / RightEye を使い、それも無ければ
+        /// その目は駆動せず警告を 1 回だけ出す。
         /// </remarks>
         private void SetupGazeBoneProvider()
         {
@@ -570,18 +576,20 @@ namespace Hidano.FacialControl.Adapters.Playable
                 return;
             }
 
+            // bone path 未指定の側は Humanoid の LeftEye / RightEye で駆動する。Transform の解決と
+            // rest 回転・軸の導出は初期化後最初の構築時に 1 回だけ行い、毎フレームは解決しない。
+            // 先行 provider は上で Dispose 済みのため、目ボーンは書込み前の回転に戻っている。
+            if (!_hasGazeEyeFallback)
+            {
+                _gazeEyeFallback = GazeEyeBoneFallback.FromAnimator(_animator);
+                _hasGazeEyeFallback = true;
+            }
+
             var gazeBoneBindings = new List<GazeBoneBinding>();
             for (int i = 0; i < _gazeChannels.Count; i++)
             {
                 GazeChannel channel = _gazeChannels[i];
                 if (channel == null || string.IsNullOrWhiteSpace(channel.id))
-                {
-                    continue;
-                }
-
-                // bone path が無い config は目ボーン適用対象外（BlendShape 経路のみのケース）。
-                if (string.IsNullOrWhiteSpace(channel.leftEyeBonePath)
-                    && string.IsNullOrWhiteSpace(channel.rightEyeBonePath))
                 {
                     continue;
                 }
@@ -605,7 +613,17 @@ namespace Hidano.FacialControl.Adapters.Playable
 
             _gazeBoneProvider = new GazeBonePoseProvider(
                 new BoneTransformResolver(_animator.transform),
-                gazeBoneBindings);
+                gazeBoneBindings,
+                _gazeEyeFallback);
+
+            // provider は gaze 入力源の登録変化のたびに再構築されるため、警告は初期化 1 回につき 1 度に抑える。
+            if (_gazeBoneProvider.HasUnresolvedFallbackEye && !_gazeEyeFallbackWarned)
+            {
+                _gazeEyeFallbackWarned = true;
+                Debug.LogWarning(
+                    $"[FacialControl] '{name}' の目線ボーン path が未指定で、Humanoid の LeftEye / RightEye も解決できないため、"
+                    + "該当する目の目線制御を無効にします。目線タブで目ボーン path を指定するか、Avatar の Eye をマップしてください。");
+            }
         }
 
         private void SetupObservationAndRebindIntegration(
@@ -1219,6 +1237,9 @@ namespace Hidano.FacialControl.Adapters.Playable
                 _gazeBoneProvider.Dispose();
                 _gazeBoneProvider = null;
             }
+            _gazeEyeFallbackWarned = false;
+            _gazeEyeFallback = default;
+            _hasGazeEyeFallback = false;
 
             _expressionUseCase = null;
             _isInitialized = false;
