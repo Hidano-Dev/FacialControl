@@ -237,6 +237,128 @@ namespace Hidano.FacialControl.Rec.Tests.PlayMode
         }
 
         [UnityTest]
+        public IEnumerator Record_WithRecordingNameSet_SavesUnderRecordingNameAndLoadPlaysIt()
+        {
+            SetupHarness(out _, out RecCharacterBinding binding, out FakeObservationBus bus, out _, out TestTriggerSource triggerSource, out _);
+
+            binding.RecordingName = "ugui-take";
+            binding.Record();
+            Assert.That(binding.IsRecording, Is.True);
+            bus.PublishTriggerOn(triggerSource.Id, "smile");
+            binding.StopRecording();
+            triggerSource.TriggerOff("smile");
+
+            Assert.That(binding.LastRecordingName, Is.EqualTo("ugui-take"));
+
+            binding.Load();
+            Assert.That(binding.LoadedRecordingPath, Is.EqualTo(binding.LastRecordingPath));
+
+            binding.Play();
+            yield return null;
+
+            Assert.That(triggerSource.ActiveExpressionIds, Is.EqualTo(new[] { "smile" }));
+            binding.StopPlayback();
+        }
+
+        [UnityTest]
+        public IEnumerator Record_WithExplicitName_TakesPrecedenceOverRecordingName()
+        {
+            SetupHarness(out _, out RecCharacterBinding binding, out FakeObservationBus bus, out _, out TestTriggerSource triggerSource, out _);
+
+            binding.RecordingName = "ignored";
+            binding.Record("explicit");
+            bus.PublishTriggerOn(triggerSource.Id, "smile");
+            binding.StopRecording();
+            yield return null;
+
+            Assert.That(binding.LastRecordingName, Is.EqualTo("explicit"));
+
+            binding.Load("explicit");
+            Assert.That(binding.LoadedRecordingPath, Is.EqualTo(binding.LastRecordingPath));
+        }
+
+        [UnityTest]
+        public IEnumerator Load_AfterRecordingNameCollision_LoadsTheNumberedTakeJustRecorded()
+        {
+            SetupHarness(out _, out RecCharacterBinding binding, out FakeObservationBus bus, out _, out TestTriggerSource triggerSource, out _);
+
+            binding.RecordingName = "repeat";
+            binding.Record();
+            bus.PublishTriggerOn(triggerSource.Id, "smile");
+            binding.StopRecording();
+            binding.Record();
+            bus.PublishTriggerOn(triggerSource.Id, "smile");
+            binding.StopRecording();
+            yield return null;
+
+            Assert.That(binding.LastRecordingName, Is.EqualTo("repeat-2"));
+
+            binding.Load();
+
+            Assert.That(binding.LoadedRecordingPath, Is.EqualTo(binding.LastRecordingPath));
+        }
+
+        [UnityTest]
+        public IEnumerator Load_WhileRecording_StopsAndLoadsTheTakeInProgress()
+        {
+            SetupHarness(out _, out RecCharacterBinding binding, out FakeObservationBus bus, out _, out TestTriggerSource triggerSource, out _);
+
+            binding.RecordingName = "in-progress";
+            binding.Record();
+            bus.PublishTriggerOn(triggerSource.Id, "smile");
+            binding.StopRecording();
+            binding.Record();
+            bus.PublishTriggerOn(triggerSource.Id, "smile");
+
+            binding.Load();
+            yield return null;
+
+            Assert.That(binding.IsRecording, Is.False);
+            Assert.That(binding.LastRecordingName, Is.EqualTo("in-progress-2"));
+            Assert.That(binding.LoadedRecordingPath, Is.EqualTo(binding.LastRecordingPath));
+        }
+
+        [UnityTest]
+        public IEnumerator Load_UnknownName_DiscardsPreviouslyLoadedTakeSoPlayDoesNotReplayIt()
+        {
+            SetupHarness(out _, out RecCharacterBinding binding, out FakeObservationBus bus, out _, out TestTriggerSource triggerSource, out _);
+
+            binding.Record("loaded-before");
+            bus.PublishTriggerOn(triggerSource.Id, "smile");
+            binding.StopRecording();
+            triggerSource.TriggerOff("smile");
+            binding.Load("loaded-before");
+            Assert.That(binding.LoadedRecordingPath, Is.Not.Null);
+
+            LogAssert.Expect(LogType.Error, new Regex("did not exist"));
+            binding.Load("missing-take");
+            LogAssert.Expect(LogType.Warning, new Regex("no recording has been loaded"));
+            binding.Play();
+            yield return null;
+
+            Assert.That(binding.LoadedRecordingPath, Is.Null);
+            Assert.That(binding.PlaybackState, Is.EqualTo(RecPlaybackState.Idle));
+            Assert.That(triggerSource.ActiveExpressionIds, Is.Empty);
+        }
+
+        [UnityTest]
+        public IEnumerator Load_WithEmptyRecordingName_LoadsTheTakeThatWasJustRecorded()
+        {
+            SetupHarness(out _, out RecCharacterBinding binding, out FakeObservationBus bus, out _, out TestTriggerSource triggerSource, out _);
+
+            binding.RecordingName = null;
+            Assert.That(binding.RecordingName, Is.Empty);
+            Assert.That(binding.StartRecording("latest"), Is.True);
+            bus.PublishTriggerOn(triggerSource.Id, "smile");
+            binding.StopRecording();
+            yield return null;
+
+            binding.Load();
+
+            Assert.That(binding.LoadedRecordingPath, Is.EqualTo(binding.LastRecordingPath));
+        }
+
+        [UnityTest]
         public IEnumerator StartRecording_WhenOutputFileCannotBeCreated_StopsRecordingAndKeepsPreviousTake()
         {
             SetupHarness(out _, out RecCharacterBinding binding, out FakeObservationBus bus, out _, out TestTriggerSource triggerSource, out _);

@@ -48,6 +48,8 @@ namespace Hidano.FacialControl.Rec.Adapters.Playable
         private string _loadedRecordingPath;
         private string _lastRecordingName;
         private string _lastRecordingPath;
+        private string _lastRequestedRecordingName;
+        private string _requestedRecordingName;
         private string _requestedRecordingPath;
         private DateTime _recordingStartedUtc;
 
@@ -126,6 +128,58 @@ namespace Hidano.FacialControl.Rec.Adapters.Playable
             }
         }
 
+        /// <summary>
+        /// Inspector の Default Recording Name。<see cref="Record()"/> / <see cref="Load()"/> などの引数なし操作が読むテイク名。
+        /// uGUI の InputField などから UnityEvent で直接設定できる。null は空文字として扱う。
+        /// </summary>
+        public string RecordingName
+        {
+            get => _defaultRecordingName;
+            set => _defaultRecordingName = value ?? string.Empty;
+        }
+
+        /// <summary>
+        /// UnityEvent（uGUI Button の OnClick 等）向けの void 版 <see cref="StartRecording"/>。
+        /// <see cref="RecordingName"/>、それも空なら take-yyyyMMdd-HHmmss で命名する。
+        /// </summary>
+        public void Record()
+        {
+            StartRecording();
+        }
+
+        /// <summary>UnityEvent 向けの void 版 <see cref="StartRecording"/>。空の名前は <see cref="Record()"/> と同じ扱い。</summary>
+        public void Record(string recordingName)
+        {
+            StartRecording(recordingName);
+        }
+
+        /// <summary>
+        /// UnityEvent 向けの void 版 <see cref="LoadRecording"/>。<see cref="RecordingName"/> で直近に録画したテイク
+        /// （同名衝突で連番付きになったならその連番付きの名前）を読み込む。<see cref="RecordingName"/> が空なら直近に録画したテイクを読み込む。
+        /// </summary>
+        public void Load()
+        {
+            Load(null);
+        }
+
+        /// <summary>
+        /// UnityEvent 向けの void 版 <see cref="LoadRecording"/>。名前を指定すればそのテイクをそのまま読み込み、
+        /// 空なら <see cref="Load()"/> と同じ扱い（<see cref="Record(string)"/> の空の名前と揃える）。
+        /// 読み込みに失敗すると前に読み込んだテイクも破棄するため、続く <see cref="Play"/> は古いテイクを再生しない。
+        /// </summary>
+        public void Load(string recordingName)
+        {
+            // 録画中のテイクを確定させてから、RecordingName に対応する実際の保存名を解決する。
+            StopRecording();
+            LoadRecording(string.IsNullOrWhiteSpace(recordingName) ? ResolveNameForLoad() : recordingName);
+        }
+
+        /// <summary>UnityEvent 向けの void 版 <see cref="StartPlayback"/>。</summary>
+        public void Play()
+        {
+            StartPlayback();
+        }
+
         public bool StartRecording(string recordingName = null)
         {
             if (!TryEnsureReady(out FacialController controller, out FacialProfile profile))
@@ -148,6 +202,8 @@ namespace Hidano.FacialControl.Rec.Adapters.Playable
                 UnityEngine.Debug.LogWarning($"REC recording start was ignored because the output path was invalid: {error}");
                 return false;
             }
+
+            _requestedRecordingName = resolvedRecordingName;
 
             // 出力先の予約（同名衝突時の連番付与）とファイルのオープンは RecStreamWriter がライタースレッドで行う。
             // 結果（実際のパス / オープン失敗）は Update と StopRecording で SyncRecordingOutput が拾う。
@@ -180,6 +236,9 @@ namespace Hidano.FacialControl.Rec.Adapters.Playable
                 return false;
             }
 
+            // 録画中なら先に止めて、今のテイクを直近のテイクとして確定させてから名前を解決する。
+            StopRecording();
+
             if (string.IsNullOrWhiteSpace(recordingName))
             {
                 recordingName = _lastRecordingName;
@@ -190,18 +249,19 @@ namespace Hidano.FacialControl.Rec.Adapters.Playable
                 }
             }
 
-            StopRecording();
             StopPlayback();
 
             string assetName = ResolveAssetName(controller);
             if (!RecSidecarPath.TryBuildRecordingFilePath(assetName, recordingName, out string filePath, out string error))
             {
                 UnityEngine.Debug.LogWarning($"REC load was ignored because the input path was invalid: {error}");
+                DiscardLoadedRecording();
                 return false;
             }
 
             if (!RecFileReader.TryRead(filePath, out RecBinaryFormat.ReadResult result))
             {
+                DiscardLoadedRecording();
                 return false;
             }
 
@@ -321,6 +381,35 @@ namespace Hidano.FacialControl.Rec.Adapters.Playable
             _playbackUseCase?.StopPlayback();
         }
 
+        /// <summary>
+        /// 引数なしの Load が読むテイク名。<see cref="RecordingName"/> が直近の録画で要求した名前と同じなら、
+        /// 実際に保存した名前（連番付与後）を返す。<see cref="RecordingName"/> が空なら null（直近のテイク）。
+        /// </summary>
+        private string ResolveNameForLoad()
+        {
+            if (string.IsNullOrWhiteSpace(_defaultRecordingName))
+            {
+                return null;
+            }
+
+            string name = _defaultRecordingName.Trim();
+            return string.Equals(name, _lastRequestedRecordingName, StringComparison.Ordinal)
+                ? _lastRecordingName
+                : name;
+        }
+
+        /// <summary>
+        /// 読み込みに失敗したとき、前に読み込んだテイクを捨てる。再生セッションごと破棄するので、
+        /// 次の <see cref="StartPlayback"/> は「未読み込み」として警告し、古いテイクを再生しない。
+        /// </summary>
+        private void DiscardLoadedRecording()
+        {
+            _loadedTimeline = null;
+            _loadedRecordingName = null;
+            _loadedRecordingPath = null;
+            DisposePlaybackSession();
+        }
+
         private void Update()
         {
             // オープン失敗はライタースレッドで判明するので、気づいた時点で録画を止めて警告する。
@@ -437,6 +526,7 @@ namespace Hidano.FacialControl.Rec.Adapters.Playable
                 _streamWriter = null;
             }
 
+            _requestedRecordingName = null;
             _requestedRecordingPath = null;
         }
 
@@ -459,6 +549,7 @@ namespace Hidano.FacialControl.Rec.Adapters.Playable
 
             _lastRecordingPath = outputFilePath;
             _lastRecordingName = Path.GetFileNameWithoutExtension(outputFilePath);
+            _lastRequestedRecordingName = _requestedRecordingName;
             if (!string.Equals(outputFilePath, _requestedRecordingPath, StringComparison.Ordinal))
             {
                 UnityEngine.Debug.Log($"REC recording '{Path.GetFileNameWithoutExtension(_requestedRecordingPath)}' already exists. Saving as '{_lastRecordingName}' instead.");
