@@ -8,6 +8,7 @@ using Hidano.FacialControl.Adapters.ScriptableObject;
 using Hidano.FacialControl.Domain.Adapters;
 using Hidano.FacialControl.Domain.Models;
 using UnityEngine;
+using UnityEngine.Serialization;
 
 namespace Hidano.FacialControl.Adapters.AdapterBindings
 {
@@ -25,11 +26,27 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
         private const int VrChatGazeMessageCount = 2;
 
         /// <summary>
-        /// 環境/運用依存の Sender 設定を保持する SettingsSO (sub-asset)。
-        /// Inspector / CollectionSO 経由で割り当てられる本番経路。
+        /// 送信先リスト。binding 本体に持たせ、Adapter Bindings から直接確認・変更できるようにする。
+        /// 新規 binding は 1 件（<see cref="OscSenderEndpointConfig.DefaultEndpoint"/> と既定ポート）で始まる。
         /// </summary>
         [SerializeField]
-        private OscRuntimeSettingsSO _settings;
+        private List<OscSenderEndpointConfig> _endpoints = new List<OscSenderEndpointConfig>
+        {
+            new OscSenderEndpointConfig()
+        };
+
+        /// <summary>
+        /// 送信の上級設定 (sub-asset)。割り当ては任意で、未割り当てなら既定値で動く。
+        /// </summary>
+        [SerializeField]
+        private OscSenderRuntimeSettingsSO _advancedSettings;
+
+        /// <summary>
+        /// 旧形式の設定参照（移行専用）。割り当てられたままなら、その値を優先して起動し移行を促す警告を出す。
+        /// </summary>
+        [SerializeField]
+        [FormerlySerializedAs("_settings")]
+        private OscRuntimeSettingsSO _legacySettings;
 
         [SerializeField]
         private List<string> _blendShapeNames = new List<string>();
@@ -48,19 +65,27 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
         private bool _sendPreset = true;
 
         /// <summary>
-        /// 診断/テスト経路。Inspector で <see cref="_settings"/> を割り当てない代わりに
-        /// プロパティ setter や <see cref="Configure(string, int)"/> から値を流し込むと on-demand で生成され、
-        /// <see cref="OnStart"/> で <see cref="_settings"/> のフォールバックとして採用される。
+        /// 上級設定アセットが未割り当てのときに使う既定値の SO。プロパティ setter から値を流し込む
+        /// 診断/テスト経路もここに書き込む。
         /// </summary>
         [NonSerialized]
-        private OscRuntimeSettingsSO _runtimeSettings;
+        private OscSenderRuntimeSettingsSO _runtimeSettings;
+
+        /// <summary>
+        /// 旧形式の設定から上級設定の値を写した SO。<see cref="_legacySettings"/> が残っている間だけ使う。
+        /// </summary>
+        [NonSerialized]
+        private OscSenderRuntimeSettingsSO _legacyConvertedSettings;
+
+        [NonSerialized]
+        private OscRuntimeSettingsSO _legacyConvertedFrom;
 
         /// <summary>
         /// <see cref="OnStart"/> で確定した有効な Settings 参照。<see cref="OnLateTick"/> 等の
         /// 読み出しは本フィールドを介して行い、起動後の SO 参照差し替えに左右されないようにする。
         /// </summary>
         [NonSerialized]
-        private OscRuntimeSettingsSO _effectiveSettings;
+        private OscSenderRuntimeSettingsSO _effectiveSettings;
 
         [NonSerialized]
         private IFacialOutputBus _facialOutputBus;
@@ -115,48 +140,77 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
         }
 
         /// <summary>
-        /// Inspector で割り当てられた <see cref="OscRuntimeSettingsSO"/>。診断 setter / Configure 経由で
-        /// 値を流し込む場合は <see cref="_runtimeSettings"/> が代わりに使われる。
+        /// 送信の上級設定アセット。未割り当てなら既定値で動く。
         /// </summary>
-        public OscRuntimeSettingsSO Settings
+        public OscSenderRuntimeSettingsSO AdvancedSettings
         {
-            get => _settings;
-            set => _settings = value;
+            get => _advancedSettings;
+            set => _advancedSettings = value;
         }
 
-        /// <summary>有効な Settings 参照を返す。<see cref="Settings"/> が未代入なら診断用 runtime SO にフォールバック。</summary>
-        public OscRuntimeSettingsSO EffectiveSettings =>
-            _settings != null ? _settings : _runtimeSettings;
+        /// <summary>旧形式の設定参照（移行専用）。移行が済んでいれば null。</summary>
+        public OscRuntimeSettingsSO LegacySettings
+        {
+            get => _legacySettings;
+            set => _legacySettings = value;
+        }
+
+        /// <summary>
+        /// 有効な上級設定を返す。割り当て済みの <see cref="AdvancedSettings"/> を優先し、
+        /// 未移行の旧設定があればその値、どちらも無ければ既定値の SO を返す（null を返さない）。
+        /// </summary>
+        public OscSenderRuntimeSettingsSO EffectiveSettings
+        {
+            get
+            {
+                if (_advancedSettings != null)
+                {
+                    return _advancedSettings;
+                }
+
+                if (_legacySettings != null)
+                {
+                    return EnsureLegacyConvertedSettings();
+                }
+
+                return EnsureRuntimeSettings();
+            }
+        }
 
         public OscSenderEndpointConfig Endpoint
         {
             get
             {
-                OscRuntimeSettingsSO settings = EffectiveSettings;
-                if (settings == null || settings.Endpoints == null || settings.Endpoints.Count == 0)
+                IReadOnlyList<OscSenderEndpointConfig> endpoints = Endpoints;
+                if (endpoints == null || endpoints.Count == 0)
                 {
                     return new OscSenderEndpointConfig();
                 }
 
-                OscSenderEndpointConfig first = settings.Endpoints[0];
+                OscSenderEndpointConfig first = endpoints[0];
                 return first ?? new OscSenderEndpointConfig();
             }
             set
             {
-                EnsureRuntimeSettings().SetEndpoints(new[] { value ?? new OscSenderEndpointConfig() });
+                SetEndpoints(new[] { value ?? new OscSenderEndpointConfig() });
             }
         }
 
+        /// <summary>送信先リスト。未移行の旧設定が残っている間はその値を返す。</summary>
         public IReadOnlyList<OscSenderEndpointConfig> Endpoints
         {
             get
             {
-                OscRuntimeSettingsSO settings = EffectiveSettings;
-                return settings != null
-                    ? settings.Endpoints
+                if (_legacySettings != null)
+                {
+                    return _legacySettings.Endpoints;
+                }
+
+                return _endpoints != null
+                    ? _endpoints
                     : (IReadOnlyList<OscSenderEndpointConfig>)Array.Empty<OscSenderEndpointConfig>();
             }
-            set => EnsureRuntimeSettings().SetEndpoints(value);
+            set => SetEndpoints(value);
         }
 
         public List<string> BlendShapeNames
@@ -167,21 +221,13 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
 
         public float HeartbeatIntervalSeconds
         {
-            get
-            {
-                OscRuntimeSettingsSO settings = EffectiveSettings;
-                return settings != null ? settings.HeartbeatIntervalSeconds : DefaultHeartbeatIntervalSeconds;
-            }
+            get => EffectiveSettings.HeartbeatIntervalSeconds;
             set => EnsureRuntimeSettings().SetHeartbeatIntervalSeconds(value);
         }
 
         public bool SuppressLoopback
         {
-            get
-            {
-                OscRuntimeSettingsSO settings = EffectiveSettings;
-                return settings != null ? settings.SuppressLoopback : true;
-            }
+            get => EffectiveSettings.SuppressLoopback;
             set => EnsureRuntimeSettings().SetSuppressLoopback(value);
         }
 
@@ -215,7 +261,7 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
 
         public void Configure(string endpoint, int port)
         {
-            EnsureRuntimeSettings().SetEndpoints(new[] { new OscSenderEndpointConfig(endpoint, port) });
+            SetEndpoints(new[] { new OscSenderEndpointConfig(endpoint, port) });
         }
 
         public void Configure(string endpoint, int port, IReadOnlyList<string> blendShapeNames)
@@ -226,14 +272,14 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
 
         public void ConfigureEndpoints(IReadOnlyList<OscSenderEndpointConfig> endpoints)
         {
-            EnsureRuntimeSettings().SetEndpoints(endpoints);
+            SetEndpoints(endpoints);
         }
 
         public void ConfigureEndpoints(
             IReadOnlyList<OscSenderEndpointConfig> endpoints,
             IReadOnlyList<string> blendShapeNames)
         {
-            EnsureRuntimeSettings().SetEndpoints(endpoints);
+            SetEndpoints(endpoints);
             SetBlendShapeNames(blendShapeNames);
         }
 
@@ -260,6 +306,28 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
             }
         }
 
+        private void SetEndpoints(IReadOnlyList<OscSenderEndpointConfig> value)
+        {
+            if (_endpoints == null)
+            {
+                _endpoints = new List<OscSenderEndpointConfig>();
+            }
+
+            _endpoints.Clear();
+            if (value == null)
+            {
+                return;
+            }
+
+            for (int i = 0; i < value.Count; i++)
+            {
+                OscSenderEndpointConfig src = value[i];
+                _endpoints.Add(src == null
+                    ? null
+                    : new OscSenderEndpointConfig(src.endpoint, src.port, src.enabled, src.preset));
+            }
+        }
+
         /// <summary>
         /// Profile の Gaze セクションの設定を受け取る。gaze 広告を送るチャネルごとに、
         /// 目ボーン path (指定がある側のみ) と可動範囲を広告へ載せ、受信側の目線設定を上書きさせる。
@@ -269,17 +337,40 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
             _gazeChannelSettings = channels ?? (IReadOnlyList<GazeChannel>)Array.Empty<GazeChannel>();
         }
 
-        private OscRuntimeSettingsSO EnsureRuntimeSettings()
+        private OscSenderRuntimeSettingsSO EnsureRuntimeSettings()
         {
             if (_runtimeSettings == null)
             {
                 // FQN で UnityEngine.ScriptableObject を指定する。Adapters 配下に同名の
                 // namespace (Hidano.FacialControl.Adapters.ScriptableObject) が存在するため
                 // 短縮形だと CS0234 で解決失敗するのを回避する。
-                _runtimeSettings = UnityEngine.ScriptableObject.CreateInstance<OscRuntimeSettingsSO>();
-                _runtimeSettings.hideFlags = HideFlags.HideAndDontSave;
+                _runtimeSettings = OscRuntimeSettingsInstances.MarkTransient(
+                    UnityEngine.ScriptableObject.CreateInstance<OscSenderRuntimeSettingsSO>());
             }
             return _runtimeSettings;
+        }
+
+        private OscSenderRuntimeSettingsSO EnsureLegacyConvertedSettings()
+        {
+            if (_legacyConvertedSettings == null || !ReferenceEquals(_legacyConvertedFrom, _legacySettings))
+            {
+                RefreshLegacyConvertedSettings();
+            }
+            return _legacyConvertedSettings;
+        }
+
+        /// <summary>
+        /// 旧設定の値を写し直す。旧アセットの値が後から編集されても、次の起動で反映されるようにする。
+        /// </summary>
+        private void RefreshLegacyConvertedSettings()
+        {
+            OscRuntimeSettingsInstances.Destroy(ref _legacyConvertedSettings);
+            _legacyConvertedFrom = _legacySettings;
+            if (_legacySettings != null)
+            {
+                _legacyConvertedSettings = OscRuntimeSettingsInstances.MarkTransient(
+                    OscSenderRuntimeSettingsSO.CreateFromLegacy(_legacySettings));
+            }
         }
 
         public override void OnStart(in AdapterBuildContext ctx)
@@ -302,20 +393,27 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
                 return;
             }
 
-            OscRuntimeSettingsSO settings = EffectiveSettings;
-            if (settings == null)
+            if (_legacySettings != null)
             {
+                if (!_legacySettings.SenderEnabled)
+                {
+                    Debug.LogWarning(
+                        $"[OscSenderAdapterBinding] 旧形式の設定 '{_legacySettings.name}' で送信が無効 (senderEnabled=false) のため OSC Sender は起動しません。"
+                        + $" Inspector の「旧設定から移行」で binding 側へ移行してください。slug='{Slug}'");
+                    return;
+                }
+
                 Debug.LogWarning(
-                    $"[OscSenderAdapterBinding] _settings が未代入のため OSC Sender は起動しません。slug='{Slug}'");
-                return;
-            }
-            if (!settings.SenderEnabled)
-            {
-                Debug.LogWarning(
-                    $"[OscSenderAdapterBinding] _settings.SenderEnabled=false のため OSC Sender は起動しません。slug='{Slug}'");
-                return;
+                    $"[OscSenderAdapterBinding] 旧形式の設定 '{_legacySettings.name}' が割り当てられたままです。その送信先で起動します。"
+                    + $" Inspector の「旧設定から移行」で binding 側へ移行してください。slug='{Slug}'");
             }
 
+            if (_legacySettings != null)
+            {
+                RefreshLegacyConvertedSettings();
+            }
+
+            OscSenderRuntimeSettingsSO settings = EffectiveSettings;
             _effectiveSettings = settings;
 
             _loopbackSuppressionPolicy = settings.SuppressLoopback
@@ -323,7 +421,7 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
                 : null;
 
             if (!TryBuildEndpointPlan(
-                    settings,
+                    Endpoints,
                     _loopbackSuppressionPolicy,
                     out List<OscSenderEndpointConfig> endpoints,
                     out bool allEndpointsSuppressed))
@@ -512,6 +610,9 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
             _sendHeartbeatOnNextTick = false;
             _hasPublishedFrame = false;
             _effectiveSettings = null;
+            OscRuntimeSettingsInstances.Destroy(ref _runtimeSettings);
+            OscRuntimeSettingsInstances.Destroy(ref _legacyConvertedSettings);
+            _legacyConvertedFrom = null;
             _warnedCustomGazeAdvertisement = false;
             _started = false;
         }
@@ -585,15 +686,15 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
         }
 
         private bool TryBuildEndpointPlan(
-            OscRuntimeSettingsSO settings,
+            IReadOnlyList<OscSenderEndpointConfig> configuredEndpoints,
             LoopbackSuppressionPolicy loopbackPolicy,
             out List<OscSenderEndpointConfig> endpoints,
             out bool allEndpointsSuppressed)
         {
-            IReadOnlyList<OscSenderEndpointConfig> configuredEndpoints =
-                settings != null && settings.Endpoints != null
-                    ? settings.Endpoints
-                    : (IReadOnlyList<OscSenderEndpointConfig>)Array.Empty<OscSenderEndpointConfig>();
+            if (configuredEndpoints == null)
+            {
+                configuredEndpoints = Array.Empty<OscSenderEndpointConfig>();
+            }
             endpoints = new List<OscSenderEndpointConfig>(configuredEndpoints.Count);
             var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             bool loggedDuplicate = false;

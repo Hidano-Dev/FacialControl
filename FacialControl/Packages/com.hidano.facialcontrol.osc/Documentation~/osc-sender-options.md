@@ -4,26 +4,32 @@
 
 | 置き場所 | 項目 | 理由 |
 |---|---|---|
-| `OscRuntimeSettingsSO`（Runtime Settings sub-asset） | `senderEnabled` / `endpoints[]` / `heartbeatIntervalSeconds` / `suppressLoopback` | 送信先は配信環境ごとに変わる |
-| binding（Profile 内） | `blendShapeNames`（任意フィルタ） / `sendPreset` | キャラクター固有 |
+| binding（Profile 内） | `endpoints[]` / `blendShapeNames`（任意フィルタ） / `sendPreset` | 送信先は一番よく変える項目。フィルタとプリセット送信はキャラクター固有 |
+| `OscSenderRuntimeSettingsSO`（上級設定 sub-asset、割り当て任意） | `heartbeatIntervalSeconds` / `suppressLoopback` | 滅多に変えない。未割り当てなら既定値で動く |
+
+送信を止めたいときは binding を外すか、送信先ごとの `enabled` を false にする。
 
 Gaze の送信対象は Profile の目線タブに宣言されたチャネルが自動注入されるため、設定項目はない。
 
-## OscRuntimeSettingsSO の Sender セクション
+## binding の送信先
 
 | フィールド | 型 | 既定値 | 説明 |
 |---|---|---|---|
-| `senderEnabled` | bool | `true` | false なら Sender binding は警告を出して起動しない |
-| `endpoints[]` | `{ endpoint, port, enabled, preset }` | `[]` | 送信先。有効な endpoint が 0 件なら起動しない。重複 endpoint は 1 つにまとめる |
+| `endpoints[]` | `{ endpoint, port, enabled, preset }` | `[{ 127.0.0.1, 9000, true, VRChat }]` | 送信先。複数指定すると全宛先へ送る。有効な endpoint が 0 件なら起動しない。重複 endpoint は 1 つにまとめる |
 | `endpoints[].preset` | `VRChat` / `ARKit` / `Custom` | `VRChat` | アドレスプリセット。`Custom` は BlendShape アドレスを生成できないため送信されない |
-| `heartbeatIntervalSeconds` | float | `5.0` | heartbeat 周期。実行時に 0.5〜60 秒にクランプ |
-| `suppressLoopback` | bool | `true` | 同じ Profile 内の OSC Receiver と同じ endpoint への送信を抑止 |
 
-`ToJson()` / `FromJson()` は Receiver セクションと合わせて 1 つの JSON（`schemaVersion`, `label`, `receiverEnabled`, `listenEndpoint`, …, `senderEnabled`, `endpoints`, `heartbeatIntervalSeconds`, `suppressLoopback`）として読み書きする。
+## OscSenderRuntimeSettingsSO（上級設定）
+
+| フィールド | 型 | 既定値 | 説明 |
+|---|---|---|---|
+| `heartbeatIntervalSeconds` | float | `5.0` | heartbeat 周期。実行時に 0.5〜60 秒にクランプ |
+| `suppressLoopback` | bool | `true` | 同じ Profile 内の OSC Receiver と同じポートへの送信のうち、宛先が loopback か自機のインターフェースアドレス（LAN IP 等）のものを抑止 |
+
+`ToJson()` / `FromJson()` は `schemaVersion` / `label` / `heartbeatIntervalSeconds` / `suppressLoopback` を読み書きする。
 
 ## OscSenderOptionsDto（参考用 JSON）
 
-`Samples~/OscOutputDemo/OscSenderOptions.json` のように、設定内容を JSON で記述・共有するための DTO。ランタイムの設定経路は上記 SO であり、この DTO は直接読み込まれない。
+`Samples~/OscOutputDemo/OscSenderOptions.json` のように、設定内容を JSON で記述・共有するための DTO。ランタイムの設定経路は上記の binding と SO であり、この DTO は直接読み込まれない。
 
 | フィールド | 型 | 既定値 | 説明 |
 |---|---|---|---|

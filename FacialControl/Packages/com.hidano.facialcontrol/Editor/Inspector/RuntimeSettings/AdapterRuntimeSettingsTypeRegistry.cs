@@ -14,7 +14,8 @@ namespace Hidano.FacialControl.Editor.Inspector.RuntimeSettings
     /// <remarks>
     /// task 6.3 / 要件 6.2 に対応。<see cref="AdapterRuntimeSettingsCollectionEditor"/>
     /// (task 6.4) の Add ボタンが表示する型一覧の供給元。
-    /// abstract / generic / interface は列挙対象から除外する。
+    /// abstract / generic / interface と、<see cref="HideInAdapterRuntimeSettingsMenuAttribute"/>
+    /// を付けた型は列挙対象から除外する。
     /// </remarks>
     public static class AdapterRuntimeSettingsTypeRegistry
     {
@@ -35,6 +36,12 @@ namespace Hidano.FacialControl.Editor.Inspector.RuntimeSettings
                 }
 
                 if (type.IsAbstract || type.IsInterface || type.IsGenericTypeDefinition)
+                {
+                    continue;
+                }
+
+                // 移行用に残した旧型は新規追加させない。
+                if (type.IsDefined(typeof(HideInAdapterRuntimeSettingsMenuAttribute), inherit: false))
                 {
                     continue;
                 }

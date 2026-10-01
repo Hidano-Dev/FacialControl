@@ -10,8 +10,8 @@ namespace Hidano.FacialControl.Tests.EditMode.Editor.Inspector.RuntimeSettings
 {
     /// <summary>
     /// task 6.3 の観測可能完了条件: <see cref="AdapterRuntimeSettingsTypeRegistry"/> が
-    /// <see cref="AdapterRuntimeSettingsBase"/> 派生の具象型 (<see cref="OscRuntimeSettingsSO"/>
-    /// を含む) を列挙し、abstract Base 自身は含まないことを検証する。
+    /// <see cref="AdapterRuntimeSettingsBase"/> 派生の具象型 (<see cref="OscReceiverRuntimeSettingsSO"/>
+    /// を含む) を列挙し、abstract Base 自身と移行用の旧型は含まないことを検証する。
     /// </summary>
     [TestFixture]
     [SmallTest]
@@ -25,6 +25,11 @@ namespace Hidano.FacialControl.Tests.EditMode.Editor.Inspector.RuntimeSettings
         {
         }
 
+        [HideInAdapterRuntimeSettingsMenu]
+        public sealed class FakeRegistryHiddenSettings : AdapterRuntimeSettingsBase
+        {
+        }
+
         [CreateAssetMenu(menuName = "FacialControlTests/RegistryConcreteWithMenuName")]
         public sealed class FakeRegistryConcreteWithMenuNameSettings : AdapterRuntimeSettingsBase
         {
@@ -32,16 +37,36 @@ namespace Hidano.FacialControl.Tests.EditMode.Editor.Inspector.RuntimeSettings
 
 #if FACIALCONTROL_HAS_OSC_MODULE
         [Test]
-        public void GetConcreteTypes_IncludesOscRuntimeSettingsSO()
+        public void GetConcreteTypes_IncludesSplitOscSettingsTypes()
         {
             var types = AdapterRuntimeSettingsTypeRegistry.GetConcreteTypes();
 
             Assert.IsNotNull(types,
                 "GetConcreteTypes() は IReadOnlyList を返さなければならない。");
-            CollectionAssert.Contains(types, typeof(OscRuntimeSettingsSO),
-                "registry の列挙結果に OscRuntimeSettingsSO が含まれていない。");
+            CollectionAssert.Contains(types, typeof(OscReceiverRuntimeSettingsSO),
+                "registry の列挙結果に OscReceiverRuntimeSettingsSO が含まれていない。");
+            CollectionAssert.Contains(types, typeof(OscSenderRuntimeSettingsSO),
+                "registry の列挙結果に OscSenderRuntimeSettingsSO が含まれていない。");
+        }
+
+        [Test]
+        public void GetConcreteTypes_LegacyOscRuntimeSettingsSO_IsExcluded()
+        {
+            var types = AdapterRuntimeSettingsTypeRegistry.GetConcreteTypes();
+
+            CollectionAssert.DoesNotContain(types, typeof(OscRuntimeSettingsSO),
+                "移行用に残した旧 OscRuntimeSettingsSO は Add 一覧に出してはならない。");
         }
 #endif
+
+        [Test]
+        public void GetConcreteTypes_HiddenAttributeType_IsExcluded()
+        {
+            var types = AdapterRuntimeSettingsTypeRegistry.GetConcreteTypes();
+
+            CollectionAssert.DoesNotContain(types, typeof(FakeRegistryHiddenSettings),
+                "HideInAdapterRuntimeSettingsMenu を付けた型は列挙結果に含まれてはならない。");
+        }
 
         [Test]
         public void GetConcreteTypes_DoesNotIncludeAbstractBase()

@@ -4,18 +4,23 @@
 
 | 置き場所 | 項目 | 理由 |
 |---|---|---|
-| `OscRuntimeSettingsSO`（Runtime Settings sub-asset） | `receiverEnabled` / `listenEndpoint` / `listenPort` / `stalenessSeconds` / `failSafeMode` / `consistencyCheckWarnLog` / `bundleMode` / `bundleAccumulationTimeoutMs` | 受信ポート等は環境ごとに変わる |
-| binding（Profile 内） | `mappings[]` | どの OSC アドレスをどの BlendShape / Gaze に流すかはキャラクター固有 |
+| binding（Profile 内） | `port` / `mappings[]` | 受信ポートは一番よく変える項目。どの OSC アドレスをどの BlendShape / Gaze に流すかはキャラクター固有 |
+| `OscReceiverRuntimeSettingsSO`（上級設定 sub-asset、割り当て任意） | `stalenessSeconds` / `failSafeMode` / `consistencyCheckWarnLog` / `bundleMode` / `bundleAccumulationTimeoutMs` | 滅多に変えない。未割り当てなら既定値で動く |
+
+受信は常に全インターフェース（`0.0.0.0` 相当、IPv6 dual-mode）で行うため、受信 IP の設定は無い。受信を止めたいときは binding を外す。
 
 FacialControl 同士の接続では heartbeat と Gaze 広告から mapping が自動生成されるため、`mappings` は空でよい。
 
-## OscRuntimeSettingsSO の Receiver セクション
+## binding の受信ポート
 
 | フィールド | 型 | 既定値 | 説明 |
 |---|---|---|---|
-| `receiverEnabled` | bool | `true` | false なら Receiver binding は警告を出して起動しない |
-| `listenEndpoint` | string | `"127.0.0.1"` | 表示と loopback 抑制の判定に使う。ソケットは IPv6 dual-mode で全インターフェースに bind する |
-| `listenPort` | int | `9001` | 使用中なら空きポートへ最大 10 回繰り上げ、警告で実ポートを通知 |
+| `port` | int | `9001` | 使用中なら空きポートへ最大 10 回繰り上げ、警告で実ポートを通知 |
+
+## OscReceiverRuntimeSettingsSO（上級設定）
+
+| フィールド | 型 | 既定値 | 説明 |
+|---|---|---|---|
 | `stalenessSeconds` | float | `0` | 受信途絶とみなす秒数。0 で無効 |
 | `failSafeMode` | `RevertToBase` / `HoldLastValue` | `RevertToBase` | 途絶時にベース表情へ戻すか、最後の値を保持するか |
 | `consistencyCheckWarnLog` | bool | `true` | heartbeat と mapping の差分を警告ログに出す |
@@ -44,11 +49,10 @@ heartbeat / 広告で自動生成された mapping も同じ規約で登録さ�
 
 ## OscReceiverOptionsDto（参考用 JSON）
 
-設定内容を JSON で記述・共有するための DTO（`Samples~/OscReceiverDemo/OscReceiverOptions.json`）。ランタイムの設定経路は上記 SO であり、この DTO は直接読み込まれない。
+設定内容を JSON で記述・共有するための DTO（`Samples~/OscReceiverDemo/OscReceiverOptions.json`）。ランタイムの設定経路は上記の binding と SO であり、この DTO は直接読み込まれない。旧形式の `listenEndpoint` キーは廃止した（残っていても無視される）。
 
 | フィールド | 既定値 |
 |---|---|
-| `listenEndpoint` | `"127.0.0.1"` |
 | `listenPort` | `9001` |
 | `mappings[]` | `[]`。各 entry は `mode`（`"blendShape"` / `"gazeVrchatXy"` / `"gazeArkit8Bs"`）、`expressionId`、`addressPattern`、`sourceIdLeft`、`sourceIdRight`、`leftRightIndependent` |
 | `stalenessSeconds` | `0.0` |
@@ -59,7 +63,6 @@ heartbeat / 広告で自動生成された mapping も同じ規約で登録さ�
 
 ```json
 {
-  "listenEndpoint": "127.0.0.1",
   "listenPort": 9001,
   "mappings": [
     { "mode": "blendShape", "expressionId": "Smile", "addressPattern": "/avatar/parameters/Smile" },

@@ -179,6 +179,7 @@
 - **関連**: M-21（型削除/リネーム時の自動マイグレーション — `MigrateOnLoad` は両者の共通基盤）、M-11（analog binding 側の schema migration パス）
 
 ### M-23: OscReceiverAdapterBinding と OscSenderAdapterBinding の統合解消（Receiver/Sender Binding 一本化）の再検討
+- **状況**: HID-45 で (b) を採用した。`OscReceiverRuntimeSettingsSO` / `OscSenderRuntimeSettingsSO` に分割し、受信ポート・送信先は binding 本体へ移した。`_receiverEnabled` / `_senderEnabled` は廃止（binding の有無で判断）。旧 `OscRuntimeSettingsSO` は移行専用に残している
 - **出典**: [`.kiro/specs/adapter-runtime-settings/requirements.md`](../.kiro/specs/adapter-runtime-settings/requirements.md) 要件 8.2（スコープ外明示） / `.kiro/specs/adapter-runtime-settings/design.md` Boundary Context
 - **内容**: 本 spec では Receiver/Sender セクションを **1 つの `OscRuntimeSettingsSO`** に統合しつつ、`OscReceiverAdapterBinding` (Receiver) と `OscSenderAdapterBinding` (Sender) の 2 MonoBehaviour 構造は維持する（要件 8.2）。両 Binding が同一 SettingsSO の異なるセクションを参照する形のため、運用上は「片方だけ起動したい」「片方だけ別 SettingsSO を参照したい」というケースで `_receiverEnabled` / `_senderEnabled` トグル + 同一 SO 参照の組み合わせで対応している。preview.2 以降で以下のいずれかを検討する:
   - (a) **統合**: `OscReceiverAdapterBinding` と `OscSenderAdapterBinding` を 1 MonoBehaviour に統合し、Receiver/Sender セクションを単一 binding が両方扱う。MonoBehaviour ライフサイクル管理が単純化される一方、片方だけ disable する operational UX を別途用意する必要あり。

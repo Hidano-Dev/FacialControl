@@ -14,13 +14,15 @@ namespace Hidano.FacialControl.Osc.Editor.AdapterBindings
     public sealed class OscSenderAdapterBindingDrawer : PropertyDrawer
     {
         private const string SlugFieldName = "Slug";
-        private const string SettingsFieldName = "_settings";
+        private const string EndpointsFieldName = "_endpoints";
         private const string BlendShapeNamesFieldName = "_blendShapeNames";
         private const string SendPresetFieldName = "_sendPreset";
 
         public const string RootClassName = "facial-control-osc-sender-adapter-binding";
-        public const string SettingsFieldElementName = "osc-sender-adapter-binding-settings";
-        public const string SettingsMissingHelpBoxName = "osc-sender-adapter-binding-settings-missing";
+        public const string EndpointsFieldElementName = "osc-sender-adapter-binding-endpoints";
+        public const string AdvancedFoldoutName = "osc-sender-adapter-binding-advanced";
+        public const string AdvancedSettingsFieldElementName = "osc-sender-adapter-binding-advanced-settings";
+        public const string LegacyMigrationContainerName = "osc-sender-adapter-binding-legacy-migration";
         public const string BlendShapeNamesFieldElementName = "osc-sender-blend-shape-names";
         public const string SendPresetFieldElementName = "osc-sender-send-preset";
         public const string IdentityContainerName = "osc-sender-identity";
@@ -33,57 +35,31 @@ namespace Hidano.FacialControl.Osc.Editor.AdapterBindings
             root.AddToClassList(RootClassName);
 
             AddSlugField(root, property);
-            AddSettingsField(root, property);
+            AddBoundField(root, property, EndpointsFieldName, "送信先", EndpointsFieldElementName);
+            OscAdapterBindingSettingsSection.AddLegacyMigrationBox(
+                root,
+                property,
+                LegacyMigrationContainerName,
+                "旧形式の OSC Runtime Settings が割り当てられたままです。起動時はその送信先が優先されます。"
+                + "「旧設定から移行」で送信先を binding へ、既定値と異なる上級設定を新しい OscSenderRuntimeSettingsSO へ移します。",
+                OscAdapterBindingSettingsSection.MigrateSender);
+            OscAdapterBindingSettingsSection.AddAdvancedFoldout(
+                root,
+                property,
+                AdvancedFoldoutName,
+                AdvancedSettingsFieldElementName,
+                "OscSenderRuntimeSettingsSO");
             AddBoundField(root, property, SendPresetFieldName, "Send Preset Address", SendPresetFieldElementName);
             AddBoundField(root, property, BlendShapeNamesFieldName, "BlendShape Names (Optional Filter)", BlendShapeNamesFieldElementName);
             root.Add(new HelpBox(
                 "空のままにすると、対象キャラの全 BlendShape を自動送信します。subset 配信したい場合のみ名前を列挙してください。",
                 HelpBoxMessageType.Info));
             root.Add(new HelpBox(
-                "Gaze は Profile の目線タブで宣言されたチャネル (既定 gaze) を FacialController が自動注入して送信します。送信先 endpoint / heartbeat / loopback 抑制は OSC Runtime Settings 側で設定します。",
+                "Gaze は Profile の目線タブで宣言されたチャネル (既定 gaze) を FacialController が自動注入して送信します。heartbeat 間隔 / loopback 抑制は「上級設定」で変更できます。",
                 HelpBoxMessageType.Info));
             AddSenderIdentityReadout(root, property);
 
             return root;
-        }
-
-        private static void AddSettingsField(VisualElement root, SerializedProperty property)
-        {
-            SerializedProperty settingsProp = property.FindPropertyRelative(SettingsFieldName);
-            if (settingsProp == null)
-            {
-                AddMissingFieldLabel(root, SettingsFieldName);
-                return;
-            }
-
-            var settingsField = new PropertyField(settingsProp, "OSC Runtime Settings")
-            {
-                name = SettingsFieldElementName,
-            };
-            root.Add(settingsField);
-
-            var missingHelpBox = new HelpBox(
-                "OSC Runtime Settings が未設定のため、この OSC Sender Adapter Binding は起動しません。"
-                + "Collection (AdapterRuntimeSettingsCollection) 内の sub-asset を削除すると、この参照も null になる可能性があります。",
-                HelpBoxMessageType.Warning)
-            {
-                name = SettingsMissingHelpBoxName,
-            };
-            root.Add(missingHelpBox);
-
-            RefreshSettingsMissingHelpBox(missingHelpBox, settingsProp);
-            missingHelpBox.TrackPropertyValue(settingsProp, prop => RefreshSettingsMissingHelpBox(missingHelpBox, prop));
-        }
-
-        private static void RefreshSettingsMissingHelpBox(HelpBox helpBox, SerializedProperty settingsProp)
-        {
-            if (helpBox == null)
-            {
-                return;
-            }
-
-            bool isMissing = settingsProp == null || settingsProp.objectReferenceValue == null;
-            helpBox.style.display = isMissing ? DisplayStyle.Flex : DisplayStyle.None;
         }
 
         private static void AddSlugField(VisualElement root, SerializedProperty property)

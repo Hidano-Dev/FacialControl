@@ -11,6 +11,7 @@ using Hidano.FacialControl.Domain.Adapters;
 using Hidano.FacialControl.Domain.Interfaces;
 using Hidano.FacialControl.Domain.Models;
 using UnityEngine;
+using UnityEngine.Serialization;
 
 namespace Hidano.FacialControl.Adapters.AdapterBindings
 {
@@ -59,29 +60,52 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
         private const int InitialGazeFramePoolCapacity = 4;
 
         /// <summary>
-        /// 環境/運用依存の Receiver 設定を保持する SettingsSO (sub-asset)。
-        /// Inspector / CollectionSO 経由で割り当てられる本番経路。
+        /// 受信は常に全インターフェースで行う。<see cref="OscReceiverHost"/> へはログ用にこの値を渡す。
         /// </summary>
+        public const string ListenAllInterfaces = "0.0.0.0";
+
+        /// <summary>受信 UDP ポート。binding 本体に持たせ、上級設定アセットなしで受信できるようにする。</summary>
         [SerializeField]
-        private OscRuntimeSettingsSO _settings;
+        private int _port = OscConfiguration.DefaultReceivePort;
 
         [SerializeField]
         private List<OscMappingEntry> _mappings = new List<OscMappingEntry>();
 
         /// <summary>
-        /// 診断/テスト経路。Inspector で <see cref="_settings"/> を割り当てない代わりに
-        /// プロパティ setter や <see cref="Configure"/> から値を流し込むと on-demand で生成され、
-        /// <see cref="OnStart"/> で <see cref="_settings"/> のフォールバックとして採用される。
+        /// 受信の上級設定 (sub-asset)。割り当ては任意で、未割り当てなら既定値で動く。
+        /// </summary>
+        [SerializeField]
+        private OscReceiverRuntimeSettingsSO _advancedSettings;
+
+        /// <summary>
+        /// 旧形式の設定参照（移行専用）。割り当てられたままなら、その値を優先して起動し移行を促す警告を出す。
+        /// </summary>
+        [SerializeField]
+        [FormerlySerializedAs("_settings")]
+        private OscRuntimeSettingsSO _legacySettings;
+
+        /// <summary>
+        /// 上級設定アセットが未割り当てのときに使う既定値の SO。プロパティ setter から値を流し込む
+        /// 診断/テスト経路もここに書き込む。
         /// </summary>
         [NonSerialized]
-        private OscRuntimeSettingsSO _runtimeSettings;
+        private OscReceiverRuntimeSettingsSO _runtimeSettings;
+
+        /// <summary>
+        /// 旧形式の設定から上級設定の値を写した SO。<see cref="_legacySettings"/> が残っている間だけ使う。
+        /// </summary>
+        [NonSerialized]
+        private OscReceiverRuntimeSettingsSO _legacyConvertedSettings;
+
+        [NonSerialized]
+        private OscRuntimeSettingsSO _legacyConvertedFrom;
 
         /// <summary>
         /// <see cref="OnStart"/> で確定した有効な Settings 参照。<see cref="OnFixedTick"/> 等の
         /// 読み出しは本フィールドを介して行い、起動後の SO 参照差し替えに左右されないようにする。
         /// </summary>
         [NonSerialized]
-        private OscRuntimeSettingsSO _effectiveSettings;
+        private OscReceiverRuntimeSettingsSO _effectiveSettings;
 
         [NonSerialized]
         private OscMapping[] _runtimeMappings;
@@ -344,49 +368,59 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
         }
 
         /// <summary>
-        /// Inspector で割り当てられた <see cref="OscRuntimeSettingsSO"/>。診断 setter / Configure 経由で
-        /// 値を流し込む場合は <see cref="_runtimeSettings"/> が代わりに使われる。
+        /// 受信の上級設定アセット。未割り当てなら既定値で動く。
         /// </summary>
-        public OscRuntimeSettingsSO Settings
+        public OscReceiverRuntimeSettingsSO AdvancedSettings
         {
-            get => _settings;
-            set => _settings = value;
+            get => _advancedSettings;
+            set => _advancedSettings = value;
         }
 
-        /// <summary>有効な Settings 参照を返す。<see cref="Settings"/> が未代入なら診断用 runtime SO にフォールバック。</summary>
-        public OscRuntimeSettingsSO EffectiveSettings =>
-            _settings != null ? _settings : _runtimeSettings;
+        /// <summary>旧形式の設定参照（移行専用）。移行が済んでいれば null。</summary>
+        public OscRuntimeSettingsSO LegacySettings
+        {
+            get => _legacySettings;
+            set => _legacySettings = value;
+        }
 
-        /// <summary>送信元エンドポイント（IP/host）。現状 uOSC は port のみ使用するが診断用に保持。</summary>
-        public string Endpoint
+        /// <summary>
+        /// 有効な上級設定を返す。割り当て済みの <see cref="AdvancedSettings"/> を優先し、
+        /// 未移行の旧設定があればその値、どちらも無ければ既定値の SO を返す（null を返さない）。
+        /// </summary>
+        public OscReceiverRuntimeSettingsSO EffectiveSettings
         {
             get
             {
-                OscRuntimeSettingsSO settings = EffectiveSettings;
-                return settings != null ? settings.ListenEndpoint : OscRuntimeSettingsSO.DefaultListenEndpoint;
+                if (_advancedSettings != null)
+                {
+                    return _advancedSettings;
+                }
+
+                if (_legacySettings != null)
+                {
+                    return EnsureLegacyConvertedSettings();
+                }
+
+                return EnsureRuntimeSettings();
             }
-            set => EnsureRuntimeSettings().SetListenEndpoint(value);
         }
 
-        /// <summary>受信 UDP ポート。</summary>
+        /// <summary>
+        /// 受信を待ち受けるアドレス。常に全インターフェース（<see cref="ListenAllInterfaces"/>）。
+        /// </summary>
+        public string Endpoint => ListenAllInterfaces;
+
+        /// <summary>受信 UDP ポート。未移行の旧設定が残っている間はその値を返す。</summary>
         public int Port
         {
-            get
-            {
-                OscRuntimeSettingsSO settings = EffectiveSettings;
-                return settings != null ? settings.ListenPort : OscConfiguration.DefaultReceivePort;
-            }
-            set => EnsureRuntimeSettings().SetListenPort(value);
+            get => _legacySettings != null ? _legacySettings.ListenPort : _port;
+            set => _port = value;
         }
 
         /// <summary>staleness 判定秒数（0 で staleness 無効）。</summary>
         public float StalenessSeconds
         {
-            get
-            {
-                OscRuntimeSettingsSO settings = EffectiveSettings;
-                return settings != null ? settings.StalenessSeconds : 0f;
-            }
+            get => EffectiveSettings.StalenessSeconds;
             set => EnsureRuntimeSettings().SetStalenessSeconds(value);
         }
 
@@ -398,43 +432,25 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
 
         public FailSafeMode FailSafeMode
         {
-            get
-            {
-                OscRuntimeSettingsSO settings = EffectiveSettings;
-                return settings != null ? settings.FailSafeMode : FailSafeMode.RevertToBase;
-            }
+            get => EffectiveSettings.FailSafeMode;
             set => EnsureRuntimeSettings().SetFailSafeMode(value);
         }
 
         public bool ConsistencyCheckWarnLog
         {
-            get
-            {
-                OscRuntimeSettingsSO settings = EffectiveSettings;
-                return settings != null ? settings.ConsistencyCheckWarnLog : true;
-            }
+            get => EffectiveSettings.ConsistencyCheckWarnLog;
             set => EnsureRuntimeSettings().SetConsistencyCheckWarnLog(value);
         }
 
         public BundleInterpretationMode BundleMode
         {
-            get
-            {
-                OscRuntimeSettingsSO settings = EffectiveSettings;
-                return settings != null ? settings.BundleMode : BundleInterpretationMode.AtomicSwap;
-            }
+            get => EffectiveSettings.BundleMode;
             set => EnsureRuntimeSettings().SetBundleMode(value);
         }
 
         public float BundleAccumulationTimeoutMs
         {
-            get
-            {
-                OscRuntimeSettingsSO settings = EffectiveSettings;
-                return settings != null
-                    ? settings.BundleAccumulationTimeoutMs
-                    : OscRuntimeSettingsSO.DefaultBundleAccumulationTimeoutMs;
-            }
+            get => EffectiveSettings.BundleAccumulationTimeoutMs;
             set
             {
                 EnsureRuntimeSettings().SetBundleAccumulationTimeoutMs(value);
@@ -584,45 +600,70 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
         public bool IsStarted => _started;
 
         /// <summary>
-        /// Runtime / テストから endpoint・port・mappings をまとめて設定する。
+        /// Runtime / テストから port・mappings をまとめて設定する。
         /// </summary>
-        /// <remarks>
-        /// design.md の "Configure for diagnostic" 仕様に従い、内部 runtime SO に値を書き込む形で
-        /// <see cref="_settings"/> 未代入時の診断パスを保持する。
-        /// </remarks>
-        public void Configure(string endpoint, int port, OscMapping[] mappings)
+        public void Configure(int port, OscMapping[] mappings)
         {
             if (mappings == null) throw new ArgumentNullException(nameof(mappings));
 
-            OscRuntimeSettingsSO settings = EnsureRuntimeSettings();
-            settings.SetListenEndpoint(endpoint);
-            settings.SetListenPort(port);
+            _port = port;
             _runtimeMappings = mappings;
         }
 
         /// <summary>
-        /// 明示的に <see cref="OscRuntimeSettingsSO"/> インスタンスと mappings を流し込む診断 API。
-        /// テストで sub-asset を経由せずに SettingsSO 経路をそのまま検証するために使用する。
+        /// 旧シグネチャ。受信は常に全インターフェースで行うため <paramref name="endpoint"/> は使わない。
         /// </summary>
-        public void Configure(OscRuntimeSettingsSO settings, OscMapping[] mappings)
+        public void Configure(string endpoint, int port, OscMapping[] mappings)
+        {
+            Configure(port, mappings);
+        }
+
+        /// <summary>
+        /// 上級設定アセットと mappings を流し込む診断 API。
+        /// テストで sub-asset を経由せずに上級設定の経路をそのまま検証するために使用する。
+        /// </summary>
+        public void Configure(OscReceiverRuntimeSettingsSO advancedSettings, OscMapping[] mappings)
         {
             if (mappings == null) throw new ArgumentNullException(nameof(mappings));
 
-            _settings = settings;
+            _advancedSettings = advancedSettings;
             _runtimeMappings = mappings;
         }
 
-        private OscRuntimeSettingsSO EnsureRuntimeSettings()
+        private OscReceiverRuntimeSettingsSO EnsureRuntimeSettings()
         {
             if (_runtimeSettings == null)
             {
                 // FQN で UnityEngine.ScriptableObject を指定する。Adapters 配下に同名の
                 // namespace (Hidano.FacialControl.Adapters.ScriptableObject) が存在するため
                 // 短縮形だと CS0234 で解決失敗するのを回避する。
-                _runtimeSettings = UnityEngine.ScriptableObject.CreateInstance<OscRuntimeSettingsSO>();
-                _runtimeSettings.hideFlags = HideFlags.HideAndDontSave;
+                _runtimeSettings = OscRuntimeSettingsInstances.MarkTransient(
+                    UnityEngine.ScriptableObject.CreateInstance<OscReceiverRuntimeSettingsSO>());
             }
             return _runtimeSettings;
+        }
+
+        private OscReceiverRuntimeSettingsSO EnsureLegacyConvertedSettings()
+        {
+            if (_legacyConvertedSettings == null || !ReferenceEquals(_legacyConvertedFrom, _legacySettings))
+            {
+                RefreshLegacyConvertedSettings();
+            }
+            return _legacyConvertedSettings;
+        }
+
+        /// <summary>
+        /// 旧設定の値を写し直す。旧アセットの値が後から編集されても、次の起動で反映されるようにする。
+        /// </summary>
+        private void RefreshLegacyConvertedSettings()
+        {
+            OscRuntimeSettingsInstances.Destroy(ref _legacyConvertedSettings);
+            _legacyConvertedFrom = _legacySettings;
+            if (_legacySettings != null)
+            {
+                _legacyConvertedSettings = OscRuntimeSettingsInstances.MarkTransient(
+                    OscReceiverRuntimeSettingsSO.CreateFromLegacy(_legacySettings));
+            }
         }
 
         /// <inheritdoc />
@@ -639,19 +680,35 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
                 return;
             }
 
-            OscRuntimeSettingsSO settings = EffectiveSettings;
-            if (settings == null)
+            if (_legacySettings != null)
+            {
+                if (!_legacySettings.ReceiverEnabled)
+                {
+                    Debug.LogWarning(
+                        $"[OscReceiverAdapterBinding] 旧形式の設定 '{_legacySettings.name}' で受信が無効 (receiverEnabled=false) のため OSC Adapter は起動しません。"
+                        + $" Inspector の「旧設定から移行」で binding 側へ移行してください。slug='{Slug}'");
+                    return;
+                }
+
+                Debug.LogWarning(
+                    $"[OscReceiverAdapterBinding] 旧形式の設定 '{_legacySettings.name}' が割り当てられたままです。その値 (port={_legacySettings.ListenPort}) で起動します。"
+                    + $" Inspector の「旧設定から移行」で binding 側へ移行してください。slug='{Slug}'");
+            }
+
+            int port = Port;
+            if (port <= 0 || port > 65535)
             {
                 Debug.LogWarning(
-                    $"[OscReceiverAdapterBinding] _settings が未代入のため OSC Adapter は起動しません。slug='{Slug}'");
+                    $"[OscReceiverAdapterBinding] 受信ポート {port} が不正 (1〜65535) のため OSC Adapter は起動しません。slug='{Slug}'");
                 return;
             }
-            if (!settings.ReceiverEnabled)
+
+            if (_legacySettings != null)
             {
-                Debug.LogWarning(
-                    $"[OscReceiverAdapterBinding] _settings.ReceiverEnabled=false のため OSC Adapter は起動しません。slug='{Slug}'");
-                return;
+                RefreshLegacyConvertedSettings();
             }
+
+            OscReceiverRuntimeSettingsSO settings = EffectiveSettings;
 
             if (_mappings == null)
             {
@@ -830,6 +887,9 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
 
             _bundleAccumulator = null;
             _effectiveSettings = null;
+            OscRuntimeSettingsInstances.Destroy(ref _runtimeSettings);
+            OscRuntimeSettingsInstances.Destroy(ref _legacyConvertedSettings);
+            _legacyConvertedFrom = null;
             _runtimeMappings = null;
             _mappingOrigins = null;
             _runtimeManualEntries = null;
@@ -885,7 +945,7 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
 
         private void StartReceiverPhase(
             in AdapterBuildContext ctx,
-            OscRuntimeSettingsSO settings,
+            OscReceiverRuntimeSettingsSO settings,
             AdapterSlug slug,
             OscMapping[] runtimeMappings,
             bool hasGazeMappings)
@@ -934,8 +994,8 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
 
             _helperHost = ctx.HostGameObject.AddComponent<OscReceiverHost>();
             _helperHost.Configure(
-                settings.ListenEndpoint,
-                settings.ListenPort,
+                ListenAllInterfaces,
+                Port,
                 _buffer,
                 runtimeMappings,
                 settings.BundleMode == BundleInterpretationMode.AtomicSwap ? _bundleAccumulator : null,
@@ -952,7 +1012,7 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
 
         private void StartBlendShapeMappingPhase(
             in AdapterBuildContext ctx,
-            OscRuntimeSettingsSO settings,
+            OscReceiverRuntimeSettingsSO settings,
             OscMapping[] runtimeMappings,
             out int[] mappingIndexToMeshIndex,
             out BitArray contributeMask)
@@ -969,7 +1029,7 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
 
         private void RegisterOscInputSourcePhase(
             in AdapterBuildContext ctx,
-            OscRuntimeSettingsSO settings,
+            OscReceiverRuntimeSettingsSO settings,
             AdapterSlug slug,
             int[] mappingIndexToMeshIndex,
             BitArray contributeMask)
@@ -2421,7 +2481,7 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
 
             float timeoutMs = _effectiveSettings != null
                 ? _effectiveSettings.BundleAccumulationTimeoutMs
-                : OscRuntimeSettingsSO.DefaultBundleAccumulationTimeoutMs;
+                : OscReceiverRuntimeSettingsSO.DefaultBundleAccumulationTimeoutMs;
             double timeoutSeconds = timeoutMs * 0.001d;
             return nowSeconds - _currentGazeBundleFirstReceivedAtSeconds >= timeoutSeconds;
         }

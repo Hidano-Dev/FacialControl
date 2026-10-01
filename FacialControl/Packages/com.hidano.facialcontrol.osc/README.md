@@ -17,12 +17,13 @@
 | **OSC Sender** (`OscSenderAdapterBinding`) | `osc-sender` | 合成後の BlendShape と Gaze を購読し、OSC bundle として複数 endpoint へ送信する |
 | **ARKit / PerfectSync** (`ArKitOscAdapterBinding`) | `arkit-perfectsync` | `/ARKit/{name}` を購読するアナログ入力源（実験的。入力源の登録経路は未接続） |
 
-endpoint やポートなど環境依存の設定は binding ではなく **`OscRuntimeSettingsSO`**（`AdapterRuntimeSettingsCollectionSO` の sub-asset）に置き、binding の **OSC Runtime Settings** 欄から参照する。同じ sub-asset を Receiver と Sender で共有できる。
+一番よく変える受信ポート・送信先は binding 本体に持つ。heartbeat 間隔や staleness など滅多に変えない項目は、任意で割り当てる上級設定アセット（Receiver: **`OscReceiverRuntimeSettingsSO`** / Sender: **`OscSenderRuntimeSettingsSO`**。どちらも `AdapterRuntimeSettingsCollectionSO` の sub-asset）に置く。未割り当てなら既定値で動く。
 
 ## 使い方
 
-1. **Create → FacialControl → Adapter Runtime Settings Collection** を作成し、**Add → OscRuntimeSettingsSO**（Add メニューは型名で表示される）で sub-asset を追加。Receiver の listen ポート（既定 9001）、Sender の endpoint 一覧（既定送信先 9000）とプリセット（VRChat / ARKit）を設定
-2. `FacialCharacterProfileSO` の **Adapter Bindings** で **OSC Receiver** / **OSC Sender** を Add し、Runtime Settings 欄に sub-asset を割り当てる
+1. `FacialCharacterProfileSO` の **Adapter Bindings** で **OSC Receiver** / **OSC Sender** を Add する
+2. Receiver は **受信ポート**（既定 9001。受信は常に全インターフェース）、Sender は **送信先**（既定 `127.0.0.1:9000` の 1 件。複数指定可、宛先ごとに有効 / プリセット VRChat・ARKit を選べる）を設定する
+   - 上級設定を変えたい場合だけ、**Create → FacialControl → Adapter Runtime Settings Collection** に **Add → OscReceiverRuntimeSettingsSO** / **OscSenderRuntimeSettingsSO** で sub-asset を追加し、binding の **上級設定** に割り当てる
 3. 受信をレイヤーに繋ぐ場合はレイヤーの入力源 id に `<slug>`（例 `osc-receiver`）を追加する。binding を Add した時点で既定レイヤーが自動追加される
 4. Gaze を受信する場合は Profile の目線タブでチャネル `gaze` の入力ソースに Receiver を選ぶ。送信側が FacialControl なら手動 mapping は不要
 5. Play。**Import Sample** から `OscOutputDemo` / `OscReceiverDemo` を取り込むと、送信側・受信側それぞれの最小 Scene を確認できる

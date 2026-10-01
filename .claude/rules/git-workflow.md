@@ -31,6 +31,10 @@ Linear 連携・自動マージなど「リポジトリごとに有無が変わ�
     `chore/hid-19-linear-branch-naming`。
     対応する Linear Issue がない作業は、ブランチを切る前に Linear へ Issue を起票する
     （PR にしない使い捨ての検証作業は除く）。Issue 作成は Linear MCP から行える。
+    **例外**: Routine 等のクラウドセッションで実行環境が作業ブランチ（`claude/...` 等）を
+    割り当てている場合は、割り当てブランチをそのまま使い、PR タイトルの Issue ID・本文の
+    `Fixes <ISSUE-ID>`・Linear MCP での PR 添付で紐付けを補う
+    （`.claude/skills/linear-worker/SKILL.md` §2 手順 4〜5）。
   - **Linear 連携なし**: `<type>/<topic>`（例: `feature/spec-run-retry`）
 - Linear 連携ありの場合、Issue タイトルと PR タイトルは英語で書く（本文・説明は日本語でよい）。
 - Linear 連携ありの場合、ブランチを切ったら Linear MCP で対応 Issue のステータスを
@@ -100,6 +104,13 @@ Linear 連携・自動マージなど「リポジトリごとに有無が変わ�
 - **既定（config の `auto_merge.enabled` が false または未設定）**: 懸念箇所がなくなったら、
   PR の URL・対応内容の要約を添えてユーザーにマージ判断を仰ぐ。
   **マージ自体はユーザーの承認なしに実行しない**（`gh pr merge` を自律的に実行するのは禁止）。
+  linear-worker が駐機させたマージ承認待ち PR に後から届いたレビューの P1 以上の指摘・
+  CI 失敗・マージコンフリクトは、後続の定期実行が拾って修正・push し、再び承認待ちに戻す
+  （コンフリクトはデフォルトブランチのマージで解消し rebase しない。`.claude/skills/
+  linear-worker/SKILL.md` §1-A）。config の `auto_merge.merge_parked` が false でなければ、
+  要修正が無く P0/P1 未対応なし・CI green・コンフリクトなし・人間の保留なしを満たした
+  駐機 PR は巡回がマージしてブランチを削除する（2026-10-01 決定。`protected_paths` に
+  該当する PR は対象外で、引き続きユーザーがマージ判断する）。
 - **自動マージ条件（`auto_merge.enabled` が true のリポジトリのみ。2026-09-23 決定。詳細な
   手順は `.claude/skills/linear-worker/SKILL.md` §4）**: 次の両ゲートを満たす PR は
   ユーザー承認なしで自動マージしてよい（`auto_merge.method`、`expectedHeadSha` 指定）。

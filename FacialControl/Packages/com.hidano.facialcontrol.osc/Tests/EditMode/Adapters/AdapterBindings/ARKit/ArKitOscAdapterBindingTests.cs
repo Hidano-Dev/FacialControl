@@ -136,16 +136,14 @@ namespace Hidano.FacialControl.Osc.Tests.EditMode.Adapters.AdapterBindings
         {
             // task 9.3 観測可能完了条件:
             // 単一 SO で OscReceiverAdapterBinding + ArKitOscAdapterBinding が同時に保持・round-trip できる。
-            // task 8.7: OscReceiverAdapterBinding は OscRuntimeSettingsSO sub-asset 経由で _settings を保持し
-            // round-trip させる新経路を使用する (旧 _endpoint / _port 直 SerializeField 経路は廃止済み)。
+            // OscReceiverAdapterBinding は受信ポートを本体に、上級設定を OscReceiverRuntimeSettingsSO sub-asset に保持する。
             var so = ScriptableObject.CreateInstance<OscArKitRoundTripTestProfileSO>();
 
-            var oscSettings = ScriptableObject.CreateInstance<OscRuntimeSettingsSO>();
-            oscSettings.name = "OscRuntimeSettings";
-            oscSettings.FromJson(
-                "{\"listenEndpoint\":\"127.0.0.1\",\"listenPort\":9001,\"stalenessSeconds\":0.5}");
+            var oscSettings = ScriptableObject.CreateInstance<OscReceiverRuntimeSettingsSO>();
+            oscSettings.name = "OscReceiverRuntimeSettings";
+            oscSettings.FromJson("{\"stalenessSeconds\":0.5}");
 
-            var osc = new OscReceiverAdapterBinding { Slug = "osc-vrchat", Settings = oscSettings };
+            var osc = new OscReceiverAdapterBinding { Slug = "osc-vrchat", Port = 9001, AdvancedSettings = oscSettings };
             so.WritableAdapterBindings.Add(osc);
 
             string[] arkitNames = { "jawOpen", "eyeBlinkLeft", "eyeBlinkRight" };
@@ -176,9 +174,8 @@ namespace Hidano.FacialControl.Osc.Tests.EditMode.Adapters.AdapterBindings
 
             var loadedOsc = (OscReceiverAdapterBinding)loaded.AdapterBindings[0];
             Assert.That(loadedOsc.Slug, Is.EqualTo("osc-vrchat"));
-            Assert.That(loadedOsc.Settings, Is.Not.Null,
-                "OscRuntimeSettingsSO sub-asset 参照が round-trip するべき。");
-            Assert.That(loadedOsc.Endpoint, Is.EqualTo("127.0.0.1"));
+            Assert.That(loadedOsc.AdvancedSettings, Is.Not.Null,
+                "OscReceiverRuntimeSettingsSO sub-asset 参照が round-trip するべき。");
             Assert.That(loadedOsc.Port, Is.EqualTo(9001));
             Assert.That(loadedOsc.StalenessSeconds, Is.EqualTo(0.5f).Within(1e-6f));
 
