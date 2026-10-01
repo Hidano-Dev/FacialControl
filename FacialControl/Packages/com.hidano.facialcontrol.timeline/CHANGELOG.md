@@ -2,6 +2,14 @@
 
 [Keep a Changelog](https://keepachangelog.com/ja/1.1.0/) の形式に準拠し、[セマンティックバージョニング](https://semver.org/lang/ja/) に従う。
 
+## [Unreleased]
+
+### Fixed
+
+- 目ボーン path が空の Gaze チャネルで、Timeline のスクラブプレビュー中に目が動かなかった。path が空の側は Humanoid Avatar の `LeftEye` / `RightEye` を使い、rest 回転と yaw / pitch 軸はプレビュー開始時の姿勢から導出する。fallback を使うのは目ごとに先頭の（ベイク値のある）channel だけで、path 指定の channel が同じボーンを指せば path 側を優先する（HID-41 のランタイム fallback と同じ規則）
+- スクラブプレビューの目ボーン path の解決をランタイムと同じ `BoneTransformResolver` にした（ボーン名だけの指定・末尾一致も解決する。従来は root からの相対 path のみ）
+- 目ボーン path が空のとき、スクラブプレビューがキャラクター root の回転を復元対象として登録していた。空・空白の path では `Transform.Find` を呼ばない
+
 ## [1.0.0] - 2026-09-25
 
 初回リリース。

@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using Hidano.FacialControl.Adapters.Bone;
 using Hidano.FacialControl.Adapters.Playable;
 using Hidano.FacialControl.Adapters.ScriptableObject.Serializable;
 using Hidano.FacialControl.Timeline.Adapters;
@@ -20,6 +21,18 @@ namespace Hidano.FacialControl.Timeline.Editor
             "[FacialTimelineEditorPreview] BakeAsset is missing. Scrub preview is disabled.";
 
         private static readonly HashSet<int> MissingBakeWarnings = new HashSet<int>();
+
+        // path 未指定の目に使う Humanoid の目ボーンと rest 回転・軸、および path 解決用の resolver
+        // (FacialController の instanceID ごと)。
+        // rest 回転はプレビューで書き換える前の姿勢から取る必要があるため、GatherProperties (プレビュー開始時、
+        // Timeline が対象プロパティを記録する時点) で取り直し、スクラブ中は使い回す。
+        private static readonly Dictionary<int, CachedGazeEyeFallback> GazeEyeFallbacks =
+            new Dictionary<int, CachedGazeEyeFallback>();
+
+        private static readonly List<int> StaleGazeEyeFallbackKeys = new List<int>();
+
+        private static readonly List<FacialTimelinePreviewEyeTarget> GazeTargetBuffer =
+            new List<FacialTimelinePreviewEyeTarget>();
 
         static FacialTimelineEditorPreview()
         {
@@ -143,19 +156,49 @@ namespace Hidano.FacialControl.Timeline.Editor
                 return;
             }
 
-            for (int i = 0; i < gazeConfigs.Count && i < gazeChannels.Length; i++)
-            {
-                GazeChannel config = gazeConfigs[i];
-                if (config == null)
-                {
-                    continue;
-                }
+            // ランタイムは入力源の無い channel を駆動しない。プレビューではベイク値の無い channel がそれに当たる。
+            CachedGazeEyeFallback cached = GetGazeEyeFallback(controller);
+            GazeTargetBuffer.Clear();
+            FacialTimelinePreviewGazeTargets.Resolve(
+                cached.Resolver,
+                gazeConfigs,
+                index => index < gazeChannels.Length && HasAnyAxis(gazeChannels[index]),
+                cached.Fallback,
+                GazeTargetBuffer);
 
-                float x = EvaluateAxis(gazeChannels[i].Axes, 0, timeSeconds);
-                float y = EvaluateAxis(gazeChannels[i].Axes, 1, timeSeconds);
-                ApplyEyeRotation(controller.transform, config.leftEyeBonePath, true, config, x, y);
-                ApplyEyeRotation(controller.transform, config.rightEyeBonePath, false, config, x, y);
+            for (int i = 0; i < GazeTargetBuffer.Count; i++)
+            {
+                FacialTimelinePreviewEyeTarget target = GazeTargetBuffer[i];
+                ValueChannelBake bake = gazeChannels[target.ChannelIndex];
+                float x = EvaluateAxis(bake.Axes, 0, timeSeconds);
+                float y = EvaluateAxis(bake.Axes, 1, timeSeconds);
+                target.Bone.localRotation = FacialTimelinePreviewGazeTargets.ComputeLocalRotation(
+                    target,
+                    gazeConfigs[target.ChannelIndex],
+                    x,
+                    y);
             }
+
+            GazeTargetBuffer.Clear();
+        }
+
+        private static bool HasAnyAxis(ValueChannelBake bake)
+        {
+            AnimationCurve[] axes = bake.Axes;
+            if (axes == null)
+            {
+                return false;
+            }
+
+            for (int i = 0; i < axes.Length; i++)
+            {
+                if (axes[i] != null)
+                {
+                    return true;
+                }
+            }
+
+            return false;
         }
 
         private static ValueChannelBake[] CollectGazeChannels(FacialTimelineBakeAsset bakeAsset)
@@ -188,60 +231,6 @@ namespace Hidano.FacialControl.Timeline.Editor
             return Mathf.Clamp(axes[axisIndex].Evaluate((float)timeSeconds), -1f, 1f);
         }
 
-        private static void ApplyEyeRotation(
-            Transform root,
-            string bonePath,
-            bool isLeftEye,
-            GazeChannel config,
-            float x,
-            float y)
-        {
-            if (root == null || string.IsNullOrWhiteSpace(bonePath))
-            {
-                return;
-            }
-
-            Transform target = root.Find(bonePath);
-            if (target == null)
-            {
-                return;
-            }
-
-            Vector3 yawAxis = SafeNormalize(
-                isLeftEye ? config.leftEyeYawAxisLocal : config.rightEyeYawAxisLocal,
-                Vector3.up);
-            Vector3 pitchAxis = SafeNormalize(
-                isLeftEye ? config.leftEyePitchAxisLocal : config.rightEyePitchAxisLocal,
-                Vector3.right);
-            Quaternion restRotation = Quaternion.Euler(
-                isLeftEye ? config.leftEyeInitialRotation : config.rightEyeInitialRotation);
-
-            float yaw = ComputeYawDegrees(isLeftEye, config, x);
-            float pitch = y >= 0f ? y * Mathf.Max(0f, config.lookUpAngle) : y * Mathf.Max(0f, config.lookDownAngle);
-
-            target.localRotation =
-                Quaternion.AngleAxis(-yaw, yawAxis) *
-                Quaternion.AngleAxis(-pitch, pitchAxis) *
-                restRotation;
-        }
-
-        private static float ComputeYawDegrees(bool isLeftEye, GazeChannel config, float x)
-        {
-            float outerYaw = Mathf.Max(0f, config.outerYawAngle);
-            float innerYaw = Mathf.Max(0f, config.innerYawAngle);
-            if (isLeftEye)
-            {
-                return x >= 0f ? x * outerYaw : x * innerYaw;
-            }
-
-            return x >= 0f ? x * innerYaw : x * outerYaw;
-        }
-
-        private static Vector3 SafeNormalize(Vector3 value, Vector3 fallback)
-        {
-            return value.sqrMagnitude < 1e-8f ? fallback : value.normalized;
-        }
-
         private static void RegisterBlendShapeProperties(FacialController controller, IPropertyCollector collector)
         {
             SkinnedMeshRenderer[] renderers = controller.SkinnedMeshRenderers;
@@ -271,17 +260,73 @@ namespace Hidano.FacialControl.Timeline.Editor
             IReadOnlyList<GazeChannel> gazeConfigs = controller.CharacterSO != null
                 ? controller.CharacterSO.GazeChannels
                 : Array.Empty<GazeChannel>();
-            for (int i = 0; i < gazeConfigs.Count; i++)
+            if (gazeConfigs == null || gazeConfigs.Count == 0)
             {
-                GazeChannel config = gazeConfigs[i];
-                if (config == null)
-                {
-                    continue;
-                }
-
-                RegisterRotationProperties(controller.transform.Find(config.leftEyeBonePath), collector);
-                RegisterRotationProperties(controller.transform.Find(config.rightEyeBonePath), collector);
+                return;
             }
+
+            // プレビュー開始時の姿勢から fallback の rest 回転・軸を取り直す。
+            PruneDestroyedGazeEyeFallbacks();
+            CachedGazeEyeFallback cached = CreateCachedGazeEyeFallback(controller);
+            GazeEyeFallbacks[controller.GetInstanceID()] = cached;
+
+            // 復元対象の登録はベイクの有無に依らず、駆動し得るボーンをすべて登録する。
+            GazeTargetBuffer.Clear();
+            FacialTimelinePreviewGazeTargets.Resolve(
+                cached.Resolver,
+                gazeConfigs,
+                null,
+                cached.Fallback,
+                GazeTargetBuffer);
+
+            for (int i = 0; i < GazeTargetBuffer.Count; i++)
+            {
+                RegisterRotationProperties(GazeTargetBuffer[i].Bone, collector);
+            }
+
+            GazeTargetBuffer.Clear();
+        }
+
+        private static CachedGazeEyeFallback GetGazeEyeFallback(FacialController controller)
+        {
+            int key = controller.GetInstanceID();
+            if (GazeEyeFallbacks.TryGetValue(key, out CachedGazeEyeFallback cached))
+            {
+                return cached;
+            }
+
+            // GatherProperties を経ずに呼ばれた場合 (スクリプトからの Evaluate 等) は現在の姿勢から作る。
+            // 目ボーンが無い (非 Humanoid) 場合も結果をキャッシュし、毎フレーム解決し直さない。
+            cached = CreateCachedGazeEyeFallback(controller);
+            GazeEyeFallbacks[key] = cached;
+            return cached;
+        }
+
+        private static void PruneDestroyedGazeEyeFallbacks()
+        {
+            StaleGazeEyeFallbackKeys.Clear();
+            foreach (KeyValuePair<int, CachedGazeEyeFallback> entry in GazeEyeFallbacks)
+            {
+                if (entry.Value.Controller == null)
+                {
+                    StaleGazeEyeFallbackKeys.Add(entry.Key);
+                }
+            }
+
+            for (int i = 0; i < StaleGazeEyeFallbackKeys.Count; i++)
+            {
+                GazeEyeFallbacks.Remove(StaleGazeEyeFallbackKeys[i]);
+            }
+
+            StaleGazeEyeFallbackKeys.Clear();
+        }
+
+        private static CachedGazeEyeFallback CreateCachedGazeEyeFallback(FacialController controller)
+        {
+            return new CachedGazeEyeFallback(
+                controller,
+                new BoneTransformResolver(controller.transform),
+                GazeEyeBoneFallback.FromAnimator(controller.GetComponent<Animator>()));
         }
 
         private static void RegisterRotationProperties(Transform target, IPropertyCollector collector)
@@ -320,6 +365,23 @@ namespace Hidano.FacialControl.Timeline.Editor
             return receiver.GetComponent<FacialController>()
                    ?? receiver.GetComponentInParent<FacialController>()
                    ?? receiver.GetComponentInChildren<FacialController>();
+        }
+
+        private readonly struct CachedGazeEyeFallback
+        {
+            public CachedGazeEyeFallback(
+                FacialController controller,
+                BoneTransformResolver resolver,
+                GazeEyeBoneFallback fallback)
+            {
+                Controller = controller;
+                Resolver = resolver;
+                Fallback = fallback;
+            }
+
+            public FacialController Controller { get; }
+            public BoneTransformResolver Resolver { get; }
+            public GazeEyeBoneFallback Fallback { get; }
         }
 
         private static void WarnMissingBake(FacialTimelineReceiver receiver)
