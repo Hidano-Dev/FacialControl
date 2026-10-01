@@ -31,5 +31,11 @@ namespace Hidano.FacialControl.Adapters.ScriptableObject
         [Range(0f, 90f)] public float lookDownAngle = 9f;
         [Range(0f, 90f)] public float outerYawAngle = 15f;
         [Range(0f, 90f)] public float innerYawAngle = 18f;
+
+        /// <summary>全フィールドを複製した新しいインスタンスを返す (浅いコピー。フィールドはすべて値型か不変の string)。</summary>
+        public GazeChannel Clone()
+        {
+            return (GazeChannel)MemberwiseClone();
+        }
     }
 }

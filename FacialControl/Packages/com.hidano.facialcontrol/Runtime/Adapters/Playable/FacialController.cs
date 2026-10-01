@@ -91,6 +91,19 @@ namespace Hidano.FacialControl.Adapters.Playable
         // 1 回だけ取得し、gaze 入力源の登録変化による再構築では使い回す (頭部が動いている最中の姿勢から取り直さない)。
         private GazeEyeBoneFallback _gazeEyeFallback;
         private bool _hasGazeEyeFallback;
+        // 目ボーン path・可動範囲を上書きする binding (OSC 受信など) と、その binding の slug。rebuild ごとに集め直す。
+        private readonly List<IGazeChannelOverrideProvider> _gazeOverrideProviders =
+            new List<IGazeChannelOverrideProvider>();
+        private readonly List<string> _gazeOverrideProviderSlugs = new List<string>();
+        // provider 構築時点の上書き version の合計。毎フレームこの値だけを比べ、変わったときだけ再構築する。
+        private int _appliedGazeOverrideVersion;
+        // 上書き path のボーンに使う rest 回転・軸。Humanoid fallback と同じく初期化時の姿勢から取るため、
+        // 上書き binding がある場合だけ初期化時に配下の全 Transform について導出しておく。
+        // 初期化後に追加された Transform は、初めて上書きで使われたときに導出して追加する。
+        private readonly Dictionary<Transform, DerivedGazeEyePose> _gazeRestPoses =
+            new Dictionary<Transform, DerivedGazeEyePose>();
+        private readonly HashSet<string> _unresolvedGazeOverridePaths =
+            new HashSet<string>(StringComparer.Ordinal);
 
         /// <summary>
         /// 初期化済みかどうか
@@ -170,6 +183,12 @@ namespace Hidano.FacialControl.Adapters.Playable
             PublishFacialOutput(output);
 
             _boneWriter?.Apply();
+
+            // 外部から受け取った目ボーン path・可動範囲が変わっていれば provider を作り直す。
+            if (ComputeGazeOverrideVersion() != _appliedGazeOverrideVersion)
+            {
+                SetupGazeBoneProvider();
+            }
 
             // 目線の目ボーン適用は BoneWriter(頭部等)の後（Animator → BlendShape → BoneWriter → 目ボーン）。
             _gazeBoneProvider?.Apply();
@@ -280,6 +299,9 @@ namespace Hidano.FacialControl.Adapters.Playable
             // BoneWriter を生成・初期化。
             SetupBoneWriter(profile);
 
+            // 外部からの目ボーン path 上書きに備え、目ボーン候補の rest 回転・軸を初期化時の姿勢で記録する。
+            CaptureGazeRestPosesForOverrides();
+
             // 目線の目ボーン provider を構築。child scope build 済み・_inputSourceRegistry キャッシュ済みで、
             // 各 binding が登録した gaze 入力源(osc:eye_look 等)を registry から解決できる。
             SetupGazeBoneProvider();
@@ -353,6 +375,8 @@ namespace Hidano.FacialControl.Adapters.Playable
 
         private void ConfigureAdapterBindingsWithGazeChannels(IReadOnlyList<AdapterBindingBase> bindings)
         {
+            _gazeOverrideProviders.Clear();
+            _gazeOverrideProviderSlugs.Clear();
             if (bindings == null || bindings.Count == 0)
             {
                 return;
@@ -369,6 +393,17 @@ namespace Hidano.FacialControl.Adapters.Playable
                 if (binding is IGazeChannelConsumer consumer)
                 {
                     consumer.ConfigureGazeChannels(_gazeChannelIds);
+                }
+
+                if (binding is IGazeChannelSettingsConsumer settingsConsumer)
+                {
+                    settingsConsumer.ConfigureGazeChannelSettings(_gazeChannels);
+                }
+
+                if (binding is IGazeChannelOverrideProvider overrideProvider)
+                {
+                    _gazeOverrideProviders.Add(overrideProvider);
+                    _gazeOverrideProviderSlugs.Add(binding.Slug);
                 }
             }
         }
@@ -570,6 +605,9 @@ namespace Hidano.FacialControl.Adapters.Playable
                 _gazeBoneProvider = null;
             }
 
+            // 上書きが変わっても構築できない状態のまま毎フレーム再試行しないよう、先に記録する。
+            _appliedGazeOverrideVersion = ComputeGazeOverrideVersion();
+
             if (_animator == null || _inputSourceRegistry == null
                 || _gazeChannels == null || _gazeChannels.Count == 0)
             {
@@ -585,6 +623,7 @@ namespace Hidano.FacialControl.Adapters.Playable
                 _hasGazeEyeFallback = true;
             }
 
+            var boneResolver = new BoneTransformResolver(_animator.transform);
             var gazeBoneBindings = new List<GazeBoneBinding>();
             for (int i = 0; i < _gazeChannels.Count; i++)
             {
@@ -602,8 +641,10 @@ namespace Hidano.FacialControl.Adapters.Playable
                     continue;
                 }
 
-                gazeBoneBindings.Add(
-                    new GazeBoneBinding(channel, resolved.LeftSource, resolved.RightSource));
+                gazeBoneBindings.Add(new GazeBoneBinding(
+                    ResolveEffectiveGazeChannel(channel, resolved, boneResolver),
+                    resolved.LeftSource,
+                    resolved.RightSource));
             }
 
             if (gazeBoneBindings.Count == 0)
@@ -612,7 +653,7 @@ namespace Hidano.FacialControl.Adapters.Playable
             }
 
             _gazeBoneProvider = new GazeBonePoseProvider(
-                new BoneTransformResolver(_animator.transform),
+                boneResolver,
                 gazeBoneBindings,
                 _gazeEyeFallback);
 
@@ -624,6 +665,220 @@ namespace Hidano.FacialControl.Adapters.Playable
                     $"[FacialControl] '{name}' の目線ボーン path が未指定で、Humanoid の LeftEye / RightEye も解決できないため、"
                     + "該当する目の目線制御を無効にします。目線タブで目ボーン path を指定するか、Avatar の Eye をマップしてください。");
             }
+        }
+
+        private int ComputeGazeOverrideVersion()
+        {
+            int version = 0;
+            for (int i = 0; i < _gazeOverrideProviders.Count; i++)
+            {
+                unchecked
+                {
+                    version += _gazeOverrideProviders[i].GazeChannelOverrideVersion;
+                }
+            }
+
+            return version;
+        }
+
+        /// <summary>
+        /// 外部 binding からの上書き (目ボーン path・可動範囲) を <paramref name="channel"/> に適用した
+        /// 値を返す。上書きが無ければ <paramref name="channel"/> をそのまま返す。
+        /// </summary>
+        /// <remarks>
+        /// 上書きを使うのは、そのチャネルの入力源を実際に提供している binding (slug が一致するもの) だけ。
+        /// 別の binding が駆動するチャネルを、たまたま同じ id を広告した送信元が書き換えないようにするため。
+        /// 上書き path のボーンがローカル path のボーンと異なる側は、エディタで保存した rest 回転・軸が
+        /// 使えないため、初期化時に記録した値 (Humanoid fallback と同じ規則) を使う。上書き path が解決
+        /// できない側は警告を 1 回だけ出し、ローカルの規則 (ローカル path → Humanoid) に戻す。
+        /// </remarks>
+        private GazeChannel ResolveEffectiveGazeChannel(
+            GazeChannel channel,
+            in ResolvedGazeInputSources resolved,
+            BoneTransformResolver boneResolver)
+        {
+            if (_gazeOverrideProviders.Count == 0
+                || !TryGetGazeOverrideFromDrivingBinding(channel.id, resolved, out GazeChannelOverride channelOverride))
+            {
+                return channel;
+            }
+
+            GazeChannel merged = channelOverride.ApplyTo(channel);
+            if (channelOverride.HasLeftEyeBonePath)
+            {
+                if (!TryApplyOverrideEyePose(
+                        channelOverride.LeftEyeBonePath,
+                        channel.leftEyeBonePath,
+                        boneResolver,
+                        out DerivedGazeEyePose pose,
+                        out bool sameBoneAsLocal))
+                {
+                    merged.leftEyeBonePath = channel.leftEyeBonePath;
+                }
+                else if (!sameBoneAsLocal)
+                {
+                    merged.leftEyeInitialRotation = pose.RestRotation.eulerAngles;
+                    merged.leftEyeYawAxisLocal = pose.YawAxisLocal;
+                    merged.leftEyePitchAxisLocal = pose.PitchAxisLocal;
+                }
+            }
+
+            if (channelOverride.HasRightEyeBonePath)
+            {
+                if (!TryApplyOverrideEyePose(
+                        channelOverride.RightEyeBonePath,
+                        channel.rightEyeBonePath,
+                        boneResolver,
+                        out DerivedGazeEyePose pose,
+                        out bool sameBoneAsLocal))
+                {
+                    merged.rightEyeBonePath = channel.rightEyeBonePath;
+                }
+                else if (!sameBoneAsLocal)
+                {
+                    merged.rightEyeInitialRotation = pose.RestRotation.eulerAngles;
+                    merged.rightEyeYawAxisLocal = pose.YawAxisLocal;
+                    merged.rightEyePitchAxisLocal = pose.PitchAxisLocal;
+                }
+            }
+
+            return merged;
+        }
+
+        private bool TryGetGazeOverrideFromDrivingBinding(
+            string channelId,
+            in ResolvedGazeInputSources resolved,
+            out GazeChannelOverride channelOverride)
+        {
+            channelOverride = default;
+            string drivingSlug = !string.IsNullOrEmpty(resolved.ProviderSlug)
+                ? resolved.ProviderSlug
+                : ExtractSlug(resolved.LeftSourceId) ?? ExtractSlug(resolved.RightSourceId);
+            if (string.IsNullOrEmpty(drivingSlug))
+            {
+                return false;
+            }
+
+            for (int i = 0; i < _gazeOverrideProviders.Count; i++)
+            {
+                if (string.Equals(_gazeOverrideProviderSlugs[i], drivingSlug, StringComparison.Ordinal)
+                    && _gazeOverrideProviders[i].TryGetGazeChannelOverride(channelId, out channelOverride)
+                    && !channelOverride.IsEmpty)
+                {
+                    return true;
+                }
+            }
+
+            channelOverride = default;
+            return false;
+        }
+
+        private static string ExtractSlug(string sourceId)
+        {
+            if (string.IsNullOrEmpty(sourceId))
+            {
+                return null;
+            }
+
+            int separator = sourceId.IndexOf(':');
+            return separator > 0 ? sourceId.Substring(0, separator) : sourceId;
+        }
+
+        /// <summary>
+        /// 上書き path のボーンを解決し、使う rest 回転・軸を返す。解決できなければ false。
+        /// <paramref name="sameBoneAsLocal"/> が true のとき、上書き path はローカル path と同じボーンを指すので、
+        /// 呼出側はエディタで保存した値をそのまま使う (path の表記違いで校正値を捨てない)。
+        /// </summary>
+        private bool TryApplyOverrideEyePose(
+            string overridePath,
+            string localPath,
+            BoneTransformResolver boneResolver,
+            out DerivedGazeEyePose pose,
+            out bool sameBoneAsLocal)
+        {
+            pose = default;
+            sameBoneAsLocal = false;
+            if (_unresolvedGazeOverridePaths.Contains(overridePath))
+            {
+                return false;
+            }
+
+            Transform eye = boneResolver.Resolve(overridePath);
+            if (eye == null)
+            {
+                _unresolvedGazeOverridePaths.Add(overridePath);
+                Debug.LogWarning(
+                    $"[FacialControl] '{name}' で外部から指定された目線ボーン path '{overridePath}' が見つからないため、"
+                    + "ローカルの目線設定 (目線タブの path → Humanoid の目ボーン) で駆動します。");
+                return false;
+            }
+
+            if (string.Equals(overridePath, localPath, StringComparison.Ordinal)
+                || (!string.IsNullOrWhiteSpace(localPath) && boneResolver.Resolve(localPath) == eye))
+            {
+                sameBoneAsLocal = true;
+                return true;
+            }
+
+            pose = GetOrDeriveGazeRestPose(eye);
+            return true;
+        }
+
+        private DerivedGazeEyePose GetOrDeriveGazeRestPose(Transform eye)
+        {
+            if (_gazeRestPoses.TryGetValue(eye, out DerivedGazeEyePose pose))
+            {
+                return pose;
+            }
+
+            pose = DeriveGazeRestPose(eye);
+            _gazeRestPoses[eye] = pose;
+            return pose;
+        }
+
+        private DerivedGazeEyePose DeriveGazeRestPose(Transform eye)
+        {
+            GazeEyeBoneFallback.DeriveRestAndAxes(
+                eye,
+                _animator.transform,
+                out Quaternion rest,
+                out Vector3 yaw,
+                out Vector3 pitch);
+            return new DerivedGazeEyePose(rest, yaw, pitch);
+        }
+
+        /// <summary>
+        /// 目ボーン path を上書きする binding があるときだけ、キャラクター配下の全 Transform の rest 回転・軸を
+        /// 初期化時の姿勢で記録する。上書きは初期化後 (広告の受信時) に届くため、その時点の姿勢
+        /// (頭部トラッキングで傾いた状態など) から導出しないようにする。
+        /// </summary>
+        private void CaptureGazeRestPosesForOverrides()
+        {
+            _gazeRestPoses.Clear();
+            if (_animator == null || _gazeOverrideProviders.Count == 0)
+            {
+                return;
+            }
+
+            Transform[] transforms = _animator.GetComponentsInChildren<Transform>(true);
+            for (int i = 0; i < transforms.Length; i++)
+            {
+                _gazeRestPoses[transforms[i]] = DeriveGazeRestPose(transforms[i]);
+            }
+        }
+
+        private readonly struct DerivedGazeEyePose
+        {
+            public DerivedGazeEyePose(Quaternion restRotation, Vector3 yawAxisLocal, Vector3 pitchAxisLocal)
+            {
+                RestRotation = restRotation;
+                YawAxisLocal = yawAxisLocal;
+                PitchAxisLocal = pitchAxisLocal;
+            }
+
+            public Quaternion RestRotation { get; }
+            public Vector3 YawAxisLocal { get; }
+            public Vector3 PitchAxisLocal { get; }
         }
 
         private void SetupObservationAndRebindIntegration(
@@ -1240,6 +1495,11 @@ namespace Hidano.FacialControl.Adapters.Playable
             _gazeEyeFallbackWarned = false;
             _gazeEyeFallback = default;
             _hasGazeEyeFallback = false;
+            _gazeOverrideProviders.Clear();
+            _gazeOverrideProviderSlugs.Clear();
+            _appliedGazeOverrideVersion = 0;
+            _gazeRestPoses.Clear();
+            _unresolvedGazeOverridePaths.Clear();
 
             _expressionUseCase = null;
             _isInitialized = false;

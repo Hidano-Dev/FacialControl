@@ -18,14 +18,14 @@
 
 - listen `127.0.0.1:9000`（使用中なら空きポートへ自動繰り上げ）
 - BlendShape: 送信側 heartbeat とモデルの BlendShape 名の積集合から自動マッピング
-- Gaze: `/_facialcontrol/gaze` 広告から `Gaze_VRChat_XY` / `Gaze_ARKit_8BS` の route を自動生成。目ボーンへの反映は、Humanoid モデルなら設定不要（Avatar の Eye ボーンを使う）。非 Humanoid モデルは Profile の目線タブで目ボーン path の設定が必要
+- Gaze: `/_facialcontrol/gaze` 広告から `Gaze_VRChat_XY` / `Gaze_ARKit_8BS` の route を自動生成。目ボーン path と可動範囲も広告で届き、受信側の目線タブより優先する。送信側で目ボーン path を指定していれば、受信側は目線タブを設定しなくてよい。送信側で path が未指定なら、受信側の目線タブの path → Humanoid の Eye ボーンの順で解決する
 - staleness 1 秒で base 表情へ復帰（`RevertToBase`）、bundle は `AtomicSwap`
 
 ## 手順
 
 1. `OscReceiverDemo.unity` を開く
 2. お手持ちのモデル prefab を Hierarchy の **`Character` の子** に配置する
-3. **目ボーンを設定**（Gaze を反映する非 Humanoid モデルの場合。Humanoid で Eye がマップ済みなら不要）: `OscReceiverDemoProfile.asset` の **参照モデル** にモデルを割り当て、**目線** タブのチャネル `gaze` で **参照モデルから目ボーンを自動解決** を押す。自動解決できないモデルは左右の目ボーン path を手入力する
+3. **目ボーンを設定**（Gaze を反映する非 Humanoid モデルで、送信側が目ボーン path を送っていない場合だけ。Humanoid で Eye がマップ済みなら不要）: `OscReceiverDemoProfile.asset` の **参照モデル** にモデルを割り当て、**目線** タブのチャネル `gaze` で **参照モデルから目ボーンを自動解決** を押す。自動解決できないモデルは左右の目ボーン path を手入力する
 4. listen ポートを変えるときは `OscReceiverDemoSettings.asset` の sub-asset **OscReceiverSettings → Receiver → Listen Port** を編集する
 5. Play。送信側（`OscOutputDemo` 等）から `127.0.0.1:9000` へ送ると反映される
 
@@ -36,5 +36,5 @@ heartbeat と Gaze 広告が無いため自動マッピングは働かない。`
 ## トラブルシューティング
 
 - **何も動かない**: `Character` 配下に `SkinnedMeshRenderer` があるか、送信側の heartbeat が届いているか、BlendShape 名が一致しているか（不一致は警告ログに出る）を確認
-- **目線だけ動かない**: Gaze 広告が届いているか、非 Humanoid モデルなら目線タブの目ボーン path が入っているかを確認。外部送信元の場合は Gaze mapping を手動設定する。Gaze だけ途絶した場合は最後の値を保持する
+- **目線だけ動かない**: Gaze 広告が届いているか、非 Humanoid モデルなら送信側か受信側の目線タブに目ボーン path が入っているかを確認。送信側の path が受信側モデルに無い場合は警告ログが出る。外部送信元の場合は Gaze mapping を手動設定する。Gaze だけ途絶した場合は最後の値を保持する
 - **送信側と同居させる**: `OscOutputDemo` 側の Settings で **Suppress Loopback** を OFF にする
