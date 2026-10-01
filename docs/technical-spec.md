@@ -703,13 +703,10 @@ controller.ReloadProfile();           // 現在のプロファイルを JSON か
 - **preview.1 では BlendShape のみ**: テクスチャ切り替え / UV アニメーションは将来対応
 - テクスチャ / UV は Unity 標準 AnimationWindow で編集
 
-### 16.4 ARKit 検出ツール
+### 16.4 ARKit 検出ツール（廃止）
 
-- Editor ボタンで ARKit 52 / PerfectSync のスキャンを実行
-- **完全一致マッチング**: ARKit/PerfectSync 標準名と BlendShape 名の完全一致のみ
-- レイヤー単位（目/口/眉等）で Expression を自動生成
-- 同時に OSC マッピングテーブルも自動生成
-- 生成結果は完全に編集可能
+- 2026-09 に廃止した（HID-34）。Expression / OSC マッピングの自動生成は使われていなかったため
+- ARKit 52 / PerfectSync の命名検出（完全一致）は core の `ARKitDetector` として残り、OSC パッケージ（`RuntimeMappingResolver` / `AddressPresetEstimator`）が `ARKit52Names` を使う
 
 ### 16.5 Editor ディレクトリ構造
 
@@ -717,7 +714,6 @@ controller.ReloadProfile();           // 現在のプロファイルを JSON か
 Editor/
 ├── Inspector/          # FacialController, SO の CustomEditor
 ├── Windows/            # プロファイル管理ウィンドウ
-├── Tools/              # Expression 作成支援、ARKit 検出
 └── Common/             # 共通ユーティリティ、UI Toolkit スタイル
 ```
 
