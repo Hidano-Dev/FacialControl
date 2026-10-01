@@ -66,5 +66,7 @@ MonoBehaviour:
       type: {class: OscReceiverAdapterBinding, ns: Hidano.FacialControl.Adapters.AdapterBindings, asm: Hidano.FacialControl.Osc}
       data:
         Slug: osc
-        _settings: {fileID: 2279303358686531772, guid: ad0658dffa3b456490a48e50e22a0630, type: 2}
+        _port: 9000
         _mappings: []
+        _advancedSettings: {fileID: 2279303358686531772, guid: ad0658dffa3b456490a48e50e22a0630, type: 2}
+        _legacySettings: {fileID: 0}

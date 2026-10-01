@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
 using System.Net;
+using System.Net.NetworkInformation;
+using System.Net.Sockets;
 using Hidano.FacialControl.Adapters.AdapterBindings;
 using Hidano.FacialControl.Domain.Adapters;
 
@@ -17,6 +19,7 @@ namespace Hidano.FacialControl.Adapters.OSC
         private readonly HashSet<EndpointKey> _listenEndpoints = new HashSet<EndpointKey>();
         private readonly HashSet<int> _loopbackListenPorts = new HashSet<int>();
         private readonly HashSet<int> _wildcardListenPorts = new HashSet<int>();
+        private readonly HashSet<string> _localInterfaceAddresses = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
         public int Count => _listenEndpoints.Count;
 
@@ -36,7 +39,51 @@ namespace Hidano.FacialControl.Adapters.OSC
                 }
             }
 
+            // 受信は全インターフェースで行うため、自機の LAN IP 宛ての送信も自分の受信に届く。
+            if (policy._wildcardListenPorts.Count > 0)
+            {
+                policy.AddLocalInterfaceAddresses();
+            }
+
             return policy;
+        }
+
+        /// <summary>
+        /// 自機のインターフェースアドレスを登録する。全インターフェースで受信しているポートに対し、
+        /// このアドレス宛ての送信も loopback として抑止する。
+        /// </summary>
+        public void AddLocalInterfaceAddress(string address)
+        {
+            EndpointAddress normalized = NormalizeAddress(address);
+            if (normalized.Kind == EndpointKind.Exact)
+            {
+                _localInterfaceAddresses.Add(normalized.Key);
+            }
+        }
+
+        private void AddLocalInterfaceAddresses()
+        {
+            try
+            {
+                NetworkInterface[] interfaces = NetworkInterface.GetAllNetworkInterfaces();
+                for (int i = 0; i < interfaces.Length; i++)
+                {
+                    UnicastIPAddressInformationCollection addresses = interfaces[i].GetIPProperties().UnicastAddresses;
+                    foreach (UnicastIPAddressInformation info in addresses)
+                    {
+                        IPAddress address = info.Address;
+                        if (address.AddressFamily == AddressFamily.InterNetwork
+                            || address.AddressFamily == AddressFamily.InterNetworkV6)
+                        {
+                            AddLocalInterfaceAddress(address.ToString());
+                        }
+                    }
+                }
+            }
+            catch (Exception)
+            {
+                // インターフェース列挙に失敗した環境では、明示的な loopback / 同一アドレスの判定だけ行う。
+            }
         }
 
         public bool AddReceiverEndpoint(string endpoint, int port)
@@ -93,7 +140,7 @@ namespace Hidano.FacialControl.Adapters.OSC
                 return _wildcardListenPorts.Contains(port) || _loopbackListenPorts.Contains(port);
             }
 
-            return false;
+            return _wildcardListenPorts.Contains(port) && _localInterfaceAddresses.Contains(sendKey.AddressKey);
         }
 
         private static bool IsValidPort(int port)

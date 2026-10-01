@@ -200,7 +200,7 @@ namespace Hidano.FacialControl.Tests.EditMode.Adapters.ScriptableObjectTests
         public void AdapterBindings_InputSystemAndOscAndArKit_RoundTripPreservesConcreteTypeIdentity()
         {
             // 単一 SO に 3 種 binding を同時保持できることを round-trip で検証する。
-            // OscReceiverAdapterBinding は OscRuntimeSettingsSO sub-asset 経由で環境設定を保持する。
+            // OscReceiverAdapterBinding は受信ポートを本体に、上級設定を OscReceiverRuntimeSettingsSO sub-asset に保持する。
             var so = ScriptableObject.CreateInstance<TestFacialCharacterProfileSO>();
 
             var input = new InputSystemAdapterBinding
@@ -210,15 +210,15 @@ namespace Hidano.FacialControl.Tests.EditMode.Adapters.ScriptableObjectTests
             };
             so.WritableAdapterBindings.Add(input);
 
-            var oscSettings = ScriptableObject.CreateInstance<OscRuntimeSettingsSO>();
-            oscSettings.name = "OscRuntimeSettings";
-            oscSettings.FromJson(
-                "{\"listenEndpoint\":\"192.168.1.10\",\"listenPort\":39539,\"stalenessSeconds\":0.25}");
+            var oscSettings = ScriptableObject.CreateInstance<OscReceiverRuntimeSettingsSO>();
+            oscSettings.name = "OscReceiverRuntimeSettings";
+            oscSettings.FromJson("{\"stalenessSeconds\":0.25}");
 
             var osc = new OscReceiverAdapterBinding
             {
                 Slug = "osc",
-                Settings = oscSettings,
+                Port = 39539,
+                AdvancedSettings = oscSettings,
             };
             so.WritableAdapterBindings.Add(osc);
 
@@ -257,9 +257,8 @@ namespace Hidano.FacialControl.Tests.EditMode.Adapters.ScriptableObjectTests
 
             var loadedOsc = (OscReceiverAdapterBinding)loaded.AdapterBindings[1];
             Assert.That(loadedOsc.Slug, Is.EqualTo("osc"));
-            Assert.That(loadedOsc.Settings, Is.Not.Null,
-                "OscRuntimeSettingsSO sub-asset 参照が round-trip するべき。");
-            Assert.That(loadedOsc.Endpoint, Is.EqualTo("192.168.1.10"));
+            Assert.That(loadedOsc.AdvancedSettings, Is.Not.Null,
+                "OscReceiverRuntimeSettingsSO sub-asset 参照が round-trip するべき。");
             Assert.That(loadedOsc.Port, Is.EqualTo(39539));
             Assert.That(loadedOsc.StalenessSeconds, Is.EqualTo(0.25f).Within(1e-6f));
 

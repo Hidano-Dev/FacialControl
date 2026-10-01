@@ -11,13 +11,12 @@ namespace Hidano.FacialControl.Tests.EditMode.Adapters
     public sealed class LoopbackSuppressionPolicyTests : SizedTestFixture
     {
         [Test]
-        public void FromBindings_OscReceiverWithSameEndpointAndPort_SuppressesSenderEndpoint()
+        public void FromBindings_OscReceiverOnSamePort_SuppressesLoopbackSenderEndpoint()
         {
             int port = 19501;
             var receiver = new OscReceiverAdapterBinding
             {
                 Slug = "osc-receiver",
-                Endpoint = "127.0.0.1",
                 Port = port
             };
 
@@ -56,6 +55,20 @@ namespace Hidano.FacialControl.Tests.EditMode.Adapters
             policy.AddReceiverEndpoint("0.0.0.0", port);
 
             Assert.That(policy.IsSuppressed("127.0.0.1", port), Is.True);
+        }
+
+        [Test]
+        public void IsSuppressed_WildcardReceiverAndLocalInterfaceAddress_SuppressesOnlyLocalAddress()
+        {
+            // 受信は全インターフェースで行うため、自機の LAN IP 宛ての送信も自分の受信に届く。
+            int port = 19506;
+            var policy = new LoopbackSuppressionPolicy();
+            policy.AddReceiverEndpoint("0.0.0.0", port);
+            policy.AddLocalInterfaceAddress("192.168.1.10");
+
+            Assert.That(policy.IsSuppressed("192.168.1.10", port), Is.True);
+            Assert.That(policy.IsSuppressed("192.168.1.11", port), Is.False);
+            Assert.That(policy.IsSuppressed("192.168.1.10", port + 1), Is.False);
         }
     }
 }

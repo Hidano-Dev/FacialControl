@@ -23,20 +23,13 @@ MonoBehaviour:
   m_GameObject: {fileID: 0}
   m_Enabled: 1
   m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 8137774807ef4511a782699d4bf51372, type: 3}
+  m_Script: {fileID: 11500000, guid: 62ae269d2f7747bbbeb4906f08fc2de7, type: 3}
   m_Name: OscReceiverSettings
   m_EditorClassIdentifier:
   _label: receiver
   _schemaVersion: 1
-  _receiverEnabled: 1
-  _listenEndpoint: 127.0.0.1
-  _listenPort: 9000
   _stalenessSeconds: 1
   _failSafeMode: 0
   _consistencyCheckWarnLog: 1
   _bundleMode: 0
   _bundleAccumulationTimeoutMs: 5
-  _senderEnabled: 0
-  _endpoints: []
-  _heartbeatIntervalSeconds: 5
-  _suppressLoopback: 1

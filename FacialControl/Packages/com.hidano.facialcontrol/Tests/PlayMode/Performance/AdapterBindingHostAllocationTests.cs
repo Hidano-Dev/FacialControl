@@ -217,9 +217,12 @@ namespace Hidano.FacialControl.Tests.PlayMode.Performance
             switch (slot)
             {
                 case 0:
+                    // 受信ポートは binding 本体の既定値で起動できてしまうため、不正値 0 を入れて
+                    // 警告ブランチで早期 return させる。
                     return new OscReceiverAdapterBinding
                     {
                         Slug = "real-osc-" + characterIndex,
+                        Port = 0,
                     };
                 case 1:
                     return new InputSystemAdapterBinding
