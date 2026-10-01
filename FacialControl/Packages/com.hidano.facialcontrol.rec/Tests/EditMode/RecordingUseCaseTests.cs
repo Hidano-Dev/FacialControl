@@ -130,6 +130,145 @@ namespace Hidano.FacialControl.Rec.Tests.EditMode
         }
 
         [Test]
+        public void ObservedEvents_WithStartOffset_ShiftTimestampsAndDurationByOffset()
+        {
+            var bus = new FakeObservationBus();
+            var clock = new FakeClock();
+            var sink = new FakeRecEventSink();
+            using var useCase = new RecordingUseCase(bus, clock, sink, 10d);
+            useCase.StartRecording(RecBaselineState.Empty);
+
+            clock.ElapsedSeconds = 0.25d;
+            bus.PublishTriggerOn("input:trigger", "smile");
+            clock.ElapsedSeconds = 0.5d;
+            Assert.That(useCase.ElapsedSeconds, Is.EqualTo(10.5d));
+
+            useCase.StopRecording();
+
+            Assert.That(clock.ResetCallCount, Is.EqualTo(1));
+            Assert.That(sink.AppendedEvents[2].evt.Kind, Is.EqualTo(RecEventKind.TriggerOn));
+            Assert.That(sink.AppendedEvents[2].evt.TimestampSeconds, Is.EqualTo(10.25d));
+            Assert.That(sink.CompletedDurationSeconds, Is.EqualTo(10.5d));
+        }
+
+        [Test]
+        public void ObservedEvents_WithStartOffsetAndNegativeClock_ValidateClockBeforeAddingOffset()
+        {
+            var bus = new FakeObservationBus();
+            var clock = new FakeClock();
+            var sink = new FakeRecEventSink();
+            using var useCase = new RecordingUseCase(bus, clock, sink, 10d);
+            useCase.StartRecording(RecBaselineState.Empty);
+
+            LogAssert.Expect(LogType.Warning, new Regex("Recording clock returned -1"));
+            clock.ElapsedSeconds = -1d;
+            bus.PublishTriggerOn("input:trigger", "smile");
+            useCase.StopRecording();
+
+            Assert.That(sink.AppendedEvents[2].evt.TimestampSeconds, Is.EqualTo(10d));
+            Assert.That(sink.CompletedDurationSeconds, Is.EqualTo(10d));
+        }
+
+        [Test]
+        public void ObservedEvents_WithStartOffsetAndThrowingFirstRead_KeepOffsetInFallback()
+        {
+            var bus = new FakeObservationBus();
+            var clock = new FakeClock();
+            var sink = new FakeRecEventSink();
+            using var useCase = new RecordingUseCase(bus, clock, sink, 10d);
+            useCase.StartRecording(RecBaselineState.Empty);
+
+            LogAssert.Expect(LogType.Warning, new Regex("Recording clock threw"));
+            clock.ExceptionToThrow = new InvalidOperationException("not locked");
+            bus.PublishTriggerOn("input:trigger", "smile");
+            clock.ExceptionToThrow = null;
+            clock.ElapsedSeconds = 0.5d;
+            useCase.StopRecording();
+
+            Assert.That(sink.AppendedEvents[2].evt.TimestampSeconds, Is.EqualTo(10d));
+            Assert.That(sink.CompletedDurationSeconds, Is.EqualTo(10.5d));
+        }
+
+        [TestCase(-0.001d)]
+        [TestCase(double.NaN)]
+        [TestCase(double.PositiveInfinity)]
+        [TestCase(double.NegativeInfinity)]
+        public void Constructor_InvalidStartOffset_ThrowsArgumentOutOfRange(double offsetSeconds)
+        {
+            Assert.That(RecordingUseCase.IsValidStartOffset(offsetSeconds), Is.False);
+            Assert.Throws<ArgumentOutOfRangeException>(
+                () => new RecordingUseCase(new FakeObservationBus(), new FakeClock(), new FakeRecEventSink(), offsetSeconds));
+        }
+
+        [Test]
+        public void ObservedEvents_WhenClockStepsBackwards_ClampToPreviousTimestamp()
+        {
+            var bus = new FakeObservationBus();
+            var clock = new FakeClock();
+            var sink = new FakeRecEventSink();
+            using var useCase = new RecordingUseCase(bus, clock, sink);
+            useCase.StartRecording(RecBaselineState.Empty);
+
+            clock.ElapsedSeconds = 1.0d;
+            bus.PublishTriggerOn("input:trigger", "smile");
+            clock.ElapsedSeconds = 0.999d;
+            bus.PublishTriggerOff("input:trigger", "smile");
+
+            useCase.StopRecording();
+
+            Assert.That(sink.AppendedEvents[2].evt.TimestampSeconds, Is.EqualTo(1.0d));
+            Assert.That(sink.AppendedEvents[3].evt.TimestampSeconds, Is.EqualTo(1.0d));
+            Assert.That(sink.CompletedDurationSeconds, Is.EqualTo(1.0d));
+        }
+
+        [TestCase(double.NaN)]
+        [TestCase(-1d)]
+        [TestCase(double.PositiveInfinity)]
+        public void ObservedEvents_WhenClockReturnsInvalidValue_UsePreviousTimestampAndWarnOnce(double invalidValue)
+        {
+            var bus = new FakeObservationBus();
+            var clock = new FakeClock();
+            var sink = new FakeRecEventSink();
+            using var useCase = new RecordingUseCase(bus, clock, sink);
+            useCase.StartRecording(RecBaselineState.Empty);
+            clock.ElapsedSeconds = 0.5d;
+            bus.PublishTriggerOn("input:trigger", "smile");
+
+            LogAssert.Expect(LogType.Warning, new Regex("Recording clock returned"));
+            clock.ElapsedSeconds = invalidValue;
+            bus.PublishTriggerOff("input:trigger", "smile");
+            bus.PublishTriggerOn("input:trigger", "smile");
+            useCase.StopRecording();
+
+            LogAssert.NoUnexpectedReceived();
+            Assert.That(sink.AppendedEvents[3].evt.TimestampSeconds, Is.EqualTo(0.5d));
+            Assert.That(sink.AppendedEvents[4].evt.TimestampSeconds, Is.EqualTo(0.5d));
+            Assert.That(sink.CompleteCallCount, Is.EqualTo(1));
+            Assert.That(sink.CompletedDurationSeconds, Is.EqualTo(0.5d));
+        }
+
+        [Test]
+        public void StopRecording_WhenClockThrows_WarnsAndStillCompletesSink()
+        {
+            var bus = new FakeObservationBus();
+            var clock = new FakeClock();
+            var sink = new FakeRecEventSink();
+            using var useCase = new RecordingUseCase(bus, clock, sink);
+            useCase.StartRecording(RecBaselineState.Empty);
+            clock.ElapsedSeconds = 0.25d;
+            bus.PublishTriggerOn("input:trigger", "smile");
+
+            LogAssert.Expect(LogType.Warning, new Regex("Recording clock threw InvalidOperationException"));
+            clock.ExceptionToThrow = new InvalidOperationException("receiver closed");
+            useCase.StopRecording();
+
+            Assert.That(useCase.State, Is.EqualTo(RecordingState.Idle));
+            Assert.That(sink.CompleteCallCount, Is.EqualTo(1));
+            Assert.That(sink.CompletedDurationSeconds, Is.EqualTo(0.25d));
+            Assert.That(bus.CurrentObserver, Is.Null);
+        }
+
+        [Test]
         public void ObservedEvents_WhenIdle_AreIgnored()
         {
             var bus = new FakeObservationBus();
@@ -227,7 +366,15 @@ namespace Hidano.FacialControl.Rec.Tests.EditMode
 
         private sealed class FakeClock : IRecClock
         {
-            public double ElapsedSeconds { get; set; }
+            private double _elapsedSeconds;
+
+            public double ElapsedSeconds
+            {
+                get => ExceptionToThrow != null ? throw ExceptionToThrow : _elapsedSeconds;
+                set => _elapsedSeconds = value;
+            }
+
+            public Exception ExceptionToThrow { get; set; }
 
             public int ResetCallCount { get; private set; }
 

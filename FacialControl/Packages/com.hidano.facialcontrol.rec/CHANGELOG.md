@@ -11,6 +11,10 @@
 - `RecCharacterBinding.LastRecordingName` — 直近の録画で実際に保存したテイク名（連番付与後）
 - `RecCharacterBinding.LoadRecording()` の名前省略 — 直近に録画したテイクを読み込む。Inspector の Load Recording も Load Target が空なら同じ動作になる
 - 保存済み録画の列挙 API — `RecCharacterBinding.GetRecordings()`（`RecRecordingEntry`: テイク名・パス・更新日時）/ `GetRecordingNames()`。更新日時の新しい順に並び、録画中のテイクは含めない。ランタイム asmdef にあるので uGUI の Dropdown 等の選択肢にそのまま使える。下位 API として `RecSidecarPath.ListRecordings` / `TryListRecordings`
+- `RecCharacterBinding.RecordingClock` — 記録に使う `IRecClock` を差し替えられるようにした（null なら既定の `RecStopwatchClock`）。外部タイムコード同期の下準備で、タイムコードの受信自体はスコープ外
+- `RecCharacterBinding.RecordingStartOffsetSeconds`（Inspector の Recording Start Offset Seconds） — 記録タイムスタンプと録画長に加算する開始オフセット（秒、0 以上）
+- `RecordingUseCase` のコンストラクタに `startOffsetSeconds`（既定 0）を追加した。クロック値を検証してから加算する。あわせて差し替えクロックの逆行はクランプし、例外・NaN・負値は直前の値で置き換えて 1 回だけ警告する
+- `RecStopwatchClock`（Adapters） — 従来 `RecCharacterBinding` の private だった既定クロックを公開した
 
 ### Changed
 

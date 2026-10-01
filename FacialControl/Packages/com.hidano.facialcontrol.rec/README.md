@@ -39,6 +39,21 @@ rec.StopPlayback();
 
 録画と再生は排他で、片方を開始するともう片方は自動停止する。`OnDisable` / `OnDestroy` でも録画・再生は停止され、録画中のファイルは末尾まで書き切られる。
 
+### 記録クロックと開始オフセット
+
+記録タイムスタンプは既定では録画開始からの経過秒（`RecStopwatchClock`）。外部の時計に揃えたい場合は、次の 2 つの差し替え点を使う（どちらも次の `StartRecording` から反映される）。
+
+- `RecordingClock`（`IRecClock`）: 記録に使うクロック。null なら既定の `RecStopwatchClock`。録画開始時に `Reset()` が 1 回呼ばれ、以後はメインスレッドから `ElapsedSeconds` が読まれる。値は有限・非負・単調非減少にすること（逆行は直前の値にクランプされ、例外・NaN・負の値は直前の値で置き換えて 1 回だけ警告される）。録画ごとに `Reset()` されるので、同時に録画する複数の binding で 1 つのインスタンスを共有しないこと
+- `RecordingStartOffsetSeconds`（Inspector の **Recording Start Offset Seconds**）: すべてのタイムスタンプに加算する開始オフセット（秒、0 以上）。Footer の duration にも加算されるため、再生・REC Export ではタイムライン全体がこの秒数だけ後ろにずれる（再生時は先頭にこの秒数の待ちが入る）。録画中の `ElapsedSeconds`（Inspector の Elapsed Seconds）もオフセット込みの値になる。`StartPlayback(startOffsetSeconds)`（[途中からの再生](#途中からの再生)）の開始位置も同じオフセット込みのタイムスタンプで指定するので、先頭の待ちを飛ばすには録画時のオフセット値（例: `rec.StartPlayback(3600d)`）を渡す。オフセット値はファイルには保存されない
+
+```csharp
+rec.RecordingClock = myTimecodeClock;       // IRecClock の独自実装
+rec.RecordingStartOffsetSeconds = 3600d;    // 例: 01:00:00:00 始まりに揃える
+rec.StartRecording("take01");
+```
+
+タイムコード（LTC / MTC 等）の受信自体は提供しない。上記の差し替え点に独自のクロックを渡す想定。
+
 ## 記録される内容
 
 | 種別 | 内容 |
@@ -51,7 +66,7 @@ Expression id や入力源 id は文字列として先頭で 1 度だけ定義�
 
 ## ファイル形式
 
-`.fcrec` は独自バイナリ形式（little-endian）。マジック `FREC`、`formatVersion = 1`、開始時刻（Unix ms）のヘッダに続けてレコード列、末尾に duration と件数の Footer を持つ。書き込みは専用スレッド（`RecStreamWriter`）でストリーム出力するため、録画中のメインスレッドに GC アロケーションは発生しない。Footer が欠けたファイルは末尾切れとして警告付きで復元される。
+`.fcrec` は独自バイナリ形式（little-endian）。マジック `FREC`、`formatVersion = 1`、開始時刻（Unix ms）のヘッダに続けてレコード列、末尾に duration と件数の Footer を持つ。ヘッダの開始時刻は、クロックを差し替えても常に録画開始時の壁時計（UTC）で、ヘッダの `flags`（u16）は予約（常に 0）。読み込み側は `flags` を検証しないので、将来「開始時刻の出自（壁時計 / 外部タイムコード）」などを `flags` のビットで表すときも `formatVersion` は上げずに済む。書き込みは専用スレッド（`RecStreamWriter`）でストリーム出力するため、録画中のメインスレッドに GC アロケーションは発生しない。Footer が欠けたファイルは末尾切れとして警告付きで復元される。
 
 ## 再生中の入力遮断
 
