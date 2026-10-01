@@ -4,6 +4,7 @@ using System.Globalization;
 using Hidano.FacialControl.Adapters.OSC;
 using Hidano.FacialControl.Adapters.Playable;
 using Hidano.FacialControl.Adapters.RuntimeSettings;
+using Hidano.FacialControl.Adapters.ScriptableObject;
 using Hidano.FacialControl.Domain.Adapters;
 using Hidano.FacialControl.Domain.Models;
 using UnityEngine;
@@ -15,7 +16,7 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
     /// </summary>
     [Serializable]
     [FacialAdapterBinding(displayName: "OSC Sender")]
-    public sealed class OscSenderAdapterBinding : AdapterBindingBase, IFacialOutputObserver, IGazeChannelConsumer
+    public sealed class OscSenderAdapterBinding : AdapterBindingBase, IFacialOutputObserver, IGazeChannelConsumer, IGazeChannelSettingsConsumer
     {
         public const float DefaultHeartbeatIntervalSeconds = 5f;
         public const float MinHeartbeatIntervalSeconds = 0.5f;
@@ -36,6 +37,12 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
         [SerializeField]
         [NonSerialized]
         private List<string> _gazeChannelIds = new List<string>();
+
+        /// <summary>
+        /// Profile の Gaze セクションの設定。gaze 広告に目ボーン path・可動範囲の属性ペアを載せるために使う。
+        /// </summary>
+        [NonSerialized]
+        private IReadOnlyList<GazeChannel> _gazeChannelSettings = Array.Empty<GazeChannel>();
 
         [SerializeField]
         private bool _sendPreset = true;
@@ -253,6 +260,15 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
             }
         }
 
+        /// <summary>
+        /// Profile の Gaze セクションの設定を受け取る。gaze 広告を送るチャネルごとに、
+        /// 目ボーン path (指定がある側のみ) と可動範囲を広告へ載せ、受信側の目線設定を上書きさせる。
+        /// </summary>
+        public void ConfigureGazeChannelSettings(IReadOnlyList<GazeChannel> channels)
+        {
+            _gazeChannelSettings = channels ?? (IReadOnlyList<GazeChannel>)Array.Empty<GazeChannel>();
+        }
+
         private OscRuntimeSettingsSO EnsureRuntimeSettings()
         {
             if (_runtimeSettings == null)
@@ -342,14 +358,16 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
                 {
                     sender = ctx.HostGameObject.AddComponent<OscSender>();
                     sender.Configure(endpoint.endpoint, endpoint.port, mappings, addressUtf8);
-                    sendSlots.Add(new SendSlot(
+                    var slot = new SendSlot(
                         sender,
                         endpoint.preset,
                         addressUtf8,
                         sourceBlendShapeIndices,
                         heartbeatBlendShapeNames,
                         gazeExpressionIds,
-                        BuildGazeAdvertisementPairs(endpoint.preset, gazeExpressionIds)));
+                        BuildGazeAdvertisementPairs(endpoint.preset, gazeExpressionIds, _gazeChannelSettings));
+                    slot.GazeSettingsSignature = ComputeGazeSettingsSignature(gazeExpressionIds, _gazeChannelSettings);
+                    sendSlots.Add(slot);
                 }
                 catch (Exception ex)
                 {
@@ -417,6 +435,7 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
 
                 if (sendHeartbeat)
                 {
+                    RefreshGazeAdvertisementIfSettingsChanged(slot);
                     slot.Sender.SendBundle(
                         _identityUuidBytes,
                         _identityStartedAtUnixMs,
@@ -1046,9 +1065,15 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
             }
         }
 
-        private static string[] BuildGazeAdvertisementPairs(
+        /// <summary>
+        /// gaze 広告の [id, value, ...] を組み立てる。先頭に route のペア (id, 形式識別子) を並べ、
+        /// その後に <paramref name="gazeChannelSettings"/> に設定があるチャネルの属性ペア
+        /// (目ボーン path・可動範囲) を続ける。起動時に 1 回だけ組み立て、毎回の広告で使い回す。
+        /// </summary>
+        internal static string[] BuildGazeAdvertisementPairs(
             AddressPresetKind preset,
-            string[] gazeExpressionIds)
+            string[] gazeExpressionIds,
+            IReadOnlyList<GazeChannel> gazeChannelSettings)
         {
             string formatName = ToGazeFormatName(preset);
             if (formatName == null || gazeExpressionIds == null || gazeExpressionIds.Length == 0)
@@ -1056,14 +1081,98 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
                 return null;
             }
 
-            var pairs = new string[gazeExpressionIds.Length * 2];
+            var pairs = new List<string>(gazeExpressionIds.Length * 2);
             for (int i = 0; i < gazeExpressionIds.Length; i++)
             {
-                pairs[i * 2] = gazeExpressionIds[i];
-                pairs[i * 2 + 1] = formatName;
+                pairs.Add(gazeExpressionIds[i]);
+                pairs.Add(formatName);
             }
 
-            return pairs;
+            for (int i = 0; i < gazeExpressionIds.Length; i++)
+            {
+                GazeAdvertisementResolver.AppendChannelAttributes(
+                    pairs,
+                    gazeExpressionIds[i],
+                    FindGazeChannelSettings(gazeChannelSettings, gazeExpressionIds[i]));
+            }
+
+            return pairs.ToArray();
+        }
+
+        /// <summary>
+        /// heartbeat の直前に、目線タブの目ボーン path・可動範囲が起動後に変わっていれば広告を組み直す。
+        /// 変化の検出は署名の比較だけで行い、組み直す (ヒープ確保する) のは変わったときだけ。
+        /// </summary>
+        private void RefreshGazeAdvertisementIfSettingsChanged(SendSlot slot)
+        {
+            if (slot.GazeExpressionIds.Length == 0)
+            {
+                return;
+            }
+
+            int signature = ComputeGazeSettingsSignature(slot.GazeExpressionIds, _gazeChannelSettings);
+            if (signature == slot.GazeSettingsSignature)
+            {
+                return;
+            }
+
+            slot.GazeSettingsSignature = signature;
+            slot.SetGazeAdvertisementPairs(
+                BuildGazeAdvertisementPairs(slot.Preset, slot.GazeExpressionIds, _gazeChannelSettings));
+        }
+
+        internal static int ComputeGazeSettingsSignature(
+            string[] gazeExpressionIds,
+            IReadOnlyList<GazeChannel> gazeChannelSettings)
+        {
+            unchecked
+            {
+                int hash = 17;
+                if (gazeExpressionIds == null)
+                {
+                    return hash;
+                }
+
+                for (int i = 0; i < gazeExpressionIds.Length; i++)
+                {
+                    GazeChannel channel = FindGazeChannelSettings(gazeChannelSettings, gazeExpressionIds[i]);
+                    if (channel == null)
+                    {
+                        hash = hash * 31;
+                        continue;
+                    }
+
+                    hash = hash * 31 + (channel.leftEyeBonePath != null ? channel.leftEyeBonePath.GetHashCode() : 0);
+                    hash = hash * 31 + (channel.rightEyeBonePath != null ? channel.rightEyeBonePath.GetHashCode() : 0);
+                    hash = hash * 31 + channel.lookUpAngle.GetHashCode();
+                    hash = hash * 31 + channel.lookDownAngle.GetHashCode();
+                    hash = hash * 31 + channel.outerYawAngle.GetHashCode();
+                    hash = hash * 31 + channel.innerYawAngle.GetHashCode();
+                }
+
+                return hash;
+            }
+        }
+
+        private static GazeChannel FindGazeChannelSettings(
+            IReadOnlyList<GazeChannel> gazeChannelSettings,
+            string channelId)
+        {
+            if (gazeChannelSettings == null)
+            {
+                return null;
+            }
+
+            for (int i = 0; i < gazeChannelSettings.Count; i++)
+            {
+                GazeChannel channel = gazeChannelSettings[i];
+                if (channel != null && string.Equals(channel.id, channelId, StringComparison.Ordinal))
+                {
+                    return channel;
+                }
+            }
+
+            return null;
         }
 
         private sealed class SendSlot
@@ -1074,8 +1183,9 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
             public readonly int[] SourceBlendShapeIndices;
             public readonly string[] HeartbeatBlendShapeNames;
             public readonly string[] GazeExpressionIds;
-            public readonly string[] GazeAdvertisementPairs;
-            public readonly int GazeAdvertisementPairCount;
+            public string[] GazeAdvertisementPairs;
+            public int GazeAdvertisementPairCount;
+            public int GazeSettingsSignature;
             public readonly int GazeMessageCount;
             public byte[][] ScratchAddressUtf8;
             public float[] ScratchFloatValues;
@@ -1096,10 +1206,7 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
                 SourceBlendShapeIndices = sourceBlendShapeIndices ?? Array.Empty<int>();
                 HeartbeatBlendShapeNames = heartbeatBlendShapeNames ?? Array.Empty<string>();
                 GazeExpressionIds = gazeExpressionIds ?? Array.Empty<string>();
-                GazeAdvertisementPairs = gazeAdvertisementPairs;
-                GazeAdvertisementPairCount = gazeAdvertisementPairs == null
-                    ? 0
-                    : gazeAdvertisementPairs.Length / 2;
+                SetGazeAdvertisementPairs(gazeAdvertisementPairs);
                 GazeMessageCount = GetGazeMessageCount(preset);
                 int scratchCapacity = SourceBlendShapeIndices.Length + (GazeExpressionIds.Length * GazeMessageCount);
                 ScratchAddressUtf8 = scratchCapacity == 0
@@ -1108,6 +1215,14 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
                 ScratchFloatValues = scratchCapacity == 0
                     ? Array.Empty<float>()
                     : new float[scratchCapacity];
+            }
+
+            public void SetGazeAdvertisementPairs(string[] gazeAdvertisementPairs)
+            {
+                GazeAdvertisementPairs = gazeAdvertisementPairs;
+                GazeAdvertisementPairCount = gazeAdvertisementPairs == null
+                    ? 0
+                    : gazeAdvertisementPairs.Length / 2;
             }
 
             public void EnsureScratchCapacity()

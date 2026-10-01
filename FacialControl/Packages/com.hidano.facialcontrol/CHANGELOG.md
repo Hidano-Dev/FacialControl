@@ -4,6 +4,11 @@
 
 ## [Unreleased]
 
+### Added
+
+- `IGazeChannelOverrideProvider` / `GazeChannelOverride` — adapter binding が Gaze チャネルの目ボーン path・可動範囲を外部から上書きする契約。`FacialController` は上書きの version が変わったときだけ目ボーン provider を作り直す。上書き path がローカル path と異なる側は、解決したボーンから rest 回転・yaw / pitch 軸を実行時に導出し（Humanoid fallback と同じ規則、path ごとに初回の値を使い回す）、path が見つからなければ警告を 1 回出してローカルの規則に戻す。複数の binding が同じチャネルを上書きする場合は Adapter Bindings の並び順で先のものを使う
+- `IGazeChannelSettingsConsumer` — Profile の Gaze チャネル設定（目ボーン path・可動範囲を含む）を adapter binding へ注入する契約。`IGazeChannelConsumer` と同じく rebuild ごと・OnStart 前に呼ばれる
+
 ### Changed
 
 - Gaze チャネルの目ボーン path（`leftEyeBonePath` / `rightEyeBonePath`）を任意にした。空欄の側は実行時に Humanoid Avatar の `LeftEye` / `RightEye` を使い、初期回転は初期化時の目ボーンの姿勢、yaw / pitch 軸はキャラクター root の上方向 / 右方向から導出する。path を指定した側の挙動は従来どおり。非 Humanoid（または Eye 未マップ）で path も空の目は駆動せず、初期化ごとに警告を 1 回だけ出す。Humanoid の目ボーン・rest 回転・軸は初期化時に 1 回だけ取得し、入力源の登録変化で provider を作り直しても取り直さない。path 未指定のチャネルが複数ある場合、Humanoid の目ボーンを駆動するのは目ごとに入力源が解決できた先頭のチャネルだけで、path 指定のチャネルが同じボーンを指していればそちらを優先する

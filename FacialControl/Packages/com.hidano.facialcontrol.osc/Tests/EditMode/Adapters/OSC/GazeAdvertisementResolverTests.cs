@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using Hidano.FacialControl.Adapters.OSC;
+using Hidano.FacialControl.Adapters.ScriptableObject;
 using NUnit.Framework;
 
 using Hidano.FacialControl.Testing;
@@ -185,6 +186,206 @@ namespace Hidano.FacialControl.Tests.EditMode.Adapters
             Assert.That(plan, Has.Count.EqualTo(2));
             Assert.That(plan[0].ExpressionId, Is.EqualTo("eye_look"));
             Assert.That(plan[1].ExpressionId, Is.EqualTo("gaze"));
+        }
+
+        [Test]
+        public void Parse_ChannelAttributePairs_SkipsThemWithoutWarning()
+        {
+            var entries = new List<GazeAdvertisementResolver.GazeAdvertisement>();
+            bool warned = false;
+
+            GazeAdvertisementResolver.Parse(
+                new[]
+                {
+                    "gaze", "VRChat_XY",
+                    "gaze", "bone.left=Armature/Head/Eye_L",
+                    "gaze", "bone.right=Armature/Head/Eye_R",
+                    "gaze", "range=15,9,15,18",
+                },
+                entries,
+                ref warned);
+
+            Assert.That(entries, Has.Count.EqualTo(1));
+            Assert.That(entries[0].Format, Is.EqualTo("VRChat_XY"));
+            Assert.That(warned, Is.False);
+        }
+
+        [Test]
+        public void ComputeNormalizedHash_AttributePairsDiffer_ReturnsSameHash()
+        {
+            var withoutAttributes = new List<GazeAdvertisementResolver.GazeAdvertisement>();
+            var withAttributes = new List<GazeAdvertisementResolver.GazeAdvertisement>();
+            bool warned = false;
+            GazeAdvertisementResolver.Parse(new[] { "gaze", "VRChat_XY" }, withoutAttributes, ref warned);
+            GazeAdvertisementResolver.Parse(
+                new[] { "gaze", "VRChat_XY", "gaze", "range=30,30,30,30" },
+                withAttributes,
+                ref warned);
+            var scratch = new List<GazeAdvertisementResolver.GazeAdvertisement>();
+
+            Assert.That(
+                GazeAdvertisementResolver.ComputeNormalizedHash(withAttributes, scratch),
+                Is.EqualTo(GazeAdvertisementResolver.ComputeNormalizedHash(withoutAttributes, scratch)));
+        }
+
+        [Test]
+        public void ParseChannelOverrides_PathAndRangePairs_ReturnsOverridePerChannel()
+        {
+            var overrides = new Dictionary<string, GazeChannelOverride>();
+            bool warned = false;
+
+            GazeAdvertisementResolver.ParseChannelOverrides(
+                new[]
+                {
+                    "gaze", "VRChat_XY",
+                    "gaze", "bone.left=Armature/Head/Eye_L",
+                    "gaze", "range=20,10.5,25,30",
+                    "camera", "range=1,2,3,4",
+                },
+                overrides,
+                ref warned);
+
+            Assert.That(overrides, Has.Count.EqualTo(2));
+            GazeChannelOverride gaze = overrides["gaze"];
+            Assert.That(gaze.LeftEyeBonePath, Is.EqualTo("Armature/Head/Eye_L"));
+            Assert.That(gaze.HasRightEyeBonePath, Is.False);
+            Assert.That(gaze.HasAngleLimits, Is.True);
+            Assert.That(gaze.LookUpAngle, Is.EqualTo(20f));
+            Assert.That(gaze.LookDownAngle, Is.EqualTo(10.5f));
+            Assert.That(gaze.OuterYawAngle, Is.EqualTo(25f));
+            Assert.That(gaze.InnerYawAngle, Is.EqualTo(30f));
+            Assert.That(overrides["camera"].HasLeftEyeBonePath, Is.False);
+            Assert.That(warned, Is.False);
+        }
+
+        [Test]
+        public void ParseChannelOverrides_OldFormatWithoutAttributes_ReturnsEmpty()
+        {
+            var overrides = new Dictionary<string, GazeChannelOverride> { { "stale", default(GazeChannelOverride).WithLeftEyeBonePath("Eye") } };
+            bool warned = false;
+
+            GazeAdvertisementResolver.ParseChannelOverrides(
+                new[] { "gaze", "VRChat_XY", "eye_look", "ARKit_8BS" },
+                overrides,
+                ref warned);
+
+            Assert.That(overrides, Is.Empty);
+            Assert.That(warned, Is.False);
+        }
+
+        [Test]
+        public void ParseChannelOverrides_PathContainingEquals_KeepsTextAfterFirstEquals()
+        {
+            var overrides = new Dictionary<string, GazeChannelOverride>();
+            bool warned = false;
+
+            GazeAdvertisementResolver.ParseChannelOverrides(
+                new[] { "gaze", "bone.right=Root/目=右" },
+                overrides,
+                ref warned);
+
+            Assert.That(overrides["gaze"].RightEyeBonePath, Is.EqualTo("Root/目=右"));
+        }
+
+        [Test]
+        public void ParseChannelOverrides_InvalidRange_SkipsPairAndWarnsOnlyOnce()
+        {
+            var overrides = new Dictionary<string, GazeChannelOverride>();
+            bool warned = false;
+
+            GazeAdvertisementResolver.ParseChannelOverrides(
+                new[]
+                {
+                    "gaze", "range=1,2,3",
+                    "camera", "range=1,NaN,3,4",
+                    "gaze", "bone.left=Eye_L",
+                },
+                overrides,
+                ref warned);
+
+            Assert.That(overrides, Has.Count.EqualTo(1));
+            Assert.That(overrides["gaze"].HasAngleLimits, Is.False);
+            Assert.That(overrides["gaze"].LeftEyeBonePath, Is.EqualTo("Eye_L"));
+            Assert.That(warned, Is.True);
+        }
+
+        [Test]
+        public void ParseChannelOverrides_EmptyPathValue_DoesNotCreateOverride()
+        {
+            var overrides = new Dictionary<string, GazeChannelOverride>();
+            bool warned = false;
+
+            GazeAdvertisementResolver.ParseChannelOverrides(
+                new[] { "gaze", "bone.left=", "", "range=1,2,3,4" },
+                overrides,
+                ref warned);
+
+            Assert.That(overrides, Is.Empty);
+        }
+
+        [Test]
+        public void AppendChannelAttributes_PathsSpecified_AppendsPathsAndRange()
+        {
+            var pairs = new List<string>();
+            var channel = new GazeChannel
+            {
+                id = "gaze",
+                leftEyeBonePath = "Armature/Head/Eye_L",
+                rightEyeBonePath = "Armature/Head/Eye_R",
+                lookUpAngle = 20f,
+                lookDownAngle = 10.5f,
+                outerYawAngle = 25f,
+                innerYawAngle = 30f,
+            };
+
+            GazeAdvertisementResolver.AppendChannelAttributes(pairs, "gaze", channel);
+
+            CollectionAssert.AreEqual(
+                new[]
+                {
+                    "gaze", "bone.left=Armature/Head/Eye_L",
+                    "gaze", "bone.right=Armature/Head/Eye_R",
+                    "gaze", "range=20,10.5,25,30",
+                },
+                pairs);
+        }
+
+        [Test]
+        public void AppendChannelAttributes_PathsUnspecified_AppendsOnlyRange()
+        {
+            var pairs = new List<string>();
+
+            GazeAdvertisementResolver.AppendChannelAttributes(pairs, "gaze", new GazeChannel { id = "gaze", rightEyeBonePath = "  " });
+
+            CollectionAssert.AreEqual(new[] { "gaze", "range=15,9,15,18" }, pairs);
+        }
+
+        [Test]
+        public void AppendChannelAttributes_ThenParseChannelOverrides_RoundTripsValues()
+        {
+            var pairs = new List<string>();
+            var channel = new GazeChannel
+            {
+                id = "gaze",
+                leftEyeBonePath = "Head/左目",
+                lookUpAngle = 12.25f,
+                lookDownAngle = 7f,
+                outerYawAngle = 33.5f,
+                innerYawAngle = 0.1f,
+            };
+            GazeAdvertisementResolver.AppendChannelAttributes(pairs, "gaze", channel);
+            var overrides = new Dictionary<string, GazeChannelOverride>();
+            bool warned = false;
+
+            GazeAdvertisementResolver.ParseChannelOverrides(pairs, overrides, ref warned);
+
+            GazeChannelOverride parsed = overrides["gaze"];
+            Assert.That(parsed.LeftEyeBonePath, Is.EqualTo("Head/左目"));
+            Assert.That(parsed.HasRightEyeBonePath, Is.False);
+            Assert.That(parsed.LookUpAngle, Is.EqualTo(12.25f));
+            Assert.That(parsed.LookDownAngle, Is.EqualTo(7f));
+            Assert.That(parsed.OuterYawAngle, Is.EqualTo(33.5f));
+            Assert.That(parsed.InnerYawAngle, Is.EqualTo(0.1f));
         }
     }
 }
