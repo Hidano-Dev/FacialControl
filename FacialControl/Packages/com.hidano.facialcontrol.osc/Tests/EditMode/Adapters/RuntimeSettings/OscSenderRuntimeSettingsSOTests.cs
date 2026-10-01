@@ -83,6 +83,16 @@ namespace Hidano.FacialControl.Osc.Tests.EditMode.Adapters.RuntimeSettings
         }
 
         [Test]
+        public void FromJson_SuppressLoopbackKeyMissing_KeepsDefaultTrue()
+        {
+            _instance.FromJson("{\"suppressLoopback\":false}");
+
+            _instance.FromJson("{\"heartbeatIntervalSeconds\":2.0}");
+
+            Assert.IsTrue(_instance.SuppressLoopback);
+        }
+
+        [Test]
         public void CreateFromLegacy_CopiesAdvancedSenderValues()
         {
             var legacy = ScriptableObject.CreateInstance<OscRuntimeSettingsSO>();

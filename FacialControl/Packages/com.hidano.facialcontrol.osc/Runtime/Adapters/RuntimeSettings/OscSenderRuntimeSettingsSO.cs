@@ -92,7 +92,9 @@ namespace Hidano.FacialControl.Adapters.RuntimeSettings
             _schemaVersion = dto.schemaVersion > 0 ? dto.schemaVersion : 1;
             _label = dto.label ?? string.Empty;
             _heartbeatIntervalSeconds = dto.heartbeatIntervalSeconds;
-            _suppressLoopback = dto.suppressLoopback;
+            _suppressLoopback = ContainsJsonKey(json, nameof(JsonDto.suppressLoopback))
+                ? dto.suppressLoopback
+                : true;
 
             NormalizeFields();
         }
@@ -104,6 +106,13 @@ namespace Hidano.FacialControl.Adapters.RuntimeSettings
             public string label = string.Empty;
             public float heartbeatIntervalSeconds = DefaultHeartbeatIntervalSeconds;
             public bool suppressLoopback = true;
+        }
+
+        // JsonUtility は JSON に無い bool を false にするため、既定 true の bool はキーの有無で補正する
+        // （OscReceiverOptionsDto / OscSenderOptionsDto と同じ扱い）。
+        private static bool ContainsJsonKey(string json, string key)
+        {
+            return json.IndexOf("\"" + key + "\"", StringComparison.Ordinal) >= 0;
         }
 
         private void NormalizeFields()

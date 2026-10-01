@@ -132,7 +132,9 @@ namespace Hidano.FacialControl.Adapters.RuntimeSettings
             _label = dto.label ?? string.Empty;
             _stalenessSeconds = dto.stalenessSeconds;
             _failSafeMode = ToFailSafeMode(dto.failSafeMode);
-            _consistencyCheckWarnLog = dto.consistencyCheckWarnLog;
+            _consistencyCheckWarnLog = ContainsJsonKey(json, nameof(JsonDto.consistencyCheckWarnLog))
+                ? dto.consistencyCheckWarnLog
+                : true;
             _bundleMode = ToBundleInterpretationMode(dto.bundleMode);
             _bundleAccumulationTimeoutMs = dto.bundleAccumulationTimeoutMs;
 
@@ -207,6 +209,13 @@ namespace Hidano.FacialControl.Adapters.RuntimeSettings
             public bool consistencyCheckWarnLog = true;
             public string bundleMode = BundleAtomicSwap;
             public float bundleAccumulationTimeoutMs = DefaultBundleAccumulationTimeoutMs;
+        }
+
+        // JsonUtility は JSON に無い bool を false にするため、既定 true の bool はキーの有無で補正する
+        // （OscReceiverOptionsDto / OscSenderOptionsDto と同じ扱い）。
+        private static bool ContainsJsonKey(string json, string key)
+        {
+            return json.IndexOf("\"" + key + "\"", StringComparison.Ordinal) >= 0;
         }
 
         private void NormalizeFields()

@@ -185,21 +185,21 @@ namespace Hidano.FacialControl.Adapters.RuntimeSettings
             _schemaVersion = dto.schemaVersion > 0 ? dto.schemaVersion : 1;
             _label = dto.label ?? string.Empty;
 
-            _receiverEnabled = dto.receiverEnabled;
+            _receiverEnabled = ContainsJsonKey(json, nameof(JsonDto.receiverEnabled)) ? dto.receiverEnabled : true;
             _listenEndpoint = dto.listenEndpoint;
             _listenPort = dto.listenPort;
             _stalenessSeconds = dto.stalenessSeconds;
             _failSafeMode = ToFailSafeMode(dto.failSafeMode);
-            _consistencyCheckWarnLog = dto.consistencyCheckWarnLog;
+            _consistencyCheckWarnLog = ContainsJsonKey(json, nameof(JsonDto.consistencyCheckWarnLog)) ? dto.consistencyCheckWarnLog : true;
             _bundleMode = ToBundleInterpretationMode(dto.bundleMode);
             _bundleAccumulationTimeoutMs = dto.bundleAccumulationTimeoutMs;
 
-            _senderEnabled = dto.senderEnabled;
+            _senderEnabled = ContainsJsonKey(json, nameof(JsonDto.senderEnabled)) ? dto.senderEnabled : true;
             _endpoints = dto.endpoints != null
                 ? new List<OscSenderEndpointConfig>(dto.endpoints)
                 : new List<OscSenderEndpointConfig>();
             _heartbeatIntervalSeconds = dto.heartbeatIntervalSeconds;
-            _suppressLoopback = dto.suppressLoopback;
+            _suppressLoopback = ContainsJsonKey(json, nameof(JsonDto.suppressLoopback)) ? dto.suppressLoopback : true;
 
             NormalizeFields();
         }
@@ -259,6 +259,13 @@ namespace Hidano.FacialControl.Adapters.RuntimeSettings
             public OscSenderEndpointConfig[] endpoints = Array.Empty<OscSenderEndpointConfig>();
             public float heartbeatIntervalSeconds = DefaultHeartbeatIntervalSeconds;
             public bool suppressLoopback = true;
+        }
+
+        // JsonUtility は JSON に無い bool を false にするため、既定 true の bool はキーの有無で補正する
+        // （OscReceiverOptionsDto / OscSenderOptionsDto と同じ扱い）。
+        private static bool ContainsJsonKey(string json, string key)
+        {
+            return json.IndexOf("\"" + key + "\"", StringComparison.Ordinal) >= 0;
         }
 
         private void NormalizeFields()

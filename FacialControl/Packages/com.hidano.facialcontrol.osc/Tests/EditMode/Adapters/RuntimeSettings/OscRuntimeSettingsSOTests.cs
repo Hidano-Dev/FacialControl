@@ -78,6 +78,21 @@ namespace Hidano.FacialControl.Osc.Tests.EditMode.Adapters.RuntimeSettings
         }
 
         [Test]
+        public void FromJson_BoolKeysMissing_KeepsDefaultTrue()
+        {
+            _instance.FromJson(
+                "{\"receiverEnabled\":false,\"consistencyCheckWarnLog\":false,"
+                + "\"senderEnabled\":false,\"suppressLoopback\":false}");
+
+            _instance.FromJson("{\"listenPort\":9100}");
+
+            Assert.IsTrue(_instance.ReceiverEnabled);
+            Assert.IsTrue(_instance.ConsistencyCheckWarnLog);
+            Assert.IsTrue(_instance.SenderEnabled);
+            Assert.IsTrue(_instance.SuppressLoopback);
+        }
+
+        [Test]
         public void Getters_AfterSerializedFieldAssignment_ReturnAssignedValues()
         {
             AssignReceiverFields(

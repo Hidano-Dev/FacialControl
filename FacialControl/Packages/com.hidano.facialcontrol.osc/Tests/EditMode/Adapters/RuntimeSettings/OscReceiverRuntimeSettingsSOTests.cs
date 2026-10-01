@@ -94,6 +94,16 @@ namespace Hidano.FacialControl.Osc.Tests.EditMode.Adapters.RuntimeSettings
         }
 
         [Test]
+        public void FromJson_ConsistencyCheckWarnLogKeyMissing_KeepsDefaultTrue()
+        {
+            _instance.FromJson("{\"consistencyCheckWarnLog\":false}");
+
+            _instance.FromJson("{\"stalenessSeconds\":0.5}");
+
+            Assert.IsTrue(_instance.ConsistencyCheckWarnLog);
+        }
+
+        [Test]
         public void CreateFromLegacy_CopiesAdvancedReceiverValues()
         {
             var legacy = ScriptableObject.CreateInstance<OscRuntimeSettingsSO>();
