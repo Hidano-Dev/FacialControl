@@ -366,7 +366,7 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
                         heartbeatBlendShapeNames,
                         gazeExpressionIds,
                         BuildGazeAdvertisementPairs(endpoint.preset, gazeExpressionIds, _gazeChannelSettings));
-                    slot.GazeSettingsSignature = ComputeGazeSettingsSignature(gazeExpressionIds, _gazeChannelSettings);
+                    UpdateGazeSettingsSnapshots(gazeExpressionIds, _gazeChannelSettings, slot.GazeSettingsSnapshots);
                     sendSlots.Add(slot);
                 }
                 catch (Exception ex)
@@ -1101,56 +1101,88 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
 
         /// <summary>
         /// heartbeat の直前に、目線タブの目ボーン path・可動範囲が起動後に変わっていれば広告を組み直す。
-        /// 変化の検出は署名の比較だけで行い、組み直す (ヒープ確保する) のは変わったときだけ。
+        /// 変化は前回の値との比較だけで検出し、組み直す (ヒープ確保する) のは変わったときだけ。
         /// </summary>
         private void RefreshGazeAdvertisementIfSettingsChanged(SendSlot slot)
         {
-            if (slot.GazeExpressionIds.Length == 0)
+            if (slot.GazeExpressionIds.Length == 0
+                || !UpdateGazeSettingsSnapshots(slot.GazeExpressionIds, _gazeChannelSettings, slot.GazeSettingsSnapshots))
             {
                 return;
             }
 
-            int signature = ComputeGazeSettingsSignature(slot.GazeExpressionIds, _gazeChannelSettings);
-            if (signature == slot.GazeSettingsSignature)
-            {
-                return;
-            }
-
-            slot.GazeSettingsSignature = signature;
             slot.SetGazeAdvertisementPairs(
                 BuildGazeAdvertisementPairs(slot.Preset, slot.GazeExpressionIds, _gazeChannelSettings));
         }
 
-        internal static int ComputeGazeSettingsSignature(
+        /// <summary>
+        /// <paramref name="gazeExpressionIds"/> の各チャネルの目ボーン path・可動範囲を <paramref name="snapshots"/>
+        /// に写し、前回の値から変わったものがあれば true を返す。ヒープ確保はしない。
+        /// </summary>
+        internal static bool UpdateGazeSettingsSnapshots(
             string[] gazeExpressionIds,
-            IReadOnlyList<GazeChannel> gazeChannelSettings)
+            IReadOnlyList<GazeChannel> gazeChannelSettings,
+            GazeSettingsSnapshot[] snapshots)
         {
-            unchecked
+            bool changed = false;
+            int count = Math.Min(
+                gazeExpressionIds != null ? gazeExpressionIds.Length : 0,
+                snapshots != null ? snapshots.Length : 0);
+            for (int i = 0; i < count; i++)
             {
-                int hash = 17;
-                if (gazeExpressionIds == null)
+                var current = new GazeSettingsSnapshot(
+                    FindGazeChannelSettings(gazeChannelSettings, gazeExpressionIds[i]));
+                if (!current.Equals(snapshots[i]))
                 {
-                    return hash;
+                    snapshots[i] = current;
+                    changed = true;
                 }
+            }
 
-                for (int i = 0; i < gazeExpressionIds.Length; i++)
-                {
-                    GazeChannel channel = FindGazeChannelSettings(gazeChannelSettings, gazeExpressionIds[i]);
-                    if (channel == null)
-                    {
-                        hash = hash * 31;
-                        continue;
-                    }
+            return changed;
+        }
 
-                    hash = hash * 31 + (channel.leftEyeBonePath != null ? channel.leftEyeBonePath.GetHashCode() : 0);
-                    hash = hash * 31 + (channel.rightEyeBonePath != null ? channel.rightEyeBonePath.GetHashCode() : 0);
-                    hash = hash * 31 + channel.lookUpAngle.GetHashCode();
-                    hash = hash * 31 + channel.lookDownAngle.GetHashCode();
-                    hash = hash * 31 + channel.outerYawAngle.GetHashCode();
-                    hash = hash * 31 + channel.innerYawAngle.GetHashCode();
-                }
+        /// <summary>gaze 広告の属性ペアに載せる 1 チャネル分の値。変化検出用。</summary>
+        internal readonly struct GazeSettingsSnapshot : IEquatable<GazeSettingsSnapshot>
+        {
+            private readonly bool _found;
+            private readonly string _leftEyeBonePath;
+            private readonly string _rightEyeBonePath;
+            private readonly float _lookUpAngle;
+            private readonly float _lookDownAngle;
+            private readonly float _outerYawAngle;
+            private readonly float _innerYawAngle;
 
-                return hash;
+            public GazeSettingsSnapshot(GazeChannel channel)
+            {
+                _found = channel != null;
+                _leftEyeBonePath = channel?.leftEyeBonePath;
+                _rightEyeBonePath = channel?.rightEyeBonePath;
+                _lookUpAngle = channel != null ? channel.lookUpAngle : 0f;
+                _lookDownAngle = channel != null ? channel.lookDownAngle : 0f;
+                _outerYawAngle = channel != null ? channel.outerYawAngle : 0f;
+                _innerYawAngle = channel != null ? channel.innerYawAngle : 0f;
+            }
+
+            public bool Equals(GazeSettingsSnapshot other)
+            {
+                return _found == other._found
+                    && string.Equals(_leftEyeBonePath, other._leftEyeBonePath, StringComparison.Ordinal)
+                    && string.Equals(_rightEyeBonePath, other._rightEyeBonePath, StringComparison.Ordinal)
+                    && _lookUpAngle.Equals(other._lookUpAngle)
+                    && _lookDownAngle.Equals(other._lookDownAngle)
+                    && _outerYawAngle.Equals(other._outerYawAngle)
+                    && _innerYawAngle.Equals(other._innerYawAngle);
+            }
+
+            public override bool Equals(object obj)
+            {
+                return obj is GazeSettingsSnapshot other && Equals(other);
+            }
+
+            public override int GetHashCode()
+            {
+                return _lookUpAngle.GetHashCode();
             }
         }
 
@@ -1185,7 +1217,7 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
             public readonly string[] GazeExpressionIds;
             public string[] GazeAdvertisementPairs;
             public int GazeAdvertisementPairCount;
-            public int GazeSettingsSignature;
+            public readonly GazeSettingsSnapshot[] GazeSettingsSnapshots;
             public readonly int GazeMessageCount;
             public byte[][] ScratchAddressUtf8;
             public float[] ScratchFloatValues;
@@ -1206,6 +1238,9 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
                 SourceBlendShapeIndices = sourceBlendShapeIndices ?? Array.Empty<int>();
                 HeartbeatBlendShapeNames = heartbeatBlendShapeNames ?? Array.Empty<string>();
                 GazeExpressionIds = gazeExpressionIds ?? Array.Empty<string>();
+                GazeSettingsSnapshots = GazeExpressionIds.Length == 0
+                    ? Array.Empty<GazeSettingsSnapshot>()
+                    : new GazeSettingsSnapshot[GazeExpressionIds.Length];
                 SetGazeAdvertisementPairs(gazeAdvertisementPairs);
                 GazeMessageCount = GetGazeMessageCount(preset);
                 int scratchCapacity = SourceBlendShapeIndices.Length + (GazeExpressionIds.Length * GazeMessageCount);

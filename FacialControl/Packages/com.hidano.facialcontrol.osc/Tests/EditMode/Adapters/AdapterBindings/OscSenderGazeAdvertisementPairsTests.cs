@@ -69,27 +69,42 @@ namespace Hidano.FacialControl.Tests.EditMode.Adapters.AdapterBindings
         }
 
         [Test]
-        public void ComputeGazeSettingsSignature_RangeEditedAfterStart_ReturnsDifferentValue()
+        public void UpdateGazeSettingsSnapshots_RangeEditedAfterStart_ReturnsTrue()
         {
             var channel = new GazeChannel { id = "gaze" };
             var settings = new[] { channel };
             string[] ids = { "gaze" };
-            int before = OscSenderAdapterBinding.ComputeGazeSettingsSignature(ids, settings);
+            var snapshots = new OscSenderAdapterBinding.GazeSettingsSnapshot[1];
+            OscSenderAdapterBinding.UpdateGazeSettingsSnapshots(ids, settings, snapshots);
 
             channel.lookUpAngle = 30f;
 
-            Assert.That(OscSenderAdapterBinding.ComputeGazeSettingsSignature(ids, settings), Is.Not.EqualTo(before));
+            Assert.That(OscSenderAdapterBinding.UpdateGazeSettingsSnapshots(ids, settings, snapshots), Is.True);
         }
 
         [Test]
-        public void ComputeGazeSettingsSignature_SettingsUnchanged_ReturnsSameValue()
+        public void UpdateGazeSettingsSnapshots_SettingsUnchanged_ReturnsFalse()
         {
             var settings = new[] { new GazeChannel { id = "gaze", leftEyeBonePath = "Eye_L" } };
             string[] ids = { "gaze" };
+            var snapshots = new OscSenderAdapterBinding.GazeSettingsSnapshot[1];
 
-            Assert.That(
-                OscSenderAdapterBinding.ComputeGazeSettingsSignature(ids, settings),
-                Is.EqualTo(OscSenderAdapterBinding.ComputeGazeSettingsSignature(ids, settings)));
+            Assert.That(OscSenderAdapterBinding.UpdateGazeSettingsSnapshots(ids, settings, snapshots), Is.True);
+            Assert.That(OscSenderAdapterBinding.UpdateGazeSettingsSnapshots(ids, settings, snapshots), Is.False);
+        }
+
+        [Test]
+        public void UpdateGazeSettingsSnapshots_PathEditedAfterStart_ReturnsTrue()
+        {
+            var channel = new GazeChannel { id = "gaze", leftEyeBonePath = "Eye_L" };
+            var settings = new[] { channel };
+            string[] ids = { "gaze" };
+            var snapshots = new OscSenderAdapterBinding.GazeSettingsSnapshot[1];
+            OscSenderAdapterBinding.UpdateGazeSettingsSnapshots(ids, settings, snapshots);
+
+            channel.leftEyeBonePath = "Head/Eye_L";
+
+            Assert.That(OscSenderAdapterBinding.UpdateGazeSettingsSnapshots(ids, settings, snapshots), Is.True);
         }
 
         [Test]

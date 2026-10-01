@@ -280,7 +280,7 @@ namespace Hidano.FacialControl.Tests.EditMode.Adapters
             bool warned = false;
 
             GazeAdvertisementResolver.ParseChannelOverrides(
-                new[] { "gaze", "bone.right=Root/目=右" },
+                new[] { "gaze", "bone.right=Root/目=右", "gaze", "range=15,9,15,18" },
                 overrides,
                 ref warned);
 
@@ -296,31 +296,49 @@ namespace Hidano.FacialControl.Tests.EditMode.Adapters
             GazeAdvertisementResolver.ParseChannelOverrides(
                 new[]
                 {
+                    "gaze", "bone.left=Eye_L",
                     "gaze", "range=1,2,3",
                     "camera", "range=1,NaN,3,4",
-                    "gaze", "bone.left=Eye_L",
+                    "valid", "range=1,2,3,4",
                 },
                 overrides,
                 ref warned);
 
             Assert.That(overrides, Has.Count.EqualTo(1));
-            Assert.That(overrides["gaze"].HasAngleLimits, Is.False);
-            Assert.That(overrides["gaze"].LeftEyeBonePath, Is.EqualTo("Eye_L"));
+            Assert.That(overrides.ContainsKey("valid"), Is.True);
             Assert.That(warned, Is.True);
         }
 
         [Test]
-        public void ParseChannelOverrides_EmptyPathValue_DoesNotCreateOverride()
+        public void ParseChannelOverrides_PathWithoutRange_DoesNotCommitPartialGroup()
+        {
+            // MTU 分割された広告の途中では、path だけが届いて range= がまだ届いていないことがある。
+            var overrides = new Dictionary<string, GazeChannelOverride>();
+            bool warned = false;
+
+            GazeAdvertisementResolver.ParseChannelOverrides(
+                new[] { "gaze", "VRChat_XY", "gaze", "bone.left=Eye_L" },
+                overrides,
+                ref warned);
+
+            Assert.That(overrides, Is.Empty);
+            Assert.That(warned, Is.False);
+        }
+
+        [Test]
+        public void ParseChannelOverrides_EmptyPathValue_CommitsRangeWithoutPath()
         {
             var overrides = new Dictionary<string, GazeChannelOverride>();
             bool warned = false;
 
             GazeAdvertisementResolver.ParseChannelOverrides(
-                new[] { "gaze", "bone.left=", "", "range=1,2,3,4" },
+                new[] { "gaze", "bone.left=", "", "range=1,2,3,4", "gaze", "range=1,2,3,4" },
                 overrides,
                 ref warned);
 
-            Assert.That(overrides, Is.Empty);
+            Assert.That(overrides, Has.Count.EqualTo(1));
+            Assert.That(overrides["gaze"].HasLeftEyeBonePath, Is.False);
+            Assert.That(overrides["gaze"].HasAngleLimits, Is.True);
         }
 
         [Test]

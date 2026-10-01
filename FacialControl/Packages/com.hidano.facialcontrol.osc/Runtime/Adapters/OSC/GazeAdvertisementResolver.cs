@@ -239,6 +239,12 @@ namespace Hidano.FacialControl.Adapters.OSC
         /// [id, value, ...] から属性ペアを集め、チャネル id ごとの上書きを <paramref name="destination"/> に入れる。
         /// 形式識別子のペアは無視する。値が不正な属性ペアは警告 1 回でスキップする。
         /// </summary>
+        /// <remarks>
+        /// 送信側はチャネルごとに目ボーン path → <c>range=</c> の順で属性ペアを並べ、<c>range=</c> は毎回送る。
+        /// そこで <c>range=</c> を受け取った時点でそのチャネルの属性がそろったとみなし、それまでの path と
+        /// 合わせて確定する。<c>range=</c> まで届いていないチャネル (MTU 分割された広告の途中など) は
+        /// <paramref name="destination"/> に入れない。
+        /// </remarks>
         public static void ParseChannelOverrides(
             IReadOnlyList<string> payload,
             IDictionary<string, GazeChannelOverride> destination,
@@ -255,6 +261,7 @@ namespace Hidano.FacialControl.Adapters.OSC
                 return;
             }
 
+            Dictionary<string, GazeChannelOverride> pending = null;
             int pairCount = payload.Count / 2;
             for (int i = 0; i < pairCount; i++)
             {
@@ -265,40 +272,40 @@ namespace Hidano.FacialControl.Adapters.OSC
                     continue;
                 }
 
-                destination.TryGetValue(channelId, out GazeChannelOverride current);
+                if (pending == null)
+                {
+                    pending = new Dictionary<string, GazeChannelOverride>(StringComparer.Ordinal);
+                }
+
+                pending.TryGetValue(channelId, out GazeChannelOverride current);
                 if (attribute.StartsWith(LeftEyeBonePathAttributePrefix, StringComparison.Ordinal))
                 {
-                    current = current.WithLeftEyeBonePath(
+                    pending[channelId] = current.WithLeftEyeBonePath(
                         attribute.Substring(LeftEyeBonePathAttributePrefix.Length));
+                    continue;
                 }
-                else if (attribute.StartsWith(RightEyeBonePathAttributePrefix, StringComparison.Ordinal))
+
+                if (attribute.StartsWith(RightEyeBonePathAttributePrefix, StringComparison.Ordinal))
                 {
-                    current = current.WithRightEyeBonePath(
+                    pending[channelId] = current.WithRightEyeBonePath(
                         attribute.Substring(RightEyeBonePathAttributePrefix.Length));
+                    continue;
                 }
-                else if (TryParseAngleLimits(
-                             attribute.Substring(AngleLimitsAttributePrefix.Length),
-                             out float lookUp,
-                             out float lookDown,
-                             out float outerYaw,
-                             out float innerYaw))
-                {
-                    current = current.WithAngleLimits(lookUp, lookDown, outerYaw, innerYaw);
-                }
-                else
+
+                // range= でそのチャネルの属性グループが確定する。
+                pending.Remove(channelId);
+                if (!TryParseAngleLimits(
+                        attribute.Substring(AngleLimitsAttributePrefix.Length),
+                        out float lookUp,
+                        out float lookDown,
+                        out float outerYaw,
+                        out float innerYaw))
                 {
                     WarnInvalidAttributeOnce(channelId, attribute, ref warnedOnInvalidAttribute);
                     continue;
                 }
 
-                if (current.IsEmpty)
-                {
-                    destination.Remove(channelId);
-                }
-                else
-                {
-                    destination[channelId] = current;
-                }
+                destination[channelId] = current.WithAngleLimits(lookUp, lookDown, outerYaw, innerYaw);
             }
         }
 

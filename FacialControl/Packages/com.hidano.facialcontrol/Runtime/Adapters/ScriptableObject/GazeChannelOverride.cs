@@ -98,26 +98,25 @@ namespace Hidano.FacialControl.Adapters.ScriptableObject
                 throw new ArgumentNullException(nameof(local));
             }
 
-            var merged = new GazeChannel
+            GazeChannel merged = local.Clone();
+            if (HasLeftEyeBonePath)
             {
-                id = local.id,
-                providerSlug = local.providerSlug,
-                useDistinctLeftRight = local.useDistinctLeftRight,
-                sourceIdLeft = local.sourceIdLeft,
-                sourceIdRight = local.sourceIdRight,
-                leftEyeBonePath = HasLeftEyeBonePath ? LeftEyeBonePath : local.leftEyeBonePath,
-                leftEyeInitialRotation = local.leftEyeInitialRotation,
-                leftEyeYawAxisLocal = local.leftEyeYawAxisLocal,
-                leftEyePitchAxisLocal = local.leftEyePitchAxisLocal,
-                rightEyeBonePath = HasRightEyeBonePath ? RightEyeBonePath : local.rightEyeBonePath,
-                rightEyeInitialRotation = local.rightEyeInitialRotation,
-                rightEyeYawAxisLocal = local.rightEyeYawAxisLocal,
-                rightEyePitchAxisLocal = local.rightEyePitchAxisLocal,
-                lookUpAngle = HasAngleLimits ? LookUpAngle : local.lookUpAngle,
-                lookDownAngle = HasAngleLimits ? LookDownAngle : local.lookDownAngle,
-                outerYawAngle = HasAngleLimits ? OuterYawAngle : local.outerYawAngle,
-                innerYawAngle = HasAngleLimits ? InnerYawAngle : local.innerYawAngle,
-            };
+                merged.leftEyeBonePath = LeftEyeBonePath;
+            }
+
+            if (HasRightEyeBonePath)
+            {
+                merged.rightEyeBonePath = RightEyeBonePath;
+            }
+
+            if (HasAngleLimits)
+            {
+                merged.lookUpAngle = LookUpAngle;
+                merged.lookDownAngle = LookDownAngle;
+                merged.outerYawAngle = OuterYawAngle;
+                merged.innerYawAngle = InnerYawAngle;
+            }
+
             return merged;
         }
 

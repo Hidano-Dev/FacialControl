@@ -113,7 +113,22 @@ namespace Hidano.FacialControl.Tests.PlayMode.Adapters.Playable
             AssertRotation(Quaternion.AngleAxis(-15f, Vector3.right), _localLeftEye.localRotation);
         }
 
-        private FacialController CreateController(FakeOverrideBinding binding)
+        [UnityTest]
+        public IEnumerator LateUpdate_OverrideFromBindingNotDrivingChannel_IsIgnored()
+        {
+            // gaze チャネルを駆動するのは fake。別 binding (other) が同じ id の上書きを持っていても使わない。
+            var driving = new FakeOverrideBinding { Slug = "fake" };
+            var other = new FakeOverrideBinding { Slug = "other", RegisterSource = false };
+            other.SetOverride(new GazeChannelOverride("Head/CustomEye_L", null, true, 40f, 40f, 40f, 40f));
+            CreateController(driving, other);
+
+            yield return null;
+
+            AssertRotation(Quaternion.AngleAxis(-15f, Vector3.right), _localLeftEye.localRotation);
+            AssertRotation(Quaternion.identity, _customLeftEye.localRotation);
+        }
+
+        private FacialController CreateController(params FakeOverrideBinding[] bindings)
         {
             // Initialize は Animator と SkinnedMeshRenderer が無いと初期化をスキップする。Avatar は持たせない
             // (非 Humanoid)。目ボーンは path だけで解決させる。
@@ -136,7 +151,10 @@ namespace Hidano.FacialControl.Tests.PlayMode.Adapters.Playable
 
             _profileAsset = UnityEngine.ScriptableObject.CreateInstance<FacialControllerGazeChannelTests.GazeChannelProfileSO>();
             _profileAsset.ProfileToLoad = CreateMinimalProfile();
-            _profileAsset.WritableAdapterBindings.Add(binding);
+            for (int i = 0; i < bindings.Length; i++)
+            {
+                _profileAsset.WritableAdapterBindings.Add(bindings[i]);
+            }
             // 既定チャネル gaze は SO が補完する。ローカル path と既定の可動範囲 (lookUp 15) を設定する。
             GazeChannel gaze = _profileAsset.GazeChannels[0];
             gaze.leftEyeBonePath = "Head/LocalEye_L";
@@ -176,6 +194,9 @@ namespace Hidano.FacialControl.Tests.PlayMode.Adapters.Playable
             [NonSerialized] private bool _hasOverride;
             [NonSerialized] private int _version;
 
+            /// <summary>false のとき gaze 入力源を登録せず、上書きだけを持つ binding として振る舞う。</summary>
+            [NonSerialized] public bool RegisterSource = true;
+
             public int GazeChannelOverrideVersion => _version;
 
             public void SetOverride(GazeChannelOverride value)
@@ -193,6 +214,11 @@ namespace Hidano.FacialControl.Tests.PlayMode.Adapters.Playable
 
             public override void OnStart(in AdapterBuildContext ctx)
             {
+                if (!RegisterSource)
+                {
+                    return;
+                }
+
                 // 常に上方向 (0, 1) を返す共有 gaze 入力源を fake:gaze として登録する。
                 ctx.InputSourceRegistry.Register(
                     AdapterSlug.Parse(Slug),

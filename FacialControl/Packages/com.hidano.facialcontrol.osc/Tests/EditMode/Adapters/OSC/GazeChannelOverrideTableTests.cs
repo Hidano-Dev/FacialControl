@@ -14,7 +14,7 @@ namespace Hidano.FacialControl.Tests.EditMode.Adapters
         {
             var table = new GazeChannelOverrideTable();
 
-            bool changed = table.Update(new[] { "gaze", "VRChat_XY", "gaze", "bone.left=Eye_L" });
+            bool changed = table.Update(new[] { "gaze", "VRChat_XY", "gaze", "bone.left=Eye_L", "gaze", "range=15,9,15,18" });
 
             Assert.That(changed, Is.True);
             Assert.That(table.Version, Is.EqualTo(1));
@@ -50,16 +50,31 @@ namespace Hidano.FacialControl.Tests.EditMode.Adapters
         }
 
         [Test]
-        public void Update_AttributesRemoved_DropsOverride()
+        public void Update_RangeWithoutPath_RemovesPathOverride()
         {
             var table = new GazeChannelOverrideTable();
-            table.Update(new[] { "gaze", "bone.left=Eye_L" });
+            table.Update(new[] { "gaze", "bone.left=Eye_L", "gaze", "range=15,9,15,18" });
 
-            bool changed = table.Update(new[] { "gaze", "VRChat_XY" });
+            bool changed = table.Update(new[] { "gaze", "VRChat_XY", "gaze", "range=15,9,15,18" });
 
             Assert.That(changed, Is.True);
-            Assert.That(table.Count, Is.EqualTo(0));
-            Assert.That(table.TryGet("gaze", out _), Is.False);
+            Assert.That(table.TryGet("gaze", out GazeChannelOverride value), Is.True);
+            Assert.That(value.HasLeftEyeBonePath, Is.False);
+        }
+
+        [Test]
+        public void Update_PartialPayloadWithoutRange_KeepsPreviousOverride()
+        {
+            var table = new GazeChannelOverrideTable();
+            table.Update(new[] { "gaze", "bone.left=Eye_L", "gaze", "range=15,9,15,18" });
+
+            // MTU 分割された広告の先頭だけを処理した状態。属性ペアがまだ届いていない。
+            bool changed = table.Update(new[] { "gaze", "VRChat_XY" });
+
+            Assert.That(changed, Is.False);
+            Assert.That(table.Version, Is.EqualTo(1));
+            Assert.That(table.TryGet("gaze", out GazeChannelOverride value), Is.True);
+            Assert.That(value.LeftEyeBonePath, Is.EqualTo("Eye_L"));
         }
 
         [Test]
@@ -77,7 +92,7 @@ namespace Hidano.FacialControl.Tests.EditMode.Adapters
         public void Clear_WithOverrides_AdvancesVersionOnlyWhenSomethingWasRemoved()
         {
             var table = new GazeChannelOverrideTable();
-            table.Update(new[] { "gaze", "bone.left=Eye_L" });
+            table.Update(new[] { "gaze", "bone.left=Eye_L", "gaze", "range=15,9,15,18" });
 
             table.Clear();
             int versionAfterFirstClear = table.Version;
@@ -92,7 +107,7 @@ namespace Hidano.FacialControl.Tests.EditMode.Adapters
         public void TryGet_NullOrEmptyId_ReturnsFalse()
         {
             var table = new GazeChannelOverrideTable();
-            table.Update(new[] { "gaze", "bone.left=Eye_L" });
+            table.Update(new[] { "gaze", "bone.left=Eye_L", "gaze", "range=15,9,15,18" });
 
             Assert.That(table.TryGet(null, out _), Is.False);
             Assert.That(table.TryGet(string.Empty, out _), Is.False);

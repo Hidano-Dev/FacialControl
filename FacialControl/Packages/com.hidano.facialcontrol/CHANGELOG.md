@@ -6,7 +6,7 @@
 
 ### Added
 
-- `IGazeChannelOverrideProvider` / `GazeChannelOverride` — adapter binding が Gaze チャネルの目ボーン path・可動範囲を外部から上書きする契約。`FacialController` は上書きの version が変わったときだけ目ボーン provider を作り直す。上書き path がローカル path と異なる側は、解決したボーンから rest 回転・yaw / pitch 軸を実行時に導出し（Humanoid fallback と同じ規則、path ごとに初回の値を使い回す）、path が見つからなければ警告を 1 回出してローカルの規則に戻す。複数の binding が同じチャネルを上書きする場合は Adapter Bindings の並び順で先のものを使う
+- `IGazeChannelOverrideProvider` / `GazeChannelOverride` — adapter binding が Gaze チャネルの目ボーン path・可動範囲を外部から上書きする契約。`FacialController` は上書きの version が変わったときだけ目ボーン provider を作り直す。上書きを使うのは、そのチャネルの入力源を実際に提供している binding（slug が一致するもの）だけ。上書き path のボーンがローカル path と異なる側は、rest 回転・yaw / pitch 軸を Humanoid fallback と同じ規則で導出する。導出に使うのは初期化時の姿勢で、上書き binding があるときだけ初期化時に配下の Transform について記録しておく。上書き path がローカル path と同じボーンを指す場合は、エディタで保存した値をそのまま使う。path が見つからなければ警告を 1 回出してローカルの規則に戻す
 - `IGazeChannelSettingsConsumer` — Profile の Gaze チャネル設定（目ボーン path・可動範囲を含む）を adapter binding へ注入する契約。`IGazeChannelConsumer` と同じく rebuild ごと・OnStart 前に呼ばれる
 
 ### Changed
