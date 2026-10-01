@@ -45,6 +45,10 @@ namespace Hidano.FacialControl.Rec.Adapters.Playable
         private string _lastRecordingName;
         private string _lastRecordingPath;
         private string _requestedRecordingPath;
+        private DateTime _recordingStartedUtc;
+
+        /// <summary>ファイルシステムのタイムスタンプ分解能（FAT 系は 2 秒）を見込んだ許容幅。</summary>
+        private const double RecordingStartTimestampToleranceSeconds = 2d;
 
         public bool IsRecording => _recordingUseCase != null && _recordingUseCase.IsRecording;
 
@@ -115,6 +119,7 @@ namespace Hidano.FacialControl.Rec.Adapters.Playable
             // 結果（実際のパス / オープン失敗）は Update と StopRecording で SyncRecordingOutput が拾う。
             RecBaselineState baseline = CaptureBaseline(profile, controller.InputSourceRegistry);
             _requestedRecordingPath = requestedFilePath;
+            _recordingStartedUtc = DateTime.UtcNow;
             _streamWriter = new RecStreamWriter(requestedFilePath);
             _recordingUseCase = new RecordingUseCase(
                 controller.InputObservationBus,
@@ -171,6 +176,70 @@ namespace Hidano.FacialControl.Rec.Adapters.Playable
             _loadedRecordingName = recordingName;
             _loadedRecordingPath = filePath;
             return _playbackUseCase.Load(_loadedTimeline, profile) != null;
+        }
+
+        /// <summary>
+        /// このキャラクターの保存済み録画を、更新日時の新しい順に列挙する（録画中のテイクは含めない）。
+        /// 各要素の <see cref="RecRecordingEntry.Name"/> はそのまま <see cref="LoadRecording"/> に渡せる。
+        /// Play モード外でも呼べる。ファイル I/O と GC 確保を伴うため、毎フレームではなく一覧の更新が必要なとき
+        /// （画面を開いた・録画を止めた等）だけ呼ぶこと。
+        /// </summary>
+        public IReadOnlyList<RecRecordingEntry> GetRecordings()
+        {
+            FacialController controller = _facialController != null
+                ? _facialController
+                : GetComponent<FacialController>();
+            if (controller == null)
+            {
+                return Array.Empty<RecRecordingEntry>();
+            }
+
+            // フォルダ名にできないキャラクター名なら空の一覧を返す（警告は録画・読み込みを実際に試みたときに出る）。
+            RecSidecarPath.TryListRecordings(
+                ResolveAssetName(controller),
+                CurrentRecordingPath,
+                out IReadOnlyList<RecRecordingEntry> recordings,
+                out _);
+
+            if (!IsRecording)
+            {
+                return recordings;
+            }
+
+            // ライタースレッドはファイルを作ってから OutputFilePath を公開するので、列挙中にオープンが進むと
+            // 上の除外をすり抜けることがある。列挙後に読み直したパスで除外し、まだ公開前なら録画開始以降に
+            // 書かれたファイルを除外して、録画中のテイクを一覧に出さない。
+            string currentRecordingPath = CurrentRecordingPath;
+            string currentRecordingFullPath = currentRecordingPath != null ? Path.GetFullPath(currentRecordingPath) : null;
+            DateTime recordingStartedUtc = _recordingStartedUtc.AddSeconds(-RecordingStartTimestampToleranceSeconds);
+            var settled = new List<RecRecordingEntry>(recordings.Count);
+            for (int i = 0; i < recordings.Count; i++)
+            {
+                bool isInProgress = currentRecordingFullPath != null
+                    ? string.Equals(Path.GetFullPath(recordings[i].FilePath), currentRecordingFullPath, StringComparison.Ordinal)
+                    : recordings[i].LastWriteTimeUtc >= recordingStartedUtc;
+                if (!isInProgress)
+                {
+                    settled.Add(recordings[i]);
+                }
+            }
+
+            return settled;
+        }
+
+        /// <summary>
+        /// <see cref="GetRecordings"/> のテイク名だけを同じ順で返す。uGUI の Dropdown 等の選択肢にそのまま使える。
+        /// </summary>
+        public IReadOnlyList<string> GetRecordingNames()
+        {
+            IReadOnlyList<RecRecordingEntry> recordings = GetRecordings();
+            var names = new string[recordings.Count];
+            for (int i = 0; i < names.Length; i++)
+            {
+                names[i] = recordings[i].Name;
+            }
+
+            return names;
         }
 
         public bool StartPlayback()

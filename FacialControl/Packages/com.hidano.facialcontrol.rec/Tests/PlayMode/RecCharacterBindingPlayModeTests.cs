@@ -122,6 +122,50 @@ namespace Hidano.FacialControl.Rec.Tests.PlayMode
         }
 
         [UnityTest]
+        public IEnumerator GetRecordingNames_AfterRecordingTakes_ListsSavedTakesThatCanBeLoaded()
+        {
+            SetupHarness(out _, out RecCharacterBinding binding, out FakeObservationBus bus, out _, out TestTriggerSource triggerSource, out _);
+
+            Assert.That(binding.StartRecording("listed-a"), Is.True);
+            bus.PublishTriggerOn(triggerSource.Id, "smile");
+            binding.StopRecording();
+
+            Assert.That(binding.StartRecording("listed-b"), Is.True);
+            bus.PublishTriggerOn(triggerSource.Id, "smile");
+            binding.StopRecording();
+            yield return null;
+
+            IReadOnlyList<string> names = binding.GetRecordingNames();
+
+            Assert.That(names, Does.Contain("listed-a"));
+            Assert.That(names, Does.Contain("listed-b"));
+            Assert.That(binding.GetRecordings().Count, Is.EqualTo(names.Count));
+            Assert.That(binding.LoadRecording(names[0]), Is.True);
+        }
+
+        [UnityTest]
+        public IEnumerator GetRecordingNames_WhileRecording_ExcludesTheTakeInProgress()
+        {
+            SetupHarness(out _, out RecCharacterBinding binding, out _, out _, out _, out _);
+
+            Assert.That(binding.StartRecording("in-progress"), Is.True);
+
+            // 出力ファイルはライタースレッドが開くので、開くまで待つ。
+            for (int frame = 0; frame < 300 && binding.CurrentRecordingPath == null; frame++)
+            {
+                yield return null;
+            }
+
+            Assert.That(binding.CurrentRecordingPath, Is.Not.Null);
+            Assert.That(File.Exists(binding.CurrentRecordingPath), Is.True);
+            Assert.That(binding.GetRecordingNames(), Does.Not.Contain("in-progress"));
+
+            binding.StopRecording();
+
+            Assert.That(binding.GetRecordingNames(), Does.Contain("in-progress"));
+        }
+
+        [UnityTest]
         public IEnumerator LoadRecording_WithoutName_LoadsTheTakeThatWasJustRecorded()
         {
             SetupHarness(out _, out RecCharacterBinding binding, out FakeObservationBus bus, out _, out TestTriggerSource triggerSource, out _);
