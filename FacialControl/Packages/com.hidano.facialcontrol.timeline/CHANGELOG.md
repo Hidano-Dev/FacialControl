@@ -2,6 +2,17 @@
 
 [Keep a Changelog](https://keepachangelog.com/ja/1.1.0/) の形式に準拠し、[セマンティックバージョニング](https://semver.org/lang/ja/) に従う。
 
+## [Unreleased]
+
+### Added
+
+- `FacialTimelinePreviewGazeTargets` / `FacialTimelinePreviewEyeTarget`（Editor）— スクラブプレビューで目線を書き込む目ボーンの解決。ランタイムの `GazeBonePoseProvider` と同じ規則（path 未指定の側は Humanoid の目ボーン、目ごとに先頭の channel だけ、path 指定が同じボーンを指せば path 側を優先）
+
+### Fixed
+
+- 目ボーン path が空の Gaze チャネルで、Timeline のスクラブプレビュー中に目が動かなかった。path が空の側は Humanoid Avatar の `LeftEye` / `RightEye` を使い、rest 回転と yaw / pitch 軸はプレビュー開始時の姿勢から導出する（HID-41 のランタイム fallback と同じ）
+- 目ボーン path が空のとき、スクラブプレビューがキャラクター root の回転を復元対象として登録していた。空・空白の path では `Transform.Find` を呼ばない
+
 ## [1.0.0] - 2026-09-25
 
 初回リリース。
