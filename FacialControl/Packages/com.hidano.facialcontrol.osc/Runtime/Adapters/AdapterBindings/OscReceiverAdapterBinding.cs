@@ -6,6 +6,7 @@ using System.Threading;
 using Hidano.FacialControl.Adapters.InputSources;
 using Hidano.FacialControl.Adapters.OSC;
 using Hidano.FacialControl.Adapters.RuntimeSettings;
+using Hidano.FacialControl.Adapters.ScriptableObject;
 using Hidano.FacialControl.Domain.Adapters;
 using Hidano.FacialControl.Domain.Interfaces;
 using Hidano.FacialControl.Domain.Models;
@@ -33,7 +34,7 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
     /// </remarks>
     [Serializable]
     [FacialAdapterBinding(displayName: "OSC Receiver")]
-    public sealed class OscReceiverAdapterBinding : AdapterBindingBase, IGazeChannelConsumer, IGazeSourceProvider, IOscResolvedMessageHandler
+    public sealed class OscReceiverAdapterBinding : AdapterBindingBase, IGazeChannelConsumer, IGazeSourceProvider, IOscResolvedMessageHandler, IGazeChannelOverrideProvider
     {
         public enum MappingOrigin
         {
@@ -278,6 +279,11 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
         [NonSerialized] private bool _hasProcessedGazeAdvertisementBytes;
         [NonSerialized] private bool _warnedGazeAdvertisementScratchOverflow;
 
+        /// <summary>
+        /// 送信側の gaze 広告に載った目ボーン path・可動範囲の上書き。広告の受信バイト列が変わったときだけ更新する。
+        /// </summary>
+        [NonSerialized] private GazeChannelOverrideTable _gazeChannelOverrides;
+
         [NonSerialized]
         private bool _warnedOnEmptyHeartbeatIntersection;
 
@@ -467,6 +473,25 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
         public uint LastGazeAdvertisementHash => _lastGazeAdvertisementHash;
 
         public bool HasAutoGazeRoutes => _autoGazeSourcesById != null && _autoGazeSourcesById.Count > 0;
+
+        /// <inheritdoc />
+        public int GazeChannelOverrideVersion =>
+            _gazeChannelOverrides != null ? _gazeChannelOverrides.Version : 0;
+
+        /// <summary>
+        /// 送信側の gaze 広告から受け取った、チャネル id に対する目ボーン path・可動範囲の上書きを返す。
+        /// FacialController がローカルの GazeChannel より優先して使う。
+        /// </summary>
+        public bool TryGetGazeChannelOverride(string channelId, out GazeChannelOverride value)
+        {
+            if (_gazeChannelOverrides == null)
+            {
+                value = default;
+                return false;
+            }
+
+            return _gazeChannelOverrides.TryGet(channelId, out value);
+        }
 
         /// <summary>
         /// FacialController の GazeConfigs を受け取るリフレクション注入契約。
@@ -777,6 +802,7 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
             _gazeAdScratch = null;
             _gazeAdSync = null;
             _gazeAdDirty = 0;
+            _gazeChannelOverrides?.Clear();
             _gazeAdAccumulationTimestamp = 0u;
             _gazeAdAccumulating = false;
             _warnedOnEmptyHeartbeatIntersection = false;
@@ -1695,6 +1721,10 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
                         _gazeAdScratchBytes, start, length));
                 }
             }
+
+            // 属性ペア (目ボーン path・可動範囲) は route のハッシュに含めないため、route の変化判定より前に読む。
+            _gazeChannelOverrides ??= new GazeChannelOverrideTable();
+            _gazeChannelOverrides.Update(_gazeAdProcessingScratch);
 
             _gazeAdvertisedEntries.Clear();
             GazeAdvertisementResolver.Parse(

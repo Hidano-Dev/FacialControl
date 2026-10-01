@@ -28,7 +28,7 @@
 
 | パッケージ | 役割 |
 |-----------|------|
-| `com.hidano.facialcontrol` | コア（Domain / Application / Adapters / Editor。Editor は Profile Inspector・ARKit 検出・ルーティング配線ロジック） |
+| `com.hidano.facialcontrol` | コア（Domain / Application / Adapters / Editor。Editor は Profile Inspector・ルーティング配線ロジック） |
 | `com.hidano.facialcontrol.expression-creator` | Expression 作成ツール（Editor のみ。プレビュー / ベイク / PNG 書き出し。依存: core + `com.hidano.scene-view-style-camera-controller`） |
 | `com.hidano.facialcontrol.routing-editor` | ルーティングエディタ（Editor のみ。GraphView 薄層。配線ロジックは core の `Editor/Windows/Routing/Logic` を参照し、core の `RoutingEditorLauncher` へ `[InitializeOnLoad]` で起動経路を登録） |
 | `com.hidano.facialcontrol.osc` | OSC 通信拡張（VRChat 互換、uOsc 同梱想定） |

@@ -1,11 +1,10 @@
 using System;
 using System.Collections.Generic;
-using Hidano.FacialControl.Domain.Models;
 
 namespace Hidano.FacialControl.Domain.Services
 {
     /// <summary>
-    /// ARKit 52 / PerfectSync パラメータの検出と Expression 自動生成を行う静的サービス。
+    /// ARKit 52 / PerfectSync パラメータの名前表・レイヤーグループ分類・検出を提供する静的サービス。
     /// 完全一致マッチングのみ対応。未対応パラメータは警告なしでスキップする。
     /// </summary>
     public static class ARKitDetector
@@ -221,87 +220,6 @@ namespace Hidano.FacialControl.Domain.Services
                 return group;
 
             return null;
-        }
-
-        /// <summary>
-        /// 検出されたパラメータ名をレイヤーグループ別にグルーピングする。
-        /// 未知のパラメータは除外される。
-        /// </summary>
-        /// <param name="detectedNames">検出済みパラメータ名配列</param>
-        /// <returns>レイヤーグループ名をキーとし、パラメータ名配列を値とする辞書</returns>
-        public static Dictionary<string, string[]> GroupByLayer(string[] detectedNames)
-        {
-            if (detectedNames == null)
-                throw new ArgumentNullException(nameof(detectedNames));
-
-            var groups = new Dictionary<string, List<string>>();
-
-            for (int i = 0; i < detectedNames.Length; i++)
-            {
-                var group = GetLayerGroup(detectedNames[i]);
-                if (group == null)
-                    continue;
-
-                if (!groups.TryGetValue(group, out var list))
-                {
-                    list = new List<string>();
-                    groups[group] = list;
-                }
-                list.Add(detectedNames[i]);
-            }
-
-            // List → 配列に変換
-            var result = new Dictionary<string, string[]>(groups.Count);
-            foreach (var kvp in groups)
-            {
-                result[kvp.Key] = kvp.Value.ToArray();
-            }
-            return result;
-        }
-
-        /// <summary>
-        /// 検出されたパラメータ名からレイヤー単位で Expression を自動生成する。
-        /// 各グループにつき 1 つの Expression が生成される。
-        /// BlendShape 値はデフォルト 1.0（最大値）で生成される。
-        /// </summary>
-        /// <param name="detectedNames">検出済みパラメータ名配列</param>
-        /// <returns>生成された Expression の配列</returns>
-        public static Expression[] GenerateExpressions(string[] detectedNames)
-        {
-            if (detectedNames == null)
-                throw new ArgumentNullException(nameof(detectedNames));
-
-            var groups = GroupByLayer(detectedNames);
-            if (groups.Count == 0)
-                return Array.Empty<Expression>();
-
-            var expressions = new Expression[groups.Count];
-            int idx = 0;
-
-            foreach (var kvp in groups)
-            {
-                string layerGroup = kvp.Key;
-                string[] paramNames = kvp.Value;
-
-                // BlendShape マッピング生成（デフォルト値 1.0）
-                var mappings = new BlendShapeMapping[paramNames.Length];
-                for (int i = 0; i < paramNames.Length; i++)
-                {
-                    mappings[i] = new BlendShapeMapping(paramNames[i], 1f);
-                }
-
-                expressions[idx] = new Expression(
-                    id: Guid.NewGuid().ToString(),
-                    name: $"ARKit_{layerGroup}",
-                    layer: layerGroup,
-                    transitionDuration: Expression.DefaultTransitionDuration,
-                    transitionCurve: TransitionCurve.Linear,
-                    blendShapeValues: mappings
-                );
-                idx++;
-            }
-
-            return expressions;
         }
 
         // --- 内部ヘルパー ---
