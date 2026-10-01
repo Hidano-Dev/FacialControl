@@ -1,4 +1,8 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
 using Hidano.FacialControl.Rec.Adapters.Playable;
+using Hidano.FacialControl.Rec.Adapters.Recording;
 using Hidano.FacialControl.Rec.Application.UseCases;
 using UnityEditor;
 using UnityEditor.UIElements;
@@ -13,6 +17,8 @@ namespace Hidano.FacialControl.Rec.Editor.Inspector
         public const string RecordingNameFieldName = "rec-binding-recording-name-field";
         public const string StartRecordingButtonName = "rec-binding-start-recording-button";
         public const string StopRecordingButtonName = "rec-binding-stop-recording-button";
+        public const string RecordingDropdownName = "rec-binding-recording-dropdown";
+        public const string RefreshRecordingsButtonName = "rec-binding-refresh-recordings-button";
         public const string LoadRecordingButtonName = "rec-binding-load-recording-button";
         public const string StartPlaybackButtonName = "rec-binding-start-playback-button";
         public const string StopPlaybackButtonName = "rec-binding-stop-playback-button";
@@ -43,12 +49,12 @@ namespace Hidano.FacialControl.Rec.Editor.Inspector
             };
             root.Add(editModeHelp);
 
-            // Default Recording Name で埋めない。空欄は「既定名に委ねる」の意味で、Start は
-            // Default Recording Name → タイムスタンプ、Load は直近に録画したテイクへフォールバックする。
+            // Default Recording Name で埋めない。空欄は「既定名に委ねる」の意味で、
+            // Default Recording Name → タイムスタンプへフォールバックする。
             var recordingNameField = new TextField("Recording Name")
             {
                 name = RecordingNameFieldName,
-                tooltip = "Start Recording: 空のままなら Default Recording Name、それも空なら take-yyyyMMdd-HHmmss で命名する。同名の録画がある場合は上書きせず -2, -3… を付与して保存する。\nLoad Recording: 空のままなら直近に録画したテイクを読み込む。",
+                tooltip = "Start Recording で使うテイク名。空のままなら Default Recording Name、それも空なら take-yyyyMMdd-HHmmss で命名する。同名の録画がある場合は上書きせず -2, -3… を付与して保存する。",
             };
             root.Add(recordingNameField);
 
@@ -56,6 +62,70 @@ namespace Hidano.FacialControl.Rec.Editor.Inspector
             bool preferRecordingPath = false;
             string seenRecordingPath = binding.LastRecordingPath;
             string seenLoadedPath = binding.LoadedRecordingPath;
+
+            // Load 対象は保存済み録画からの選択式にする（テイク名の打ち間違いを起こさない）。
+            // 一覧はファイル I/O を伴うので毎 Refresh では取らず、表示時・録画停止時・Refresh ボタンでだけ更新する。
+            var recordingRow = new VisualElement();
+            recordingRow.style.flexDirection = FlexDirection.Row;
+            var recordingDropdown = new DropdownField("Load Target")
+            {
+                name = RecordingDropdownName,
+                tooltip = "Load Recording で読み込むテイク。更新日時の新しい順に並ぶ。録画がまだ無ければ空で、その場合 Load Recording は直近に録画したテイクを読み込む。",
+            };
+            recordingDropdown.style.flexGrow = 1;
+            var refreshRecordingsButton = new Button
+            {
+                name = RefreshRecordingsButtonName,
+                text = "Refresh",
+                tooltip = "保存済み録画の一覧を読み直す。",
+            };
+            recordingRow.Add(recordingDropdown);
+            recordingRow.Add(refreshRecordingsButton);
+
+            // 一覧に反映済みの「直近に保存したテイク」のパス。これと LastRecordingPath の差で新しいテイクの保存を検知する
+            // （録画中 → 停止の遷移を見るだけだと、ポーリング間隔より短い録画を取りこぼす）。
+            string listedRecordingPath = binding.LastRecordingPath;
+
+            void RefreshRecordingChoices(string preferredName)
+            {
+                // Play モード終了で録画が止まった直後は、binding がすでに破棄されていることがある。
+                if (binding == null)
+                {
+                    return;
+                }
+
+                IReadOnlyList<RecRecordingEntry> recordings = binding.GetRecordings();
+                var names = new List<string>(recordings.Count);
+                for (int i = 0; i < recordings.Count; i++)
+                {
+                    names.Add(recordings[i].Name);
+                }
+
+                recordingDropdown.choices = names;
+                recordingDropdown.SetValueWithoutNotify(
+                    ResolveRecordingSelection(names, preferredName, recordingDropdown.value));
+            }
+
+            // 録画を止めた後、新しく保存したテイクがあれば一覧を読み直してそれを選択する。
+            // オープン失敗で何も保存されなかった場合は LastRecordingPath が変わらないので、選択は動かさない。
+            void SyncRecordingChoicesWithLastTake()
+            {
+                if (binding == null || binding.IsRecording)
+                {
+                    return;
+                }
+
+                if (string.Equals(listedRecordingPath, binding.LastRecordingPath, StringComparison.Ordinal))
+                {
+                    return;
+                }
+
+                listedRecordingPath = binding.LastRecordingPath;
+                RefreshRecordingChoices(binding.LastRecordingName);
+            }
+
+            refreshRecordingsButton.clicked += () => RefreshRecordingChoices(null);
+            RefreshRecordingChoices(binding.LastRecordingName);
 
             var recordButtons = new VisualElement();
             recordButtons.style.flexDirection = FlexDirection.Row;
@@ -69,7 +139,12 @@ namespace Hidano.FacialControl.Rec.Editor.Inspector
                 name = StartRecordingButtonName,
                 text = "Start Recording",
             };
-            var stopRecordingButton = new Button(binding.StopRecording)
+            // Stop 直後に Load されても一覧と選択が追いついているよう、ポーリングを待たずに反映する。
+            var stopRecordingButton = new Button(() =>
+            {
+                binding.StopRecording();
+                SyncRecordingChoicesWithLastTake();
+            })
             {
                 name = StopRecordingButtonName,
                 text = "Stop Recording",
@@ -78,6 +153,20 @@ namespace Hidano.FacialControl.Rec.Editor.Inspector
             recordButtons.Add(startRecordingButton);
             recordButtons.Add(stopRecordingButton);
             root.Add(recordButtons);
+            root.Add(recordingRow);
+
+            // Load / Start Playback は録画中なら暗黙に録画を止める。そのとき選択を新しいテイクへ動かすと、
+            // 実際に読み込んだ・再生するテイクと表示がずれるので、一覧だけ読み直して選択は保つ。
+            void InvokeKeepingSelection(Action action)
+            {
+                bool recordingBefore = binding.IsRecording;
+                action();
+                if (recordingBefore && !binding.IsRecording)
+                {
+                    listedRecordingPath = binding.LastRecordingPath;
+                    RefreshRecordingChoices(recordingDropdown.value);
+                }
+            }
 
             var playbackButtons = new VisualElement();
             playbackButtons.style.flexDirection = FlexDirection.Row;
@@ -85,13 +174,14 @@ namespace Hidano.FacialControl.Rec.Editor.Inspector
             var loadRecordingButton = new Button(() =>
             {
                 preferRecordingPath = false;
-                binding.LoadRecording(ResolveRecordingName(recordingNameField.value));
+                string selectedName = ResolveRecordingName(recordingDropdown.value);
+                InvokeKeepingSelection(() => binding.LoadRecording(selectedName));
             })
             {
                 name = LoadRecordingButtonName,
                 text = "Load Recording",
             };
-            var startPlaybackButton = new Button(() => binding.StartPlayback())
+            var startPlaybackButton = new Button(() => InvokeKeepingSelection(() => binding.StartPlayback()))
             {
                 name = StartPlaybackButtonName,
                 text = "Start Playback",
@@ -131,14 +221,17 @@ namespace Hidano.FacialControl.Rec.Editor.Inspector
                 startPlaybackButton.SetEnabled(isPlaying);
                 stopPlaybackButton.SetEnabled(isPlaying);
 
+                // 録画停止直後は一覧を読み直し、保存したテイクを選択状態にする（スクリプト API 経由の停止も拾う）。
+                SyncRecordingChoicesWithLastTake();
+
                 // スクリプト API 経由の操作も拾えるよう、パスの変化からも優先対象を更新する。
-                if (!string.Equals(seenRecordingPath, binding.LastRecordingPath, System.StringComparison.Ordinal))
+                if (!string.Equals(seenRecordingPath, binding.LastRecordingPath, StringComparison.Ordinal))
                 {
                     seenRecordingPath = binding.LastRecordingPath;
                     preferRecordingPath = true;
                 }
 
-                if (!string.Equals(seenLoadedPath, binding.LoadedRecordingPath, System.StringComparison.Ordinal))
+                if (!string.Equals(seenLoadedPath, binding.LoadedRecordingPath, StringComparison.Ordinal))
                 {
                     seenLoadedPath = binding.LoadedRecordingPath;
                     preferRecordingPath = false;
@@ -153,6 +246,30 @@ namespace Hidano.FacialControl.Rec.Editor.Inspector
             Refresh();
             root.schedule.Execute(Refresh).Every(100);
             return root;
+        }
+
+        /// <summary>
+        /// Load 対象ドロップダウンの選択値を決める。<paramref name="preferredName"/>（直前に保存したテイク等）→
+        /// 現在の選択値 → 先頭（最新）の順で、一覧に存在するものを選ぶ。一覧が空なら空文字。
+        /// </summary>
+        public static string ResolveRecordingSelection(IReadOnlyList<string> names, string preferredName, string currentValue)
+        {
+            if (names == null || names.Count == 0)
+            {
+                return string.Empty;
+            }
+
+            if (!string.IsNullOrEmpty(preferredName) && names.Contains(preferredName, StringComparer.Ordinal))
+            {
+                return preferredName;
+            }
+
+            if (!string.IsNullOrEmpty(currentValue) && names.Contains(currentValue, StringComparer.Ordinal))
+            {
+                return currentValue;
+            }
+
+            return names[0];
         }
 
         private static string ResolveRecordingName(string value)

@@ -62,6 +62,22 @@ namespace Hidano.FacialControl.Rec.Application.UseCases
 
         public bool StartPlayback()
         {
+            return StartPlayback(0d);
+        }
+
+        /// <summary>
+        /// Starts playback from <paramref name="startOffsetSeconds"/> seconds into the recording.
+        /// Events before the offset are folded into the injected baseline (final trigger stacks and last analog values),
+        /// so an expression that was mid-transition at the offset starts from its target state.
+        /// </summary>
+        public bool StartPlayback(double startOffsetSeconds)
+        {
+            if (!RecPlaybackScheduler.IsValidStartOffset(startOffsetSeconds))
+            {
+                Debug.LogWarning($"Playback start was ignored because startOffsetSeconds ({startOffsetSeconds}) must be a finite, non-negative number.");
+                return false;
+            }
+
             if (State == RecPlaybackState.Playing)
             {
                 Debug.LogWarning("Playback is already active. StartPlayback was ignored.");
@@ -77,10 +93,10 @@ namespace Hidano.FacialControl.Rec.Application.UseCases
             LogMissingExpressionIdsOnce();
 
             RecTimeline timeline = _loadResult.Timeline;
-            RecBaselineState baseline = CreateFilteredBaseline(timeline.Baseline);
+            RecBaselineState baseline = CreateFilteredBaseline(RecTimelineSeek.BuildBaselineAt(timeline, startOffsetSeconds));
             _triggerPort.BeginInjection(baseline);
             _analogPort.BeginInjection(baseline);
-            _scheduler.Load(timeline);
+            _scheduler.Load(timeline, startOffsetSeconds);
 
             if (_scheduler.IsCompleted)
             {
