@@ -643,7 +643,7 @@ namespace Hidano.FacialControl.Editor.Inspector.AdapterBindings
         }
 
         /// <summary>
-        /// Foldout ヘッダーの削除ボタンの手前に要約ラベルを置き、binding の値が変わるたびに取り直す。
+        /// Foldout ヘッダーの削除ボタンの手前に要約ラベルを置き、プロファイルの値が変わるたびに取り直す。
         /// </summary>
         private static void AddHeaderSummary(
             Foldout foldout,
@@ -665,16 +665,27 @@ namespace Hidano.FacialControl.Editor.Inspector.AdapterBindings
             int insertAt = removeButton != null ? headerInput.IndexOf(removeButton) : headerInput.childCount;
             headerInput.Insert(insertAt, label);
 
-            ApplyHeaderSummary(label, elementProperty, provider, bindingType);
-            // slug の追従は foldout 側で track しているため、こちらはラベル自身で要素全体を track する。
-            label.TrackPropertyValue(elementProperty, p => ApplyHeaderSummary(label, p, provider, bindingType));
+            ApplyHeaderSummary(label, elementProperty, provider, bindingType, logErrors: true);
+            // SerializeReference 要素への TrackPropertyValue は子プロパティ（_port や _endpoints 内の
+            // host / port / enabled）の変更を通知しないことがあるため、SerializedObject 全体の変更で取り直す。
+            // 要約の組み立ては軽く、Inspector の編集頻度でしか走らない。
+            label.TrackSerializedObjectValue(
+                elementProperty.serializedObject,
+                _ =>
+                {
+                    // 要素の追加・削除・Undo の直後は行の作り直し前に古い要素を指していることがあるため、
+                    // 追跡からの再計算では失敗を警告せずに読み飛ばす（作り直した行が正しい値を出す）。
+                    if (label.panel == null || elementProperty.serializedObject.targetObject == null) return;
+                    ApplyHeaderSummary(label, elementProperty, provider, bindingType, logErrors: false);
+                });
         }
 
         private static void ApplyHeaderSummary(
             Label label,
             SerializedProperty elementProperty,
             IAdapterBindingHeaderSummaryProvider provider,
-            Type bindingType)
+            Type bindingType,
+            bool logErrors)
         {
             AdapterBindingHeaderSummary summary;
             try
@@ -684,6 +695,7 @@ namespace Hidano.FacialControl.Editor.Inspector.AdapterBindings
             catch (Exception ex)
             {
                 // 要約は表示だけの補助なので、失敗しても行の描画は止めない。
+                if (!logErrors) return;
                 Debug.LogWarning(
                     $"[FacialControl] Header summary for '{bindingType.FullName}' threw {ex.GetType().Name}: {ex.Message}");
                 summary = AdapterBindingHeaderSummary.None;
