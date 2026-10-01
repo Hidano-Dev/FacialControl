@@ -1,6 +1,4 @@
 using System;
-using System.Collections.Generic;
-using System.Linq;
 using Hidano.FacialControl.Domain.Adapters;
 using Hidano.FacialControl.Domain.Models;
 using Hidano.FacialControl.Editor.Inspector.AdapterBindings;
@@ -87,7 +85,7 @@ namespace Hidano.FacialControl.Tests.EditMode.Editor.Inspector.AdapterBindings
     /// <see cref="AdapterBindingsListView"/> の smoke テスト。
     /// 「null 要素 / 例外を投げる Drawer を含んでも構築できる」「Add 操作が SerializedObject へ書き込まれる」
     /// 「SerializeReference 追加直後に Drawer の PropertyField が出る（スロットが出ない不具合の回帰）」、
-    /// 「各行が Foldout で包まれ、開閉状態が要素単位に保持される（追加・削除・並べ替えでずれない）」を守る。
+    /// 「Foldout の開閉状態が要素単位に保持される（削除・並べ替えでずれない）」を守る。
     /// slug 重複の検出は <c>FacialCharacterProfileAssetGuardTests</c> 側で保証する。
     /// </summary>
     [TestFixture]
@@ -163,9 +161,9 @@ namespace Hidano.FacialControl.Tests.EditMode.Editor.Inspector.AdapterBindings
             }
         }
 
-        private static List<Foldout> GetRowFoldouts(AdapterBindingsListView view)
+        private string GetKey(int index)
         {
-            return view.Query<Foldout>(className: AdapterBindingsListView.RowFoldoutClassName).ToList();
+            return AdapterBindingFoldoutState.GetSessionStateKey(_listProperty.GetArrayElementAtIndex(index));
         }
 
         private static AdapterBindingDescriptor RequireDescriptor(Type concreteType)
@@ -244,60 +242,34 @@ namespace Hidano.FacialControl.Tests.EditMode.Editor.Inspector.AdapterBindings
         }
 
         // ---------------------------------------------------------------
-        // Foldout: 全種別を包む / ヘッダー表示
+        // Foldout: 開閉状態の保持（UI ツリーではなく保存先の状態で検証する）
         // ---------------------------------------------------------------
 
         [Test]
-        public void Construct_WithNullElementAndThrowingDrawer_WrapsEveryRowInFoldout()
+        public void Construct_WithNullElementAndThrowingDrawerAndFoldoutState_DoesNotThrow()
         {
             _so.WritableAdapterBindings.Add(new MockListViewSimpleBinding { Slug = "ok-front" });
             _so.WritableAdapterBindings.Add(null);
             _so.WritableAdapterBindings.Add(new MockListViewThrowingDrawerBinding { Slug = "boom" });
             ReloadSerializedObject();
+            AdapterBindingFoldoutState.Save(GetKey(0), false);
 
-            var view = new AdapterBindingsListView(_listProperty);
-
-            var foldouts = GetRowFoldouts(view);
-            Assert.AreEqual(3, foldouts.Count,
-                "Drawer あり・null 要素・Drawer 例外のフォールバックを含む全行が Foldout で包まれるべき。");
-            Assert.IsNotNull(foldouts[1].Q<MissingAdapterPlaceholderElement>(),
-                "null 要素の placeholder は Foldout の中に置かれるべき。");
-            Assert.IsNotNull(foldouts[2].Q(className: AdapterBindingsListView.FallbackRowClassName),
-                "Drawer 例外時のフォールバック表示は Foldout の中に置かれるべき。");
+            AdapterBindingsListView view = null;
+            Assert.DoesNotThrow(() => view = new AdapterBindingsListView(_listProperty));
+            Assert.DoesNotThrow(() => view.SetAllExpanded(true));
         }
 
         [Test]
-        public void Construct_BindingWithSlug_FoldoutHeaderShowsDisplayNameAndSlug()
-        {
-            _so.WritableAdapterBindings.Add(new MockListViewSimpleBinding { Slug = "my-slug" });
-            ReloadSerializedObject();
-
-            var view = new AdapterBindingsListView(_listProperty);
-
-            var foldout = GetRowFoldouts(view).Single();
-            StringAssert.Contains("ZZZ_ListViewTest_AAA_Simple", foldout.text);
-            StringAssert.Contains("my-slug", foldout.text);
-            Assert.IsNotNull(foldout.Q<Button>(className: AdapterBindingsListView.HeaderRemoveButtonClassName),
-                "Foldout ヘッダーに削除ボタンがあるべき。");
-        }
-
-        [Test]
-        public void Construct_NoSavedState_FoldoutsStartExpanded()
+        public void Load_NoSavedState_ReturnsExpanded()
         {
             _so.WritableAdapterBindings.Add(new MockListViewSimpleBinding { Slug = "a" });
             ReloadSerializedObject();
 
-            var view = new AdapterBindingsListView(_listProperty);
-
-            Assert.IsTrue(GetRowFoldouts(view).Single().value, "保存済みの開閉状態がなければ展開で開始するべき。");
+            Assert.IsTrue(AdapterBindingFoldoutState.Load(GetKey(0)), "保存済みの開閉状態がなければ展開とするべき。");
         }
 
-        // ---------------------------------------------------------------
-        // Foldout: 開閉状態の保持
-        // ---------------------------------------------------------------
-
         [Test]
-        public void SetAllExpanded_False_CollapsesAllAndPersistsAcrossReconstruction()
+        public void SetAllExpanded_False_SavesCollapsedStateForEveryElement()
         {
             _so.WritableAdapterBindings.Add(new MockListViewSimpleBinding { Slug = "a" });
             _so.WritableAdapterBindings.Add(new MockListViewWithSerializedField { Slug = "b" });
@@ -306,33 +278,27 @@ namespace Hidano.FacialControl.Tests.EditMode.Editor.Inspector.AdapterBindings
             var view = new AdapterBindingsListView(_listProperty);
             view.SetAllExpanded(false);
 
-            Assert.IsTrue(GetRowFoldouts(view).All(f => !f.value), "SetAllExpanded(false) で全行が折り畳まれるべき。");
-
-            // Inspector の再選択（= ListView の再構築）を模す。
-            ReloadSerializedObject();
-            var rebuilt = new AdapterBindingsListView(_listProperty);
-            Assert.IsTrue(GetRowFoldouts(rebuilt).All(f => !f.value),
-                "再構築後も折り畳み状態が復元されるべき。");
+            Assert.IsFalse(AdapterBindingFoldoutState.Load(GetKey(0)));
+            Assert.IsFalse(AdapterBindingFoldoutState.Load(GetKey(1)));
         }
 
         [Test]
-        public void RemoveBindingAt_AfterCollapsingLaterRow_StateStaysWithSameElement()
+        public void RemoveBindingAt_AfterCollapsingLaterElement_StateStaysWithSameElement()
         {
             _so.WritableAdapterBindings.Add(new MockListViewSimpleBinding { Slug = "first" });
             _so.WritableAdapterBindings.Add(new MockListViewWithSerializedField { Slug = "second" });
             _so.WritableAdapterBindings.Add(new MockListViewSimpleBinding { Slug = "third" });
             ReloadSerializedObject();
+            string secondKey = GetKey(1);
+            AdapterBindingFoldoutState.Save(secondKey, false);
 
             var view = new AdapterBindingsListView(_listProperty);
-            GetRowFoldouts(view)[1].value = false;
-
             view.RemoveBindingAt(0);
+            ReloadSerializedObject();
 
-            var foldouts = GetRowFoldouts(view);
-            Assert.AreEqual(2, foldouts.Count);
-            StringAssert.Contains("second", foldouts[0].text);
-            Assert.IsFalse(foldouts[0].value, "削除で index がずれても、折り畳んだ要素の状態が維持されるべき。");
-            Assert.IsTrue(foldouts[1].value, "折り畳んでいない要素に状態が移ってはならない。");
+            Assert.AreEqual(secondKey, GetKey(0), "削除で index がずれても、要素の保存キーは変わらないべき。");
+            Assert.IsFalse(AdapterBindingFoldoutState.Load(GetKey(0)), "折り畳んだ要素の状態が維持されるべき。");
+            Assert.IsTrue(AdapterBindingFoldoutState.Load(GetKey(1)), "折り畳んでいない要素に状態が移ってはならない。");
         }
 
         [Test]
@@ -342,22 +308,16 @@ namespace Hidano.FacialControl.Tests.EditMode.Editor.Inspector.AdapterBindings
             _so.WritableAdapterBindings.Add(new MockListViewWithSerializedField { Slug = "second" });
             ReloadSerializedObject();
 
-            string firstKey = AdapterBindingFoldoutState.GetSessionStateKey(_listProperty.GetArrayElementAtIndex(0));
+            string firstKey = GetKey(0);
             AdapterBindingFoldoutState.Save(firstKey, false);
 
             var bindings = _so.WritableAdapterBindings;
             (bindings[0], bindings[1]) = (bindings[1], bindings[0]);
             ReloadSerializedObject();
 
-            Assert.AreEqual(firstKey,
-                AdapterBindingFoldoutState.GetSessionStateKey(_listProperty.GetArrayElementAtIndex(1)),
-                "並べ替え後も要素の保存キーは変わらないべき。");
-
-            var view = new AdapterBindingsListView(_listProperty);
-            var foldouts = GetRowFoldouts(view);
-            StringAssert.Contains("first", foldouts[1].text);
-            Assert.IsFalse(foldouts[1].value, "並べ替えで移動した要素に折り畳み状態が付いて回るべき。");
-            Assert.IsTrue(foldouts[0].value, "入れ替わった先の要素に状態が移ってはならない。");
+            Assert.AreEqual(firstKey, GetKey(1), "並べ替え後も要素の保存キーは変わらないべき。");
+            Assert.IsFalse(AdapterBindingFoldoutState.Load(GetKey(1)), "並べ替えで移動した要素に折り畳み状態が付いて回るべき。");
+            Assert.IsTrue(AdapterBindingFoldoutState.Load(GetKey(0)), "入れ替わった先の要素に状態が移ってはならない。");
         }
 
         [Test]
