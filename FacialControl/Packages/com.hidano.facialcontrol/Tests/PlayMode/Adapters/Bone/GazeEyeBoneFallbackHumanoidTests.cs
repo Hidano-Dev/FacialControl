@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using Hidano.FacialControl.Adapters.Bone;
 using Hidano.FacialControl.Adapters.Playable;
 using Hidano.FacialControl.Adapters.ScriptableObject;
+using Hidano.FacialControl.Adapters.ScriptableObject.Serializable;
 using Hidano.FacialControl.Domain.Adapters;
 using Hidano.FacialControl.Domain.Interfaces;
 using Hidano.FacialControl.Domain.Models;
@@ -155,7 +156,7 @@ namespace Hidano.FacialControl.Tests.PlayMode.Adapters.Bone
             Assert.That(_unresolvedWarningCount, Is.EqualTo(1), "警告は初期化 1 回につき 1 度だけ");
         }
 
-        private FacialController AttachController(IAnalogInputSource gazeSource)
+        private FacialController AttachController(FixedGazeSource gazeSource)
         {
             // Initialize は Animator と BlendShape 付き SkinnedMeshRenderer が無いと初期化をスキップする。
             var meshObject = new GameObject("FaceMesh");
@@ -318,7 +319,7 @@ namespace Hidano.FacialControl.Tests.PlayMode.Adapters.Bone
         [Serializable]
         private sealed class GazeSourceBinding : AdapterBindingBase
         {
-            [NonSerialized] public IAnalogInputSource Source;
+            [NonSerialized] public FixedGazeSource Source;
 
             public override void OnStart(in AdapterBuildContext ctx)
             {
@@ -329,16 +330,19 @@ namespace Hidano.FacialControl.Tests.PlayMode.Adapters.Bone
             }
         }
 
-        private sealed class FixedGazeSource : IAnalogInputSource
+        private sealed class FixedGazeSource : IInputSource, IAnalogInputSource
         {
             private readonly float _x;
             private readonly float _y;
-            public FixedGazeSource(float x, float y) { Id = "test:gaze"; _x = x; _y = y; }
+            public FixedGazeSource(float x, float y) { Id = "test:gaze"; _x = x; _y = y; ContributeMask = new BitArray(0); }
             public string Id { get; }
             public InputSourceType Type => InputSourceType.ValueProvider;
+            public int BlendShapeCount => 0;
+            public BitArray ContributeMask { get; }
             public bool IsValid => true;
             public int AxisCount => 2;
             public void Tick(float deltaTime) { }
+            public bool TryWriteValues(Span<float> output) => false;
             public bool TryReadScalar(out float value) { value = _x; return true; }
             public bool TryReadVector2(out float x, out float y) { x = _x; y = _y; return true; }
             public bool TryReadAxes(Span<float> output)
