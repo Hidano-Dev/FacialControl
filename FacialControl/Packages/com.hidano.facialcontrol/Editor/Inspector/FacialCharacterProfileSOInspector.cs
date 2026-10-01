@@ -13,6 +13,7 @@ using Hidano.FacialControl.Editor.AutoExport;
 using Hidano.FacialControl.Editor.Common;
 using Hidano.FacialControl.Editor.Inspector.AdapterBindings;
 using Hidano.FacialControl.Editor.Sampling;
+using Hidano.FacialControl.Editor.Thumbnails;
 using Hidano.FacialControl.Editor.Windows.Routing;
 using Hidano.FacialControl.Editor.Windows.Routing.Logic;
 
@@ -64,6 +65,7 @@ namespace Hidano.FacialControl.Editor.Inspector
         public const string DefaultOverlaysFoldoutName = "facial-character-default-overlays-foldout";
         public const string ExpressionLibraryFoldoutName = "facial-character-expression-library-foldout";
         public const string ExpressionLibraryAddButtonName = "facial-character-expression-library-add-button";
+        public const string ExpressionThumbnailRegenerateButtonName = "facial-character-expression-thumbnail-regenerate-button";
         public const string RoutingEditorOpenButtonName = "facial-character-routing-editor-open-button";
         public const string ExpressionOverlaysSectionName = "expression-row-overlays-section";
         public const string ExpressionPhonemeOverlaysFoldoutName = "expression-row-phoneme-overlays-foldout";
@@ -181,6 +183,10 @@ namespace Hidano.FacialControl.Editor.Inspector
         protected IExpressionAnimationClipSampler _sampler;
         private bool _autoSavePending;
 
+        // Expression 行のサムネイル生成。最初の CreateInspectorGUI で生成し、OnDisable で破棄する
+        // （プレビュー用の一時オブジェクトとテクスチャを Inspector より長く残さない）。
+        private ExpressionThumbnailService _thumbnailService;
+
         // panel attach 時に次ティックへ遅延した overlay 編集（ApplyDefaultOverlayClipCore /
         // ApplyExpressionOverlayClipCore 等）を保持する。遅延ティックが来る前に Play 突入すると、
         // ドメインリロードで panel が破棄され schedule.Execute が実行されず、編集が確定しないまま失われる
@@ -211,6 +217,8 @@ namespace Hidano.FacialControl.Editor.Inspector
         protected virtual void OnDisable()
         {
             EditorApplication.playModeStateChanged -= OnPlayModeStateChangedFlushOverlayEdits;
+
+            DisposeThumbnailService();
 
             // 破棄前に Foldout の開閉状態を保存し、再構築時に直前の表示状態を再現できるようにする。
             SaveFoldoutViewStates();
@@ -271,6 +279,9 @@ namespace Hidano.FacialControl.Editor.Inspector
             OnResolveDerivedSerializedProperties();
             _gazeChannelsProperty = serializedObject.FindProperty("_gazeChannels");
             _sampler = new AnimationClipExpressionSampler();
+            // 同じ Editor で UI を作り直す場合はサービスを使い回し、メモリ上のサムネイルを即表示に使う
+            // （前回の行の割り当ては Expression 一覧の構築時に ClearBindings で外れる）。
+            EnsureThumbnailService();
 
             var root = new VisualElement();
             _rootElement = root;
@@ -1126,11 +1137,47 @@ namespace Hidano.FacialControl.Editor.Inspector
                 name = ExpressionLibraryAddButtonName,
                 text = "+ Expression",
             };
-            addExpressionButton.style.alignSelf = Align.FlexStart;
-            addExpressionButton.style.marginTop = 4;
-            foldout.Add(addExpressionButton);
+            var regenerateThumbnailsButton = new Button(() => EnsureThumbnailService()?.RegenerateAll())
+            {
+                name = ExpressionThumbnailRegenerateButtonName,
+                text = "サムネイルを再生成",
+                tooltip = "Expression のサムネイルをキャッシュから消して作り直します。",
+            };
+            regenerateThumbnailsButton.style.marginLeft = 6;
+
+            var buttonRow = new VisualElement();
+            buttonRow.style.flexDirection = FlexDirection.Row;
+            buttonRow.style.marginTop = 4;
+            buttonRow.Add(addExpressionButton);
+            buttonRow.Add(regenerateThumbnailsButton);
+            foldout.Add(buttonRow);
 
             root.Add(foldout);
+        }
+
+        /// <summary>
+        /// サムネイル生成サービスを返す（無ければ作る）。OnDisable 後（Editor 破棄後）に UI から呼ばれた場合は
+        /// 作らずに null を返す（破棄済み Editor が EditorApplication.update を購読し続けないように）。
+        /// </summary>
+        private ExpressionThumbnailService EnsureThumbnailService()
+        {
+            if (this == null || target == null) return null;
+
+            // ドメインリロード直前に自身で Dispose 済みのものは作り直す。
+            if (_thumbnailService == null || _thumbnailService.IsDisposed)
+            {
+                _thumbnailService = ExpressionThumbnailService.CreateDefault(
+                    _sampler ?? new AnimationClipExpressionSampler());
+            }
+            return _thumbnailService;
+        }
+
+        private void DisposeThumbnailService()
+        {
+            if (_thumbnailService == null) return;
+
+            _thumbnailService.Dispose();
+            _thumbnailService = null;
         }
 
         private void RebuildExpressionLibraryUI()
@@ -1138,6 +1185,7 @@ namespace Hidano.FacialControl.Editor.Inspector
             if (_expressionLibraryContainer == null) return;
 
             _expressionLibraryContainer.Clear();
+            _thumbnailService?.ClearBindings();
             if (_expressionsProperty == null) return;
 
             serializedObject.Update();
@@ -1510,6 +1558,10 @@ namespace Hidano.FacialControl.Editor.Inspector
             var currentReferenceModel = GetReferenceModel();
             _lastReferenceModel = currentReferenceModel;
 
+            if (currentReferenceModel != previousReferenceModel)
+            {
+                _thumbnailService?.RebindReferenceModel(currentReferenceModel);
+            }
 
 
             // 参照モデルが切り替わった/設定されたら、目線タブ名にアスタリスクを付けて
@@ -1926,11 +1978,19 @@ namespace Hidano.FacialControl.Editor.Inspector
             row.style.borderLeftColor = new StyleColor(new Color(0.7f, 0.7f, 0.7f));
             row.style.borderLeftWidth = 2;
 
-            // ヘッダー行: 削除ボタンのみ。「目線操作」トグルは AnimationClip スロット直下に移動した。
+            // ヘッダー行: 左にサムネイル、右に削除ボタン。「目線操作」トグルは AnimationClip スロット直下に移動した。
             var headerRow = new VisualElement();
             headerRow.style.flexDirection = FlexDirection.Row;
-            headerRow.style.alignItems = Align.Center;
-            headerRow.style.justifyContent = Justify.FlexEnd;
+            headerRow.style.alignItems = Align.FlexStart;
+            headerRow.style.justifyContent = Justify.SpaceBetween;
+            headerRow.style.marginBottom = 4;
+
+            var thumbnailView = new ExpressionThumbnailView();
+            headerRow.Add(thumbnailView);
+            var clipPropForThumbnail = entryProp.FindPropertyRelative("animationClip");
+            BindExpressionThumbnail(
+                thumbnailView,
+                clipPropForThumbnail != null ? clipPropForThumbnail.objectReferenceValue as AnimationClip : null);
 
             var removeButton = new Button(() => RemoveExpression(exprIndex))
             {
@@ -2015,6 +2075,20 @@ namespace Hidano.FacialControl.Editor.Inspector
             UpdateRowValidation(row, exprIndex);
 
             return row;
+        }
+
+        private void BindExpressionThumbnail(ExpressionThumbnailView view, AnimationClip clip)
+        {
+            if (view == null) return;
+
+            var service = EnsureThumbnailService();
+            if (service == null)
+            {
+                view.ShowStatus(ExpressionThumbnailView.FailedMessage);
+                return;
+            }
+
+            service.Bind(view, GetReferenceModel(), clip);
         }
 
         private VisualElement BuildOverlaysSectionForExpression(SerializedProperty overlaysProp, int exprIndex)
@@ -3001,6 +3075,8 @@ namespace Hidano.FacialControl.Editor.Inspector
             RefreshRendererSummary(rowElement, newClip);
             if (rowElement != null)
             {
+                BindExpressionThumbnail(rowElement.Q<ExpressionThumbnailView>(ExpressionThumbnailView.ElementName), newClip);
+
                 var nameField = rowElement.Q<TextField>(ExpressionRowNameFieldName);
                 if (nameField != null && nameProp != null)
                 {

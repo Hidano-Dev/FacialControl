@@ -45,8 +45,8 @@ Expression 作成ツール（`com.hidano.facialcontrol.expression-creator`）と
 ## クイックスタート
 
 1. Project ウィンドウで **Create → FacialControl → Facial Character Profile** を作成
-2. Inspector 上部の **参照モデル** にキャラクターの prefab を割り当てる（BlendShape / ボーン名の候補表示と目ボーン自動解決に使う）
-3. **表情ライブラリ** タブで Expression を追加し、AnimationClip を割り当てる。Clip は `com.hidano.facialcontrol.expression-creator` の **Tools → FacialControl → Expression 作成** のスライダーからベイクできる
+2. Inspector 上部の **参照モデル** にキャラクターの prefab を割り当てる（BlendShape / ボーン名の候補表示、目ボーン自動解決、Expression のサムネイルに使う）
+3. **表情ライブラリ** タブで Expression を追加し、AnimationClip を割り当てる。Clip は `com.hidano.facialcontrol.expression-creator` の **Tools → FacialControl → Expression 作成** のスライダーからベイクできる。各 Expression 行には参照モデルに適用した顔のサムネイルが出る（クリックで拡大。キャッシュは `Library/FacialControl/ExpressionThumbnails/`。見た目が古いときは **サムネイルを再生成**）
 4. **レイヤー** タブでレイヤーと入力源 id を設定する（サブパッケージの binding を Add すると既定レイヤーが自動追加される）
 5. **Adapter Bindings** タブで入力源（Input System / OSC Receiver / uLipSync など）を **Add** し、slug と各設定を埋める
 6. キャラクターの GameObject に **Add Component → FacialControl → Facial Controller** を追加し、Profile を結線

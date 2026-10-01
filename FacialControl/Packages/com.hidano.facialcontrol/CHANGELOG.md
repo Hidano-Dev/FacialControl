@@ -9,6 +9,13 @@
 - `IAdapterBindingHeaderSummaryProvider` / `AdapterBindingHeaderSummary` — Adapter Binding の PropertyDrawer が任意で実装すると、Adapter Bindings タブの Foldout ヘッダーに要約（接続先など）とツールチップを表示する拡張ポイント。binding の値を変えるとヘッダーも即座に更新する。実装しない binding は従来どおり表示名と slug だけを出す
 - `IGazeChannelOverrideProvider` / `GazeChannelOverride` — adapter binding が Gaze チャネルの目ボーン path・可動範囲を外部から上書きする契約。`FacialController` は上書きの version が変わったときだけ目ボーン provider を作り直す。上書きを使うのは、そのチャネルの入力源を実際に提供している binding（slug が一致するもの）だけ。上書き path のボーンがローカル path と異なる側は、rest 回転・yaw / pitch 軸を Humanoid fallback と同じ規則で導出する。導出に使うのは初期化時の姿勢で、上書き binding があるときだけ初期化時に配下の Transform について記録しておく。上書き path がローカル path と同じボーンを指す場合は、エディタで保存した値をそのまま使う。path が見つからなければ警告を 1 回出してローカルの規則に戻す
 - `IGazeChannelSettingsConsumer` — Profile の Gaze チャネル設定（目ボーン path・可動範囲を含む）を adapter binding へ注入する契約。`IGazeChannelConsumer` と同じく rebuild ごと・OnStart 前に呼ばれる
+- `FacialCharacterProfileSO` Inspector の Expression List に、参照モデルへ各 Expression を適用した顔のサムネイル（128px 表示、クリックで 512px を拡大表示）を追加した
+  - 参照モデル・AnimationClip が未設定のときはプレースホルダを表示する
+  - 生成は遅延で行う。キャッシュはメモリと `Library/FacialControl/ExpressionThumbnails/`（コミット対象外、最大 500 件で古い順に削除）に置く
+  - Expression の中身（AnimationClip のカーブ値・参照先）や参照モデル（依存するマテリアル・テクスチャを含む）が変わったときだけ作り直す。clip を編集中は変更が落ち着いてから作り直す
+  - 「サムネイルを再生成」ボタンでキャッシュを破棄して作り直せる
+  - Inspector を閉じたとき・ドメインリロード前に、プレビュー用の一時オブジェクトとテクスチャを破棄する
+- Editor 共通ユーティリティ `FaceTrackTargetResolver`（`com.hidano.facialcontrol.expression-creator` から移動）、`PreviewRenderCapture`（`PreviewRenderUtility` のオフスクリーン描画 → `Texture2D`）、`PreviewModelBounds`
 
 ### Changed
 

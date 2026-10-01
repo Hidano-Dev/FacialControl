@@ -1,4 +1,5 @@
 using System;
+using Hidano.FacialControl.Editor.Common;
 using SceneViewStyleCameraController;
 using SceneViewStyleCameraController.Handlers;
 using UnityEditor;
@@ -208,66 +209,7 @@ namespace Hidano.FacialControl.ExpressionCreator
             _previewRenderUtility.camera.transform.position = _state.position;
             _previewRenderUtility.camera.transform.rotation = _state.rotation;
 
-            var rect = new Rect(0f, 0f, width, height);
-            var previousActive = RenderTexture.active;
-
-            // SRP(URP) では GUI コンテキスト外（ボタンクリック等）からの PreviewRenderUtility.Render()
-            // （camera.Render() 経由）が何も描画せず、EndPreview() は直前に画面へ描画された内容が
-            // 残った RenderTexture を返す。このため明示的な RenderRequest でオフスクリーン描画する。
-            var request = new UnityEngine.Rendering.RenderPipeline.StandardRequest();
-            if (UnityEngine.Rendering.RenderPipeline.SupportsRenderRequest(_previewRenderUtility.camera, request))
-            {
-                // MSAA 付き一時 RT は URP の最終 depth copy で resolve surface エラーになるため使わない
-                var renderTexture = RenderTexture.GetTemporary(
-                    width, height, 24, RenderTextureFormat.ARGB32);
-                try
-                {
-                    // BeginPreview / EndPreview でプレビューシーンのライティング設定を
-                    // on-screen 描画（Render(rect)）と揃える。
-                    _previewRenderUtility.BeginPreview(rect, GUIStyle.none);
-                    try
-                    {
-                        request.destination = renderTexture;
-                        UnityEngine.Rendering.RenderPipeline.SubmitRenderRequest(
-                            _previewRenderUtility.camera, request);
-                    }
-                    finally
-                    {
-                        _previewRenderUtility.EndPreview();
-                    }
-
-                    RenderTexture.active = renderTexture;
-                    var texture = new Texture2D(width, height, TextureFormat.RGBA32, false);
-                    texture.ReadPixels(rect, 0, 0);
-                    texture.Apply();
-                    return texture;
-                }
-                finally
-                {
-                    RenderTexture.active = previousActive;
-                    RenderTexture.ReleaseTemporary(renderTexture);
-                }
-            }
-
-            // Built-in RP fallback: 従来どおり PreviewRenderUtility の描画結果を読み取る
-            _previewRenderUtility.BeginPreview(rect, GUIStyle.none);
-            try
-            {
-                _previewRenderUtility.Render(true, true);
-                var renderTexture = _previewRenderUtility.EndPreview() as RenderTexture;
-                if (renderTexture == null)
-                    return null;
-
-                RenderTexture.active = renderTexture;
-                var texture = new Texture2D(width, height, TextureFormat.RGBA32, false);
-                texture.ReadPixels(rect, 0, 0);
-                texture.Apply();
-                return texture;
-            }
-            finally
-            {
-                RenderTexture.active = previousActive;
-            }
+            return PreviewRenderCapture.Capture(_previewRenderUtility, width, height);
         }
 
         public bool HandleInput(Rect rect)
@@ -384,17 +326,7 @@ namespace Hidano.FacialControl.ExpressionCreator
 
         public static Bounds CalculateBounds(GameObject go)
         {
-            var renderers = go.GetComponentsInChildren<Renderer>(true);
-            if (renderers.Length == 0)
-                return new Bounds(go.transform.position, Vector3.one);
-
-            var bounds = renderers[0].bounds;
-            for (int i = 1; i < renderers.Length; i++)
-            {
-                bounds.Encapsulate(renderers[i].bounds);
-            }
-
-            return bounds;
+            return PreviewModelBounds.Calculate(go);
         }
 
         public void Dispose()

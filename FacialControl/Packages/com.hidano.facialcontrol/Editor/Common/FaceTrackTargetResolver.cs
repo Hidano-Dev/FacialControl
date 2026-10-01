@@ -1,7 +1,7 @@
 using System;
 using UnityEngine;
 
-namespace Hidano.FacialControl.ExpressionCreator
+namespace Hidano.FacialControl.Editor.Common
 {
     /// <summary>
     /// プレビューカメラが注視する「顔」ジョイントをモデル階層から自動解決するユーティリティ。
