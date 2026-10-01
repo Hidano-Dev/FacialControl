@@ -288,6 +288,36 @@ namespace Hidano.FacialControl.Rec.Tests.PlayMode
         }
 
         [UnityTest]
+        public IEnumerator StartPlayback_WithOffset_AppliesStateRebuiltAtOffsetBeforeFirstTick()
+        {
+            SetupHarness(out _, out RecCharacterBinding binding, out FakeObservationBus bus, out _, out TestTriggerSource triggerSource, out _);
+
+            Assert.That(binding.StartRecording("seek"), Is.True);
+            bus.PublishTriggerOn(triggerSource.Id, "smile");
+            binding.StopRecording();
+
+            triggerSource.TriggerOff("smile");
+            Assert.That(binding.LoadRecording("seek"), Is.True);
+
+            LogAssert.Expect(LogType.Warning, new Regex("startOffsetSeconds"));
+            Assert.That(binding.StartPlayback(-1d), Is.False);
+            Assert.That(binding.PlaybackState, Is.EqualTo(RecPlaybackState.Idle));
+
+            // 録画長を超える開始位置: 最終状態（smile on）を注入して即座に完了する
+            Assert.That(binding.StartPlayback(3600d), Is.True);
+
+            Assert.That(triggerSource.ActiveExpressionIds, Is.EqualTo(new[] { "smile" }));
+            Assert.That(binding.PlaybackState, Is.EqualTo(RecPlaybackState.Completed));
+            Assert.That(binding.ElapsedSeconds, Is.EqualTo(3600d));
+
+            yield return null;
+
+            binding.StopPlayback();
+
+            Assert.That(binding.PlaybackState, Is.EqualTo(RecPlaybackState.Idle));
+        }
+
+        [UnityTest]
         public IEnumerator AnalogInjector_EndInjection_WithoutOriginal_UnregistersInjectedSource()
         {
             SetupHarness(out _, out _, out _, out FakeInputSourceRegistry registry, out _, out _);

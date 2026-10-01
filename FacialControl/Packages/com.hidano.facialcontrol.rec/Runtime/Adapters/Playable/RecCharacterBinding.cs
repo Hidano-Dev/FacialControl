@@ -244,6 +244,24 @@ namespace Hidano.FacialControl.Rec.Adapters.Playable
 
         public bool StartPlayback()
         {
+            return StartPlayback(0d);
+        }
+
+        /// <summary>
+        /// 録画の先頭から <paramref name="startOffsetSeconds"/> 秒の位置から再生する。
+        /// 開始位置より前のイベントは瞬時に畳み込んで状態を再構築する（トリガーは最終的な on/off、アナログは各入力源の最後の値）。
+        /// 開始位置で遷移途中だった表情は遷移の進行度までは再現せず、その時点の目標状態から始まる。
+        /// 録画長以上を指定すると最終状態を適用して即座に完了する。負値・NaN・無限大は警告して false を返す。
+        /// </summary>
+        public bool StartPlayback(double startOffsetSeconds)
+        {
+            // 録画停止などの副作用より前に弾く。
+            if (!RecPlaybackScheduler.IsValidStartOffset(startOffsetSeconds))
+            {
+                UnityEngine.Debug.LogWarning($"REC playback start was ignored because startOffsetSeconds ({startOffsetSeconds}) must be a finite, non-negative number.");
+                return false;
+            }
+
             if (!TryEnsureReady(out FacialController controller, out FacialProfile profile))
             {
                 return false;
@@ -260,7 +278,7 @@ namespace Hidano.FacialControl.Rec.Adapters.Playable
                 }
             }
 
-            return _playbackUseCase.StartPlayback();
+            return _playbackUseCase.StartPlayback(startOffsetSeconds);
         }
 
         public void StopPlayback()
