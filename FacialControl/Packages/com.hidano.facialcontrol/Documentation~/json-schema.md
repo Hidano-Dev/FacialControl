@@ -79,9 +79,9 @@
 | `providerSlug` | string | 入力源を提供する binding の slug。空なら自動解決 |
 | `useDistinctLeftRight` | bool | 左右別の入力源を使う |
 | `sourceIdLeft` / `sourceIdRight` | string | 左右別入力源 id（`useDistinctLeftRight` 時） |
-| `leftEyeBonePath` / `rightEyeBonePath` | string | 目ボーンの相対 path |
-| `leftEyeInitialRotation` / `rightEyeInitialRotation` | Euler | 初期回転 |
-| `leftEyeYawAxisLocal` / `leftEyePitchAxisLocal` など | Vector3 | ローカル yaw / pitch 軸 |
+| `leftEyeBonePath` / `rightEyeBonePath` | string | 目ボーンの相対 path。省略・空文字なら実行時に Humanoid の `LeftEye` / `RightEye` を使う |
+| `leftEyeInitialRotation` / `rightEyeInitialRotation` | Euler | 初期回転。path 省略時は使わず、実行時の目ボーンの姿勢から導出する |
+| `leftEyeYawAxisLocal` / `leftEyePitchAxisLocal` など | Vector3 | ローカル yaw / pitch 軸。path 省略時は使わず、キャラクター root の上方向 / 右方向から導出する |
 | `lookUpAngle` / `lookDownAngle` / `outerYawAngle` / `innerYawAngle` | float | 可動角（度）。既定 15 / 9 / 15 / 18 |
 
 入力源 id の規約は `{slug}:{channelId}` または `{slug}:{channelId}.left` / `.right`。

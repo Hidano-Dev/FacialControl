@@ -50,7 +50,7 @@ Unity エンジニア（開発者）。本プロジェクトはライブラリ�
 - ブレンドシェイプ・ボーン・テクスチャ切り替え・UV アニメーションの統合制御
 - 入力デバイス（コントローラ / キーボード）による表情切り替え
 - OSC（UDP）による表情データのネットワーク送受信
-- ARKit 52 / PerfectSync の自動検出・Expression 自動生成
+- ARKit 52 / PerfectSync の命名検出・OSC プリセット対応
 - Editor 拡張（プロファイル管理・Expression 作成支援・JSON 入出力）
 - 外部リップシンクプラグインとの連携インターフェース
 
@@ -88,7 +88,7 @@ Unity エンジニア（開発者）。本プロジェクトはライブラリ�
 | FR-003 | 表情遷移・補間 | 線形補間を基本とした Expression 間のスムーズな遷移 |
 | FR-004 | OSC ネットワーク通信 | UDP + uOsc による VRChat 互換の表情データ送受信 |
 | FR-005 | 入力デバイス制御 | InputSystem によるコントローラ / キーボードからの Expression 切り替え |
-| FR-006 | ARKit / PerfectSync 対応 | ARKit 52 ブレンドシェイプ・PerfectSync の自動検出と Expression 自動生成 |
+| FR-006 | ARKit / PerfectSync 対応 | ARKit 52 ブレンドシェイプ・PerfectSync の命名検出と OSC プリセット対応 |
 | FR-007 | リップシンク連携 | 外部リップシンクプラグインからの入力受付インターフェース |
 | FR-008 | Editor 拡張 | Inspector カスタマイズ（プロファイル管理・Expression CRUD・検索・インポート/エクスポート統合）、Expression 作成支援 |
 | FR-009 | JSON インポート / エクスポート | プロファイルの JSON 形式での入出力 |
@@ -269,7 +269,9 @@ Unity InputSystem による Expression 切り替え入力の管理。
 
 **概要**
 
-ARKit 52 ブレンドシェイプおよび PerfectSync に対応したモデルの自動検出と Expression 自動生成。
+ARKit 52 ブレンドシェイプおよび PerfectSync に対応したモデルの命名検出と、OSC プリセットによるキャプチャ入力対応。
+
+> **2026-09 改訂（HID-34）**: 当初の「Expression 自動生成 + OSC マッピング自動生成」（ARKit 検出ツール）は廃止した。生成される Expression はグループ内の BlendShape を全部 1.0 にした塊で、Clip ベース + キャプチャ入力の運用では使われなかったため。キャプチャ連動は OSC Receiver / iFacialMocap binding が BlendShape 名で直接駆動し、OSC マッピングは `com.hidano.facialcontrol.osc` の heartbeat 自動マッピングと ARKit プリセットで代替する。
 
 **仕様**
 
@@ -277,11 +279,9 @@ ARKit 52 ブレンドシェイプおよび PerfectSync に対応したモデル�
 |------|------|
 | 対応範囲 | ARKit 52 ブレンドシェイプ + PerfectSync |
 | マッチング方式 | 完全一致のみ（誤検出リスクゼロ。独自命名モデルは手動マッピング） |
-| 自動検出トリガー | 手動（API / Editor ボタン） |
-| Expression 自動生成 | 検出されたパラメータに基づきレイヤー単位（目/口/眉等）で Expression を自動生成 |
-| OSC マッピング | 検出と同時に OSC マッピングテーブルも自動生成 |
+| 命名検出 | core の `ARKitDetector`（ARKit 52 + PerfectSync 13 の名前表・レイヤーグループ分類・完全一致検出）を API として提供 |
+| OSC 対応 | ARKit プリセット（`/ARKit/{name}`）と heartbeat による自動マッピング（`com.hidano.facialcontrol.osc`） |
 | 未対応パラメータ | 警告なしでスキップ |
-| カスタマイズ | 生成後の Expression とマッピングはユーザーが完全に編集可能 |
 | リリース対応 | 初回プレリリースから完全対応 |
 
 ---
@@ -313,7 +313,6 @@ UI Toolkit で実装する Editor 専用の拡張機能群。ランタイム UI 
 | Inspector カスタマイズ | FacialController コンポーネントの編集 UI + FacialProfileSO Inspector でのプロファイル管理（Expression の追加・編集・削除・検索、JSON インポート/エクスポート、新規プロファイル作成）。データソースはプロファイル JSON |
 | Expression 作成支援ツール | 専用プレビューウィンドウ（Scene とは独立）で 3D モデルを表示し、BlendShape スライダーでリアルタイムプレビューしながら Expression を作成。Scene オブジェクトと Prefab/FBX の両方から対象モデルを指定可能。プレビューは値変更毎に即座更新 |
 | JSON インポート / エクスポート | プロファイル JSON の入出力。SO と JSON の同期は手動エクスポートのみ |
-| ARKit 検出ツール | BlendShape スキャン + Expression / OSC マッピング自動生成 |
 
 **保存方式**
 

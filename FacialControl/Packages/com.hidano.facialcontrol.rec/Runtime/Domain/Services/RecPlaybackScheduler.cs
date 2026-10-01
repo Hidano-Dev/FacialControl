@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using Hidano.FacialControl.Rec.Domain.Models;
 
 namespace Hidano.FacialControl.Rec.Domain.Services
@@ -26,10 +27,86 @@ namespace Hidano.FacialControl.Rec.Domain.Services
 
         public void Load(RecTimeline timeline)
         {
-            _timeline = timeline ?? throw new ArgumentNullException(nameof(timeline));
-            _nextEventIndex = 0;
-            ElapsedSeconds = 0d;
-            IsCompleted = timeline.Events.Count == 0 && timeline.DurationSeconds <= 0d;
+            Load(timeline, 0d);
+        }
+
+        /// <summary>
+        /// Loads a timeline and resumes from <paramref name="startOffsetSeconds"/>. Events before <see cref="GetStartEventIndex"/> are skipped
+        /// (fold them into the injection baseline with <see cref="RecTimelineSeek"/>); events stamped exactly at the offset fire on the next tick.
+        /// An offset at or beyond the duration skips every event and completes immediately.
+        /// </summary>
+        public void Load(RecTimeline timeline, double startOffsetSeconds)
+        {
+            if (timeline == null)
+            {
+                throw new ArgumentNullException(nameof(timeline));
+            }
+
+            _nextEventIndex = GetStartEventIndex(timeline, startOffsetSeconds);
+            _timeline = timeline;
+            ElapsedSeconds = startOffsetSeconds;
+            IsCompleted = _nextEventIndex >= timeline.Events.Count && startOffsetSeconds >= timeline.DurationSeconds;
+        }
+
+        /// <summary>
+        /// Returns whether <paramref name="startOffsetSeconds"/> is a valid playback start position (finite and non-negative).
+        /// </summary>
+        public static bool IsValidStartOffset(double startOffsetSeconds)
+        {
+            return !double.IsNaN(startOffsetSeconds) && !double.IsInfinity(startOffsetSeconds) && startOffsetSeconds >= 0d;
+        }
+
+        /// <summary>
+        /// Returns the index of the first event that playback started at <paramref name="startOffsetSeconds"/> still dispatches.
+        /// Events before this index are folded into the baseline. It is the first event not stamped before the offset,
+        /// or the event count when the offset is positive and at or beyond the duration (so seeking to the end completes immediately).
+        /// Zero always returns 0 so that playback from the start keeps dispatching events stamped at 0.
+        /// </summary>
+        public static int GetStartEventIndex(RecTimeline timeline, double startOffsetSeconds)
+        {
+            if (timeline == null)
+            {
+                throw new ArgumentNullException(nameof(timeline));
+            }
+
+            ValidateStartOffset(startOffsetSeconds, nameof(startOffsetSeconds));
+
+            IReadOnlyList<RecEvent> events = timeline.Events;
+            if (startOffsetSeconds <= 0d)
+            {
+                return 0;
+            }
+
+            if (startOffsetSeconds >= timeline.DurationSeconds)
+            {
+                return events.Count;
+            }
+
+            // Events are stored in timestamp order, so a lower-bound binary search finds the first event not before the offset.
+            int low = 0;
+            int high = events.Count;
+            while (low < high)
+            {
+                int mid = low + ((high - low) >> 1);
+                if (events[mid].TimestampSeconds < startOffsetSeconds)
+                {
+                    low = mid + 1;
+                }
+                else
+                {
+                    high = mid;
+                }
+            }
+
+            return low;
+        }
+
+        internal static void ValidateStartOffset(double startOffsetSeconds, string paramName)
+        {
+            if (!IsValidStartOffset(startOffsetSeconds))
+            {
+                throw new ArgumentOutOfRangeException(paramName, startOffsetSeconds, "Start offset must be a finite, non-negative number of seconds.");
+            }
         }
 
         /// <summary>
