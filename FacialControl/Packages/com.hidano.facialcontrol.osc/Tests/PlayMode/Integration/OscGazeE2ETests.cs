@@ -197,6 +197,87 @@ namespace Hidano.FacialControl.Tests.PlayMode.Integration
         }
 
         [UnityTest]
+        public IEnumerator FacialController_ReceiverWithoutGazeSetup_UsesSenderBonePathsAndRange()
+        {
+            int port = AllocatePort();
+            const string receiverName = "OscGazeE2E_UnconfiguredReceiver";
+
+            var senderBinding = new OscSenderAdapterBinding
+            {
+                Slug = "gaze-override-sender",
+                SuppressLoopback = false,
+                HeartbeatIntervalSeconds = 60f,
+            };
+            senderBinding.ConfigureEndpoints(
+                new[] { new OscSenderEndpointConfig(Endpoint, port, true, AddressPresetKind.VRChat) },
+                Array.Empty<string>());
+            senderBinding.ConfigureGazeChannels(new[] { GazeSourceIdConvention.DefaultChannelId });
+            // 送信側の目線タブ相当: Humanoid 以外の path と可動範囲を指定する。
+            senderBinding.ConfigureGazeChannelSettings(new[]
+            {
+                new GazeChannel
+                {
+                    id = GazeSourceIdConvention.DefaultChannelId,
+                    leftEyeBonePath = "Eyes/LeftEye",
+                    rightEyeBonePath = "Eyes/RightEye",
+                    lookUpAngle = 35f,
+                    lookDownAngle = 20f,
+                    outerYawAngle = 25f,
+                    innerYawAngle = 22f,
+                },
+            });
+
+            var receiverBinding = CreateReceiver("gaze-override-receiver", port);
+            StartBinding(senderBinding, CreateContext(CreateGameObject("OscGazeE2E_OverrideSender")));
+
+            // 受信側は目線タブを触らない (既定チャネル gaze のみ・path 未指定)。モデルは非 Humanoid なので、
+            // 送信側の path が届かなければ目は動かない。
+            var receiverProfile = ScriptableObject.CreateInstance<TestGazeProfileSO>();
+            receiverProfile.name = receiverName + "Profile";
+            receiverProfile.WritableAdapterBindings.Add(receiverBinding);
+            _objects.Add(receiverProfile);
+            GazeChannel receiverChannel = receiverProfile.GazeChannels[0];
+            Assert.That(receiverChannel.leftEyeBonePath, Is.Empty);
+            Assert.That(receiverChannel.lookUpAngle, Is.EqualTo(15f));
+
+            FacialController receiverController = CreateGazeController(receiverName, receiverProfile, out Transform receiverLeftEye);
+            yield return null;
+
+            Assert.That(receiverController.IsInitialized, Is.True);
+            Quaternion initialRotation = receiverLeftEye.localRotation;
+
+            yield return new WaitForSecondsRealtime(0.2f);
+
+            bool rotated = false;
+            for (int attempt = 0; attempt < 20 && !rotated; attempt++)
+            {
+                _outputBus.Publish(
+                    Array.Empty<float>(),
+                    new[] { new GazeSnapshot(GazeSourceIdConvention.DefaultChannelId, 0f, 1f) });
+                senderBinding.OnLateTick(0.016f);
+                yield return new WaitForSecondsRealtime(0.05f);
+                receiverBinding.OnFixedTick(0.02f);
+                yield return null;
+                rotated = Quaternion.Angle(initialRotation, receiverLeftEye.localRotation) > 0.1f;
+            }
+
+            Assert.That(rotated, Is.True,
+                "送信側の目ボーン path が広告で届き、目線タブ未設定の受信側でも目ボーンが動くこと。");
+            Assert.That(receiverBinding.TryGetGazeChannelOverride(
+                    GazeSourceIdConvention.DefaultChannelId,
+                    out GazeChannelOverride received),
+                Is.True);
+            Assert.That(received.LeftEyeBonePath, Is.EqualTo("Eyes/LeftEye"));
+            Assert.That(received.LookUpAngle, Is.EqualTo(35f));
+            // input (0, 1) は上方向。受信側ローカルの lookUp 15 ではなく、送信側の 35 で回る。
+            // UDP 経由の値の誤差を見込み、ローカル値 15 と明確に区別できる範囲で確認する。
+            float angle = Quaternion.Angle(initialRotation, receiverLeftEye.localRotation);
+            Assert.That(angle, Is.GreaterThan(25f).And.LessThan(35.5f));
+
+            receiverController.enabled = false;
+        }
+
+        [UnityTest]
         public IEnumerator GazeArKitPreset_UdpLoopback_DecomposesSenderVector2()
         {
             int port = AllocatePort();

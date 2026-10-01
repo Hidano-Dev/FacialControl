@@ -55,6 +55,8 @@ namespace Hidano.FacialControl.Rec.Tests.EditMode
             Assert.DoesNotThrow(() => root = _editor.CreateInspectorGUI());
             Assert.That(root, Is.Not.Null);
             Assert.That(root.Q<Button>(RecCharacterBindingInspector.StartRecordingButtonName), Is.Not.Null);
+            Assert.That(root.Q<DropdownField>(RecCharacterBindingInspector.RecordingDropdownName), Is.Not.Null);
+            Assert.That(root.Q<Button>(RecCharacterBindingInspector.RefreshRecordingsButtonName), Is.Not.Null);
 
             Assert.DoesNotThrow(() =>
             {

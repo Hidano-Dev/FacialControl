@@ -20,6 +20,7 @@
 - BlendShape はモデルの全 BlendShape（binding の **BlendShape Names (Optional Filter)** が空のため）
 - Gaze は Profile の目線タブに宣言された既定チャネル `gaze`
 - heartbeat `/_facialcontrol/blendshape_names`（5 秒周期）、`/_facialcontrol/preset`、`/_facialcontrol/gaze` 広告、`/_facialcontrol/sender_id` を同梱
+- Gaze 広告には目線タブの可動範囲と、指定されていれば目ボーン path を載せる。受信側はこれを自分の目線タブより優先するので、Humanoid 以外のモデルでも目線タブの設定は送信側だけでよい
 - loopback 抑制 ON
 
 ## 手順

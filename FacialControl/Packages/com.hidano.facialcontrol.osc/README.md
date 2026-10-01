@@ -42,11 +42,25 @@
 | `/_facialcontrol/sender_id` | 送信元識別（UUID + 起動時刻）。毎 bundle に同梱。受信側は最新起動の sender だけを採用しゾンビ送信元を排除 |
 | `/_facialcontrol/blendshape_names` | heartbeat。送信側が持つ BlendShape 名一覧。起動時と `heartbeatIntervalSeconds`（既定 5 秒）周期 |
 | `/_facialcontrol/preset` | `"vrchat"` / `"arkit"` のプリセット通知（Sender の Send Preset Address が ON のとき） |
-| `/_facialcontrol/gaze` | Gaze 広告。チャネル id と形式（`VRChat_XY` / `ARKit_8BS`）の組 |
+| `/_facialcontrol/gaze` | Gaze 広告。チャネル id と形式（`VRChat_XY` / `ARKit_8BS`）の組に続けて、チャネルごとの属性ペア（`bone.left=<path>` / `bone.right=<path>` / `range=<上>,<下>,<外>,<内>`）を同梱 |
+
+`/_facialcontrol/gaze` の引数は `[channelId, value, ...]` の文字列ペアの並び。value が形式識別子のペアは自動 route を、`key=value` 形式のペアはそのチャネルの目線設定を表す。
+
+| 属性ペアの value | 送るとき | 受信側の扱い |
+|---|---|---|
+| `bone.left=<path>` / `bone.right=<path>` | 送信側の目線タブでその目の path を指定したときだけ | ローカルの目ボーン path より優先する。rest 回転・yaw / pitch 軸は、解決したボーンから実行時に導出する。path が見つからない場合は警告を 1 回出し、ローカルの規則（目線タブの path → Humanoid の目ボーン）で駆動する |
+| `range=<lookUp>,<lookDown>,<outerYaw>,<innerYaw>` | 毎回の広告で必ず | 可動範囲（度、InvariantCulture、0〜90 にクランプ）をローカル値より優先する |
+
+- 送信側はチャネルごとに path → `range=` の順で並べる。受信側は `range=` が届いた時点でそのチャネルの属性を確定する。MTU 分割された広告の途中で、上書きが一時的に消えることはない
+- 上書きを使うのは、そのチャネルを実際に駆動している OSC Receiver の分だけ。別の binding（InputSystem 等）が駆動するチャネルには適用しない
+- 上書き path のボーンの rest 回転・軸は、受信側 FacialController の初期化時の姿勢から導出する
+- 属性ペアの解析は広告の中身が変わったときだけ行い、上書きが変わったときだけ目ボーン provider を作り直す（毎フレームのヒープ確保は増えない）。送信側は heartbeat ごとに目線タブの変化を確かめ、変わっていれば広告を組み直す
+- 一度受け取った上書きは、送信元が別のアプリに替わっても受信側の再初期化まで残る（自動 route と同じ扱い）
+- 属性ペアを知らない旧バージョンの受信側は、未知の形式として警告 1 回でスキップする
 
 ## 受信の動作
 
-- **自動マッピング**: heartbeat を受け取ると、送信側 BlendShape 名とモデルの BlendShape 名の積集合から mapping を生成する。手入力 mapping（`Mappings` リスト）があればそれを優先し、不足分だけ自動生成する。Gaze も `/_facialcontrol/gaze` 広告から自動で route を作る
+- **自動マッピング**: heartbeat を受け取ると、送信側 BlendShape 名とモデルの BlendShape 名の積集合から mapping を生成する。手入力 mapping（`Mappings` リスト）があればそれを優先し、不足分だけ自動生成する。Gaze も `/_facialcontrol/gaze` 広告から自動で route を作る。広告に載った目ボーン path・可動範囲は受信側の目線タブの値より優先するので、FacialControl 同士なら受信側は目線タブを設定しなくてよい
 - **手動 mapping**: FacialControl 以外の送信元には `Mappings` に mode 別 entry を並べる。mode は `Normal_BlendShape` / `Gaze_VRChat_XY` / `Gaze_ARKit_8BS`
 - **bundle 解釈**: 既定 `AtomicSwap`（同一 bundle を 1 フレームで一括反映）。`IndividualMessage` で受信順に個別反映
 - **staleness fail-safe**: `stalenessSeconds` を超えて受信が途絶えると `RevertToBase`（ベース表情へ戻す）または `HoldLastValue`（最後の値を保持）

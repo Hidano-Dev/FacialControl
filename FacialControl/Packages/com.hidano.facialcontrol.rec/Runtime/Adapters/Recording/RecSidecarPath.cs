@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using Hidano.FacialControl.Adapters.ScriptableObject.Serializable;
@@ -49,6 +50,91 @@ namespace Hidano.FacialControl.Rec.Adapters.Recording
 
             filePath = Path.Combine(directoryPath, normalizedRecordingName + FileExtension);
             return true;
+        }
+
+        /// <summary>
+        /// キャラクター <paramref name="assetName"/> の保存済み録画を列挙する（並び順は <see cref="ListRecordings"/> と同じ）。
+        /// ディレクトリの構築に失敗した場合のみ false を返す。録画フォルダがまだ無い場合は空の一覧で true を返す。
+        /// </summary>
+        public static bool TryListRecordings(
+            string assetName,
+            string excludedFilePath,
+            out IReadOnlyList<RecRecordingEntry> recordings,
+            out string error)
+        {
+            if (!TryBuildRecordingDirectoryPath(assetName, out string directoryPath, out error))
+            {
+                recordings = Array.Empty<RecRecordingEntry>();
+                return false;
+            }
+
+            recordings = ListRecordings(directoryPath, excludedFilePath);
+            return true;
+        }
+
+        /// <summary>
+        /// <paramref name="directoryPath"/> 直下の <c>*.fcrec</c> を、更新日時の新しい順（同時刻ならテイク名の順）で列挙する。
+        /// テイク名として読み込めない名前（前後の空白や <c>..</c> を含む等、<see cref="TryBuildRecordingFilePath"/> で
+        /// 同じファイルに戻らないもの）のファイルは含めない。
+        /// <paramref name="excludedFilePath"/> には録画中のファイルなど、一覧に出したくないファイルを指定する。
+        /// ファイル I/O を伴うため、毎フレームではなく一覧の更新が必要なときだけ呼ぶこと。
+        /// </summary>
+        public static IReadOnlyList<RecRecordingEntry> ListRecordings(string directoryPath, string excludedFilePath = null)
+        {
+            if (string.IsNullOrWhiteSpace(directoryPath) || !Directory.Exists(directoryPath))
+            {
+                return Array.Empty<RecRecordingEntry>();
+            }
+
+            string excludedFullPath = string.IsNullOrWhiteSpace(excludedFilePath) ? null : Path.GetFullPath(excludedFilePath);
+            var recordings = new List<RecRecordingEntry>();
+            string[] filePaths;
+            try
+            {
+                filePaths = Directory.GetFiles(directoryPath);
+            }
+            catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException)
+            {
+                UnityEngine.Debug.LogWarning($"REC recordings could not be listed: {directoryPath} ({ex.Message})");
+                return Array.Empty<RecRecordingEntry>();
+            }
+
+            for (int i = 0; i < filePaths.Length; i++)
+            {
+                string filePath = filePaths[i];
+
+                // 検索パターンの拡張子一致は OS 依存の揺れがあるため、拡張子を明示的に比較する。
+                // 読み込み側は常に小文字の FileExtension でパスを組み立てるので、大文字小文字も区別する。
+                if (!string.Equals(Path.GetExtension(filePath), FileExtension, StringComparison.Ordinal))
+                {
+                    continue;
+                }
+
+                if (excludedFullPath != null
+                    && string.Equals(Path.GetFullPath(filePath), excludedFullPath, StringComparison.Ordinal))
+                {
+                    continue;
+                }
+
+                // 一覧の Name はそのまま LoadRecording に渡される前提なので、正規化で別名になるものは出さない。
+                string name = Path.GetFileNameWithoutExtension(filePath);
+                if (!TryNormalizeSegment(name, "recordingName", out string normalizedName, out _)
+                    || !string.Equals(normalizedName, name, StringComparison.Ordinal))
+                {
+                    continue;
+                }
+
+                recordings.Add(new RecRecordingEntry(name, filePath, File.GetLastWriteTimeUtc(filePath)));
+            }
+
+            recordings.Sort(CompareNewestFirst);
+            return recordings;
+        }
+
+        private static int CompareNewestFirst(RecRecordingEntry x, RecRecordingEntry y)
+        {
+            int byTime = y.LastWriteTimeUtc.CompareTo(x.LastWriteTimeUtc);
+            return byTime != 0 ? byTime : string.CompareOrdinal(x.Name, y.Name);
         }
 
         /// <summary>

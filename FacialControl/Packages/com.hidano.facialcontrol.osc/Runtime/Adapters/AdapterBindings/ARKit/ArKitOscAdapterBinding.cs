@@ -18,7 +18,7 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings.ARKit
     /// <see cref="ArKitOscAnalogSource"/> を helper の <see cref="OscReceiver"/> に subscribe させる。
     /// </para>
     /// <para>
-    /// ARKit 自動検出 (<c>ARKitDetector</c>) は Editor only のため binding には含めない。binding はあくまで OSC float 経路の受信を担う。
+    /// ARKit 命名検出 (<c>ARKitDetector</c>) は binding には含めない。binding はあくまで OSC float 経路の受信を担う。
     /// </para>
     /// <para>
     /// <see cref="Dispose"/> で <c>analogSource.Dispose()</c> → <c>Object.Destroy(_helperHost)</c> →

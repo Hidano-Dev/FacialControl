@@ -46,7 +46,7 @@ Gaze の送信対象は Profile の目線タブに宣言されたチャネルが
 | `vrchat` | `/avatar/parameters/{name}` | `/avatar/parameters/{channelId}X` / `...Y` |
 | `arkit` | `/ARKit/{name}` | `/ARKit/eyeLookInLeft` `eyeLookOutLeft` `eyeLookUpLeft` `eyeLookDownLeft` `eyeLookInRight` `eyeLookOutRight` `eyeLookUpRight` `eyeLookDownRight` |
 
-毎フレームの bundle 先頭に `/_facialcontrol/sender_id`、起動時と周期ごとに `/_facialcontrol/blendshape_names`（MTU を超える場合は複数メッセージに分割）、`sendPreset` が ON なら `/_facialcontrol/preset`、Gaze を送る endpoint には `/_facialcontrol/gaze` 広告を同梱する。
+毎フレームの bundle 先頭に `/_facialcontrol/sender_id`、起動時と周期ごとに `/_facialcontrol/blendshape_names`（MTU を超える場合は複数メッセージに分割）、`sendPreset` が ON なら `/_facialcontrol/preset`、Gaze を送る endpoint には `/_facialcontrol/gaze` 広告を同梱する。Gaze 広告には、チャネルごとに Profile の目線タブの可動範囲（`range=...`）と、指定されていれば目ボーン path（`bone.left=...` / `bone.right=...`）も載せる。受信側はこれをローカルの目線設定より優先する（形式は README の「制御アドレス」参照）。
 
 ## サンプル JSON
 

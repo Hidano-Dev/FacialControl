@@ -73,7 +73,7 @@ EditMode でありながら Small にできなかった 48 ファイルの阻害
 - **静的な時間参照**: `LayerInputSourceAggregator`（Domain）内部の既定 `ITimeProvider` 実装が `UnityEngine.Time.unscaledTimeAsDouble` を直接参照している。テストからは `ManualTimeProvider` を注入できるため阻害にはなっていないが、Domain 層が `UnityEngine` に依存する原因になっている（`Hidano.FacialControl.Domain.asmdef` は `noEngineReferences: false`）
 - **直接のソケット呼び出し**: `OscSender` の bundle 送信（本 PR で `IDatagramSender` に分離済み）、`IFacialMocapReceiverHost` の受信ループ（`UdpClient.Receive` をスレッドで回す。未分離）
 - **直接の PlayerPrefs / EditorPrefs 呼び出し**: `DefaultPlayerPrefsBackend`（`ISaveStorage` 経由に整理済み）、`ExpressionCreatorWindow` の `EditorPrefs`（Editor UI 内。未分離）
-- **直接のファイル I/O**: `FileProfileRepository`、`FacialCharacterProfileExporter`、`ARKitEditorService`、`RecFileReader`。`RecStreamWriter` のみ `Func<string, Stream>` 注入済み
+- **直接のファイル I/O**: `FileProfileRepository`、`FacialCharacterProfileExporter`、`ARKitEditorService`（HID-34 で削除）、`RecFileReader`。`RecStreamWriter` のみ `Func<string, Stream>` 注入済み
 - **UnityWebRequest**: プロダクション・テストともに使用箇所なし
 
 ## Small アセンブリへ移動したファイル
@@ -81,7 +81,7 @@ EditMode でありながら Small にできなかった 48 ファイルの阻害
 `Hidano.FacialControl.Tests.Small`（参照: Domain / Application / Tests.Shared / Testing / Unity.Collections / TestRunner のみ）へ、EditMode から次の 35 ファイルを移動した。判定は「`using` が Domain / Application / Tests.Shared / System / NUnit / UnityEngine（コア）に収まり、Adapters・Editor・OSC・InputSystem・VContainer・UnityEditor の型名がコード中に現れず、EditMode アセンブリ内の他ファイルのヘルパー型を参照しない」こと。内容・namespace は変更していない（`Hidano.FacialControl.Tests.EditMode.*` のまま）。
 
 - `EditMode/Adapters/GazeSourceContractsTests.cs` → `Small/Adapters/GazeSourceContractsTests.cs`
-- `EditMode/Application/ARKitUseCaseTests.cs` → `Small/Application/ARKitUseCaseTests.cs`
+- `EditMode/Application/ARKitUseCaseTests.cs` → `Small/Application/ARKitUseCaseTests.cs`（HID-34 で削除）
 - `EditMode/Application/Layer2ActiveExpressionProviderTests.cs` → `Small/Application/Layer2ActiveExpressionProviderTests.cs`
 - `EditMode/Application/ProfileUseCaseTests.cs` → `Small/Application/ProfileUseCaseTests.cs`
 - `EditMode/Domain/ARKitDetectorTests.cs` → `Small/Domain/ARKitDetectorTests.cs`
@@ -340,7 +340,7 @@ Small 候補 73 ファイルのうち残る 38 ファイルは Adapters / Editor
 | `com.hidano.facialcontrol/Tests/PlayMode/Adapters/UnityTimeProviderTests.cs` | `Tests.PlayMode` | PlayMode | 2 | Medium | PlayMode アセンブリ |
 | `com.hidano.facialcontrol/Tests/PlayMode/Domain/BonePoseComposerTests.cs` | `Tests.PlayMode` | PlayMode | 9 | Medium | PlayMode アセンブリ |
 | `com.hidano.facialcontrol/Tests/PlayMode/Domain/MultiSourceBlendThreeBindingsTests.cs` | `Tests.PlayMode` | PlayMode | 1 | Medium | PlayMode アセンブリ |
-| `com.hidano.facialcontrol/Tests/PlayMode/Integration/ArkitProfileRegressionTests.cs` | `Tests.PlayMode` | PlayMode | 3 | Medium | PlayMode アセンブリ |
+| `com.hidano.facialcontrol/Tests/PlayMode/Integration/ArkitProfileRegressionTests.cs` | `Tests.PlayMode` | PlayMode | 3 | Medium | PlayMode アセンブリ（HID-34 で削除） |
 | `com.hidano.facialcontrol/Tests/PlayMode/Integration/EmotionLipSyncBlendIntegrationTests.cs` | `Tests.PlayMode` | PlayMode | 2 | Medium | PlayMode アセンブリ |
 | `com.hidano.facialcontrol/Tests/PlayMode/Integration/FacialControllerInputSourceWeightTests.cs` | `Tests.PlayMode` | PlayMode | 4 | Medium | PlayMode アセンブリ（FacialController） |
 | `com.hidano.facialcontrol/Tests/PlayMode/Integration/LayerLifecycleZeroFadeTests.cs` | `Tests.PlayMode` | PlayMode | 2 | Medium | PlayMode アセンブリ（LayerUseCaseHostBehaviour） |
@@ -357,7 +357,7 @@ Small 候補 73 ファイルのうち残る 38 ファイルは Adapters / Editor
 | `com.hidano.facialcontrol/Tests/PlayMode/Performance/OverlayInputSourcePerformanceTests.cs` | `Tests.PlayMode` | PlayMode | 1 | Medium | PlayMode アセンブリ |
 | `com.hidano.facialcontrol/Tests/PlayMode/Performance/SetWeightZeroAllocationTests.cs` | `Tests.PlayMode` | PlayMode | 1 | Medium | PlayMode アセンブリ |
 | `com.hidano.facialcontrol/Tests/Small/Adapters/GazeSourceContractsTests.cs` | `Tests.Small` | EditMode | 3 | Small | 禁止 API なし |
-| `com.hidano.facialcontrol/Tests/Small/Application/ARKitUseCaseTests.cs` | `Tests.Small` | EditMode | 23 | Small | 禁止 API なし |
+| `com.hidano.facialcontrol/Tests/Small/Application/ARKitUseCaseTests.cs` | `Tests.Small` | EditMode | 23 | Small | 禁止 API なし（HID-34 で削除） |
 | `com.hidano.facialcontrol/Tests/Small/Application/Layer2ActiveExpressionProviderTests.cs` | `Tests.Small` | EditMode | 6 | Small | 禁止 API なし |
 | `com.hidano.facialcontrol/Tests/Small/Application/ProfileUseCaseTests.cs` | `Tests.Small` | EditMode | 29 | Small | 禁止 API なし |
 | `com.hidano.facialcontrol/Tests/Small/Domain/ARKitDetectorTests.cs` | `Tests.Small` | EditMode | 43 | Small | 禁止 API なし |

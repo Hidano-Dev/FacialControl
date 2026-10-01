@@ -4,8 +4,15 @@
 
 ## [Unreleased]
 
+### Added
+
+- Gaze 広告（`/_facialcontrol/gaze`）に、チャネルごとの目ボーン path（`bone.left=<path>` / `bone.right=<path>`、送信側で指定した側のみ）と可動範囲（`range=<lookUp>,<lookDown>,<outerYaw>,<innerYaw>`、毎回）を属性ペアとして載せるようにした。`OscSenderAdapterBinding` は `IGazeChannelSettingsConsumer` で Profile の目線設定を受け取り、heartbeat のたびに設定の変化を確かめて、変わっていれば広告を組み直す
+- `OscReceiverAdapterBinding` が広告の属性ペアを `IGazeChannelOverrideProvider` として公開し、`FacialController` がローカルの目線設定より優先して使う。FacialControl 同士の送受信では、受信側は目線タブを設定しなくても送信側と同じ目ボーン・可動範囲で目線が動く。属性ペアの解析は広告の中身が変わったときだけ行う
+- `GazeChannelOverrideTable` — 広告の属性ペアからチャネルごとの上書きを保持し、内容が変わったときだけ version を進める
+
 ### Changed
 
+- 属性ペアを知らない旧バージョンの受信側は、新しい送信側の広告を受け取ると未知の形式として警告を 1 回出してスキップする（route と目線の動作は従来どおり）
 - **破壊的変更**: OSC の受信ポートを `OscReceiverAdapterBinding` 本体、送信先リストを `OscSenderAdapterBinding` 本体に移した。Adapter Bindings から直接確認・変更できる。新規の Sender binding は送信先 1 件（`127.0.0.1:9000`）で始まる
 - **破壊的変更**: `OscRuntimeSettingsSO` を受信用 `OscReceiverRuntimeSettingsSO`（`stalenessSeconds` / `failSafeMode` / `consistencyCheckWarnLog` / `bundleMode` / `bundleAccumulationTimeoutMs`）と送信用 `OscSenderRuntimeSettingsSO`（`heartbeatIntervalSeconds` / `suppressLoopback`）に分けた。どちらも binding の Foldout「上級設定」から任意で割り当て、未割り当てなら既定値で動く
 - **破壊的変更**: 受信 IP（`listenEndpoint`）を廃止した。受信は常に全インターフェース（`0.0.0.0` 相当）で行う。loopback 抑制は、同じ Profile の Receiver と同じポートへの送信のうち、宛先が loopback か自機のインターフェースアドレス（LAN IP 等）のものを抑止する。`OscReceiverOptionsDto` からも `listenEndpoint` を削除した（旧 JSON に残っていても無視される）
