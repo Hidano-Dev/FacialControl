@@ -31,6 +31,8 @@ namespace Hidano.FacialControl.Editor.Inspector.AdapterBindings
     /// 行は大きめのカード表示で、中身を Adapter 単位の <see cref="Foldout"/> で包む。ヘッダーに表示名と
     /// slug を出し、開閉状態は <see cref="AdapterBindingFoldoutState"/> で要素単位に保持する。
     /// 追加/削除はリスト末尾の +/- フッター操作に加え、Foldout ヘッダーの削除ボタンからも行える。
+    /// Drawer が <see cref="IAdapterBindingHeaderSummaryProvider"/> を実装していれば、ヘッダーに要約
+    /// （OSC の IP・ポート等）も出し、binding の値の変更に追従させる。
     /// </para>
     /// </remarks>
     public sealed class AdapterBindingsListView : VisualElement
@@ -45,6 +47,7 @@ namespace Hidano.FacialControl.Editor.Inspector.AdapterBindings
         public const string RootClassName = "facial-control-adapter-bindings-list-view";
         public const string RowFoldoutClassName = "facial-control-adapter-binding-foldout";
         public const string HeaderRemoveButtonClassName = "facial-control-adapter-binding-header-remove";
+        public const string HeaderSummaryClassName = "facial-control-adapter-binding-header-summary";
 
         public const string FooterAddButtonName = "facial-control-adapter-bindings-add";
         public const string FooterRemoveButtonName = "facial-control-adapter-bindings-remove";
@@ -543,6 +546,10 @@ namespace Hidano.FacialControl.Editor.Inspector.AdapterBindings
                 // slug を編集したらヘッダー表示も追従させる。
                 foldout.TrackPropertyValue(slugProp, p => foldout.text = BuildHeaderText(displayName, p.stringValue));
             }
+            if (drawer is IAdapterBindingHeaderSummaryProvider summaryProvider)
+            {
+                AddHeaderSummary(foldout, index, prop, summaryProvider, bindingType);
+            }
             row.Add(foldout);
 
             if (drawer != null)
@@ -633,6 +640,70 @@ namespace Hidano.FacialControl.Editor.Inspector.AdapterBindings
 
             _rowFoldouts.Add(rowFoldout);
             return foldout;
+        }
+
+        /// <summary>
+        /// Foldout ヘッダーの削除ボタンの手前に要約ラベルを置き、プロファイルの値が変わるたびに取り直す。
+        /// </summary>
+        private static void AddHeaderSummary(
+            Foldout foldout,
+            int index,
+            SerializedProperty elementProperty,
+            IAdapterBindingHeaderSummaryProvider provider,
+            Type bindingType)
+        {
+            var headerInput = foldout.Q(className: Foldout.inputUssClassName);
+            if (headerInput == null) return;
+
+            var label = new Label { name = $"adapter-binding-header-summary-{index}" };
+            label.AddToClassList(HeaderSummaryClassName);
+            label.style.unityTextAlign = TextAnchor.MiddleRight;
+            label.style.marginRight = 6;
+            label.style.opacity = 0.75f;
+
+            var removeButton = headerInput.Q<Button>(className: HeaderRemoveButtonClassName);
+            int insertAt = removeButton != null ? headerInput.IndexOf(removeButton) : headerInput.childCount;
+            headerInput.Insert(insertAt, label);
+
+            ApplyHeaderSummary(label, elementProperty, provider, bindingType, logErrors: true);
+            // SerializeReference 要素への TrackPropertyValue は子プロパティ（_port や _endpoints 内の
+            // host / port / enabled）の変更を通知しないことがあるため、SerializedObject 全体の変更で取り直す。
+            // 要約の組み立ては軽く、Inspector の編集頻度でしか走らない。
+            label.TrackSerializedObjectValue(
+                elementProperty.serializedObject,
+                _ =>
+                {
+                    // 要素の追加・削除・Undo の直後は行の作り直し前に古い要素を指していることがあるため、
+                    // 追跡からの再計算では失敗を警告せずに読み飛ばす（作り直した行が正しい値を出す）。
+                    if (label.panel == null || elementProperty.serializedObject.targetObject == null) return;
+                    ApplyHeaderSummary(label, elementProperty, provider, bindingType, logErrors: false);
+                });
+        }
+
+        private static void ApplyHeaderSummary(
+            Label label,
+            SerializedProperty elementProperty,
+            IAdapterBindingHeaderSummaryProvider provider,
+            Type bindingType,
+            bool logErrors)
+        {
+            AdapterBindingHeaderSummary summary;
+            try
+            {
+                summary = provider.GetHeaderSummary(elementProperty);
+            }
+            catch (Exception ex)
+            {
+                // 要約は表示だけの補助なので、失敗しても行の描画は止めない。
+                if (!logErrors) return;
+                Debug.LogWarning(
+                    $"[FacialControl] Header summary for '{bindingType.FullName}' threw {ex.GetType().Name}: {ex.Message}");
+                summary = AdapterBindingHeaderSummary.None;
+            }
+
+            label.text = summary.Text ?? string.Empty;
+            label.tooltip = summary.Tooltip ?? string.Empty;
+            label.style.display = summary.IsEmpty ? DisplayStyle.None : DisplayStyle.Flex;
         }
 
         /// <summary>

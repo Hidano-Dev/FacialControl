@@ -1,7 +1,9 @@
 using System;
+using System.Collections.Generic;
 using System.Globalization;
 using Hidano.FacialControl.Adapters.AdapterBindings;
 using Hidano.FacialControl.Adapters.OSC;
+using Hidano.FacialControl.Adapters.RuntimeSettings;
 using Hidano.FacialControl.Domain.Models;
 using Hidano.FacialControl.Editor.Inspector.AdapterBindings;
 using UnityEditor;
@@ -11,12 +13,15 @@ using UnityEngine.UIElements;
 namespace Hidano.FacialControl.Osc.Editor.AdapterBindings
 {
     [CustomPropertyDrawer(typeof(OscSenderAdapterBinding))]
-    public sealed class OscSenderAdapterBindingDrawer : PropertyDrawer
+    public sealed class OscSenderAdapterBindingDrawer : PropertyDrawer, IAdapterBindingHeaderSummaryProvider
     {
         private const string SlugFieldName = "Slug";
         private const string EndpointsFieldName = "_endpoints";
         private const string BlendShapeNamesFieldName = "_blendShapeNames";
         private const string SendPresetFieldName = "_sendPreset";
+        private const string EndpointHostFieldName = nameof(OscSenderEndpointConfig.endpoint);
+        private const string EndpointPortFieldName = nameof(OscSenderEndpointConfig.port);
+        private const string EndpointEnabledFieldName = nameof(OscSenderEndpointConfig.enabled);
 
         public const string RootClassName = "facial-control-osc-sender-adapter-binding";
         public const string EndpointsFieldElementName = "osc-sender-adapter-binding-endpoints";
@@ -60,6 +65,42 @@ namespace Hidano.FacialControl.Osc.Editor.AdapterBindings
             AddSenderIdentityReadout(root, property);
 
             return root;
+        }
+
+        /// <summary>
+        /// Foldout ヘッダーに送信先（例: <c>127.0.0.1:9000 他 2 件</c>）を出す。全件はツールチップに出す。
+        /// </summary>
+        public AdapterBindingHeaderSummary GetHeaderSummary(SerializedProperty property)
+        {
+            SerializedProperty legacyProp = property.FindPropertyRelative(OscAdapterBindingSettingsSection.LegacySettingsFieldName);
+            if (legacyProp != null && legacyProp.objectReferenceValue is OscRuntimeSettingsSO legacy)
+            {
+                return OscAdapterBindingHeaderSummaryFormatter.FormatSender(
+                    legacy.Endpoints,
+                    fromLegacySettings: true,
+                    legacyDisabled: !legacy.SenderEnabled);
+            }
+
+            SerializedProperty endpointsProp = property.FindPropertyRelative(EndpointsFieldName);
+            if (endpointsProp == null || !endpointsProp.isArray)
+            {
+                return AdapterBindingHeaderSummary.None;
+            }
+
+            var endpoints = new List<OscSenderEndpointConfig>(endpointsProp.arraySize);
+            for (int i = 0; i < endpointsProp.arraySize; i++)
+            {
+                SerializedProperty element = endpointsProp.GetArrayElementAtIndex(i);
+                SerializedProperty hostProp = element.FindPropertyRelative(EndpointHostFieldName);
+                SerializedProperty portProp = element.FindPropertyRelative(EndpointPortFieldName);
+                SerializedProperty enabledProp = element.FindPropertyRelative(EndpointEnabledFieldName);
+                endpoints.Add(new OscSenderEndpointConfig(
+                    hostProp != null ? hostProp.stringValue : string.Empty,
+                    portProp != null ? portProp.intValue : 0,
+                    enabledProp == null || enabledProp.boolValue));
+            }
+
+            return OscAdapterBindingHeaderSummaryFormatter.FormatSender(endpoints);
         }
 
         private static void AddSlugField(VisualElement root, SerializedProperty property)

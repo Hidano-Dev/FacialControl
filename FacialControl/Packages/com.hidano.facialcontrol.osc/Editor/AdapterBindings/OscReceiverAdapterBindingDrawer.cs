@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using Hidano.FacialControl.Adapters.AdapterBindings;
 using Hidano.FacialControl.Adapters.OSC;
+using Hidano.FacialControl.Adapters.RuntimeSettings;
 using Hidano.FacialControl.Editor.Common;
 using Hidano.FacialControl.Editor.Inspector.AdapterBindings;
 using UnityEditor;
@@ -15,7 +16,7 @@ namespace Hidano.FacialControl.Osc.Editor.AdapterBindings
     /// <see cref="PropertyDrawer"/>。
     /// </summary>
     [CustomPropertyDrawer(typeof(OscReceiverAdapterBinding))]
-    public sealed class OscReceiverAdapterBindingDrawer : PropertyDrawer
+    public sealed class OscReceiverAdapterBindingDrawer : PropertyDrawer, IAdapterBindingHeaderSummaryProvider
     {
         private const string SlugFieldName = "Slug";
         private const string PortFieldName = "_port";
@@ -657,6 +658,24 @@ namespace Hidano.FacialControl.Osc.Editor.AdapterBindings
             {
                 foldout.text = $"Mapping {index + 1}: {mode} - {expressionId}";
             }
+        }
+
+        /// <summary>Foldout ヘッダーに受信ポート（例: <c>:9001</c>）を出す。</summary>
+        public AdapterBindingHeaderSummary GetHeaderSummary(SerializedProperty property)
+        {
+            SerializedProperty legacyProp = property.FindPropertyRelative(OscAdapterBindingSettingsSection.LegacySettingsFieldName);
+            if (legacyProp != null && legacyProp.objectReferenceValue is OscRuntimeSettingsSO legacy)
+            {
+                return OscAdapterBindingHeaderSummaryFormatter.FormatReceiver(
+                    legacy.ListenPort,
+                    fromLegacySettings: true,
+                    legacyDisabled: !legacy.ReceiverEnabled);
+            }
+
+            SerializedProperty portProp = property.FindPropertyRelative(PortFieldName);
+            return portProp != null
+                ? OscAdapterBindingHeaderSummaryFormatter.FormatReceiver(portProp.intValue)
+                : AdapterBindingHeaderSummary.None;
         }
 
         private static void AddSlugField(VisualElement root, SerializedProperty property)
