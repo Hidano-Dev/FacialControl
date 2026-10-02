@@ -39,6 +39,10 @@ namespace Hidano.FacialControl.Adapters.OSC
                 using (var probe = new Socket(AddressFamily.InterNetworkV6, SocketType.Dgram, ProtocolType.Udp))
                 {
                     probe.SetSocketOption(SocketOptionLevel.IPv6, SocketOptionName.IPv6Only, 0);
+                    // Unity の Mono は Unix で全ソケットに SO_REUSEADDR を既定で付ける。
+                    // Linux では既存側・プローブ側の両方が SO_REUSEADDR 付きだと同じ UDP ポートへの
+                    // bind が成功してしまい占有を検知できないため、明示的に外す（Windows では既定値のまま）。
+                    probe.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.ReuseAddress, false);
                     probe.Bind(new IPEndPoint(IPAddress.IPv6Any, port));
                 }
                 return true;

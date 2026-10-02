@@ -112,6 +112,10 @@ namespace Hidano.FacialControl.Tests.PlayMode.Integration
             using (var occupied = new Socket(AddressFamily.InterNetworkV6, SocketType.Dgram, ProtocolType.Udp))
             using (var loop = new OscUdpReceiveLoop(ring, new OscReceiveDiagnostics()))
             {
+                // Unity の Mono は Unix で全ソケットに SO_REUSEADDR を既定で付けるため、
+                // そのままでは Linux で SO_REUSEADDR 付きのループ側 bind が共有として成功する。
+                // bind を共有させない占有を作るために明示的に外す。
+                occupied.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.ReuseAddress, false);
                 occupied.Bind(new IPEndPoint(IPAddress.IPv6Any, 38300));
                 LogAssert.Expect(LogType.Error, new Regex(@"^\[OscReceiver\] UDP bind failed on port 38300: .*"));
 
