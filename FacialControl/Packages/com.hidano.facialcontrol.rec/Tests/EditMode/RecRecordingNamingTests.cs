@@ -2,10 +2,12 @@ using System;
 using Hidano.FacialControl.Rec.Adapters.Recording;
 using NUnit.Framework;
 
+using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.Rec.Tests.EditMode
 {
     [TestFixture]
-    public class RecRecordingNamingTests
+    [SmallTest]
+    public class RecRecordingNamingTests : SizedTestFixture
     {
         private static readonly DateTime FixedNow = new DateTime(2026, 9, 27, 16, 55, 36);
 
