@@ -297,3 +297,7 @@ Kiro-style Spec-Driven Development on an agentic SDLC
 - Custom files are supported (managed via `/kiro:steering-custom`)
 
 @.claude/rules/sdd-workflow.md
+
+## Git 運用ルール (agentic-dev-harness)
+
+@.claude/rules/git-workflow.md

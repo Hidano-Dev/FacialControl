@@ -15,11 +15,17 @@ Linear(設定ファイルで指定したチーム / プロジェクト)を唯一
 Git 運用は `.claude/rules/git-workflow.md`、spec 由来の実装は `.kiro/specs/` の
 SDD フローに従う。本書はその上に載る「選定・承認・マージ・停止」のポリシーである。
 
+SDD ワークフロー(`/kiro:*` コマンド・dev-orchestrator)は本スキルとは別に
+[unity-sdd-kit](https://github.com/Hidano-Dev/unity-sdd-kit) が配布する。本書の「spec 由来」
+「`/kiro:*`」「SDD フェーズ承認」に関する規定は SDD が導入されているリポジトリでのみ適用し、
+導入されていない(`.claude/commands/kiro/` が無い)リポジトリでは spec 由来の作業は発生しないので
+読み飛ばす。
+
 ## 設定(`.kiro/orchestration/config.json`)
 
 このスキルはリポジトリ固有の値を一切持たない。起動時に必ず
 `.kiro/orchestration/config.json` を読み、次のキーを使う(雛形:
-`templates/orchestration-config.json`。dev-orchestrator の `confirmation_channel` と
+`templates/orchestration-config.json`。SDD 導入時は dev-orchestrator の `confirmation_channel` と
 同じファイルに同居する)。**ファイルが無い・`linear.team` が無い場合は何も着手せず、
 「harness 設定なし」と報告して終了する**(対象キューが特定できないまま動かない)。
 
@@ -37,12 +43,13 @@ SDD フローに従う。本書はその上に載る「選定・承認・マー�
 | `worker.max_candidates` | 1 起動あたりの候補試行上限 | 5 |
 | `worker.claim_stale_hours` | 放棄 claim とみなす経過時間 | 24 |
 | `worker.backlog_doc` | マージ後に届いた軽微な指摘の記録先 | `docs/backlog.md` |
-| `auto_merge.enabled` | 自動マージを許可するか | false |
+| `auto_merge.enabled` | 自動マージを許可するか | true(雛形の値。キーが無い場合は false として扱う) |
 | `auto_merge.method` | `merge` / `squash` / `rebase` | `merge` |
-| `auto_merge.protected_paths` | 変更していたら自動マージしないパス接頭辞 | `[".claude/", ".github/", ".kiro/settings/"]` |
+| `auto_merge.protected_paths` | 変更していたら自動マージしないパス接頭辞 | `[".claude/", ".github/", ".kiro/settings/", ".kiro/orchestration/"]` |
 | `auto_merge.merge_parked` | マージ承認待ちで駐機した PR を、巡回で条件を満たせばマージ + ブランチ削除するか(§1-A 巡回マージ。`enabled` とは独立) | true |
 | `reporting.linear_status` | 終了時に Linear プロジェクトへステータス更新を投稿するか(§5) | true |
 | `reporting.notion` | 終了時に Linear プロジェクトの Overview にリンクされた Notion ページの古くなった記述を直すか(§5) | true |
+| `applied_migrations` | Harness Sync が適用済みの config 移行の ID(`scripts/migrate_config.py`)。ワーカーは読まない。手で編集しない | 全移行の ID |
 
 以下の本文では、`needs-human` / `needs-local` はそれぞれ `linear.labels.*` に設定した
 実際のラベル名を指す(例: unity-renderer では `needs_local` = `needs-unity`)。
@@ -383,7 +390,7 @@ requirements の人間承認待ち、spec の NO-GO ゲート — は、Issue �
    ため先に外さない)。マージで Done になった Issue に残ったラベルは無害なので
    放置してよい。
 
-### SDD フェーズ承認ポリシー(2026-09-23 決定)
+### SDD フェーズ承認ポリシー(2026-09-23 決定。SDD 導入リポジトリのみ)
 
 - **requirements**: 生成まで。承認は必ず人間。生成したら Issue にリンクを
   コメントし、上記の駐機手順(`needs-human` + claim 解放)で終了する。
@@ -490,7 +497,8 @@ requirements の人間承認待ち、spec の NO-GO ゲート — は、Issue �
 マージ後、Linear の自動遷移(Done)を確認し、失敗していれば手動で Done にする。
 
 **自動マージの除外**: PR が `auto_merge.protected_paths`(既定 `.claude/` `.github/`
-`.kiro/settings/`)などワーカー自身のポリシー・権限・CI 定義を変更する場合は自動マージ
+`.kiro/settings/` `.kiro/orchestration/`)などワーカー自身のポリシー・権限・CI 定義・
+この config を変更する場合は自動マージ
 せず、ユーザーの承認を待つ(ワーカーが自分の制約を自分で緩めない)。承認待ちに
 入った時点で §3 の駐機手順(`駐機理由: merge-approval`)に従い claim を解放して
 終了する(判断待ち PR 1 件で後続の定期実行を塞がない)。
