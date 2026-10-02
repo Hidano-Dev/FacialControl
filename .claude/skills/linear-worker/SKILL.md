@@ -15,11 +15,17 @@ Linear(設定ファイルで指定したチーム / プロジェクト)を唯一
 Git 運用は `.claude/rules/git-workflow.md`、spec 由来の実装は `.kiro/specs/` の
 SDD フローに従う。本書はその上に載る「選定・承認・マージ・停止」のポリシーである。
 
+SDD ワークフロー(`/kiro:*` コマンド・dev-orchestrator)は本スキルとは別に
+[unity-sdd-kit](https://github.com/Hidano-Dev/unity-sdd-kit) が配布する。本書の「spec 由来」
+「`/kiro:*`」「SDD フェーズ承認」に関する規定は SDD が導入されているリポジトリでのみ適用し、
+導入されていない(`.claude/commands/kiro/` が無い)リポジトリでは spec 由来の作業は発生しないので
+読み飛ばす。
+
 ## 設定(`.kiro/orchestration/config.json`)
 
 このスキルはリポジトリ固有の値を一切持たない。起動時に必ず
 `.kiro/orchestration/config.json` を読み、次のキーを使う(雛形:
-`templates/orchestration-config.json`。dev-orchestrator の `confirmation_channel` と
+`templates/orchestration-config.json`。SDD 導入時は dev-orchestrator の `confirmation_channel` と
 同じファイルに同居する)。**ファイルが無い・`linear.team` が無い場合は何も着手せず、
 「harness 設定なし」と報告して終了する**(対象キューが特定できないまま動かない)。
 
@@ -37,12 +43,13 @@ SDD フローに従う。本書はその上に載る「選定・承認・マー�
 | `worker.max_candidates` | 1 起動あたりの候補試行上限 | 5 |
 | `worker.claim_stale_hours` | 放棄 claim とみなす経過時間 | 24 |
 | `worker.backlog_doc` | マージ後に届いた軽微な指摘の記録先 | `docs/backlog.md` |
-| `auto_merge.enabled` | 自動マージを許可するか | false |
+| `auto_merge.enabled` | 自動マージを許可するか | true(雛形の値。キーが無い場合は false として扱う) |
 | `auto_merge.method` | `merge` / `squash` / `rebase` | `merge` |
-| `auto_merge.protected_paths` | 変更していたら自動マージしないパス接頭辞 | `[".claude/", ".github/", ".kiro/settings/"]` |
+| `auto_merge.protected_paths` | 変更していたら自動マージしないパス接頭辞 | `[".claude/", ".github/", ".kiro/settings/", ".kiro/orchestration/", "CLAUDE.md", "AGENTS.md", ".agents/", ".codex/"]` |
 | `auto_merge.merge_parked` | マージ承認待ちで駐機した PR を、巡回で条件を満たせばマージ + ブランチ削除するか(§1-A 巡回マージ。`enabled` とは独立) | true |
 | `reporting.linear_status` | 終了時に Linear プロジェクトへステータス更新を投稿するか(§5) | true |
 | `reporting.notion` | 終了時に Linear プロジェクトの Overview にリンクされた Notion ページの古くなった記述を直すか(§5) | true |
+| `applied_migrations` | Harness Sync が適用済みの config 移行の ID(`scripts/migrate_config.py`)。ワーカーは読まない。手で編集しない | 全移行の ID |
 
 以下の本文では、`needs-human` / `needs-local` はそれぞれ `linear.labels.*` に設定した
 実際のラベル名を指す(例: unity-renderer では `needs_local` = `needs-unity`)。
@@ -132,7 +139,8 @@ SDD フローに従う。本書はその上に載る「選定・承認・マー�
 4. `review.bot` が設定されていて、そのボットが現在ヘッドをまだレビューしておらず、
    そのコミットでまだ再トリガーしていなければ `review.bot.retrigger_comment` を
    1 回だけ投稿する(§4 手順5 の上限と共通)。この場合も手順5 で既存の指摘
-   (人間のレビューを含む)の分類は行い、ボットの結果は次回の巡回で見る。
+   (人間のレビューを含む)の分類は行い、ボットの結果は次回の巡回で見る
+   (再トリガーした PR は、この巡回では下記「巡回マージ」の対象にしない)。
    `review.bot` が null なら再トリガーせず、人間のレビューだけを手順5 で扱う。
 5. 未対応の指摘を §4「重大度ベースの指摘処理」で分類する。人間のレビューコメントの
    うち**具体的な修正指示**は P1 相当として扱う。質問・方針相談・スコープ判断は
@@ -206,15 +214,20 @@ SDD フローに従う。本書はその上に載る「選定・承認・マー�
 - **レビュー**: 現在ヘッドに対して P0・P1 相当の未対応指摘が無く、未解決のレビュー
   スレッドがゼロ(§4 手順6 と同じく `isResolved` で確認)。外部レビューボットが
   設定されていれば、その summary が現在ヘッドに対して ✅ Completed、または最後の
-  push から `review.wait_minutes` を過ぎても完了しなかった(§4 手順5 のフェイル
-  オープン。その旨をコメントで記録する)
+  push と最後の再トリガーのうち**遅い方**から `review.wait_minutes` を過ぎても完了
+  しなかった(§4 手順5 のフェイルオープン。その旨をコメントで記録する。再トリガー
+  直後の結果を待たずにフェイルオープンしないため、起点は再トリガー時刻も含めて取る)
 - **人間の保留が無い**: PR の `reviewDecision` が `CHANGES_REQUESTED` でない。かつ
   **PR と Issue の全履歴**(最新の駐機記録以降に限らない — ワーカーの再駐機で保留
   コメントが古い駐機記録の前に埋もれても保留は続くため)で、人間による保留依頼
-  (「待って」「マージしないで」等)や未回答の質問が、後続の人間のコメントで
-  **明示的に解除・回答されていない**こと。ワーカーの修正 push・再駐機・返信は
-  解除に数えない。判別に迷うコメントがあればマージしない
+  (「待って」「マージしないで」等)や人間からの質問が**1 件も残っていない**こと。
+  つまり、そうした依頼・質問が無いか、あるならその**すべてが後続の人間のコメントで
+  明示的に解除・回答済み**であること(1 件でも未解除・未回答があればマージしない)。
+  ワーカーの修正 push・再駐機・返信は解除・回答に数えない。判別に迷うコメントがあれば
+  マージしない
 - この起動で当該 PR に修正 push をしていない(上記手順 7)
+- この起動で当該 PR に外部レビューボットの再トリガー(上記手順 4)を投稿していない。
+  再トリガーした PR は、返ってくる P0/P1 指摘を次回の巡回で確認するまでマージしない
 
 マージの手順:
 
@@ -383,7 +396,7 @@ requirements の人間承認待ち、spec の NO-GO ゲート — は、Issue �
    ため先に外さない)。マージで Done になった Issue に残ったラベルは無害なので
    放置してよい。
 
-### SDD フェーズ承認ポリシー(2026-09-23 決定)
+### SDD フェーズ承認ポリシー(2026-09-23 決定。SDD 導入リポジトリのみ)
 
 - **requirements**: 生成まで。承認は必ず人間。生成したら Issue にリンクを
   コメントし、上記の駐機手順(`needs-human` + claim 解放)で終了する。
@@ -490,7 +503,8 @@ requirements の人間承認待ち、spec の NO-GO ゲート — は、Issue �
 マージ後、Linear の自動遷移(Done)を確認し、失敗していれば手動で Done にする。
 
 **自動マージの除外**: PR が `auto_merge.protected_paths`(既定 `.claude/` `.github/`
-`.kiro/settings/`)などワーカー自身のポリシー・権限・CI 定義を変更する場合は自動マージ
+`.kiro/settings/` `.kiro/orchestration/` `.agents/` `.codex/` とルートの `CLAUDE.md` `AGENTS.md`)などワーカー自身のポリシー・権限・CI 定義・
+この config を変更する場合は自動マージ
 せず、ユーザーの承認を待つ(ワーカーが自分の制約を自分で緩めない)。承認待ちに
 入った時点で §3 の駐機手順(`駐機理由: merge-approval`)に従い claim を解放して
 終了する(判断待ち PR 1 件で後続の定期実行を塞がない)。
