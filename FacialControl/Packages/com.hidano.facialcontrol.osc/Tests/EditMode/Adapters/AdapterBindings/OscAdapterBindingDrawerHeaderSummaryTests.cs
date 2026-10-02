@@ -2,6 +2,7 @@ using System.Collections.Generic;
 using Hidano.FacialControl.Adapters.AdapterBindings;
 using Hidano.FacialControl.Adapters.AdapterBindings.ARKit;
 using Hidano.FacialControl.Adapters.OSC;
+using Hidano.FacialControl.Domain.Adapters;
 using Hidano.FacialControl.Osc.Editor.AdapterBindings;
 using NUnit.Framework;
 using UnityEditor;
