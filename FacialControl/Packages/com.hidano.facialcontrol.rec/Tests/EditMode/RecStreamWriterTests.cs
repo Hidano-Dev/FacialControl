@@ -114,7 +114,10 @@ namespace Hidano.FacialControl.Rec.Tests.EditMode
                 writer.Complete(0.1d, 1);
 
                 Assert.That(writer.OutputFilePath, Is.EqualTo(Path.Combine(_tempDirectory, "existing-2.fcrec")));
-                Assert.That(RecFileReader.TryRead(writer.OutputFilePath, out _), Is.True);
+                Assert.That(RecFileReader.TryRead(writer.OutputFilePath, out RecBinaryFormat.ReadResult result), Is.True);
+                Assert.That(result.Timeline.SourceIds, Is.EqualTo(new[] { "input:trigger" }));
+                Assert.That(result.Timeline.ExpressionIds, Is.EqualTo(new[] { "smile" }));
+                Assert.That(result.Timeline.Events, Is.EqualTo(new[] { RecEvent.CreateTriggerOn(0.1d, 0, 0) }));
             }
 
             Assert.That(File.ReadAllBytes(filePath), Is.EqualTo(original));
