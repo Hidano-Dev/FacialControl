@@ -74,7 +74,9 @@ public sealed class StalenessMonitorTests : SizedTestFixture
 
 ## CI での回し方
 
-> **現状（応急措置）**: セルフホストランナーが未登録のため（`docs/backlog.md` S-22）、`ci.yml` と `ci-large.yml` の自動起動（push / pull_request / 夜間 schedule）は止めてあり、GitHub の Actions 画面から手動実行（Run workflow）したときだけ動く。下表は**ランナー登録後の本来の運用**。それまでは PR のテスト根拠として、ローカルでの静的チェックと batchmode 実行結果を PR 本文に書く。手動実行時は `include_medium` で Medium ジョブの有無を選べる。
+CI はオンプレの Ubuntu 機に登録したセルフホストランナー（`unity-ci-ubuntu-facialcontrol`、ラベル `linux-unity`。`docs/backlog.md` S-22）で動く。Unity 6000.3.19f1（Personal ライセンス）を Xvfb の仮想ディスプレイ上で batchmode 実行し、`.github/actions/run-unity-tests` が `ProjectVersion.txt` とエディタのバージョン一致を確認してから起動する。ランナーは 1 台なのでジョブは直列に走り、`FacialControl/Library` は作業ディレクトリに残して再利用する（初回だけ全 import が走る）。fork からの PR ではセルフホストのジョブを起動しない。手動実行（Run workflow）時は `include_medium` で Medium ジョブの有無を選べる。
+
+Windows 固有の挙動（パス区切り等）はこの CI では検出できないため、Windows でのみ再現する不具合は従来どおりローカルの batchmode 実行で確認する。
 
 | ジョブ | 内容 | タイミング |
 |---|---|---|

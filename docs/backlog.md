@@ -40,6 +40,7 @@
 - **候補**: (a) 常時稼働の別 Windows マシンをセルフホストランナーとして登録し `UNITY_PATH` を設定する、(b) GitHub ホストランナー + Unity ライセンス認証（game-ci の `unity-test-runner` 等）へ切り替える、(c) 当面 CI を手動トリガー（`workflow_dispatch`）のみにして push / PR での自動起動を止め、queued の山を作らない。
 - **トリガ**: 1.0.0 公開後、次のリリースサイクルを始めるとき。それまでは PR のテスト根拠をローカル実行結果として PR 本文に明記する。
 - **応急措置（2026-09-29, PR #21）**: 候補 (c) を実施。`ci.yml` の push / pull_request と `ci-large.yml` の夜間 schedule をコメントアウトし、`workflow_dispatch` のみにした。ランナー登録後にコメントを外して戻す。gitleaks（ubuntu-latest）と harness-sync は対象外で従来どおり動く。
+- **解消（2026-10-03, HID-72）**: 候補 (a) の Linux 版を実施。常時稼働のオンプレ Ubuntu 機（Xeon 48 コア / 188 GB / Quadro M4000、Unity 6000.3.19f1 + Personal ライセンス、Xvfb）をリポジトリ単位のセルフホストランナー `unity-ci-ubuntu-facialcontrol`（ラベル `linux-unity`）として登録し、`ci.yml` / `ci-large.yml` の Unity ステップを Linux 向け composite action（`.github/actions/run-unity-tests`）に置き換えて自動起動を戻した。Windows 固有の不具合（HID-70 等）は引き続きローカルで確認する。ランナーの構築手順は agentic-dev-harness 側に記録する。
 
 ---
 
