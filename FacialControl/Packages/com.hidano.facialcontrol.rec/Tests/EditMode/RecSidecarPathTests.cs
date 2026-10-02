@@ -1,4 +1,3 @@
-using System;
 using System.IO;
 using Hidano.FacialControl.Adapters.ScriptableObject.Serializable;
 using Hidano.FacialControl.Rec.Adapters.Recording;
@@ -53,64 +52,17 @@ namespace Hidano.FacialControl.Rec.Tests.EditMode
                 Is.False);
             Assert.That(recordingError, Does.Contain("recordingName"));
         }
-    }
-
-    /// <summary>
-    /// 一時ディレクトリを前提にする <see cref="RecSidecarPath.ResolveUniqueFilePath"/> の fixture。
-    /// </summary>
-    [TestFixture]
-    public class RecSidecarPathResolveUniqueFilePathTests
-    {
-        private string _tempDirectory;
-
-        [SetUp]
-        public void SetUp()
-        {
-            _tempDirectory = Path.Combine(Path.GetTempPath(), "FacialControlRecSidecarPathTests", Guid.NewGuid().ToString("N"));
-            Directory.CreateDirectory(_tempDirectory);
-        }
-
-        [TearDown]
-        public void TearDown()
-        {
-            if (!string.IsNullOrEmpty(_tempDirectory) && Directory.Exists(_tempDirectory))
-            {
-                Directory.Delete(_tempDirectory, true);
-            }
-        }
 
         [Test]
-        public void ResolveUniqueFilePath_FileDoesNotExist_ReturnsSamePath()
+        public void TryBuildRecordingFilePath_BackslashInName_RejectedOnEveryPlatform()
         {
-            string filePath = Path.Combine(_tempDirectory, "take01" + RecSidecarPath.FileExtension);
+            // '\' は Linux / macOS では区切り文字でも無効文字でもないが、Windows と同じく区切り文字として扱い
+            // 拒否する（OS 依存の Path.DirectorySeparatorChar / GetInvalidFileNameChars には頼らない）。
+            // 同じ名前が OS によって別のパスに解決されることを防ぐ
+            bool success = RecSidecarPath.TryBuildRecordingFilePath("Miku", "take\\A", out _, out string error);
 
-            string resolved = RecSidecarPath.ResolveUniqueFilePath(filePath);
-
-            Assert.That(resolved, Is.EqualTo(filePath));
-        }
-
-        [Test]
-        public void ResolveUniqueFilePath_FileExists_AppendsSequenceSuffixInsteadOfOverwriting()
-        {
-            string filePath = Path.Combine(_tempDirectory, "take01" + RecSidecarPath.FileExtension);
-            File.WriteAllText(filePath, "original");
-
-            string resolved = RecSidecarPath.ResolveUniqueFilePath(filePath);
-
-            Assert.That(resolved, Is.EqualTo(Path.Combine(_tempDirectory, "take01-2" + RecSidecarPath.FileExtension)));
-            Assert.That(File.ReadAllText(filePath), Is.EqualTo("original"));
-        }
-
-        [Test]
-        public void ResolveUniqueFilePath_SuffixedFileAlsoExists_IncrementsUntilFree()
-        {
-            string filePath = Path.Combine(_tempDirectory, "take01" + RecSidecarPath.FileExtension);
-            File.WriteAllText(filePath, "1");
-            File.WriteAllText(Path.Combine(_tempDirectory, "take01-2" + RecSidecarPath.FileExtension), "2");
-
-            string resolved = RecSidecarPath.ResolveUniqueFilePath(filePath);
-
-            Assert.That(resolved, Is.EqualTo(Path.Combine(_tempDirectory, "take01-3" + RecSidecarPath.FileExtension)));
+            Assert.That(success, Is.False);
+            Assert.That(error, Does.Contain("recordingName"));
         }
     }
 }

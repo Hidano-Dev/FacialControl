@@ -182,19 +182,18 @@ namespace Hidano.FacialControl.Rec.Adapters.Recording
 
             string trimmed = value.Trim();
             if (trimmed.Contains("..", StringComparison.Ordinal) ||
-                trimmed.IndexOf(Path.DirectorySeparatorChar) >= 0 ||
-                trimmed.IndexOf(Path.AltDirectorySeparatorChar) >= 0)
+                trimmed.IndexOf('/') >= 0 ||
+                trimmed.IndexOf('\\') >= 0)
             {
                 error = $"{paramName} contained a traversal segment.";
                 return false;
             }
 
-            char[] invalidChars = Path.GetInvalidFileNameChars();
             char[] buffer = trimmed.ToCharArray();
             bool hasNonWhitespace = false;
             for (int i = 0; i < buffer.Length; i++)
             {
-                if (Array.IndexOf(invalidChars, buffer[i]) >= 0)
+                if (IsInvalidFileNameChar(buffer[i]))
                 {
                     buffer[i] = '-';
                 }
@@ -213,6 +212,36 @@ namespace Hidano.FacialControl.Rec.Adapters.Recording
 
             normalizedValue = new string(buffer);
             return true;
+        }
+
+        /// <summary>
+        /// 録画ファイル名で '-' に置換する文字。<see cref="Path.GetInvalidFileNameChars"/> は OS ごとに違い
+        /// （Linux / macOS では '/' と NUL だけ）、同じ名前が OS によって別のパスになるため、
+        /// Windows の無効文字（<c>" &lt; &gt; | : * ? \ /</c>）と制御文字を固定集合として全 OS で揃える。
+        /// StreamingAssets 配下の録画フォルダを Windows / Linux / macOS 間で持ち回っても同じ名前に解決される。
+        /// </summary>
+        private static bool IsInvalidFileNameChar(char c)
+        {
+            if (c < ' ')
+            {
+                return true;
+            }
+
+            switch (c)
+            {
+                case '"':
+                case '<':
+                case '>':
+                case '|':
+                case ':':
+                case '*':
+                case '?':
+                case '\\':
+                case '/':
+                    return true;
+                default:
+                    return false;
+            }
         }
     }
 }
