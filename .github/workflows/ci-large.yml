@@ -1,82 +1,65 @@
 # FacialControl CI - Large テスト（手動 / 夜間）
 #
 # Large は実機ビルドや外部システム接続を含むテスト（docs/testing.md）。PR ごとには回さず、
-# workflow_dispatch と夜間スケジュール（現在は停止中、下記）で EditMode / PlayMode の -testCategory Large を実行する。
+# workflow_dispatch と夜間スケジュールで EditMode / PlayMode の -testCategory Large を実行する。
 # 現時点で Large に分類されたテストは 0 件（docs/test-size-migration.md）。フィルタに一致する
 # テストがない場合の Unity Test Runner の終了コードは環境依存のため、ジョブは continue-on-error とし
 # 結果 XML の有無で判断する。Large テストを追加したら continue-on-error を外す。
+#
+# 実行環境は ci.yml と同じ Linux セルフホストランナー（ラベル linux-unity）。
 name: CI (Large)
 
-# 【応急措置】セルフホストランナーが 0 台のため、夜間 schedule は毎晩 queued の run を作るだけになる
-# （docs/backlog.md S-22）。ランナー登録までは手動実行のみとし、登録後に schedule のコメントを外す。
 on:
   workflow_dispatch:
-  # schedule:
-  #   - cron: '0 18 * * *'   # 毎日 03:00 JST
+  schedule:
+    - cron: '0 18 * * *'   # 毎日 03:00 JST
+
+concurrency:
+  group: ci-large
+  cancel-in-progress: false
 
 env:
+  # Unity は 6000.3.19f1 に固定する（AGENTS.md）。他バージョンで起動すると ProjectVersion.txt が
+  # 書き換わり全リインポートが走るため、composite action 側で ProjectVersion.txt と突き合わせる
+  UNITY_VERSION: 6000.3.19f1
   UNITY_PROJECT_PATH: FacialControl
   TEST_RESULTS_DIR: test-results
   LARGE_CATEGORY: Large
-  # Unity は 6000.3.19f1 に固定する（AGENTS.md）。他バージョンで起動すると ProjectVersion.txt が
-  # 書き換わり全リインポートが走るため、ランナーの環境変数には依存しない
-  UNITY_EDITOR_EXE: D:/UnityEditors/6000.3.19f1/Editor/Unity.exe
-  UNITY_EDITOR_VERSION: 6000.3.19f1
 
 jobs:
   large-tests:
     name: Large テスト（EditMode + PlayMode）
-    runs-on: self-hosted
+    runs-on: [self-hosted, linux-unity]
     timeout-minutes: 90
     continue-on-error: true
     steps:
       - name: チェックアウト
         uses: actions/checkout@v4
-
-      - name: Unity バージョン確認
-        run: |
-          if (-Not (Test-Path "${{ env.UNITY_EDITOR_EXE }}")) {
-            Write-Error "Unity ${{ env.UNITY_EDITOR_VERSION }} が見つかりません: ${{ env.UNITY_EDITOR_EXE }}"
-            exit 1
-          }
-          $projectVersion = Get-Content "${{ env.UNITY_PROJECT_PATH }}/ProjectSettings/ProjectVersion.txt" -Raw
-          if ($projectVersion -notmatch "m_EditorVersion: ${{ env.UNITY_EDITOR_VERSION }}") {
-            Write-Error "ProjectVersion.txt が ${{ env.UNITY_EDITOR_VERSION }} ではありません:`n$projectVersion"
-            exit 1
-          }
-        shell: pwsh
-
-      - name: テスト結果ディレクトリ作成
-        run: |
-          if (-Not (Test-Path "${{ env.TEST_RESULTS_DIR }}")) {
-            New-Item -ItemType Directory -Path "${{ env.TEST_RESULTS_DIR }}"
-          }
-        shell: pwsh
+        with:
+          clean: false
+      - name: 作業ツリーの掃除（Library は保持）
+        run: git clean -ffdx -e "${{ env.UNITY_PROJECT_PATH }}/Library"
 
       - name: Large テスト実行（EditMode, -testCategory Large）
-        run: |
-          & "${{ env.UNITY_EDITOR_EXE }}" `
-            -batchmode `
-            -nographics `
-            -projectPath "${{ env.UNITY_PROJECT_PATH }}" `
-            -runTests `
-            -testPlatform EditMode `
-            -testCategory "${{ env.LARGE_CATEGORY }}" `
-            -testResults "${{ env.TEST_RESULTS_DIR }}/large-editmode.xml"
-        shell: pwsh
+        uses: ./.github/actions/run-unity-tests
+        with:
+          unity-version: ${{ env.UNITY_VERSION }}
+          project-path: ${{ env.UNITY_PROJECT_PATH }}
+          test-platform: EditMode
+          test-category: ${{ env.LARGE_CATEGORY }}
+          results-name: large-editmode
+          allow-empty: "true"   # Large はまだ 0 件(冒頭のコメント)。追加したら外す
 
       - name: Large テスト実行（PlayMode, -testCategory Large）
         if: always()
-        run: |
-          & "${{ env.UNITY_EDITOR_EXE }}" `
-            -batchmode `
-            -nographics `
-            -projectPath "${{ env.UNITY_PROJECT_PATH }}" `
-            -runTests `
-            -testPlatform PlayMode `
-            -testCategory "${{ env.LARGE_CATEGORY }}" `
-            -testResults "${{ env.TEST_RESULTS_DIR }}/large-playmode.xml"
-        shell: pwsh
+        uses: ./.github/actions/run-unity-tests
+        with:
+          unity-version: ${{ env.UNITY_VERSION }}
+          project-path: ${{ env.UNITY_PROJECT_PATH }}
+          test-platform: PlayMode
+          test-category: ${{ env.LARGE_CATEGORY }}
+          results-name: large-playmode
+          allow-empty: "true"
 
       - name: テスト結果アップロード
         if: always()
@@ -85,5 +68,7 @@ jobs:
           name: large-test-results
           path: |
             ${{ env.TEST_RESULTS_DIR }}/large-editmode.xml
+            ${{ env.TEST_RESULTS_DIR }}/large-editmode.log
             ${{ env.TEST_RESULTS_DIR }}/large-playmode.xml
+            ${{ env.TEST_RESULTS_DIR }}/large-playmode.log
           if-no-files-found: warn

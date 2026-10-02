@@ -7,17 +7,19 @@
 # サイズ未宣言テストは test-size-check ジョブ（静的）と Small ジョブ内の
 # TestSizeDeclarationTests（reflection）の両方で検出する。
 #
-# 【応急措置】全ジョブが runs-on: self-hosted だが、登録済みのセルフホストランナーが 0 台のため、
-# push / pull_request で起動すると永久に queued のまま 24 時間後に自動キャンセルされる
-# （docs/backlog.md S-22）。ランナーを登録するまで自動起動を止め、手動実行（workflow_dispatch）のみにする。
-# ランナー登録後は下の push / pull_request のコメントを外して元に戻す。
+# 実行環境: オンプレ Ubuntu のセルフホストランナー（ラベル linux-unity、docs/backlog.md S-22）。
+#   - ランナーは 1 台のため全ジョブは直列に走る。同じ作業ディレクトリを共有するので、
+#     checkout は clean: false にして FacialControl/Library（import キャッシュ）を残し、
+#     それ以外の未追跡ファイルは git clean で毎回消す
+#   - public リポジトリのため、fork からの PR ではセルフホストランナーのジョブを起動しない
+#     （リポジトリ設定の「外部コントリビューターは承認必須」と二重の防御）
 name: CI
 
 on:
-  # push:
-  #   branches: [main, "feature/**"]
-  # pull_request:
-  #   branches: [main]
+  push:
+    branches: [main, "feature/**", "fix/**", "chore/**", "docs/**"]
+  pull_request:
+    branches: [main]
   workflow_dispatch:
     inputs:
       include_medium:
@@ -25,7 +27,13 @@ on:
         type: boolean
         default: true
 
+# 同じブランチへの連続 push では古い run を打ち切る（ランナーが 1 台のため積み上がりを防ぐ）
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 env:
+  UNITY_VERSION: 6000.3.19f1
   UNITY_PROJECT_PATH: FacialControl
   TEST_RESULTS_DIR: test-results
   PACKAGE_PATH: FacialControl/Packages/com.hidano.facialcontrol
@@ -37,11 +45,16 @@ env:
 jobs:
   package-validation:
     name: パッケージバリデーション
-    runs-on: self-hosted
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: [self-hosted, linux-unity]
     timeout-minutes: 5
     steps:
       - name: チェックアウト
         uses: actions/checkout@v4
+        with:
+          clean: false
+      - name: 作業ツリーの掃除（Library は保持）
+        run: git clean -ffdx -e "${{ env.UNITY_PROJECT_PATH }}/Library"
 
       - name: パッケージバリデーション実行
         run: |
@@ -50,11 +63,16 @@ jobs:
 
   test-size-check:
     name: テストサイズ静的チェック
-    runs-on: self-hosted
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: [self-hosted, linux-unity]
     timeout-minutes: 5
     steps:
       - name: チェックアウト
         uses: actions/checkout@v4
+        with:
+          clean: false
+      - name: 作業ツリーの掃除（Library は保持）
+        run: git clean -ffdx -e "${{ env.UNITY_PROJECT_PATH }}/Library"
 
       - name: サイズ宣言・Small 禁止 API・Small アセンブリ参照の検査
         run: |
@@ -64,80 +82,67 @@ jobs:
   small-tests:
     needs: [package-validation, test-size-check]
     name: Small テスト（EditMode, PR ごと）
-    runs-on: self-hosted
-    timeout-minutes: 30
+    runs-on: [self-hosted, linux-unity]
+    timeout-minutes: 45
     steps:
       - name: チェックアウト
         uses: actions/checkout@v4
-
-      - name: テスト結果ディレクトリ作成
-        run: |
-          if (-Not (Test-Path "${{ env.TEST_RESULTS_DIR }}")) {
-            New-Item -ItemType Directory -Path "${{ env.TEST_RESULTS_DIR }}"
-          }
-        shell: pwsh
+        with:
+          clean: false
+      - name: 作業ツリーの掃除（Library は保持）
+        run: git clean -ffdx -e "${{ env.UNITY_PROJECT_PATH }}/Library"
 
       - name: Small テスト実行（EditMode, -testCategory Small）
-        run: |
-          & "$env:UNITY_PATH/Unity.exe" `
-            -batchmode `
-            -nographics `
-            -projectPath "${{ env.UNITY_PROJECT_PATH }}" `
-            -runTests `
-            -testPlatform EditMode `
-            -testCategory "${{ env.SMALL_CATEGORY }}" `
-            -testResults "${{ env.TEST_RESULTS_DIR }}/small-editmode.xml"
-        shell: pwsh
+        uses: ./.github/actions/run-unity-tests
+        with:
+          unity-version: ${{ env.UNITY_VERSION }}
+          project-path: ${{ env.UNITY_PROJECT_PATH }}
+          test-platform: EditMode
+          test-category: ${{ env.SMALL_CATEGORY }}
+          results-name: small-editmode
 
       - name: テスト結果アップロード
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: small-test-results
-          path: ${{ env.TEST_RESULTS_DIR }}/small-editmode.xml
+          path: |
+            ${{ env.TEST_RESULTS_DIR }}/small-editmode.xml
+            ${{ env.TEST_RESULTS_DIR }}/small-editmode.log
 
   medium-tests:
     needs: [package-validation, test-size-check]
     name: Medium テスト（EditMode + PlayMode, マージ前）
     # マージ前ゲート: PR と main への push で実行（feature ブランチへの push では Small のみ）
     if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main' || (github.event_name == 'workflow_dispatch' && inputs.include_medium)
-    runs-on: self-hosted
-    timeout-minutes: 30
+    runs-on: [self-hosted, linux-unity]
+    timeout-minutes: 45
     steps:
       - name: チェックアウト
         uses: actions/checkout@v4
-
-      - name: テスト結果ディレクトリ作成
-        run: |
-          if (-Not (Test-Path "${{ env.TEST_RESULTS_DIR }}")) {
-            New-Item -ItemType Directory -Path "${{ env.TEST_RESULTS_DIR }}"
-          }
-        shell: pwsh
+        with:
+          clean: false
+      - name: 作業ツリーの掃除（Library は保持）
+        run: git clean -ffdx -e "${{ env.UNITY_PROJECT_PATH }}/Library"
 
       - name: Medium テスト実行（EditMode, -testCategory Medium）
-        run: |
-          & "$env:UNITY_PATH/Unity.exe" `
-            -batchmode `
-            -nographics `
-            -projectPath "${{ env.UNITY_PROJECT_PATH }}" `
-            -runTests `
-            -testPlatform EditMode `
-            -testCategory "${{ env.MEDIUM_CATEGORY }}" `
-            -testResults "${{ env.TEST_RESULTS_DIR }}/medium-editmode.xml"
-        shell: pwsh
+        uses: ./.github/actions/run-unity-tests
+        with:
+          unity-version: ${{ env.UNITY_VERSION }}
+          project-path: ${{ env.UNITY_PROJECT_PATH }}
+          test-platform: EditMode
+          test-category: ${{ env.MEDIUM_CATEGORY }}
+          results-name: medium-editmode
 
       - name: Medium テスト実行（PlayMode, -testCategory Medium）
         if: always()
-        run: |
-          & "$env:UNITY_PATH/Unity.exe" `
-            -batchmode `
-            -nographics `
-            -projectPath "${{ env.UNITY_PROJECT_PATH }}" `
-            -runTests `
-            -testPlatform PlayMode `
-            -testCategory "${{ env.MEDIUM_CATEGORY }}" `
-            -testResults "${{ env.TEST_RESULTS_DIR }}/medium-playmode.xml"
-        shell: pwsh
+        uses: ./.github/actions/run-unity-tests
+        with:
+          unity-version: ${{ env.UNITY_VERSION }}
+          project-path: ${{ env.UNITY_PROJECT_PATH }}
+          test-platform: PlayMode
+          test-category: ${{ env.MEDIUM_CATEGORY }}
+          results-name: medium-playmode
 
       - name: テスト結果アップロード
         if: always()
@@ -146,94 +151,77 @@ jobs:
           name: medium-test-results
           path: |
             ${{ env.TEST_RESULTS_DIR }}/medium-editmode.xml
+            ${{ env.TEST_RESULTS_DIR }}/medium-editmode.log
             ${{ env.TEST_RESULTS_DIR }}/medium-playmode.xml
+            ${{ env.TEST_RESULTS_DIR }}/medium-playmode.log
 
   lipsync-small-tests:
     needs: [package-validation, test-size-check]
     name: uLipSync Small テスト（EditMode, PR ごと）
-    runs-on: self-hosted
-    timeout-minutes: 30
+    runs-on: [self-hosted, linux-unity]
+    timeout-minutes: 45
     steps:
       - name: チェックアウト
         uses: actions/checkout@v4
-
-      - name: テスト結果ディレクトリ作成
-        run: |
-          if (-Not (Test-Path "${{ env.TEST_RESULTS_DIR }}")) {
-            New-Item -ItemType Directory -Path "${{ env.TEST_RESULTS_DIR }}"
-          }
-        shell: pwsh
+        with:
+          clean: false
+      - name: 作業ツリーの掃除（Library は保持）
+        run: git clean -ffdx -e "${{ env.UNITY_PROJECT_PATH }}/Library"
 
       - name: uLipSync Small テスト実行（EditMode, -testCategory Small）
-        run: |
-          $testResultsDir = (Resolve-Path "${{ env.TEST_RESULTS_DIR }}").Path
-          $testResultsPath = Join-Path $testResultsDir "lipsync-small-editmode.xml"
-          & "$env:UNITY_PATH/Unity.exe" `
-            -batchmode `
-            -nographics `
-            -projectPath "${{ env.UNITY_PROJECT_PATH }}" `
-            -runTests `
-            -testPlatform EditMode `
-            -assemblyNames "${{ env.LIPSYNC_EDITMODE_TEST_ASSEMBLY }}" `
-            -testCategory "${{ env.SMALL_CATEGORY }}" `
-            -testResults "$testResultsPath"
-        shell: pwsh
+        uses: ./.github/actions/run-unity-tests
+        with:
+          unity-version: ${{ env.UNITY_VERSION }}
+          project-path: ${{ env.UNITY_PROJECT_PATH }}
+          test-platform: EditMode
+          test-category: ${{ env.SMALL_CATEGORY }}
+          assembly-names: ${{ env.LIPSYNC_EDITMODE_TEST_ASSEMBLY }}
+          results-name: lipsync-small-editmode
 
       - name: テスト結果アップロード
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: lipsync-small-test-results
-          path: ${{ env.TEST_RESULTS_DIR }}/lipsync-small-editmode.xml
+          path: |
+            ${{ env.TEST_RESULTS_DIR }}/lipsync-small-editmode.xml
+            ${{ env.TEST_RESULTS_DIR }}/lipsync-small-editmode.log
           if-no-files-found: error
 
   lipsync-medium-tests:
     needs: [package-validation, test-size-check]
     name: uLipSync Medium テスト（EditMode + PlayMode, マージ前）
     if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main' || (github.event_name == 'workflow_dispatch' && inputs.include_medium)
-    runs-on: self-hosted
-    timeout-minutes: 30
+    runs-on: [self-hosted, linux-unity]
+    timeout-minutes: 45
     steps:
       - name: チェックアウト
         uses: actions/checkout@v4
-
-      - name: テスト結果ディレクトリ作成
-        run: |
-          if (-Not (Test-Path "${{ env.TEST_RESULTS_DIR }}")) {
-            New-Item -ItemType Directory -Path "${{ env.TEST_RESULTS_DIR }}"
-          }
-        shell: pwsh
+        with:
+          clean: false
+      - name: 作業ツリーの掃除（Library は保持）
+        run: git clean -ffdx -e "${{ env.UNITY_PROJECT_PATH }}/Library"
 
       - name: uLipSync Medium テスト実行（EditMode, -testCategory Medium）
-        run: |
-          $testResultsDir = (Resolve-Path "${{ env.TEST_RESULTS_DIR }}").Path
-          $testResultsPath = Join-Path $testResultsDir "lipsync-medium-editmode.xml"
-          & "$env:UNITY_PATH/Unity.exe" `
-            -batchmode `
-            -nographics `
-            -projectPath "${{ env.UNITY_PROJECT_PATH }}" `
-            -runTests `
-            -testPlatform EditMode `
-            -assemblyNames "${{ env.LIPSYNC_EDITMODE_TEST_ASSEMBLY }}" `
-            -testCategory "${{ env.MEDIUM_CATEGORY }}" `
-            -testResults "$testResultsPath"
-        shell: pwsh
+        uses: ./.github/actions/run-unity-tests
+        with:
+          unity-version: ${{ env.UNITY_VERSION }}
+          project-path: ${{ env.UNITY_PROJECT_PATH }}
+          test-platform: EditMode
+          test-category: ${{ env.MEDIUM_CATEGORY }}
+          assembly-names: ${{ env.LIPSYNC_EDITMODE_TEST_ASSEMBLY }}
+          results-name: lipsync-medium-editmode
 
       - name: uLipSync Medium テスト実行（PlayMode, -testCategory Medium）
         if: always()
-        run: |
-          $testResultsDir = (Resolve-Path "${{ env.TEST_RESULTS_DIR }}").Path
-          $testResultsPath = Join-Path $testResultsDir "lipsync-medium-playmode.xml"
-          & "$env:UNITY_PATH/Unity.exe" `
-            -batchmode `
-            -nographics `
-            -projectPath "${{ env.UNITY_PROJECT_PATH }}" `
-            -runTests `
-            -testPlatform PlayMode `
-            -assemblyNames "${{ env.LIPSYNC_PLAYMODE_TEST_ASSEMBLY }}" `
-            -testCategory "${{ env.MEDIUM_CATEGORY }}" `
-            -testResults "$testResultsPath"
-        shell: pwsh
+        uses: ./.github/actions/run-unity-tests
+        with:
+          unity-version: ${{ env.UNITY_VERSION }}
+          project-path: ${{ env.UNITY_PROJECT_PATH }}
+          test-platform: PlayMode
+          test-category: ${{ env.MEDIUM_CATEGORY }}
+          assembly-names: ${{ env.LIPSYNC_PLAYMODE_TEST_ASSEMBLY }}
+          results-name: lipsync-medium-playmode
 
       - name: テスト結果アップロード
         if: always()
@@ -242,5 +230,7 @@ jobs:
           name: lipsync-medium-test-results
           path: |
             ${{ env.TEST_RESULTS_DIR }}/lipsync-medium-editmode.xml
+            ${{ env.TEST_RESULTS_DIR }}/lipsync-medium-editmode.log
             ${{ env.TEST_RESULTS_DIR }}/lipsync-medium-playmode.xml
+            ${{ env.TEST_RESULTS_DIR }}/lipsync-medium-playmode.log
           if-no-files-found: error
