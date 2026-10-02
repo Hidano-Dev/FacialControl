@@ -101,9 +101,15 @@ namespace Hidano.FacialControl.Rec.Tests.EditMode
             byte[] original = { 1, 2, 3, 4 };
             File.WriteAllBytes(filePath, original);
 
+            // 読み戻して検証するため、イベントが参照する source / expression（index 0）を baseline で定義する。
+            // 空 baseline のままだと未定義 index を参照するファイルになり、リーダーが正しく拒否する。
+            var baseline = new RecBaselineState(
+                new[] { new RecBaselineState.TriggerEntry("input:trigger", new[] { "smile" }) },
+                Array.Empty<RecBaselineState.AnalogEntry>());
+
             using (var writer = new RecStreamWriter(filePath))
             {
-                writer.Open(RecBaselineState.Empty);
+                writer.Open(baseline);
                 writer.AppendEvent(RecEvent.CreateTriggerOn(0.1d, 0, 0), ReadOnlySpan<float>.Empty);
                 writer.Complete(0.1d, 1);
 
