@@ -48,6 +48,7 @@ jobs:
           test-platform: EditMode
           test-category: ${{ env.LARGE_CATEGORY }}
           results-name: large-editmode
+          allow-empty: "true"   # Large はまだ 0 件(冒頭のコメント)。追加したら外す
 
       - name: Large テスト実行（PlayMode, -testCategory Large）
         if: always()
@@ -58,6 +59,7 @@ jobs:
           test-platform: PlayMode
           test-category: ${{ env.LARGE_CATEGORY }}
           results-name: large-playmode
+          allow-empty: "true"
 
       - name: テスト結果アップロード
         if: always()
