@@ -230,26 +230,26 @@ function Test-AsmdefDependencies {
 
             # overrideReferences が true であること
             if ($testData.overrideReferences -ne $true) {
-                Add-ValidationError "$testAsmdef: overrideReferences が true ではありません"
+                Add-ValidationError "${testAsmdef}: overrideReferences が true ではありません"
             }
 
             # UNITY_INCLUDE_TESTS の defineConstraints
             if ($testData.defineConstraints -notcontains "UNITY_INCLUDE_TESTS") {
-                Add-ValidationError "$testAsmdef: defineConstraints に 'UNITY_INCLUDE_TESTS' がありません"
+                Add-ValidationError "${testAsmdef}: defineConstraints に 'UNITY_INCLUDE_TESTS' がありません"
             }
 
             # nunit.framework.dll の参照
             if ($testData.precompiledReferences -notcontains "nunit.framework.dll") {
-                Add-ValidationError "$testAsmdef: precompiledReferences に 'nunit.framework.dll' がありません"
+                Add-ValidationError "${testAsmdef}: precompiledReferences に 'nunit.framework.dll' がありません"
             }
 
             # UnityEngine.TestRunner / UnityEditor.TestRunner の参照
             $refs = $asmdefMap[$testAsmdef].References
             if ($refs -notcontains "UnityEngine.TestRunner") {
-                Add-ValidationError "$testAsmdef: UnityEngine.TestRunner への参照がありません"
+                Add-ValidationError "${testAsmdef}: UnityEngine.TestRunner への参照がありません"
             }
             if ($refs -notcontains "UnityEditor.TestRunner") {
-                Add-ValidationError "$testAsmdef: UnityEditor.TestRunner への参照がありません"
+                Add-ValidationError "${testAsmdef}: UnityEditor.TestRunner への参照がありません"
             }
 
             Write-Host "  [OK] $testAsmdef`: テスト設定が正しい" -ForegroundColor Green
@@ -271,11 +271,11 @@ function Test-AsmdefDependencies {
 function Test-MetaFileIntegrity {
     Write-Section ".meta ファイル整合性バリデーション"
 
-    # パッケージ内の全ファイル/ディレクトリを取得（Documentation~ と隠しフォルダを除外）
+    # パッケージ内の全ファイル/ディレクトリを取得（末尾 ~ のフォルダと隠しフォルダを除外）
     $allItems = Get-ChildItem -Path $PackagePath -Recurse -Force | Where-Object {
         $relativePath = $_.FullName.Substring($PackagePath.Length)
-        # Documentation~ ディレクトリとその中身を除外
-        $relativePath -notmatch '[\\/]Documentation~' -and
+        # Documentation~ / Samples~ など末尾 ~ のフォルダは Unity が import せず .meta を持たないので除外
+        $relativePath -notmatch '[\\/][^\\/]*~([\\/]|$)' -and
         # .meta ファイル自体を除外
         $_.Extension -ne ".meta" -and
         # 隠しフォルダ（.で始まる）を除外
@@ -297,7 +297,7 @@ function Test-MetaFileIntegrity {
     # 孤立した .meta ファイルの検出（対応するファイル/ディレクトリが存在しない）
     $allMetaFiles = Get-ChildItem -Path $PackagePath -Filter "*.meta" -Recurse -Force | Where-Object {
         $relativePath = $_.FullName.Substring($PackagePath.Length)
-        $relativePath -notmatch '[\\/]Documentation~'
+        $relativePath -notmatch '[\\/][^\\/]*~([\\/]|$)'
     }
 
     foreach ($metaFile in $allMetaFiles) {
