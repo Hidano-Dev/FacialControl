@@ -106,11 +106,24 @@ runs:
         if [ -n "${{ inputs.assembly-names }}" ]; then
           args+=(-assemblyNames "${{ inputs.assembly-names }}")
         fi
-        xvfb-run -a "$UNITY_EDITOR" "${args[@]}"
-        code=$?
+        # composite action の `shell: bash` は `bash -e` で起動されるため、`xvfb-run ...; code=$?` と書くと
+        # 非 0 終了の瞬間にステップが終わり、以降の診断出力(終了コード・失敗テスト名・サマリ)が
+        # 一切出ない。if で包んで -e の対象から外し、終了コードを拾う
+        if xvfb-run -a "$UNITY_EDITOR" "${args[@]}"; then
+          code=0
+        else
+          code=$?
+        fi
         if [ "$code" -ne 0 ]; then
           echo "::error::Unity の終了コード: $code(2 = 失敗したテストあり、それ以外 = 起動・コンパイルエラー。$results.log を参照)"
-          grep -E "error CS|Scripts have compiler errors|Failed to|Exception" "$results.log" | head -20 || true
+          if [ "$code" -eq 2 ] && [ -f "$results.xml" ]; then
+            # 失敗したテストの fullname をジョブログに出す(artifact をダウンロードしなくても内訳が分かるように)
+            echo "失敗したテスト:"
+            grep -oE '<test-case [^>]*result="Failed"' "$results.xml" \
+              | grep -oE 'fullname="[^"]*"' | sed -E 's/^fullname="(.*)"$/  \1/' | head -50 || true
+          else
+            grep -E "error CS|Scripts have compiler errors|Failed to|Exception" "$results.log" | head -20 || true
+          fi
         fi
         # Unity が 0 で終わっても、結果 XML が無い・テストが 0 件なら失敗にする
         # (asmdef の変更等でテストが発見されなくなった回帰を、緑のまま見逃さないため)
