@@ -98,10 +98,13 @@ namespace Hidano.FacialControl.Tests.EditMode.Editor.Thumbnails
             _service.Bind(view, _model, _clip);
             _service.Pump();
             Assert.That(_renderer.RenderCount, Is.EqualTo(1));
-            Assert.That(File.Exists(Path.Combine(_cacheDirectory, view.CacheKey + ".png")), Is.True,
+            var cacheKey = view.CacheKey;
+            Assert.That(cacheKey, Is.Not.Null);
+            Assert.That(File.Exists(Path.Combine(_cacheDirectory, cacheKey + ".png")), Is.True,
                 "描画結果がディスクキャッシュに保存されていません。");
 
             // Inspector を閉じて開き直した状況（別のサービス）。
+            // Dispose は表示中の view をプレースホルダへ戻す（view.CacheKey が null になる）ので、キーは上で控えた値と比べる。
             _service.Dispose();
             var secondRenderer = new FakeExpressionThumbnailRenderer();
             _service = CreateService(secondRenderer);
@@ -113,7 +116,7 @@ namespace Hidano.FacialControl.Tests.EditMode.Editor.Thumbnails
 
             Assert.That(secondRenderer.RenderCount, Is.Zero, "ディスクキャッシュがあるのに描画し直しました。");
             Assert.That(reopened.Texture, Is.Not.Null);
-            Assert.That(reopened.CacheKey, Is.EqualTo(view.CacheKey));
+            Assert.That(reopened.CacheKey, Is.EqualTo(cacheKey));
         }
 
         [Test]

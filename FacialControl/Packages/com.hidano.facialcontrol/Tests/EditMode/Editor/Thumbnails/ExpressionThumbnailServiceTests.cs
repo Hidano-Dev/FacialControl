@@ -301,6 +301,21 @@ namespace Hidano.FacialControl.Tests.EditMode.Editor.Thumbnails
         }
 
         [Test]
+        public void Dispose_AfterRender_ResetsBoundViewToPending()
+        {
+            var view = new ExpressionThumbnailView();
+            _service.Bind(view, CreateModel(), CreateClip("smile", 0.5f));
+            _service.Pump();
+            Assert.That(view.CacheKey, Is.Not.Null);
+
+            _service.Dispose();
+
+            Assert.That(view.Texture, Is.Null, "破棄したテクスチャを表示し続けています。");
+            Assert.That(view.CacheKey, Is.Null);
+            Assert.That(view.StatusText, Is.EqualTo(ExpressionThumbnailView.PendingMessage));
+        }
+
+        [Test]
         public void Dispose_Twice_DoesNotThrow()
         {
             _service.Dispose();
