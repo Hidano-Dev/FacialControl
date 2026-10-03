@@ -2,6 +2,7 @@ using System.Collections;
 using System.Net;
 using System.Net.Sockets;
 using System.Text.RegularExpressions;
+using System.Threading;
 using NUnit.Framework;
 using UnityEngine;
 using UnityEngine.TestTools;
@@ -20,12 +21,13 @@ namespace Hidano.FacialControl.Tests.PlayMode.Integration
             var options = new OscReceiveOptions(512, 4, 0);
             var ring = new OscDatagramRing(options, diagnostics);
             var loop = new OscUdpReceiveLoop(ring, diagnostics);
+            // フックは受信スレッドから呼ばれるので、主スレッドから読むカウンタは Interlocked / Volatile で扱う
             int started = 0;
             int committed = 0;
             loop.ThreadHooks = new OscReceiveThreadHooks
             {
-                OnThreadStarted = () => started++,
-                OnDatagramCommitted = () => committed++
+                OnThreadStarted = () => Interlocked.Increment(ref started),
+                OnDatagramCommitted = () => Interlocked.Increment(ref committed)
             };
 
             int port = OscPortResolver.ResolveAvailablePort(38000);
@@ -38,14 +40,18 @@ namespace Hidano.FacialControl.Tests.PlayMode.Integration
             }
 
             // 受信は別スレッドなのでフレーム数ではなく実時間で待つ。batchmode（特に CI の Linux ランナー）では
-            // 1 フレームが 0.1ms 程度まで縮み、60 フレームでは datagram の到着前に打ち切ってしまう
+            // 1 フレームが 0.1ms 程度まで縮み、60 フレームでは datagram の到着前に打ち切ってしまう。
+            // 受信ループは ReceivedDatagramCount を加算した後に OnDatagramCommitted を呼ぶため、
+            // カウントだけで待ちを抜けるとフック呼び出し前に committed を読んで 0 になる（Linux CI で再現）。
+            // 両方が揃うまで待つ
             var wait = System.Diagnostics.Stopwatch.StartNew();
-            while (diagnostics.ReceivedDatagramCount == 0 && wait.ElapsedMilliseconds < 2000)
+            while ((diagnostics.ReceivedDatagramCount == 0 || Volatile.Read(ref committed) == 0)
+                   && wait.ElapsedMilliseconds < 2000)
                 yield return null;
 
             Assert.That(loop.IsRunning, Is.True);
-            Assert.That(started, Is.EqualTo(1));
-            Assert.That(committed, Is.EqualTo(1));
+            Assert.That(Volatile.Read(ref started), Is.EqualTo(1));
+            Assert.That(Volatile.Read(ref committed), Is.EqualTo(1));
             Assert.That(diagnostics.ReceivedDatagramCount, Is.EqualTo(1));
             var drain = new OscDrainBuffer(options);
             Assert.That(ring.Drain(drain), Is.EqualTo(1));
