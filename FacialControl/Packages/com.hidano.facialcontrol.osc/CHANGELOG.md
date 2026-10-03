@@ -21,6 +21,10 @@
 - `OscRuntimeSettingsSO` は既存アセットの移行専用として残し、Collection の Add 一覧には出さない（`HideInAdapterRuntimeSettingsMenuAttribute`）
 - サンプル `OscOutputDemo` は上級設定アセットなしの構成にした（`OscOutputDemoSettings.asset` を削除）。`OscReceiverDemo` の設定アセットは `OscReceiverRuntimeSettingsSO` に置き換えた
 
+### Fixed
+
+- Linux で、OSC 受信ポートの占有判定（`OscPortResolver.IsPortAvailable`）が SO_REUSEADDR 付きで占有されたポート（uOSC 等）を空きと誤判定し、ポートの自動繰り上げが起きなかった。Unity の Mono は Unix で全ソケットに SO_REUSEADDR を既定で付けるため、プローブ側で明示的に外すようにした（Windows の挙動は変わらない）
+
 ### Migration
 
 既存の Profile で binding に `OscRuntimeSettingsSO` が割り当てられている場合:
