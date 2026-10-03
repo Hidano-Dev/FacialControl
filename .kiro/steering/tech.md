@@ -96,7 +96,8 @@ JSON パースは `JsonUtility` ベース（System.Text.Json は使わない）�
 Claude Code 実行時は `run_in_background` を使わず、`timeout: 600000` の同期 Bash 呼び出しでテストランナーを実行する。
 
 ### CI/CD
-- **GitHub Actions + セルフホスト Windows ランナー**
+- **GitHub Actions + Linux セルフホストランナー**（ラベル `linux-unity`、オンプレ Ubuntu 機、Unity 6000.3.19f1 + Xvfb、`.github/actions/run-unity-tests`。2026-10-02 HID-72 で Windows 想定から移行）
+- push / PR ごとに Small・Medium を自動実行。Windows 固有の挙動は CI で検証されないためローカルで確認する
 - TDD ベースの自動テスト
 
 ## Key Technical Decisions

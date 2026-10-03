@@ -213,8 +213,9 @@ Tests/
 | 最適化 | プレリリースは通常C#。インターフェース設計でJobs/Burst差し替え可能 |
 
 ### CI/CD
-- GitHub Actions + セルフホストランナー（Windows マシン）
-- 現状セルフホストランナーは未登録のため、CI は手動実行（workflow_dispatch）のみ（`docs/backlog.md` S-22）。PR のテスト根拠はローカル実行結果を PR 本文に書く
+- GitHub Actions + Linux セルフホストランナー（ラベル `linux-unity`、オンプレ Ubuntu 機、Unity 6000.3.19f1 + Xvfb。2026-10-02 HID-72 で移行、`docs/testing.md`「CI での回し方」）。push / PR ごとに Small・Medium・uLipSync・パッケージバリデーション・テストサイズ静的チェックが自動実行される
+- PR のテスト根拠は CI の結果で示す。CI は Linux で動くため、Windows ローカルでは出ない Linux 固有の赤（パス区切り・ソケット既定値・無効文字集合など）が出ることがある。失敗の内訳はジョブログの「失敗したテスト:」か artifact `*-test-results` の結果 XML で読む
+- Windows 固有の挙動は CI で検証されないので、必要ならローカルの batchmode 結果を PR 本文に併記する
 - TDD 厳守（Red-Green-Refactor）。カバレッジ数値目標は設定しない
 
 ### リリース計画
