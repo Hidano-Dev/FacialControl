@@ -37,7 +37,10 @@ namespace Hidano.FacialControl.Tests.PlayMode.Integration
                 sender.SendTo(payload, new IPEndPoint(IPAddress.Loopback, port));
             }
 
-            for (int i = 0; i < 60 && diagnostics.ReceivedDatagramCount == 0; i++)
+            // 受信は別スレッドなのでフレーム数ではなく実時間で待つ。batchmode（特に CI の Linux ランナー）では
+            // 1 フレームが 0.1ms 程度まで縮み、60 フレームでは datagram の到着前に打ち切ってしまう
+            var wait = System.Diagnostics.Stopwatch.StartNew();
+            while (diagnostics.ReceivedDatagramCount == 0 && wait.ElapsedMilliseconds < 2000)
                 yield return null;
 
             Assert.That(loop.IsRunning, Is.True);
