@@ -13,7 +13,7 @@
 
 ## 第 1 段: Play 再現の経路（受け入れ条件 1 / 3 / 4）
 
-- [ ] 1. state sink の ContributeMask 長 0 による Aggregator 例外を再現テストで固定してから修正する（timeline Runtime Adapters）
+- [x] 1. state sink の ContributeMask 長 0 による Aggregator 例外を再現テストで固定してから修正する（timeline Runtime Adapters）
   - 既存 `TimelineExpressionStateSinkTests`（Small）に、state sink を LayerInputSourceRegistry + WeightBuffer + Aggregator へ sourceIdx 0 として直差しし、Expression ON 後に Aggregate すると ArgumentException になる赤テストを先に書く
   - state sink が構築時にホスト BlendShape 名列を受け取り、ContributeMask 長を BlendShape 数（全 false）に揃える。値出力は従来どおり何も書かない
   - 既存の構築箇所（binding の OnStart / 既存テスト）へ BlendShape 名列を渡し、ビルドを通す

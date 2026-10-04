@@ -1,4 +1,5 @@
 using Hidano.FacialControl.Application.UseCases;
+using Hidano.FacialControl.Domain.Interfaces;
 using Hidano.FacialControl.Domain.Models;
 using Hidano.FacialControl.Domain.Services;
 using Hidano.FacialControl.Timeline.Adapters.InputSources;
@@ -10,6 +11,43 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
     [SmallTest]
     public sealed class TimelineExpressionStateSinkTests : SizedTestFixture
     {
+        // ホスト（SkinnedMeshRenderer 側）の BlendShape 名列。Profile の Expression が参照する名前と一致させる。
+        private static readonly string[] HostBlendShapeNames = { "smile", "angry", "sad" };
+
+        [Test]
+        public void Aggregate_StateSinkBoundAsLayerInputSource_DoesNotThrowAfterTriggerOn()
+        {
+            FacialProfile profile = BuildProfile();
+            var sink = CreateSink();
+            using var registry = new LayerInputSourceRegistry(
+                profile,
+                HostBlendShapeNames.Length,
+                new[] { (0, 0, (IInputSource)sink) });
+            using var weightBuffer = new LayerInputSourceWeightBuffer(registry.LayerCount, registry.MaxSourcesPerLayer);
+            weightBuffer.SetWeight(0, 0, 1f);
+            var aggregator = new LayerInputSourceAggregator(registry, weightBuffer, HostBlendShapeNames.Length);
+            var output = new LayerBlender.LayerInput[registry.LayerCount];
+
+            sink.TriggerOn("smile");
+
+            Assert.DoesNotThrow(() => aggregator.Aggregate(0f, output));
+            CollectionAssert.AreEqual(new[] { 0f, 0f, 0f }, output[0].BlendShapeValues.ToArray());
+        }
+
+        [Test]
+        public void ContributeMask_MatchesHostBlendShapeCount_AndIsAllFalse()
+        {
+            var sink = CreateSink();
+
+            sink.TriggerOn("smile");
+
+            Assert.That(sink.ContributeMask.Length, Is.EqualTo(HostBlendShapeNames.Length));
+            for (int i = 0; i < sink.ContributeMask.Length; i++)
+            {
+                Assert.That(sink.ContributeMask[i], Is.False, $"ContributeMask[{i}]");
+            }
+        }
+
         [Test]
         public void TriggerStack_RetainsBaseLifoSemantics_WithRetriggerAndDepthLimit()
         {
@@ -45,7 +83,7 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
             Assert.That(wrote, Is.True);
             CollectionAssert.AreEqual(new[] { 0.25f, 0.5f, 0.75f }, output);
             Assert.That(sink.BlendShapeCount, Is.Zero);
-            Assert.That(sink.ContributeMask.Length, Is.Zero);
+            Assert.That(sink.ContributeMask.Length, Is.EqualTo(HostBlendShapeNames.Length));
         }
 
         [Test]
@@ -75,6 +113,7 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
                 InputSourceId.Parse("timeline:emotion"),
                 maxStackDepth,
                 exclusionMode,
+                HostBlendShapeNames,
                 BuildProfile());
         }
 

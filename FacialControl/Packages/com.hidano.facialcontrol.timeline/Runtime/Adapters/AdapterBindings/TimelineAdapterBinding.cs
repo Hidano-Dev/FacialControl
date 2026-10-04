@@ -82,6 +82,7 @@ namespace Hidano.FacialControl.Timeline.Adapters.AdapterBindings
                         InputSourceId.Parse(slug.Value + ":" + layerName + StateSinkSuffix),
                         DefaultMaxStackDepth,
                         layer.Value.ExclusionMode,
+                        ctx.BlendShapeNames,
                         ctx.Profile);
                     var valueSink = new TimelineBakedValueSink(
                         InputSourceId.Parse(slug.Value + ":" + layerName),

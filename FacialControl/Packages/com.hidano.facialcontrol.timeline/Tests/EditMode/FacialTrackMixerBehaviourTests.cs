@@ -225,6 +225,7 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
                 InputSourceId.Parse("timeline:Expressions"),
                 maxStackDepth: 8,
                 exclusionMode: ExclusionMode.LastWins,
+                blendShapeNames: new[] { "Smile", "Angry" },
                 profile);
         }
 

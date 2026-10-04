@@ -345,6 +345,7 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
                 InputSourceId.Parse("timeline:emotion"),
                 maxStackDepth: 4,
                 exclusionMode: ExclusionMode.LastWins,
+                blendShapeNames: new[] { "Smile", "Blink" },
                 CreateProfile());
             var valueSink = new TimelineBakedValueSink(
                 InputSourceId.Parse("timeline:value"),
@@ -390,6 +391,7 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
                 InputSourceId.Parse("timeline:emotion"),
                 maxStackDepth: 4,
                 exclusionMode: ExclusionMode.LastWins,
+                blendShapeNames: new[] { "Smile" },
                 CreateProfile());
             var valueSink = new TimelineBakedValueSink(
                 InputSourceId.Parse("timeline:value"),
