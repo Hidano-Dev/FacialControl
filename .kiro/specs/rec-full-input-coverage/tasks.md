@@ -11,7 +11,7 @@
 ---
 
 - [ ] 1. core 値提供型観測面（Aggregator フック拡張 → 配信契約 → サンプラー → FacialController 配線）
-- [ ] 1.1 消費点フックに消費元入力源インスタンスを渡せるようにする
+- [x] 1.1 消費点フックに消費元入力源インスタンスを渡せるようにする
   - 対象: `FacialControl/` の `com.hidano.facialcontrol`（`Hidano.FacialControl.Domain`）、追随のみ `com.hidano.facialcontrol.timeline`（`Hidano.FacialControl.Timeline.Editor`）
   - レイヤー入力源観測者の契約に「消費元入力源」引数を 1 個追加し、Aggregator が `TryWriteValues` 直後・レイヤー mask 合成前の既存フック位置で渡す（observer が null のとき追加コストなし）
   - 既存実装 2 件（timeline Editor のベイクシミュレーション用 observer、core Small テストの observer）をシグネチャ追随（新引数は無視）してコンパイルを維持する
@@ -19,7 +19,7 @@
   - 完了条件: 上記 3 テストと既存 Aggregator テスト・timeline Editor テストが EditMode で緑
   - _Requirements: 2.1, 2.3, 2.4, 8.7_
 
-- [ ] 1.2 値提供型サンプルと系1 イベントの観測配信契約を追加する
+- [x] 1.2 値提供型サンプルと系1 イベントの観測配信契約を追加する
   - 対象: `com.hidano.facialcontrol`（`Hidano.FacialControl.Domain`）。コンパイル追随のみ `com.hidano.facialcontrol.rec`（`Hidano.FacialControl.Rec.Application` の記録ユースケースとテスト Fake を空実装で追随。本実装は 4.5）
   - 値提供型 1 件のフレーム消費粒度サンプル（有効性・有効性変化・値変化・mask 変化・値 span・mask。コール中のみ有効）を Domain に定義する
   - 系1 観測契約（アクティブ化 / 非アクティブ化の通知）と予約識別子 `@expression`（registry の id 許容文字集合と交わらない）を Domain Interfaces に定義する
@@ -28,7 +28,7 @@
   - 完了条件: 上記テストが緑、rec を含む全アセンブリがコンパイルでき既存 EditMode テストが緑
   - _Requirements: 2.1, 2.2, 2.3, 2.5, 4.1, 4.2, 8.3_
 
-- [ ] 1.3 値提供型観測サンプラーを実装する
+- [x] 1.3 値提供型観測サンプラーを実装する
   - 対象: `com.hidano.facialcontrol`（`Hidano.FacialControl.Adapters`、InputSources 配下）
   - Aggregator フックを受け、値提供型基底の派生だけを選別し（系1 消費アダプタ・トリガー型・アナログラッパは即 return）、入力源 id 単位の状態（最後に観測したインスタンス参照・値・mask・有効性・サンプル有無）と比較して変化時のみバスへ publish する。観測者ゼロなら即 return
   - 変化判定: 有効時は値の float ビット一致と mask のビット一致（長さ不一致は変化）、無効時は有効性のみ、無効→有効の復帰時は最後に publish した値・mask と比較、mask 変化時は値変化を強制 true。同 id で別インスタンスが来たら状態を破棄して全量 publish。同一インスタンスの複数スロット通知は最終 publish 状態との比較でフレーム内 dedupe
