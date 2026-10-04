@@ -37,7 +37,7 @@
   - 完了条件: 上記テストが EditMode で緑
   - _Requirements: 2.1, 2.2, 2.3, 2.4, 2.5, 2.6, 2.7, 2.8, 8.5, 8.6, 8.7_
 
-- [ ] 1.4 FacialController にサンプラーを配線し、観測者ゼロ時の不変性を保つ
+- [x] 1.4 FacialController にサンプラーを配線し、観測者ゼロ時の不変性を保つ
   - 対象: `com.hidano.facialcontrol`（`Hidano.FacialControl.Application` の LayerUseCase、`Hidano.FacialControl.Adapters` の FacialController）
   - LayerUseCase に観測者設定の委譲を追加し、プロファイル再設定で Aggregator を再構築したときも再適用する
   - FacialController は初期化時にサンプラーを構築し、`LateUpdate` 冒頭でバスの観測者有無のエッジを検出して観測者を着脱（着時に `Reset`）する。観測者ゼロ時は Aggregator フックが null のまま（追加コストは bool 読取 + 比較 1 回）。BlendShape 総数を公開する
@@ -46,7 +46,7 @@
   - _Requirements: 2.1, 2.4, 8.1, 8.2_
 
 - [ ] 2. core 系1 経路（観測・遮断・注入・遷移なし基準確立）
-- [ ] 2.1 (P) 表情ユースケースに系1 の観測・遮断・注入・基準確立の面を追加する
+- [x] 2.1 (P) 表情ユースケースに系1 の観測・遮断・注入・基準確立の面を追加する
   - 対象: `com.hidano.facialcontrol`（`Hidano.FacialControl.Domain` の遮断契約、`Hidano.FacialControl.Application` の ExpressionUseCase）
   - 系1 遮断契約（遮断中フラグ・冪等な Suspend / Resume・ゲート迂回の Inject アクティブ化 / 非アクティブ化・観測者非通知の基準確立・レイヤー宣言順 × 内部順の id 収集・基準確立世代カウンタ）を Domain に定義し、ExpressionUseCase が実装する
   - 本体を private コアへ純リファクタし、ライブ面（ゲート適用・通知）/ 注入面（ゲート迂回・通知）/ 基準確立（通知なし・世代++）の 3 面から呼ぶ。遮断中のライブ呼出は null 検証後に無視・集合不変・非通知・ログなし。アクティブ化は常に通知、非アクティブ化は 1 件以上除去時のみ通知。観測者の着脱 API を追加。プロファイル再設定はゲート状態と観測者を維持し世代を進める
