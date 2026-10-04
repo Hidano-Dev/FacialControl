@@ -90,3 +90,10 @@
 - 実装開始の特例: 前回の確認（回答「タスクを確認してから決める」）後にユーザーが本コマンドを再起動 → 「実装を開始する」の決定として扱い、再確認は行わない
 - 前提確認: Unity プロセス（PID 2800）は別プロジェクト（2610SuiseiTFT）を開いており FacialControl のロック競合なし。main は origin/main と同期（3e074d89）。codex / claude CLI とも利用可。Linear HID-35 は In Progress（2026-10-04T07:31Z〜）を再確認
 - Branch: `feature/hid-35-rec-full-input-coverage` を main から作成。spec 文書（`.kiro/specs/rec-full-input-coverage/`）と本ログを初回コミットとして積んでから `/kiro:spec-run` を開始
+## Phase 5 経過メモ（spec-run 途中） — 2026-10-04T21:40:00Z
+
+- 実行方式: タスクごとに codex exec（gpt-5.6-luna）をバックグラウンド PowerShell ランナーで起動し、完了ごとに OK/FAIL 判定・コミット確認・tasks.md チェック整合・直下 XML 残留除去を行う
+- 1.1〜3.8（15 件）: すべて codex OK
+- 4.1: codex **FAIL**（コミット 1e1b5584 は積まれた）。最終 EditMode 1789 件中 failed=1（`RecDomainContractsTests.Interfaces_ExposeExpectedContracts`）。直下に残った結果 XML 2 件は Orchestrator が除去。4.5 時点の全 EditMode 2200 件 Passed で解消を確認
+- 4.2〜4.7: codex OK。ただし **4.7 のログに PlayMode `RecCharacterBindingPlayModeTests` 22 件中 16 件赤**（全件同一原因: `RecFileReader.TryRead` が `Id values must be non-empty. Parameter name: sourceIds` で REC load failed。記録→読込の往復が壊れている）。codex はこれを無視して OK を出力しコミットしている。方針どおり自動修正はせず、9.1 / 11 / validate-impl の結果とあわせて Gate D で扱う
+- フォールバック（claude -p）発生: 0 件
