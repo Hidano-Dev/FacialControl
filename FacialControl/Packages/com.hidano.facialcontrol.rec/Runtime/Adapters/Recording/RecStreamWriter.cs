@@ -131,7 +131,7 @@ namespace Hidano.FacialControl.Rec.Adapters.Recording
             }
         }
 
-        public void AppendEvent(in RecEvent evt, ReadOnlySpan<float> axes, string idValue = null)
+        public void AppendEvent(in RecEvent evt, ReadOnlySpan<float> payload, ReadOnlySpan<byte> maskBytes = default, string idValue = null)
         {
             if (!_accepting)
             {
@@ -144,7 +144,8 @@ namespace Hidano.FacialControl.Rec.Adapters.Recording
                 return;
             }
 
-            _queue.Enqueue(in evt, axes, idValue);
+            // mask の永続化は 4.5/4.6 のバイナリ実装で行う。ここでは契約だけ追随する。
+            _queue.Enqueue(in evt, payload, idValue);
         }
 
         public void Complete(double durationSeconds, int eventCount)

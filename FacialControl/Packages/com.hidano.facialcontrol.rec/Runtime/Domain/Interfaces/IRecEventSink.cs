@@ -10,7 +10,7 @@ namespace Hidano.FacialControl.Rec.Domain.Interfaces
     {
         void Open(RecBaselineState baseline);
 
-        void AppendEvent(in RecEvent evt, ReadOnlySpan<float> axes, string idValue = null);
+        void AppendEvent(in RecEvent evt, ReadOnlySpan<float> payload, ReadOnlySpan<byte> maskBytes = default, string idValue = null);
 
         void Complete(double durationSeconds, int eventCount);
     }

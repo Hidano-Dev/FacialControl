@@ -190,7 +190,7 @@ namespace Hidano.FacialControl.Rec.Tests.PlayMode
             {
             }
 
-            public void AppendEvent(in RecEvent evt, ReadOnlySpan<float> axes, string idValue = null)
+            public void AppendEvent(in RecEvent evt, ReadOnlySpan<float> payload, ReadOnlySpan<byte> maskBytes = default, string idValue = null)
             {
             }
 

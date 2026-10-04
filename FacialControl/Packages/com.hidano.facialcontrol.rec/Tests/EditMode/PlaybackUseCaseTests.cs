@@ -660,7 +660,7 @@ namespace Hidano.FacialControl.Rec.Tests.EditMode
                 CompletedTimeline = null;
             }
 
-            public void AppendEvent(in RecEvent evt, ReadOnlySpan<float> axes, string idValue = null)
+            public void AppendEvent(in RecEvent evt, ReadOnlySpan<float> payload, ReadOnlySpan<byte> maskBytes = default, string idValue = null)
             {
                 if (evt.Kind == RecEventKind.IdDefine)
                 {
@@ -677,7 +677,7 @@ namespace Hidano.FacialControl.Rec.Tests.EditMode
                 }
 
                 _timedEvents.Add(evt);
-                _analogAxesByEvent.Add(evt.Kind == RecEventKind.AnalogSample ? axes.ToArray() : Array.Empty<float>());
+                _analogAxesByEvent.Add(evt.Kind == RecEventKind.AnalogSample ? payload.ToArray() : Array.Empty<float>());
             }
 
             public void Complete(double durationSeconds, int eventCount)

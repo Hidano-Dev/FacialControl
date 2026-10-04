@@ -420,9 +420,9 @@ namespace Hidano.FacialControl.Rec.Tests.EditMode
                 OpenedBaseline = baseline;
             }
 
-            public void AppendEvent(in RecEvent evt, ReadOnlySpan<float> axes, string idValue = null)
+            public void AppendEvent(in RecEvent evt, ReadOnlySpan<float> payload, ReadOnlySpan<byte> maskBytes = default, string idValue = null)
             {
-                AppendedEvents.Add((evt, axes.ToArray(), idValue));
+                AppendedEvents.Add((evt, payload.ToArray(), idValue));
             }
 
             public void Complete(double durationSeconds, int eventCount)

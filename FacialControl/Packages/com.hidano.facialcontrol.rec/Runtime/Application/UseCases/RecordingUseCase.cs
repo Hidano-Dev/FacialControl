@@ -126,7 +126,7 @@ namespace Hidano.FacialControl.Rec.Application.UseCases
                 return;
             }
 
-            AppendEvent(RecEvent.CreateTriggerOn(SampleClock(), sourceIndex, expressionIndex), ReadOnlySpan<float>.Empty);
+            AppendEvent(RecEvent.CreateTriggerOn(SampleClock(), sourceIndex, expressionIndex), ReadOnlySpan<float>.Empty, ReadOnlySpan<byte>.Empty);
         }
 
         public void OnTriggerOff(string sourceId, string expressionId)
@@ -141,7 +141,7 @@ namespace Hidano.FacialControl.Rec.Application.UseCases
                 return;
             }
 
-            AppendEvent(RecEvent.CreateTriggerOff(SampleClock(), sourceIndex, expressionIndex), ReadOnlySpan<float>.Empty);
+            AppendEvent(RecEvent.CreateTriggerOff(SampleClock(), sourceIndex, expressionIndex), ReadOnlySpan<float>.Empty, ReadOnlySpan<byte>.Empty);
         }
 
         public void OnAnalogSample(string sourceId, ReadOnlySpan<float> axes)
@@ -164,7 +164,7 @@ namespace Hidano.FacialControl.Rec.Application.UseCases
             }
 
             ushort sourceIndex = EnsureSourceIdDefined(sourceId);
-            AppendEvent(RecEvent.CreateAnalogSample(SampleClock(), sourceIndex, checked((byte)axes.Length)), axes);
+            AppendEvent(RecEvent.CreateAnalogSample(SampleClock(), sourceIndex, checked((byte)axes.Length)), axes, ReadOnlySpan<byte>.Empty);
         }
 
         public void OnValueProviderSample(string sourceId, in ValueProviderSample sample)
@@ -269,7 +269,7 @@ namespace Hidano.FacialControl.Rec.Application.UseCases
             index = _idTable.GetOrAddSourceId(sourceId);
             if (!existed)
             {
-                AppendEvent(RecEvent.CreateIdDefine(index, RecEvent.IdDefinitionKind.Source), ReadOnlySpan<float>.Empty, sourceId);
+                AppendEvent(RecEvent.CreateIdDefine(index, RecEvent.IdDefinitionKind.Source), ReadOnlySpan<float>.Empty, ReadOnlySpan<byte>.Empty, sourceId);
             }
 
             return index;
@@ -281,15 +281,15 @@ namespace Hidano.FacialControl.Rec.Application.UseCases
             index = _idTable.GetOrAddExpressionId(expressionId);
             if (!existed)
             {
-                AppendEvent(RecEvent.CreateIdDefine(index, RecEvent.IdDefinitionKind.Expression), ReadOnlySpan<float>.Empty, expressionId);
+                AppendEvent(RecEvent.CreateIdDefine(index, RecEvent.IdDefinitionKind.Expression), ReadOnlySpan<float>.Empty, ReadOnlySpan<byte>.Empty, expressionId);
             }
 
             return index;
         }
 
-        private void AppendEvent(in RecEvent evt, ReadOnlySpan<float> axes, string idValue = null)
+        private void AppendEvent(in RecEvent evt, ReadOnlySpan<float> payload, ReadOnlySpan<byte> maskBytes, string idValue = null)
         {
-            _sink.AppendEvent(evt, axes, idValue);
+            _sink.AppendEvent(evt, payload, maskBytes, idValue);
             _eventCount++;
         }
 
