@@ -138,11 +138,17 @@ namespace Hidano.FacialControl.Tests.EditMode.Application
                 new[] { (0, (IInputSource)source, 1f) }, new[] { "source-slot" });
             var gate = (IWeightInjectionGate)useCase;
 
+            // 遮断 → 基準 → ライブ書込 → 消費、の順。ライブ書込が基準の後に来ても消費値が基準のままであることが
+            // 遮断の証明になる（基準を後に書くと遮断が壊れていても通ってしまう）。
             Assert.IsTrue(gate.SuspendLiveWeights());
-            useCase.SetLayerWeight("emotion", 0.1f);
-            useCase.SetInputSourceWeight(0, 1, 0.9f);
             Assert.IsTrue(gate.TrySetBaselineLayerWeight("emotion", 0.6f));
             Assert.IsTrue(gate.TrySetBaselineInputSourceWeight("emotion", "source-slot", 0.4f));
+            useCase.SetLayerWeight("emotion", 0.1f);
+            useCase.SetInputSourceWeight(0, 1, 0.9f);
+            using (var bulk = useCase.BeginInputSourceWeightBatch())
+            {
+                bulk.SetWeight(0, 1, 0.95f);
+            }
             useCase.UpdateWeights(0f);
 
             var layers = new List<LayerWeightEntry>();

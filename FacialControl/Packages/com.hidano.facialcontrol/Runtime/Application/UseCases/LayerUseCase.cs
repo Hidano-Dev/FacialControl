@@ -832,6 +832,13 @@ namespace Hidano.FacialControl.Application.UseCases
                 _weightBuffer.SetWeight(aw.layerIdx, aw.sourceIdx, aw.weight);
                 _declaredSlotWeights[(aw.layerIdx * maxSources) + aw.sourceIdx] = Clamp01(aw.weight);
             }
+
+            // 遮断中に SetProfile で再構築された場合も、新しいバッファへ遮断を引き継ぎ 2 系統の遮断状態を揃える
+            // （再生中の再初期化は既知制限だが、レイヤー側だけ遮断・バッファ側は素通しという片寄りを作らない）。
+            if (_liveWeightsSuspended)
+            {
+                _weightBuffer.SuspendLiveWrites();
+            }
             _aggregator = new LayerInputSourceAggregator(_registry, _weightBuffer, bsCount);
             _aggregator.SetSourceValueObserver(_sourceValueObserver);
 
