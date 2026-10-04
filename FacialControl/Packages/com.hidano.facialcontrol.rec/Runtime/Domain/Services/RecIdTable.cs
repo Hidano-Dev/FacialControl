@@ -6,7 +6,7 @@ using Hidano.FacialControl.Rec.Domain.Models;
 namespace Hidano.FacialControl.Rec.Domain.Services
 {
     /// <summary>
-    /// Tracks source and expression ids by REC binary index.
+    /// Tracks source, expression and layer ids by REC binary index.
     /// </summary>
     public sealed class RecIdTable
     {
@@ -61,6 +61,12 @@ namespace Hidano.FacialControl.Rec.Domain.Services
                 idTable.GetOrAddSourceId(baseline.ValueProviderEntries[i].SourceId);
             }
 
+            // 入力源 weight のスロット id は source id 表を共有する（系1 の予約 id も同じ表に入る）
+            for (int i = 0; i < baseline.InputSourceWeightEntries.Count; i++)
+            {
+                idTable.GetOrAddSourceId(baseline.InputSourceWeightEntries[i].SlotId);
+            }
+
             idTable.GetOrAddSourceId(ExpressionActivationSource.ReservedId);
             for (int i = 0; i < baseline.ExpressionEntries.Count; i++)
             {
@@ -96,6 +102,12 @@ namespace Hidano.FacialControl.Rec.Domain.Services
             if (idKind == Hidano.FacialControl.Rec.Domain.Models.RecEvent.IdDefinitionKind.Expression)
             {
                 AddDefinedIdCore(idIndex, value, _expressionIndexes, _expressionIds, nameof(value));
+                return;
+            }
+
+            if (idKind == Hidano.FacialControl.Rec.Domain.Models.RecEvent.IdDefinitionKind.Layer)
+            {
+                AddDefinedIdCore(idIndex, value, _layerIndexes, _layerIds, nameof(value));
                 return;
             }
 
