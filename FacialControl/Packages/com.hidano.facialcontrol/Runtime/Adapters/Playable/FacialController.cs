@@ -313,7 +313,7 @@ namespace Hidano.FacialControl.Adapters.Playable
             BuildAdapterBindingsChildScope(profile, blendShapeNames);
 
             // profile.LayerInputSources を child scope 内 InputSourceRegistry 経由で IInputSource に解決する。
-            var additionalSources = ResolveLayerInputSourcesFromRegistry(profile);
+            var additionalSources = ResolveLayerInputSourcesFromRegistry(profile, out List<string> declaredSourceIds);
 
             // overlay suppress の active 取得を系2(ExpressionTriggerInputSource)ベースにする。
             // OverlayInputSource は child scope build 時点（additionalSources 解決前）に
@@ -322,7 +322,7 @@ namespace Hidano.FacialControl.Adapters.Playable
 
             // LayerUseCase に組み立て済み IInputSource 列を注入し、
             // 内部で LayerInputSourceRegistry / LayerInputSourceWeightBuffer / LayerInputSourceAggregator を再構築させる。
-            _layerUseCase = new LayerUseCase(profile, _expressionUseCase, blendShapeNames, additionalSources);
+            _layerUseCase = new LayerUseCase(profile, _expressionUseCase, blendShapeNames, additionalSources, declaredSourceIds);
 
             // BoneWriter を生成・初期化。
             SetupBoneWriter(profile);
@@ -520,9 +520,11 @@ namespace Hidano.FacialControl.Adapters.Playable
         }
 
         private List<(int layerIdx, IInputSource source, float weight)> ResolveLayerInputSourcesFromRegistry(
-            FacialProfile profile)
+            FacialProfile profile,
+            out List<string> declaredIds)
         {
             var result = new List<(int layerIdx, IInputSource source, float weight)>();
+            declaredIds = new List<string>();
             if (_inputSourceRegistry == null)
             {
                 return result;
@@ -547,6 +549,7 @@ namespace Hidano.FacialControl.Adapters.Playable
                     if (_inputSourceRegistry.TryResolve(decl.Id, out var source) && source != null)
                     {
                         result.Add((l, source, decl.Weight));
+                        declaredIds.Add(decl.Id);
                     }
                     else
                     {
@@ -1028,7 +1031,8 @@ namespace Hidano.FacialControl.Adapters.Playable
                 return;
             }
 
-            _layerUseCase.BindLateInputSource(layerIdx, source, weight);
+            // 宣言 id（registry キー）でスロットを同定する。source.Id は OscInputSource のように常に同じことがある。
+            _layerUseCase.BindLateInputSource(layerIdx, sourceId, source, weight);
             UpdateObservedTriggerSource(sourceId, source as ExpressionTriggerInputSourceBase);
         }
 

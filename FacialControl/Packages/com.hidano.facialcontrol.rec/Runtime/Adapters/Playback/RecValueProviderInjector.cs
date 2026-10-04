@@ -135,11 +135,9 @@ namespace Hidano.FacialControl.Rec.Adapters.Playback
                 return false;
             }
 
-            // 注入体の Id は置換元の Id に揃える。レイヤー側（LayerUseCase.BindLateInputSource）は source.Id で
-            // スロットを同定するため、registry キー（binding slug 等）と Id が異なる原本（OscInputSource は常に "osc"）を
-            // registry キーの Id で置換すると、原本がレイヤーに残ったまま注入体が別スロットに追加される。
-            string playbackId = hasCurrent && InputSourceId.TryParse(currentSource.Id, out _) ? currentSource.Id : sourceId;
-            var playbackSource = new RecPlaybackValueProviderSource(playbackId, blendShapeCount, hasCurrent ? currentSource : null);
+            // 注入体の Id は registry キー。レイヤー側のスロット同定は宣言 id（= registry キー）で行われるため、
+            // 原本の Id（OscInputSource は常に "osc"）と異なっていても同じスロットで置換・復元される。
+            var playbackSource = new RecPlaybackValueProviderSource(sourceId, blendShapeCount, hasCurrent ? currentSource : null);
             if (!playbackSource.ApplyState(isValid, ToSpan(maskBytes), ToSpan(values)))
             {
                 playbackSource.ApplyState(false, ReadOnlySpan<byte>.Empty, ReadOnlySpan<float>.Empty);

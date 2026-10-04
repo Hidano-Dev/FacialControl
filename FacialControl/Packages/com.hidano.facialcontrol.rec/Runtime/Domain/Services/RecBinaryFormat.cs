@@ -3,6 +3,7 @@ using System.Buffers.Binary;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
+using Hidano.FacialControl.Domain.Interfaces;
 using Hidano.FacialControl.Rec.Domain.Models;
 
 namespace Hidano.FacialControl.Rec.Domain.Services
@@ -245,6 +246,10 @@ namespace Hidano.FacialControl.Rec.Domain.Services
                 recordCount++;
             }
 
+            // 系1の予約 source の実 index を使う（SourceIds に無い timeline は 0 のまま。reader はこのフィールドを読まない）。
+            ushort expressionSourceIndex = idTable.TryGetSourceIndex(ExpressionActivationSource.ReservedId, out ushort reservedIndex)
+                ? reservedIndex
+                : (ushort)0;
             for (int i = 0; i < timeline.Baseline.ExpressionEntries.Count; i++)
             {
                 if (!idTable.TryGetExpressionIndex(timeline.Baseline.ExpressionEntries[i], out ushort expressionIndex))
@@ -252,7 +257,7 @@ namespace Hidano.FacialControl.Rec.Domain.Services
                     throw new InvalidOperationException("Unknown baseline expression id.");
                 }
 
-                offset += WriteRecord(destination.Slice(offset), RecEvent.CreateBaselineExpression(0, expressionIndex),
+                offset += WriteRecord(destination.Slice(offset), RecEvent.CreateBaselineExpression(expressionSourceIndex, expressionIndex),
                     ReadOnlySpan<float>.Empty, ReadOnlySpan<byte>.Empty);
                 recordCount++;
             }
@@ -681,7 +686,7 @@ namespace Hidano.FacialControl.Rec.Domain.Services
                 case RecEventKind.AnalogSample:
                     return TryReadTimedAnalog(source, events, analogAxesByEvent, maskBytesByEvent, ref parsedRecordCount, out recordBytes);
                 case RecEventKind.ValueProviderSample:
-                    return TryReadValueProvider(source, false, events, analogAxesByEvent, maskBytesByEvent, ref parsedRecordCount, out recordBytes);
+                    return TryReadValueProvider(source, false, events, analogAxesByEvent, maskBytesByEvent, ref parsedRecordCount, out recordBytes, out error);
                 case RecEventKind.BaselineTrigger:
                     return TryReadBaselineTrigger(source, baselineTriggerRecords, ref parsedRecordCount, out recordBytes);
                 case RecEventKind.BaselineAnalog:
@@ -823,9 +828,10 @@ namespace Hidano.FacialControl.Rec.Domain.Services
         private static bool TryReadValueProvider(
             ReadOnlySpan<byte> source, bool baseline,
             List<RecEvent> events, List<IReadOnlyList<float>> payloads,
-            List<IReadOnlyList<byte>> masks, ref uint parsedRecordCount, out int recordBytes)
+            List<IReadOnlyList<byte>> masks, ref uint parsedRecordCount, out int recordBytes, out string error)
         {
             recordBytes = 0;
+            error = null;
             int minimum = baseline ? 1 + 2 + 1 : 1 + 8 + 2 + 1;
             if (source.Length < minimum)
             {
@@ -837,6 +843,15 @@ namespace Hidano.FacialControl.Rec.Domain.Services
                 ? BinaryPrimitives.ReadUInt16LittleEndian(source.Slice(1, 2))
                 : BinaryPrimitives.ReadUInt16LittleEndian(source.Slice(9, 2));
             RecValueProviderFlags flags = (RecValueProviderFlags)source[baseline ? 3 : 11];
+
+            // 未知の flag bit は破損・外部生成の兆候。例外を握りつぶして false を返すと外側が末尾切れ復旧と解釈し、
+            // 後続の正常なイベントや footer を捨てた短い timeline の読込に「成功」してしまうため、明示エラーにする。
+            const RecValueProviderFlags supported = RecValueProviderFlags.IsValid | RecValueProviderFlags.HasMask | RecValueProviderFlags.HasValues;
+            if ((flags & ~supported) != 0)
+            {
+                error = $"Value-provider record flags 0x{(byte)flags:X2} contain unknown bits.";
+                return false;
+            }
             ushort maskCount = 0;
             byte[] mask = Array.Empty<byte>();
             if ((flags & RecValueProviderFlags.HasMask) != 0)
@@ -916,7 +931,7 @@ namespace Hidano.FacialControl.Rec.Domain.Services
             var events = new List<RecEvent>(1);
             var payloads = new List<IReadOnlyList<float>>(1);
             var masks = new List<IReadOnlyList<byte>>(1);
-            if (!TryReadValueProvider(source, true, events, payloads, masks, ref parsedRecordCount, out recordBytes))
+            if (!TryReadValueProvider(source, true, events, payloads, masks, ref parsedRecordCount, out recordBytes, out error))
             {
                 return false;
             }

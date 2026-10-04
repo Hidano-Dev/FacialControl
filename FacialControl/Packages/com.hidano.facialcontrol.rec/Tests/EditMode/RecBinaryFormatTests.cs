@@ -159,6 +159,47 @@ namespace Hidano.FacialControl.Rec.Tests.EditMode
             Assert.That(error, Does.Contain("Baseline value-provider record flags"));
         }
 
+        [Test]
+        public void Serialize_BaselineExpression_UsesReservedSourceIndexFromIdTable()
+        {
+            // 基準に VP があると "@expression" は index 0 ではない。kind 11 の source index は予約 ID の実 index を書く。
+            var baseline = new RecBaselineState(
+                null, null,
+                new[] { new RecBaselineState.ValueProviderEntry("vp", true, new byte[] { 0x01 }, new[] { 0.5f }) },
+                new[] { "smile" });
+            var timeline = new RecTimeline(baseline, Array.Empty<RecEvent>(), new[] { "vp", "@expression" }, new[] { "smile" }, 0d);
+
+            byte[] bytes = RecBinaryFormat.Serialize(timeline, 123L);
+
+            // イベント無しなので kind 11（5 バイト）は footer の直前。先頭からの kind 走査はペイロード中の同値バイトを拾い得る。
+            int record = bytes.Length - RecBinaryFormat.FooterRecordSize - (1 + 2 + 2);
+            Assert.That(bytes[record], Is.EqualTo((byte)RecEventKind.BaselineExpression));
+            Assert.That(BinaryPrimitives.ReadUInt16LittleEndian(bytes.AsSpan(record + 1, 2)), Is.EqualTo(1));
+            Assert.That(RecBinaryFormat.TryRead(bytes, out RecBinaryFormat.ReadResult result, out string error), Is.True, error);
+            Assert.That(result.Timeline.Baseline.ExpressionEntries, Is.EqualTo(new[] { "smile" }));
+        }
+
+        [TestCase(0x08)]
+        [TestCase(0x87)]
+        public void TryRead_ValueProviderSampleWithUnknownFlags_ReturnsErrorInsteadOfTruncatedRecovery(int rawFlags)
+        {
+            var events = new[]
+            {
+                RecEvent.CreateValueProviderSample(0.1d, 0, RecValueProviderFlags.IsValid | RecValueProviderFlags.HasValues, 1, 0),
+                RecEvent.CreateTriggerOn(0.2d, 0, 0),
+            };
+            var timeline = new RecTimeline(RecBaselineState.Empty, events, new[] { "vp" }, new[] { "smile" }, 0.2d,
+                new IReadOnlyList<float>[] { new[] { 0.5f }, Array.Empty<float>() });
+            byte[] bytes = RecBinaryFormat.Serialize(timeline, 123L);
+            int record = FindRecord(bytes, (byte)RecEventKind.ValueProviderSample);
+            bytes[record + 11] = (byte)rawFlags;
+
+            bool success = RecBinaryFormat.TryRead(bytes, out _, out string error);
+
+            Assert.That(success, Is.False, "末尾切れ復旧として後続イベントを捨てた timeline で成功してはならない");
+            Assert.That(error, Does.Contain("unknown bits"));
+        }
+
         private static int FindRecord(byte[] bytes, byte kind)
         {
             for (int i = RecBinaryFormat.HeaderSize; i < bytes.Length; i++)

@@ -35,6 +35,7 @@
 
 ### Fixed
 
+- `.fcrec` の読込で、値提供型レコード（kind 7 / 8）の未知 flag bit や kind 8 の `HasMask | HasValues` 欠落を末尾切れ復旧ではなく明示エラーで拒否するようにした。`BaselineExpression`（kind 11）の source index は予約 ID `@expression` の実 index を書く（従来は常に 0）
 - Windows で連番テイク（`{名前}-2` 以降）の `LastRecordingPath` の区切り文字が `LoadedRecordingPath` と一致しなかった（`Application.streamingAssetsPath` 由来の `/` が `\` に正規化されていた）
 
 ## [1.0.0] - 2026-09-25

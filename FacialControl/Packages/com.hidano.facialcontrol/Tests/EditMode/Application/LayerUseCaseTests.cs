@@ -1049,6 +1049,40 @@ namespace Hidano.FacialControl.Tests.EditMode.Application
         }
 
         [Test]
+        public void BindLateInputSource_WithDeclaredId_ReplacesOnlyTheDeclaredSlotWhenSourceIdsCollide()
+        {
+            // 同一レイヤーに slug 違いの OSC receiver（どちらも source.Id == "osc"）を 2 つ宣言した構成。
+            // 宣言 id（registry キー）でスロットを同定しないと、2 件目の Replace が 1 件目のスロットを奪う。
+            var layers = new[] { new LayerDefinition("emotion", 0, ExclusionMode.LastWins) };
+            var profile = new FacialProfile("1.0", layers, Array.Empty<Expression>());
+            var expressionUseCase = new ExpressionUseCase(profile);
+            var blendShapeNames = new[] { "bs_smile", "bs_sad", "bs_blink" };
+            var liveA = new FakeValueWritingSource("osc", blendShapeNames.Length, 0.4f);
+            var liveB = new FakeValueWritingSource("osc", blendShapeNames.Length, 0.2f);
+            var additional = new List<(int layerIdx, IInputSource source, float weight)>
+            {
+                (0, liveA, 1.0f),
+                (0, liveB, 1.0f),
+            };
+
+            using var useCase = new LayerUseCase(profile, expressionUseCase, blendShapeNames, additional, new[] { "oscA", "oscB" });
+            useCase.UpdateWeights(0.001f);
+            Assert.AreEqual(0.6f, useCase.GetBlendedOutput()[0], 1e-4f, "両方の osc がスロットを持つ");
+
+            useCase.BindLateInputSource(0, "oscB", new FakeValueWritingSource("osc", blendShapeNames.Length, 0.3f), 1.0f);
+            useCase.UpdateWeights(0.001f);
+
+            Assert.AreEqual(0.7f, useCase.GetBlendedOutput()[0], 1e-4f,
+                "oscB のスロットだけが置換され、oscA（0.4）はそのまま残ること");
+
+            useCase.UnbindLateInputSource(0, "oscA");
+            useCase.UpdateWeights(0.001f);
+
+            Assert.AreEqual(0.3f, useCase.GetBlendedOutput()[0], 1e-4f,
+                "宣言 id で解除でき、残る oscB の置換後の値だけになること");
+        }
+
+        [Test]
         public void UnbindLateInputSource_RemovingFirstSource_ShiftsRemainingWeights()
         {
             var layers = new[] { new LayerDefinition("emotion", 0, ExclusionMode.LastWins) };

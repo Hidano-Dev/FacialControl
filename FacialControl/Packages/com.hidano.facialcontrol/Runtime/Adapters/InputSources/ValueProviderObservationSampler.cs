@@ -76,8 +76,11 @@ namespace Hidano.FacialControl.Adapters.InputSources
 
             if (isValid)
             {
-                maskChanged = !state.HasValidSample || !MasksEqual(state.Mask, source.ContributeMask);
-                valuesChanged = !state.HasValidSample || !ValuesEqual(state.Values, preWeightValues);
+                // 無効 → 有効への復帰は mask と値を全量 publish する。無効中に録画を始めた基準は値を持たないため、
+                // 復帰時に「有効性のみ」の差分しか残らないと、再生で有効化後もゼロのままになる。
+                bool becameValid = !state.HasValidSample || !state.IsValid;
+                maskChanged = becameValid || !MasksEqual(state.Mask, source.ContributeMask);
+                valuesChanged = becameValid || !ValuesEqual(state.Values, preWeightValues);
                 if (maskChanged)
                 {
                     valuesChanged = true;

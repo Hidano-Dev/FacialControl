@@ -54,6 +54,57 @@ namespace Hidano.FacialControl.Tests.EditMode.Domain
             return new FacialProfile("1.0", layers: layers);
         }
 
+        [Test]
+        public void TryAddSource_SameSourceIdWithDifferentSlotIds_RegistersBothSlots()
+        {
+            // OscInputSource は常に Id "osc" だが、レイヤー宣言は binding slug ごと（oscA / oscB）に別スロットを持つ。
+            using var registry = new LayerInputSourceRegistry(BuildProfile(1), 2, BuildBindings(1, 1, 2));
+            var a = new FakeInputSource("osc", InputSourceType.ValueProvider, 2);
+            var b = new FakeInputSource("osc", InputSourceType.ValueProvider, 2);
+
+            Assert.That(registry.TryAddSource(0, a, "oscA"), Is.True);
+            Assert.That(registry.TryAddSource(0, b, "oscB"), Is.True);
+
+            Assert.That(registry.GetSourceCountForLayer(0), Is.EqualTo(3));
+            Assert.That(registry.FindSourceIndex(0, "oscA"), Is.EqualTo(1));
+            Assert.That(registry.FindSourceIndex(0, "oscB"), Is.EqualTo(2));
+            Assert.That(registry.GetSlotId(0, 1), Is.EqualTo("oscA"));
+            Assert.That(registry.GetSlotId(0, 0), Is.EqualTo("src-0-0"), "slot id 未指定は source.Id");
+        }
+
+        [Test]
+        public void TryRemoveSource_BySlotId_RemovesOnlyThatSlotAndCompactsSlotIds()
+        {
+            using var registry = new LayerInputSourceRegistry(BuildProfile(1), 2, BuildBindings(1, 1, 2));
+            var a = new FakeInputSource("osc", InputSourceType.ValueProvider, 2);
+            var b = new FakeInputSource("osc", InputSourceType.ValueProvider, 2);
+            registry.TryAddSource(0, a, "oscA");
+            registry.TryAddSource(0, b, "oscB");
+
+            Assert.That(registry.TryRemoveSource(0, InputSourceId.Parse("oscA")), Is.True);
+
+            Assert.That(registry.GetSourceCountForLayer(0), Is.EqualTo(2));
+            Assert.That(registry.GetSource(0, 1), Is.SameAs(b));
+            Assert.That(registry.GetSlotId(0, 1), Is.EqualTo("oscB"));
+            Assert.That(registry.FindSourceIndex(0, "oscA"), Is.EqualTo(-1));
+        }
+
+        [Test]
+        public void TryReplaceSource_RegisteredSlot_KeepsSlotIdAndCount()
+        {
+            using var registry = new LayerInputSourceRegistry(BuildProfile(1), 2, BuildBindings(1, 1, 2));
+            registry.TryAddSource(0, new FakeInputSource("osc", InputSourceType.ValueProvider, 2), "oscA");
+            var replacement = new FakeInputSource("osc", InputSourceType.ValueProvider, 2);
+
+            Assert.That(registry.TryReplaceSource(0, 1, replacement), Is.True);
+
+            Assert.That(registry.GetSource(0, 1), Is.SameAs(replacement));
+            Assert.That(registry.GetSlotId(0, 1), Is.EqualTo("oscA"));
+            Assert.That(registry.GetSourceCountForLayer(0), Is.EqualTo(2));
+            LogAssert.Expect(LogType.Warning, new Regex("TryReplaceSource"));
+            Assert.That(registry.TryReplaceSource(0, 5, replacement), Is.False);
+        }
+
         private static IReadOnlyList<(int layerIdx, int sourceIdx, IInputSource source)>
             BuildBindings(int layerCount, int sourcesPerLayer, int blendShapeCount)
         {

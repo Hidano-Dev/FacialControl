@@ -71,7 +71,10 @@ namespace Hidano.FacialControl.Tests.EditMode.Adapters.InputSources
             Assert.That(observer.Samples.Count, Is.EqualTo(3));
             Assert.That(observer.Samples[1].IsValid, Is.False);
             Assert.That(observer.Samples[2].ValidityChanged, Is.True);
-            Assert.That(observer.Samples[2].ValuesChanged, Is.False);
+            // 無効 → 有効への復帰は値が前回と同じでも全量 publish する。無効中に録画を始めた基準は値を持たないため、
+            // 有効性だけの差分では再生で有効化後もゼロのままになる。
+            Assert.That(observer.Samples[2].ValuesChanged, Is.True);
+            Assert.That(observer.Samples[2].MaskChanged, Is.True);
         }
 
         [Test]

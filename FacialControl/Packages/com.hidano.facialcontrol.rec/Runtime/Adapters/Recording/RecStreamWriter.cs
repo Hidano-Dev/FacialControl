@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Text;
 using System.Threading;
+using Hidano.FacialControl.Domain.Interfaces;
 using Hidano.FacialControl.Rec.Domain.Interfaces;
 using Hidano.FacialControl.Rec.Domain.Models;
 using Hidano.FacialControl.Rec.Domain.Services;
@@ -372,10 +373,12 @@ namespace Hidano.FacialControl.Rec.Adapters.Recording
                 WriteRecord(stream, ref buffer, in evt, values, maskBytes, null);
             }
 
+            // 系1の予約 source は CreateSeeded が登録済み。index 0 とは限らない（trigger / analog / VP が先に並ぶ）。
+            ushort expressionSourceIndex = idTable.GetOrAddSourceId(ExpressionActivationSource.ReservedId);
             for (int i = 0; i < _baseline.ExpressionEntries.Count; i++)
             {
                 ushort expressionIndex = idTable.GetOrAddExpressionId(_baseline.ExpressionEntries[i]);
-                RecEvent evt = RecEvent.CreateBaselineExpression(0, expressionIndex);
+                RecEvent evt = RecEvent.CreateBaselineExpression(expressionSourceIndex, expressionIndex);
                 WriteRecord(stream, ref buffer, in evt, ReadOnlySpan<float>.Empty, ReadOnlySpan<byte>.Empty, null);
             }
         }

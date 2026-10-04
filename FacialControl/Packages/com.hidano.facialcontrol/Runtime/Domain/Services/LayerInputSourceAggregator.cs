@@ -433,17 +433,19 @@ namespace Hidano.FacialControl.Domain.Services
         /// </remarks>
         private InputSourceId ResolveCachedSourceId(int layerIdx, int sourceIdx, IInputSource source)
         {
+            // 観測 ID はスロットの同定キー（レイヤー宣言の id = InputSourceRegistry の登録キー）。
+            // source.Id は OscInputSource のように常に同じ値のことがあり、宣言 id と一致しない。
             int slot = (layerIdx * _snapshotMaxSourcesPerLayer) + sourceIdx;
             if ((uint)slot >= (uint)_cachedSources.Length)
             {
-                InputSourceId.TryParse(source.Id, out var fallback);
+                InputSourceId.TryParse(_registry.GetSlotId(layerIdx, sourceIdx) ?? source.Id, out var fallback);
                 return fallback;
             }
 
             if (!ReferenceEquals(_cachedSources[slot], source))
             {
                 _cachedSources[slot] = source;
-                InputSourceId.TryParse(source.Id, out var parsed);
+                InputSourceId.TryParse(_registry.GetSlotId(layerIdx, sourceIdx) ?? source.Id, out var parsed);
                 _cachedSourceIds[slot] = parsed;
             }
 
