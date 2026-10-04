@@ -313,7 +313,7 @@
   - _Requirements: 10.4, 10.5, 10.6, 10.7_
   - _Boundary: rec ドキュメント_
 
-- [ ] 10.3 (P) timeline パッケージの REC Export ドキュメントを更新する
+- [x] 10.3 (P) timeline パッケージの REC Export ドキュメントを更新する
   - 対象: `com.hidano.facialcontrol.timeline` の `README.md` / `Documentation~/README.md`（REC Export の節）
   - 値提供型・系1 のレコード kind（7 / 9 / 10）は Export 対象外として無視され、読込は失敗しない旨を記載
   - 完了条件: 両ファイルの REC Export 節に上記が記載されている
