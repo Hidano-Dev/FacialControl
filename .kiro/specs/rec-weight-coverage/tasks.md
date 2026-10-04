@@ -12,13 +12,14 @@
 
 - [ ] 1.2 入力源 weight バッファにライブ書込ゲートを追加する
   - 入力源 weight のダブルバッファに「ライブ書込の遮断 / 解除」「遮断を迂回する書込」を追加する。遮断は in-flight カウンタ + フラグ + 有界スピン待ちで行い、遮断の呼出が返った後にライブ書込が read 側へ到達しないことを保証する。遮断・解除は冪等
-  - バルク書込スコープは commit 時点で遮断中なら蓄積を破棄し、dirty を進めない。遮断中の単発ライブ書込は値を変えず dirty も進めない
+  - 単発ライブ書込とバルク commit の両方が in-flight カウンタに参加する。バルク書込スコープは commit 時点で遮断中なら蓄積を破棄し dirty を進めない（遮断前に開いたスコープの遮断後 commit も破棄）。遮断中の単発ライブ書込は値を変えず dirty も進めない
+  - 容量拡張（resize）も同じフェンスで保護する: Resizing フラグを立て in-flight 0 を待ってから配列を差し替え、resize 中に到達したライブ書込は破棄する。遮断中の resize は遮断状態を維持する
   - 遮断未使用時の `SetWeight` の追加コストは in-flight の Interlocked 2 回とフラグ読取 1 回に限る（既存の任意スレッド契約を維持）
-  - Small テストで「遮断中のライブ書込は swap 後も読めない」「迂回書込は swap 後に読める」「遮断中の bulk commit は破棄される」「遮断・解除の冪等」「解除後のライブ書込が反映される」が緑になる
-  - _Requirements: 5.1, 5.3, 6.1, 9.2_
+  - Small テストで「遮断中のライブ書込は swap 後も読めない」「迂回書込は swap 後に読める」「遮断中の bulk commit は破棄される」「遮断前に開いたスコープの遮断後 commit も破棄される」「遮断中の resize は遮断を維持する」「遮断・解除の冪等」「解除後のライブ書込が反映される」が緑になる（遮断点がバッファの入口にあるため、呼出元パッケージを改修せずに全ライブ書込が遮断される）
+  - _Requirements: 5.1, 5.3, 5.4, 6.1, 9.2_
 
 - [ ] 1.3 入力源 weight ゲートの競合テストを追加する
-  - ワーカースレッド複数本がライブ書込を連打する中で、メインスレッドが遮断 → 迂回書込で基準値を設定 → swap → 読取、を多数回反復し、読取値が常に基準値であることを検証する Medium（EditMode）テストを追加する（スレッドを使うため Small にしない。理由をコメントに書く）
+  - ワーカースレッド複数本がライブ書込を連打する中で、メインスレッドが遮断 → 迂回書込で基準値を設定 → swap → 読取、を多数回反復し、読取値が常に基準値であることを検証する Medium（EditMode）テストを追加する（スレッドを使うため Small にしない。理由をコメントに書く）。同じ形で「バルク commit 連打 × 遮断」「単発ライブ書込連打 × resize（例外・配列破壊なし・既存スロット weight 保持）」も検証する
   - テストが安定して緑であり、`pwsh ./scripts/check-test-sizes.ps1` が通る
   - _Requirements: 5.3, 5.5, 10.9_
 
@@ -34,18 +35,18 @@
   - `IWeightInjectionGate` を実装する: 遮断（レイヤー weight のメインスレッドフラグ + 入力源 weight バッファの遮断、冪等）、宣言値へのリセット（全レイヤー 1、全スロットは宣言 weight、sourceIdx 0 は 1。通知なし）、基準設定（遮断迂回・通知なし = 前回通知値も更新）、注入（遮断迂回・前回通知値は更新せず次フレームで変化として通知）、収集（全レイヤー / 全スロットの実効値）
   - ライブの `SetLayerWeight` は遮断中に no-op（辞書も更新しない）。スロットの宣言 weight を保持する配列を構築時に埋める
   - 未知のレイヤー名 / スロット id に対する基準・注入は false を返し状態を変えない
-  - Small テストで「遮断中の SetLayerWeight は no-op」「注入は遮断中でも反映され次フレームに通知」「基準設定とリセットは通知しない」「未知スロットは false」「収集が全スロットを安定キーで返す」が緑になる
-  - _Requirements: 4.5, 4.6, 5.1, 5.2, 5.6, 6.1, 6.6, 9.1, 9.7_
+  - Small テストで「遮断中の SetLayerWeight は no-op」「注入は遮断中でも反映され次フレームに通知（再生中の再記録に注入が残る）」「基準設定とリセットは通知しない」「未知スロットは false」「収集が全スロットを安定キーで返す」が緑になる
+  - _Requirements: 3.5, 4.5, 4.6, 5.1, 5.2, 5.6, 6.1, 6.6, 9.1, 9.7_
 
 - [ ] 2.3 後付けバインドと解除の遮断中挙動を実装する
   - 遮断中でないときの後付けバインドは従来どおり（既存スロットの置換で宣言 weight を再適用、新規スロットは初期 weight）。遮断中は既存スロットの置換で weight を書き換えない（宣言 weight は配列にだけ記録）。新規スロットの追加は遮断中でも初期 weight（宣言値）を遮断を迂回して書き、宣言 weight 配列と前回通知値配列（未観測）を拡張する。解除時の詰め直しも遮断を迂回し、当該レイヤーの前回通知値を未観測へ戻す
   - 既存テスト `BindLateInputSource_ReplacingExistingId_KeepsOtherSourceWeights` / `BindLateInputSource_AppliesDeclaredWeight_ScalesOutput` が緑のまま、新規 Small テストで「遮断中でない置換は宣言 weight を再適用する」「遮断中の置換は現在の weight を維持する」「遮断中の新規スロットは宣言 weight で参加する」「遮断中の解除で残るスロットの weight が詰め直され再通知される」が緑になる
   - _Requirements: 6.3, 6.7, 9.1_
 
-- [ ] 2.4 レイヤー名重複の読み捨てと weight 面の先勝ちフォールバックを実装する
+- [ ] 2.4 レイヤー名重複の読み捨てと一意性フラグを実装する
   - JSON パーサと SO コンバータで `layers` のレイヤー名重複を検出し、後続の重複レイヤーを読み捨てて Warning を 1 回出す（既存の `inputSources` / `gaze.channels` 重複と同じ流儀。例外にしない）
-  - LayerUseCase の weight 面（観測・基準・注入・収集）は、プロファイルに同名レイヤーが残っている場合でも最初に一致したレイヤーだけを対象にし、収集の初回で重複を検出したら Warning を 1 回出す
-  - Small テストで「重複名の JSON / SO から構築した profile の Layers 名が一意で Warning が出る」「直接構築した重複名 profile の収集が先勝ち 1 件だけを返し、観測も先勝ちだけに通知する」が緑になる
+  - LayerUseCase はパイプライン構築時にレイヤー名の一意性を計算し、weight ゲート契約の `LayerNamesAreUnique` として公開する（REC 側はこれが false のとき録画・再生を開始しない。4.2 / 4.3 で配線）
+  - Small テストで「重複名の JSON / SO から構築した profile の Layers 名が一意で Warning が出る」「直接構築した重複名 profile では `LayerNamesAreUnique` が false、一意なら true」が緑になる
   - _Requirements: 2.6, 4.1, 4.5_
 
 - [ ] 2.5 FacialController に gate 公開と観測者着脱を配線する
@@ -90,15 +91,15 @@
   - _Requirements: 3.1, 3.2, 3.4, 4.3, 7.5, 9.5_
 
 - [ ] 4.2 weight 注入ポートの実装を追加する
-  - gate を遅延解決するデリゲートを受け取り、preflight は gate 解決可否のみ（副作用なし）、確立は「解除 → gate 解決 → ライブ遮断 → 宣言値リセット → 基準 weight 設定」の順で行い、途中失敗は自ポートの副作用を残さず false を返す。時刻付き注入は gate へ委譲し、未知の対象は id 単位 1 回の Warning でスキップ。解放は遮断解除のみ（値は維持）で冪等
-  - Fake gate を使った Small テストで「gate 未解決は preflight 不合格・確立も副作用なし」「確立の呼出順（Suspend → Reset → Baseline）」「未知対象は warn-once で継続」「解放の冪等」が緑になる
-  - _Requirements: 4.4, 4.5, 4.6, 5.1, 5.5, 5.6, 6.1, 6.2, 6.5, 6.6, 9.7_
+  - gate を遅延解決するデリゲートを受け取り、preflight は「gate 解決可否」と「レイヤー名が一意か」のみ（副作用なし。不合格は理由付き）、確立は「解除 → gate 解決 → ライブ遮断 → 宣言値リセット → 基準 weight 設定」の順で行い、途中失敗は自ポートの副作用を残さず false を返す。時刻付き注入は gate へ委譲し、未知の対象は id 単位 1 回の Warning でスキップ。解放は遮断解除のみ（値は維持）で冪等
+  - Fake gate を使った Small テストで「gate 未解決は preflight 不合格・確立も副作用なし」「レイヤー名重複は preflight 不合格（理由に duplicate layer names）」「確立の呼出順（Suspend → Reset → Baseline）」「未知対象は warn-once で継続」「解放の冪等」が緑になる
+  - _Requirements: 2.6, 4.4, 4.5, 4.6, 5.1, 5.5, 5.6, 6.1, 6.2, 6.5, 6.6, 9.7_
 
 - [ ] 4.3 基準捕捉とキャラクター binding を 5 ポートへ配線する
   - 基準捕捉に weight gate 引数を追加し、全レイヤー weight と全スロット weight を基準エントリに写す（gate が null なら空）
-  - キャラクター binding の再生セッション構築で weight 注入ポートを生成して 5 ポートで再生ユースケースを作り、録画開始時の基準捕捉に weight gate を渡す
-  - Small テストで「weight gate ありの捕捉が全レイヤー・全スロットを含む」「gate なしは空」、既存の binding テストに「再生セッションが weight 注入ポートを構築する」が緑になる
-  - _Requirements: 4.1, 4.2, 6.4_
+  - キャラクター binding の再生セッション構築で weight 注入ポートを生成して 5 ポートで再生ユースケースを作り、録画開始時の基準捕捉に weight gate を渡す。gate が「レイヤー名が一意でない」と報告したら録画開始を Warning 付きで拒否する
+  - Small テストで「weight gate ありの捕捉が全レイヤー・全スロットを含む」「gate なしは空」、既存の binding テストに「再生セッションが weight 注入ポートを構築する」「レイヤー名重複のプロファイルでは録画開始が Warning 付きで false」が緑になる
+  - _Requirements: 2.6, 4.1, 4.2, 6.4_
 
 - [ ] 4.4 (P) weight 書込経路の分類正本とゲートテストを追加する
   - 入力源分類カタログに weight 書込経路の正本（型 FullName + メンバー名 + アセンブリ名 + 分類 Gated / Excluded + 除外区分 + 理由。設計書の分類表 14 経路と 1:1）を追加する。既存エントリの理由文（`OverlayInputSource`、`InputActionAnalogSource` の許容 referrer）を「weight 経路は遮断・注入の対象」に更新し、件数は変えない
@@ -124,8 +125,8 @@
 - [ ] 5.3 inputsystem Overlay の受け入れテストを追加する
   - inputsystem の PlayMode テスト asmdef に rec の Domain / Application / Adapters 参照を追加し、`com.hidano.facialcontrol.rec` 存在時に定義されるシンボルを `versionDefines` に登録する。テストファイルはそのシンボルで囲む
   - 実 `FacialController`（Overlay モードの `InputSystemAdapterBinding` を持つテスト用 SO）+ 仮想 Gamepad + `RecCharacterBinding` で、「トリガー操作を含む記録→再生でレイヤー weight とブレンド出力が記録どおり再現される」「再生中にトリガーを引いても overlay レイヤー weight と出力が変わらない」「停止後はトリガーに追従する」を Medium PlayMode テストとして追加する（HID-137 の受け入れ条件）
-  - テストが緑になり、既存の `InputSystemAdapterBindingIntegrationTests` が緑のまま
-  - _Requirements: 10.2, 9.4_
+  - テストが緑になり、既存の `InputSystemAdapterBindingIntegrationTests` が緑のまま（inputsystem Runtime は無改修のまま overlay 駆動が遮断される）
+  - _Requirements: 10.2, 5.4, 9.4_
 
 - [ ] 5.4 既存 spec 文書と rec / timeline ドキュメントの整合を更新する
   - rec-full-input-coverage の design（Non-Goals / Out of Boundary / 直参照経路 / 分類表の前提文と #4・#17 / 既知制限 1）と requirements（Out of scope / Req 1.3 / Req 10.7）、rec-recording-playback の design（overlay weight 未到達の 2 箇所）に、本 spec で上書きされた旨の注記を付ける（削除せず注記）

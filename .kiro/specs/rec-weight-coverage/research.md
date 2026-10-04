@@ -814,13 +814,21 @@ HID-80 の本質的なギャップは、weight の値そのものではなく、
 - **Trade-offs**: `PlaybackUseCase` が確立順と解放順の 2 配列を持つ。`Completed` からの再開時の全解放も解放順を使う
 - **Follow-up**: `PlaybackUseCaseTests.StopPlayback_ReleasesTriggerExpressionAnalogValueProviderThenWeight`、`LayerUseCaseTests.BindLateInputSource_ReplacingExistingId_WhileSuspended_KeepsCurrentWeight` / `_WhileNotSuspended_AppliesDeclaredWeight`
 
-### Decision（設計レビュー 1 回目の指摘 2 で改訂）: レイヤー名の一意性はプロファイル読込境界で確立し、weight 面は先勝ちフォールバックを持つ
+### Decision（設計レビュー 2 回目の指摘 1 で追加）: weight バッファの同期プロトコルを明文化し、bulk commit と resize も in-flight フェンスに参加させる
+- **Context**: codex 設計レビュー 2 回目 Critical 1「in-flight フェンスが単発 `SetWeight` 中心で、bulk commit・resize・Bind/Unbind との同期順序が不明。Suspend 後の既存 bulk の扱い、resize 中のワーカー書込の扱いが未決」
+- **Alternatives Considered**: 1. 既存契約（resize はメインのみ、同時実行は未定義）を文書化するだけ 2. bulk commit と resize も同じ in-flight フェンスに参加させ、状態遷移表で全操作の扱いを固定 3. `lock` で全操作を直列化
+- **Selected Approach**: 2。ワーカーから到達するのはライブ書込（`SetWeight` / `CommitBulk`）だけなので両者をカウンタに参加させ、状態を変える操作（Suspend / Resume / resize / 構造書込 / Swap）はメインスレッド直列とする。遮断前に開いた bulk スコープの遮断後 commit は破棄。resize は Resizing フラグ + in-flight 0 待ちで保護し、resize 中に到達したライブ書込は破棄（従来の未定義動作を確定的に）
+- **Rationale**: 競合の組合せが「ワーカーのライブ書込 × メインの状態遷移」の 1 種類に閉じるため、フェンス 1 つで全部を閉じられる。`lock` は hot path の性能と既存のロックフリー契約を崩す
+- **Trade-offs**: resize 中の数マイクロ秒の窓でライブ書込が落ちる（次の書込で回復）
+- **Follow-up**: `LayerInputSourceWeightBufferConcurrencyTests` に bulk 連打 × Suspend、`SetWeight` 連打 × resize を追加
+
+### Decision（設計レビュー 1 回目の指摘 2 で改訂、2 回目の指摘 2 で再改訂）: レイヤー名の一意性はプロファイル読込境界で確立し、重複が残るプロファイルでは REC を開始しない
 - **Context**: codex 設計レビュー 1 回目 Critical 2「レイヤー名を識別子にしながら重複を『先勝ち』とする契約は、全レイヤー基準の収集で `RecBaselineState` の重複拒否に到達し、ラウンドトリップが成立しない」
-- **Alternatives Considered**: 1. `FacialProfile` コンストラクタで重複を例外にする 2. レイヤー配列 index を記録キーにする 3. 読込境界（`SystemTextJsonParser` / `FacialCharacterProfileConverter`）で後続の重複レイヤーを読み捨て Warning + weight 面は先勝ちフォールバック
-- **Selected Approach**: 3
-- **Rationale**: 既存の重複解決の流儀（`inputSources` 重複 id は last-wins、`gaze.channels` 重複 id は後続読み捨て）が「Warning + 確定的な解決」であり、例外化は既存プロファイルの初期化を壊す。index キーは `SetLayerWeight` が名前で解決する既存契約と食い違い、`.fcrec` の可読性も落とす。読込境界で一意化すれば実行時プロファイルでは重複が発生せず、直接構築（テスト等）に対しては先勝ちフォールバックで `RecBaselineState` の重複拒否に到達しない
-- **Trade-offs**: core Adapters の読込経路 2 箇所に小さな変更が入る（Req 9.1 の「面の追加に限定」に対する明示的例外。レビューで指摘された識別契約の穴を塞ぐため）
-- **Follow-up**: `SystemTextJsonParserTests` / `FacialCharacterProfileConverterTests.Parse_DuplicateLayerNames_KeepsFirstAndWarns`、`LayerUseCaseTests.CollectLayerWeights_DuplicateLayerNames_ReturnsFirstOccurrenceOnlyAndWarnsOnce`
+- **Alternatives Considered**: 1. `FacialProfile` コンストラクタで重複を例外にする 2. レイヤー配列 index を記録キーにする 3. 読込境界（`SystemTextJsonParser` / `FacialCharacterProfileConverter`）で後続の重複レイヤーを読み捨て Warning + weight 面は先勝ちフォールバック 4. 3 に加え、重複が残るプロファイルでは REC の録画・再生を明示的に拒否する
+- **Selected Approach**: 4（2 回目レビュー Critical 2「先勝ちでは一方の weight が記録から失われ、警告だけでは完全性を保証できない」への対応。レビューが示した 3 択のうち「重複時に REC を明示的に無効化」を採用）。`IWeightInjectionGate.LayerNamesAreUnique` を公開し、`RecWeightInjector.CanBeginInjection` と `RecCharacterBinding.StartRecording` が false のとき開始を拒否する
+- **Rationale**: 既存の重複解決の流儀（`inputSources` 重複 id は last-wins、`gaze.channels` 重複 id は後続読み捨て）が「Warning + 確定的な解決」であり、例外化は既存プロファイルの初期化を壊す。index キーは `SetLayerWeight` が名前で解決する既存契約と食い違い、`.fcrec` の可読性も落とす。読込境界で一意化すれば実行時プロファイルでは重複が発生せず、万一残っても REC が開始を拒否するので「記録が欠ける」状態は構造的に起きない
+- **Trade-offs**: core Adapters の読込経路 2 箇所に小さな変更が入る（Req 9.1 の「面の追加に限定」に対する明示的例外。レビューで指摘された識別契約の穴を塞ぐため）。重複プロファイルでは REC が使えない（Warning で理由を示す）
+- **Follow-up**: `SystemTextJsonParserTests` / `FacialCharacterProfileConverterTests.Parse_DuplicateLayerNames_KeepsFirstAndWarns`、`LayerUseCaseTests.LayerNamesAreUnique_*`、`RecWeightInjectorTests.CanBeginInjection_DuplicateLayerNames_ReturnsFalseWithReason`、`RecCharacterBindingTests.StartRecording_DuplicateLayerNames_WarnsAndReturnsFalse`
 
 ### Decision: 基準に無い対象の確定値は「宣言値へのリセット」
 - **Context**: Req 4.5（ライブの残存 weight を引き継がない）
