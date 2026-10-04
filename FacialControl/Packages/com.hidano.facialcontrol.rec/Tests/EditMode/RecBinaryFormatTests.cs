@@ -200,6 +200,55 @@ namespace Hidano.FacialControl.Rec.Tests.EditMode
             Assert.That(error, Does.Contain("unknown bits"));
         }
 
+        [TestCase(RecEventKind.ValueProviderSample, double.NegativeInfinity)]
+        [TestCase(RecEventKind.ValueProviderSample, -1d)]
+        [TestCase(RecEventKind.ExpressionActivate, double.NaN)]
+        [TestCase(RecEventKind.ExpressionDeactivate, double.PositiveInfinity)]
+        [TestCase(RecEventKind.TriggerOn, double.NaN)]
+        [TestCase(RecEventKind.AnalogSample, -0.5d)]
+        public void TryRead_TimedRecordWithInvalidTimestamp_ReturnsErrorWithoutThrowing(RecEventKind kind, double invalidTimestamp)
+        {
+            // 不正時刻を factory 例外のまま漏らしたり、末尾切れ復旧（後続の正常レコードと footer を捨てて成功）に落とさない。
+            RecEvent first = kind switch
+            {
+                RecEventKind.ValueProviderSample => RecEvent.CreateValueProviderSample(0.1d, 0, RecValueProviderFlags.IsValid | RecValueProviderFlags.HasValues, 1, 0),
+                RecEventKind.ExpressionActivate => RecEvent.CreateExpressionActivate(0.1d, 0, 0),
+                RecEventKind.ExpressionDeactivate => RecEvent.CreateExpressionDeactivate(0.1d, 0, 0),
+                RecEventKind.TriggerOn => RecEvent.CreateTriggerOn(0.1d, 0, 0),
+                _ => RecEvent.CreateAnalogSample(0.1d, 0, 1),
+            };
+            var events = new[] { first, RecEvent.CreateTriggerOn(0.2d, 0, 0) };
+            IReadOnlyList<float> firstPayload = kind == RecEventKind.ValueProviderSample || kind == RecEventKind.AnalogSample
+                ? new[] { 0.5f }
+                : Array.Empty<float>();
+            var timeline = new RecTimeline(RecBaselineState.Empty, events, new[] { "src" }, new[] { "smile" }, 0.2d,
+                new IReadOnlyList<float>[] { firstPayload, Array.Empty<float>() });
+            byte[] bytes = RecBinaryFormat.Serialize(timeline, 123L);
+            int record = SkipIdDefineRecords(bytes);
+            Assert.That(bytes[record], Is.EqualTo((byte)kind));
+            BinaryPrimitives.WriteInt64LittleEndian(bytes.AsSpan(record + 1, 8), BitConverter.DoubleToInt64Bits(invalidTimestamp));
+
+            bool success = false;
+            string error = null;
+            Assert.DoesNotThrow(() => success = RecBinaryFormat.TryRead(bytes, out _, out error));
+
+            Assert.That(success, Is.False);
+            Assert.That(error, Does.Contain("invalid timestamp"));
+        }
+
+        /// <summary>ヘッダ直後の IdDefine 列を読み飛ばし、最初の非 IdDefine レコードの先頭 offset を返す。</summary>
+        private static int SkipIdDefineRecords(byte[] bytes)
+        {
+            int offset = RecBinaryFormat.HeaderSize;
+            while (offset < bytes.Length && bytes[offset] == (byte)RecEventKind.IdDefine)
+            {
+                ushort utf8Length = BinaryPrimitives.ReadUInt16LittleEndian(bytes.AsSpan(offset + 4, 2));
+                offset += 6 + utf8Length;
+            }
+
+            return offset;
+        }
+
         private static int FindRecord(byte[] bytes, byte kind)
         {
             for (int i = RecBinaryFormat.HeaderSize; i < bytes.Length; i++)

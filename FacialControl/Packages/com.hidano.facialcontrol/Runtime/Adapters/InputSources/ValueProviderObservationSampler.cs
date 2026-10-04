@@ -12,37 +12,25 @@ namespace Hidano.FacialControl.Adapters.InputSources
     /// Aggregator が消費した ValueProvider の値を、入力源ごとの最終 publish 状態と比較して通知する。
     /// </summary>
     /// <remarks>
-    /// publish する source ID は <see cref="IInputSourceRegistry"/> の登録キー（レイヤー宣言の id。例: binding slug
-    /// <c>ifm</c>）に解決する。Aggregator から渡される <paramref name="sourceId"/> は入力源自身の
-    /// <see cref="IInputSource.Id"/>（<c>OscInputSource</c> は常に <c>osc</c>）で、REC の基準捕捉・注入が使う
-    /// registry キーと一致しないことがあるため。registry に見つからない（レイヤーへ直接束ねられた）入力源は
-    /// 従来どおり <paramref name="sourceId"/> を使う。
+    /// publish する source ID は Aggregator が渡す <paramref name="sourceId"/>（レイヤー内スロットの同定キー =
+    /// レイヤー宣言の id = <c>InputSourceRegistry</c> の登録キー。<see cref="Services.LayerInputSourceRegistry"/> の slot id）を
+    /// そのまま使う。同じインスタンスが複数の登録キーで宣言されていてもスロットごとに別 ID で記録され、
+    /// REC の基準捕捉・注入（registry キーごとに 1 エントリ）と対応が取れる。
     /// </remarks>
     public sealed class ValueProviderObservationSampler : ILayerSourceValueObserver
     {
         private readonly IFacialInputObservationBus _bus;
-        private readonly IInputSourceRegistry _registry;
         private readonly Dictionary<string, State> _states = new Dictionary<string, State>(StringComparer.Ordinal);
-        private readonly Dictionary<IInputSource, string> _registryKeys =
-            new Dictionary<IInputSource, string>(ReferenceComparer.Instance);
 
         public ValueProviderObservationSampler(IFacialInputObservationBus bus)
-            : this(bus, null)
-        {
-        }
-
-        /// <param name="registry">source ID の解決に使う per-FC registry。null なら Aggregator が渡した ID をそのまま使う。</param>
-        public ValueProviderObservationSampler(IFacialInputObservationBus bus, IInputSourceRegistry registry)
         {
             _bus = bus ?? throw new ArgumentNullException(nameof(bus));
-            _registry = registry;
         }
 
         /// <summary>前回の観測状態を破棄する。</summary>
         public void Reset()
         {
             _states.Clear();
-            _registryKeys.Clear();
         }
 
         public void OnSourceValuesObserved(
@@ -58,7 +46,7 @@ namespace Hidano.FacialControl.Adapters.InputSources
                 return;
             }
 
-            string id = ResolveObservedId(source, sourceId);
+            string id = sourceId.Value;
             if (string.IsNullOrEmpty(id))
             {
                 return;
@@ -107,42 +95,6 @@ namespace Hidano.FacialControl.Adapters.InputSources
             _bus.PublishValueProviderSample(id, in sample);
         }
 
-        /// <summary>
-        /// 入力源インスタンスを registry の登録キーへ解決する。前回の解決結果は参照同一性で検証してから再利用し、
-        /// 外れたとき（Replace / 後勝ち上書き後）だけ登録一覧を走査する。定常状態ではヒープ確保しない。
-        /// </summary>
-        private string ResolveObservedId(IInputSource source, InputSourceId sourceId)
-        {
-            if (_registry == null)
-            {
-                return sourceId.Value;
-            }
-
-            if (_registryKeys.TryGetValue(source, out string cachedKey)
-                && _registry.TryResolve(cachedKey, out IInputSource cached)
-                && ReferenceEquals(cached, source))
-            {
-                return cachedKey;
-            }
-
-            IReadOnlyList<string> registeredIds = _registry.RegisteredIds;
-            if (registeredIds != null)
-            {
-                for (int i = 0; i < registeredIds.Count; i++)
-                {
-                    string candidate = registeredIds[i];
-                    if (_registry.TryResolve(candidate, out IInputSource resolved) && ReferenceEquals(resolved, source))
-                    {
-                        _registryKeys[source] = candidate;
-                        return candidate;
-                    }
-                }
-            }
-
-            _registryKeys.Remove(source);
-            return sourceId.Value;
-        }
-
         private static bool ValuesEqual(float[] previous, ReadOnlySpan<float> current)
         {
             if (previous == null || previous.Length != current.Length)
@@ -177,15 +129,6 @@ namespace Hidano.FacialControl.Adapters.InputSources
             }
 
             return true;
-        }
-
-        private sealed class ReferenceComparer : IEqualityComparer<IInputSource>
-        {
-            public static readonly ReferenceComparer Instance = new ReferenceComparer();
-
-            public bool Equals(IInputSource x, IInputSource y) => ReferenceEquals(x, y);
-
-            public int GetHashCode(IInputSource obj) => System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(obj);
         }
 
         private sealed class State

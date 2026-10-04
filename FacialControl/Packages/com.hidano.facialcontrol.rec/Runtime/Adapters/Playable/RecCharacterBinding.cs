@@ -38,6 +38,7 @@ namespace Hidano.FacialControl.Rec.Adapters.Playable
         private double _recordingStartOffsetSeconds;
 
         private FacialController _runtimeController;
+        private IInputSourceRegistry _sessionRegistry;
         private PlaybackUseCase _playbackUseCase;
         private RecAnalogInjector _analogInjector;
         private RecTriggerInjector _triggerInjector;
@@ -482,7 +483,11 @@ namespace Hidano.FacialControl.Rec.Adapters.Playable
                 return;
             }
 
+            // controller が同じでも InitializeWithProfile 等で再初期化されると InputSourceRegistry が別インスタンスになる。
+            // 注入体は構築時の registry を掴むため、registry が変わったらセッションを作り直す
+            // （旧 registry へ置換して現行入力を遮断できない / 停止時に旧 source を復元してしまう）。
             if (ReferenceEquals(_runtimeController, controller)
+                && ReferenceEquals(_sessionRegistry, controller.InputSourceRegistry)
                 && _playbackUseCase != null
                 && _analogInjector != null
                 && _triggerInjector != null)
@@ -493,6 +498,7 @@ namespace Hidano.FacialControl.Rec.Adapters.Playable
             DisposePlaybackSession();
 
             _runtimeController = controller;
+            _sessionRegistry = controller.InputSourceRegistry;
             _analogInjector = new RecAnalogInjector(controller.InputSourceRegistry);
             _triggerInjector = new RecTriggerInjector(
                 id => controller.TryGetExpressionTriggerSourceById(id, out ExpressionTriggerInputSourceBase source)
@@ -525,6 +531,7 @@ namespace Hidano.FacialControl.Rec.Adapters.Playable
             _expressionInjector = null;
             _valueProviderInjector = null;
             _runtimeController = null;
+            _sessionRegistry = null;
         }
 
         private void DisposeRecordingSession()

@@ -153,6 +153,50 @@ namespace Hidano.FacialControl.Rec.Tests.PlayMode
         }
 
         [UnityTest]
+        public IEnumerator StartPlayback_AfterControllerRegistryIsReplaced_InjectsIntoTheNewRegistry()
+        {
+            // InitializeWithProfile 等の再初期化で InputSourceRegistry が別インスタンスになっても、同じ controller の
+            // 再生セッションを再利用せず作り直し、旧 registry ではなく現行 registry へ置換・復元する。
+            SetupHarness(out FacialController controller, out RecCharacterBinding binding, out FakeObservationBus bus,
+                out FakeInputSourceRegistry oldRegistry, out TestTriggerSource triggerSource, out FakeAnalogSource oldAnalog);
+
+            Assert.That(binding.StartRecording("reinit"), Is.True);
+            bus.PublishTriggerOn(triggerSource.Id, "smile");
+            bus.PublishAnalog(oldAnalog.Id, 0.25f, -0.5f);
+            binding.StopRecording();
+            triggerSource.TriggerOff("smile");
+
+            Assert.That(binding.LoadRecording("reinit"), Is.True);
+            Assert.That(binding.StartPlayback(), Is.True);
+            yield return null;
+            binding.StopPlayback();
+            Assert.That(oldRegistry.TryResolve(oldAnalog.Id, out IInputSource restoredOld), Is.True);
+            Assert.That(restoredOld, Is.SameAs(oldAnalog));
+
+            var newRegistry = new FakeInputSourceRegistry();
+            var newTrigger = new TestTriggerSource("input:trigger");
+            var newAnalog = new FakeAnalogSource("input:gaze", 2);
+            newRegistry.AddSource(newTrigger);
+            newRegistry.AddSource(newAnalog);
+            SetControllerPrivateField(controller, "_inputSourceRegistry", newRegistry);
+
+            Assert.That(binding.LoadRecording("reinit"), Is.True);
+            Assert.That(binding.StartPlayback(), Is.True);
+            yield return null;
+
+            Assert.That(newRegistry.TryResolve(newAnalog.Id, out IInputSource injected), Is.True);
+            Assert.That(injected, Is.Not.SameAs(newAnalog), "現行 registry のアナログ入力源が注入体に置換されること");
+            Assert.That(newTrigger.ActiveExpressionIds, Is.EqualTo(new[] { "smile" }), "現行 registry のトリガー入力源へ再生されること");
+            Assert.That(oldRegistry.TryResolve(oldAnalog.Id, out IInputSource untouchedOld), Is.True);
+            Assert.That(untouchedOld, Is.SameAs(oldAnalog), "旧 registry には触らないこと");
+
+            binding.StopPlayback();
+
+            Assert.That(newRegistry.TryResolve(newAnalog.Id, out IInputSource restoredNew), Is.True);
+            Assert.That(restoredNew, Is.SameAs(newAnalog), "復元先も現行 registry であること");
+        }
+
+        [UnityTest]
         public IEnumerator StartRecording_SameNameTwice_KeepsBothFilesUnderDistinctPaths()
         {
             SetupHarness(out _, out RecCharacterBinding binding, out FakeObservationBus bus, out _, out TestTriggerSource triggerSource, out _);

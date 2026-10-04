@@ -928,7 +928,7 @@ namespace Hidano.FacialControl.Adapters.Playable
             }
 
             _analogObservationSampler = new AnalogObservationSampler(_inputSourceRegistry, _inputObservationBus);
-            _valueProviderObservationSampler = new ValueProviderObservationSampler(_inputObservationBus, _inputSourceRegistry);
+            _valueProviderObservationSampler = new ValueProviderObservationSampler(_inputObservationBus);
 
             WireTriggerObserversForRegisteredSources();
             WireTriggerObserversForResolvedSources(additionalSources);

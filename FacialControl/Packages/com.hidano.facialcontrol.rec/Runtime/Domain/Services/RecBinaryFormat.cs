@@ -682,9 +682,9 @@ namespace Hidano.FacialControl.Rec.Domain.Services
                     return TryReadIdDefine(source, idTable, ref parsedRecordCount, out recordBytes, out error);
                 case RecEventKind.TriggerOn:
                 case RecEventKind.TriggerOff:
-                    return TryReadTimedTrigger(source, kind, events, analogAxesByEvent, maskBytesByEvent, ref parsedRecordCount, out recordBytes);
+                    return TryReadTimedTrigger(source, kind, events, analogAxesByEvent, maskBytesByEvent, ref parsedRecordCount, out recordBytes, out error);
                 case RecEventKind.AnalogSample:
-                    return TryReadTimedAnalog(source, events, analogAxesByEvent, maskBytesByEvent, ref parsedRecordCount, out recordBytes);
+                    return TryReadTimedAnalog(source, events, analogAxesByEvent, maskBytesByEvent, ref parsedRecordCount, out recordBytes, out error);
                 case RecEventKind.ValueProviderSample:
                     return TryReadValueProvider(source, false, events, analogAxesByEvent, maskBytesByEvent, ref parsedRecordCount, out recordBytes, out error);
                 case RecEventKind.BaselineTrigger:
@@ -695,7 +695,7 @@ namespace Hidano.FacialControl.Rec.Domain.Services
                     return TryReadBaselineValueProvider(source, baselineValueProviderRecords, ref parsedRecordCount, out recordBytes, out error);
                 case RecEventKind.ExpressionActivate:
                 case RecEventKind.ExpressionDeactivate:
-                    return TryReadTimedExpression(source, kind, events, analogAxesByEvent, maskBytesByEvent, ref parsedRecordCount, out recordBytes);
+                    return TryReadTimedExpression(source, kind, events, analogAxesByEvent, maskBytesByEvent, ref parsedRecordCount, out recordBytes, out error);
                 case RecEventKind.BaselineExpression:
                     return TryReadBaselineExpression(source, baselineExpressionRecords, ref parsedRecordCount, out recordBytes);
                 case RecEventKind.Footer:
@@ -745,6 +745,22 @@ namespace Hidano.FacialControl.Rec.Domain.Services
             return true;
         }
 
+        /// <summary>
+        /// 時刻付きレコードの timestamp を検証する。負数・NaN・無限大は破損・外部生成の兆候なので、factory の例外を
+        /// 漏らしたり末尾切れ復旧（後続の正常レコードを捨てて成功）に落としたりせず、明示的な読込エラーにする。
+        /// </summary>
+        private static bool TryValidateTimestamp(double timestampSeconds, RecEventKind kind, out string error)
+        {
+            if (timestampSeconds < 0d || double.IsNaN(timestampSeconds) || double.IsInfinity(timestampSeconds))
+            {
+                error = $"{kind} record has an invalid timestamp {timestampSeconds}.";
+                return false;
+            }
+
+            error = null;
+            return true;
+        }
+
         private static bool TryReadTimedTrigger(
             ReadOnlySpan<byte> source,
             RecEventKind kind,
@@ -752,15 +768,22 @@ namespace Hidano.FacialControl.Rec.Domain.Services
             List<IReadOnlyList<float>> analogAxesByEvent,
             List<IReadOnlyList<byte>> maskBytesByEvent,
             ref uint parsedRecordCount,
-            out int recordBytes)
+            out int recordBytes,
+            out string error)
         {
             recordBytes = 0;
+            error = null;
             if (source.Length < 13)
             {
                 return false;
             }
 
             double timestampSeconds = BitConverter.Int64BitsToDouble(BinaryPrimitives.ReadInt64LittleEndian(source.Slice(1, 8)));
+            if (!TryValidateTimestamp(timestampSeconds, kind, out error))
+            {
+                return false;
+            }
+
             ushort sourceIndex = BinaryPrimitives.ReadUInt16LittleEndian(source.Slice(9, 2));
             ushort expressionIndex = BinaryPrimitives.ReadUInt16LittleEndian(source.Slice(11, 2));
             events.Add(kind == RecEventKind.TriggerOn
@@ -779,17 +802,29 @@ namespace Hidano.FacialControl.Rec.Domain.Services
             List<IReadOnlyList<float>> analogAxesByEvent,
             List<IReadOnlyList<byte>> maskBytesByEvent,
             ref uint parsedRecordCount,
-            out int recordBytes)
+            out int recordBytes,
+            out string error)
         {
             recordBytes = 0;
+            error = null;
             if (source.Length < 12)
             {
                 return false;
             }
 
             double timestampSeconds = BitConverter.Int64BitsToDouble(BinaryPrimitives.ReadInt64LittleEndian(source.Slice(1, 8)));
+            if (!TryValidateTimestamp(timestampSeconds, RecEventKind.AnalogSample, out error))
+            {
+                return false;
+            }
+
             ushort sourceIndex = BinaryPrimitives.ReadUInt16LittleEndian(source.Slice(9, 2));
             byte axisCount = source[11];
+            if (axisCount == 0)
+            {
+                error = "AnalogSample record has an axis count of 0.";
+                return false;
+            }
             int payloadSize = 12 + (axisCount * 4);
             if (source.Length < payloadSize)
             {
@@ -877,16 +912,27 @@ namespace Hidano.FacialControl.Rec.Domain.Services
                 offset += valueBytes;
             }
 
+            double timestampSeconds = 0d;
+            if (!baseline)
+            {
+                timestampSeconds = BitConverter.Int64BitsToDouble(BinaryPrimitives.ReadInt64LittleEndian(source.Slice(1, 8)));
+                if (!TryValidateTimestamp(timestampSeconds, RecEventKind.ValueProviderSample, out error))
+                {
+                    return false;
+                }
+            }
+
             RecEvent evt;
             try
             {
                 evt = baseline
                     ? RecEvent.CreateBaselineValueProvider(sourceIndex, (flags & RecValueProviderFlags.IsValid) != 0, valueCount, maskCount)
-                    : RecEvent.CreateValueProviderSample(BitConverter.Int64BitsToDouble(BinaryPrimitives.ReadInt64LittleEndian(source.Slice(1, 8))),
-                        sourceIndex, flags, valueCount, maskCount);
+                    : RecEvent.CreateValueProviderSample(timestampSeconds, sourceIndex, flags, valueCount, maskCount);
             }
-            catch (ArgumentException)
+            catch (ArgumentException ex)
             {
+                // flags と count の組み合わせ不整合（HasValues 無しの非ゼロ count 等）。末尾切れではなく破損として扱う。
+                error = $"Value-provider record is malformed: {ex.Message}";
                 return false;
             }
 
@@ -952,11 +998,17 @@ namespace Hidano.FacialControl.Rec.Domain.Services
 
         private static bool TryReadTimedExpression(ReadOnlySpan<byte> source, RecEventKind kind,
             List<RecEvent> events, List<IReadOnlyList<float>> payloads, List<IReadOnlyList<byte>> masks,
-            ref uint parsedRecordCount, out int recordBytes)
+            ref uint parsedRecordCount, out int recordBytes, out string error)
         {
             recordBytes = 0;
+            error = null;
             if (source.Length < 13) return false;
             double timestamp = BitConverter.Int64BitsToDouble(BinaryPrimitives.ReadInt64LittleEndian(source.Slice(1, 8)));
+            if (!TryValidateTimestamp(timestamp, kind, out error))
+            {
+                return false;
+            }
+
             ushort sourceIndex = BinaryPrimitives.ReadUInt16LittleEndian(source.Slice(9, 2));
             ushort expressionIndex = BinaryPrimitives.ReadUInt16LittleEndian(source.Slice(11, 2));
             events.Add(kind == RecEventKind.ExpressionActivate

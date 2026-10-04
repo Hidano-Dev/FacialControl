@@ -114,55 +114,20 @@ namespace Hidano.FacialControl.Tests.EditMode.Adapters.InputSources
         }
 
         [Test]
-        public void Sample_SourceRegisteredUnderDifferentKey_PublishesRegistryKey()
+        public void Sample_SameInstanceObservedUnderTwoSlotIds_PublishesEachSlotIdSeparately()
         {
-            // OscInputSource は常に Id "osc" だが、binding は任意の slug（iFacialMocap なら "ifm" 等）で registry に登録する。
-            // REC の基準捕捉・注入は registry キーを使うので、観測イベントも registry キーで出す。
+            // Aggregator が渡す sourceId はスロットの同定キー（レイヤー宣言の id = registry キー）。同じインスタンスが
+            // 2 つのキーで宣言されていても、インスタンスで上書きせずスロットごとの ID で publish する。
             var bus = new FacialInputObservationBus();
             var observer = new RecordingObserver();
             bus.Subscribe(observer);
-            var registry = new InputSourceRegistry();
+            var sampler = new ValueProviderObservationSampler(bus);
             var source = new FakeValueProvider("osc", 1);
-            registry.Register(AdapterSlug.Parse("ifm"), source);
-            var sampler = new ValueProviderObservationSampler(bus, registry);
 
-            sampler.OnSourceValuesObserved(0, 1, source, InputSourceId.Parse("osc"), true, new float[] { 0.5f });
+            sampler.OnSourceValuesObserved(0, 1, source, InputSourceId.Parse("oscA"), true, new float[] { 0.5f });
+            sampler.OnSourceValuesObserved(0, 2, source, InputSourceId.Parse("oscB"), true, new float[] { 0.5f });
 
-            Assert.That(observer.Ids, Is.EqualTo(new[] { "ifm" }));
-        }
-
-        [Test]
-        public void Sample_SourceNotInRegistry_FallsBackToAggregatorId()
-        {
-            var bus = new FacialInputObservationBus();
-            var observer = new RecordingObserver();
-            bus.Subscribe(observer);
-            var registry = new InputSourceRegistry();
-            var sampler = new ValueProviderObservationSampler(bus, registry);
-
-            sampler.OnSourceValuesObserved(0, 1, new FakeValueProvider("osc", 1), InputSourceId.Parse("osc"), true, new float[] { 0.5f });
-
-            Assert.That(observer.Ids, Is.EqualTo(new[] { "osc" }));
-        }
-
-        [Test]
-        public void Sample_AfterRegistryReplace_ResolvesNewInstanceToSameKey()
-        {
-            var bus = new FacialInputObservationBus();
-            var observer = new RecordingObserver();
-            bus.Subscribe(observer);
-            var registry = new InputSourceRegistry();
-            var first = new FakeValueProvider("osc", 1);
-            var second = new FakeValueProvider("osc", 1);
-            registry.Register(AdapterSlug.Parse("ifm"), first);
-            var sampler = new ValueProviderObservationSampler(bus, registry);
-
-            sampler.OnSourceValuesObserved(0, 1, first, InputSourceId.Parse("osc"), true, new float[] { 0.5f });
-            registry.Replace(AdapterSlug.Parse("ifm"), second);
-            sampler.OnSourceValuesObserved(0, 1, second, InputSourceId.Parse("osc"), true, new float[] { 0.5f });
-
-            Assert.That(observer.Ids, Is.EqualTo(new[] { "ifm", "ifm" }));
-            Assert.That(observer.Samples[1].MaskChanged, Is.True, "別インスタンスは全量 publish される");
+            Assert.That(observer.Ids, Is.EqualTo(new[] { "oscA", "oscB" }));
         }
 
         private sealed class RecordingObserver : IFacialInputObserver

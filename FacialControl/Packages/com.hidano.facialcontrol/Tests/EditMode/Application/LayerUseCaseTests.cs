@@ -1083,6 +1083,46 @@ namespace Hidano.FacialControl.Tests.EditMode.Application
         }
 
         [Test]
+        public void UpdateWeights_SourceValueObserver_ReceivesDeclaredIdAsSourceId()
+        {
+            // OscInputSource は常に Id "osc" だが、観測 ID はレイヤー宣言の id（registry キー）でなければ
+            // REC の基準捕捉・注入（registry キー単位）と対応が取れない。
+            var layers = new[] { new LayerDefinition("emotion", 0, ExclusionMode.LastWins) };
+            var profile = new FacialProfile("1.0", layers, Array.Empty<Expression>());
+            var expressionUseCase = new ExpressionUseCase(profile);
+            var blendShapeNames = new[] { "bs_smile" };
+            var additional = new List<(int layerIdx, IInputSource source, float weight)>
+            {
+                (0, new FakeValueWritingSource("osc", blendShapeNames.Length, 0.4f), 1.0f),
+            };
+            var observer = new RecordingSourceValueObserver();
+
+            using var useCase = new LayerUseCase(profile, expressionUseCase, blendShapeNames, additional, new[] { "ifm" });
+            useCase.SetSourceValueObserver(observer);
+            useCase.UpdateWeights(0.001f);
+
+            Assert.That(observer.ObservedIds, Does.Contain("ifm"));
+            Assert.That(observer.ObservedIds, Does.Not.Contain("osc"));
+
+            useCase.BindLateInputSource(0, "ifm", new FakeValueWritingSource("osc", blendShapeNames.Length, 0.5f), 1.0f);
+            observer.ObservedIds.Clear();
+            useCase.UpdateWeights(0.001f);
+
+            Assert.That(observer.ObservedIds, Does.Contain("ifm"), "置換後も同じスロットは宣言 id で観測される");
+        }
+
+        private sealed class RecordingSourceValueObserver : Hidano.FacialControl.Domain.Adapters.ILayerSourceValueObserver
+        {
+            public List<string> ObservedIds { get; } = new List<string>();
+
+            public void OnSourceValuesObserved(int layerIdx, int sourceIdx, IInputSource source, InputSourceId sourceId,
+                bool isValid, ReadOnlySpan<float> preWeightValues)
+            {
+                ObservedIds.Add(sourceId.Value);
+            }
+        }
+
+        [Test]
         public void UnbindLateInputSource_RemovingFirstSource_ShiftsRemainingWeights()
         {
             var layers = new[] { new LayerDefinition("emotion", 0, ExclusionMode.LastWins) };
