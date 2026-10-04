@@ -236,7 +236,7 @@
   - _Requirements: 7.1, 7.2_
   - _Boundary: TestAssemblyCatalog_
 
-- [ ] 7.2 (P) 入力源分類の正本カタログを rec Domain に置く
+- [x] 7.2 (P) 入力源分類の正本カタログを rec Domain に置く
   - 対象: `com.hidano.facialcontrol.rec`（`Hidano.FacialControl.Rec.Domain`、Models 配下）
   - 分類（Observed / Excluded）・観測カテゴリ（Trigger / Analog / ValueProvider / DirectActivation）・除外区分（InjectionSource / NotRegisteredAtRuntime / EditorOnly / WrappedByObservedSource）・product アセンブリ（名前 + Editor 専用フラグ）・許容直接参照元（型 FullName + 理由）・エントリ（型 FullName・アセンブリ名・分類・カテゴリ・除外区分・理由・wrapper 型・許容参照元・ランタイム登録契約テスト名）を定義する
   - design.md「入力源分類表」21 行と 1:1 のエントリ、および Runtime 11 + Editor 9 の期待アセンブリ名リストを静的データとして宣言する。NotRegisteredAtRuntime / WrappedByObservedSource の 3 行は 5.3 / 6 で追加した fixture の FullName::メソッド名を宣言する
