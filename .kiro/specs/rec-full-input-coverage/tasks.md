@@ -254,7 +254,7 @@
   - 完了条件: 上記テストが実 AppDomain に対して EditMode（Small カテゴリ）で緑。未分類の Fake 型を product アセンブリに一時追加すると型名付きで失敗することを手元で確認
   - _Requirements: 1.6, 7.1, 7.2, 7.3, 7.4, 7.5, 7.6, 7.7, 7.8, 7.9, 7.10_
 
-- [ ] 7.4 (P) product アセンブリ IL スキャナ（fail-closed）を実装する
+- [x] 7.4 (P) product アセンブリ IL スキャナ（fail-closed）を実装する
   - 対象: `com.hidano.facialcontrol.rec`（rec Tests EditMode asmdef、internal テスト補助）
   - 入力アセンブリ集合の全型（nested 含む）の全メソッド / コンストラクタ / アクセサ本体を IL byte 列で取得し、1 byte / 2 byte の opcode 表でオペランド長を進め、design.md 記載の命令群のトークンを宣言型 / メソッドのジェネリック引数を文脈として解決し、(参照元の最外殻型, 参照先型) の集合を返す。本体なし（abstract / extern / interface）は正当にスキップ、参照元 = 自型は除外、ジェネリック型は定義へ正規化し型引数も含める
   - fail-closed: 解決例外・未知 opcode・オペランド途中切れ・`calli` は型名・メソッド名・IL offset・理由を含む `InvalidOperationException` で走査を中断する（部分結果を返さない）。トークン解決関数と IL byte 列の入口をテストから差し替え可能にする
@@ -263,7 +263,7 @@
   - _Requirements: 1.2, 7.8_
   - _Boundary: ProductAssemblyIlScanner_
 
-- [ ] 7.5 除外区分ごとの契約テストを実装する
+- [x] 7.5 除外区分ごとの契約テストを実装する
   - 対象: `com.hidano.facialcontrol.rec`（rec Tests EditMode asmdef）
   - 各テストは当該区分の全エントリを走査し違反型を列挙して失敗する。InjectionSource は注入ソースマーカーの実装、EditorOnly はカタログの Editor 専用宣言 + Runtime product アセンブリの参照先に Editor 専用名が無いこと、NotRegisteredAtRuntime は `IInputSource` 非実装 + 主契約テストの宣言と実在（ロード済みテストアセンブリを reflection で照会）+ 補助の IL 走査で直接参照元が許容集合内、WrappedByObservedSource は wrapper 型が Observed / Analog で存在し両入力源契約を実装 + 主契約の実在 + 補助の IL 走査。共通に許容参照元の理由非空と、除外区分の全列挙値に契約があること
   - 失敗メッセージは区分・違反型・違反内容・修正先を含め、IL 走査の中断は契約違反と区別して「走査失敗」として報告する
