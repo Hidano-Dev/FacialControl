@@ -54,6 +54,24 @@
 - **背景**: design.md の `RecRegistryInjection`（Replace / Register / Unregister・参照同一性の復元ガード・warn-once）が未抽出で、`RecAnalogInjector` と `RecValueProviderInjector` に同等ロジックが重複している。挙動は同一でテストも緑だが、復元ガードの規則が 2 箇所に分かれる。
 - **トリガ**: 注入体を 1 つ追加するとき、または復元ガードの規則を変更するとき。
 
+### S-25: RecEventChunkQueue の free-list が不適合 segment で探索を打ち切る
+- **出典**: 2026-10-05 PR #46 Codex 5 回目レビュー（P2、`RecEventChunkQueue.cs:145`）。
+- **背景**: float-only の大きなレコード用に byte 容量 0 の segment が作られた後、mask 付きレコード用の segment が必要になると、不適合 segment を free-list の先頭へ戻して探索を止めるため、背後の適合 segment を再利用できず segment を毎回新規確保する（`GrowthCount` と録画中 GC が増える）。記録内容の正しさには影響しない。
+- **方針候補**: 不適合 segment を一時退避して探索を続ける、または容量別に free-list を分ける。
+- **トリガ**: 録画中の GC スパイクが実機で観測されたとき、または `RecEventChunkQueue` を次に触るとき。
+
+### S-26: StartPlayback 直後の系1イベントが基準スナップに巻き込まれる
+- **出典**: 2026-10-05 PR #46 Codex 5 回目レビュー（P2、`LayerUseCase.cs:213`）。
+- **背景**: `StartPlayback` が同フレームの `RecCharacterBinding.Update` より前に呼ばれ、最初の tick で到達する Activate / Deactivate（timestamp 0 付近）があると、baseline の `ResetGeneration` が `FacialController.LateUpdate` で消費される前に timed event が適用され、その 1 件が遷移せず即時スナップになる。以降の再生は正常。
+- **方針候補**: baseline のスナップを消費してから scheduler を進める、または reset 時点の集合と後続イベントを分離する。
+- **トリガ**: 再生開始直後の表情遷移が記録と違うという報告、または `LayerUseCase` のフレーム内順序を次に変更するとき。
+
+### S-27: Aggregator の source ID キャッシュが slot id の変化を追わない
+- **出典**: 2026-10-05 PR #46 Codex 5 回目レビュー（P2、`LayerInputSourceAggregator.cs:449`）。
+- **背景**: `ResolveCachedSourceId` は source 参照が変わったときだけ ID を再解析する。同じインスタンスを異なる宣言 id で複数スロットに置き、先行スロットを Unregister して compact すると、移動先スロットに同じ参照がキャッシュ済みのため削除済みの宣言 id で観測し続ける。現行 binding は 1 インスタンス 1 キーなので、プロファイルで同じ入力源を複数宣言した構成でのみ到達する。
+- **修正案**: キャッシュ判定に `GetSlotId(layerIdx, sourceIdx)` の変化を含める（数行）+ `LayerUseCaseTests` に再現テスト。
+- **トリガ**: 次に `LayerInputSourceAggregator` を触るとき（小さいので同乗で拾う）。
+
 ## 中期（preview.2 以降 / 別 spec 候補）
 
 ### M-1: 既知の機能延期（technical-spec.md 1.5 節と同期）
