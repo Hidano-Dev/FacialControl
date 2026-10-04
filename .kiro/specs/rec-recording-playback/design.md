@@ -6,7 +6,7 @@
 
 **Users**: VTuber 配信・収録ワークフローを構築する Unity エンジニアが、パフォーマンス収録とその完全再現（および後続 spec でのベイク素材化）のために利用する。
 
-**Impact**: core（`com.hidano.facialcontrol`）へ「操作イベントの観測面」と「入力ソース差し替えの注入面」を正式に追加する。既存コードパスの挙動は変更せず、観測者未登録かつ差し替え未実施なら既存の挙動・性能は完全に不変とする。既存 4 拡張パッケージ（osc / inputsystem / lipsync / ifacialmocap）は無改修。
+**Impact**: core（`com.hidano.facialcontrol`）へ「操作イベントの観測面」と「入力ソース差し替えの注入面」を正式に追加する。既存コードパスの挙動は変更せず、観測者未登録かつ差し替え未実施なら既存の挙動・性能は完全に不変とする。既存拡張パッケージは原則無改修だが、`rec-full-input-coverage` により osc 受信 binding の Replace 廃止・in-place 更新が対象へ追加される。
 
 ### Goals
 
@@ -18,10 +18,10 @@
 ### Non-Goals
 
 - Timeline 独自 Track・ベイク済みカーブ書き出し・スクラブ・Timeline 編集（後続 spec `rec-timeline-baking`）
-- 音声解析・リップシンク音源の記録（既存方針どおりスコープ外。リップシンク由来の操作イベントは他入力と同様に観測面経由で記録される）
+- 音声解析・リップシンク音源そのものの記録（リップシンクは `LipSyncPhonemeOverlayInputSource` が合成へ供給した BlendShape 値（消費値・有効性・寄与対象集合）を値提供型観測面経由で記録する。`rec-full-input-coverage` により上書き）
 - ランタイム UI の提供
 - 記録セッション中の `SetProfile` 再初期化を跨ぐ完全な記録保証（再購読 + 警告ログで継続するが、切替瞬間の欠落は許容）
-- 拡張パッケージ内部の直接参照消費者（registry を介さない配線）への注入到達（下記 Boundary Commitments 参照）
+- 拡張パッケージ内部の直接参照消費者（registry を介さない配線）への注入到達（値提供型は自身の Replace 遮断で対象内。残る未到達は inputsystem overlay binding の layer weight / input-source weight 駆動のみであり、HID-80 の既知制限として残る。`rec-full-input-coverage` により上書き）
 
 ## Boundary Commitments
 
@@ -40,9 +40,9 @@
 ### Out of Boundary
 
 - 既存コードパスの挙動変更（観測者未登録・差し替え未実施時は bit 単位で従来同一の実行結果であること）
-- 拡張パッケージ（osc / inputsystem / lipsync / ifacialmocap）のあらゆる変更
-- 拡張パッケージ内部で registry を介さず直接参照される消費者への注入（例: 拡張 binding が自前構築した `AnalogBonePoseProvider` / `AnalogBlendShapeInputSource` の内部キャッシュ）。ブレンド出力（レイヤー入力源）と gaze ボーン（`GazeBonePoseProvider`）は registry 経由のため到達し、Req 3.3 のブレンド完全再現は満たされる
-- 系1（`ExpressionUseCase` / `FacialController.Activate` 直接呼び出し）経路の記録。記録対象は系2（`ExpressionTriggerInputSourceBase`）に限定する（実機入力は系2 のみを populate する既知の実態に基づく）
+- 拡張パッケージ（osc / inputsystem / lipsync / ifacialmocap）のあらゆる変更（ただし osc 受信 binding は `rec-full-input-coverage` により上書きされ、本 spec の対象へ追加）
+- 拡張パッケージ内部で registry を介さず直接参照される消費者への注入（値提供型は自身の Replace 遮断で対象内。残る未到達は inputsystem overlay binding の layer weight / input-source weight 駆動のみであり、HID-80 の既知制限として残る。`rec-full-input-coverage` により上書き）
+- 系1（`ExpressionUseCase` / `FacialController.Activate` 直接呼び出し）経路の記録（`rec-full-input-coverage` により上書き: 系1 は `ExpressionUseCase` の観測面・遮断面・注入面で記録・遮断・注入される）
 - 記録 UI の高度化（Editor は最小限の操作 Inspector のみ）
 
 ### Allowed Dependencies
@@ -56,8 +56,8 @@
 
 以下の変更時は後続 spec（`rec-timeline-baking`）および利用側の再検証が必要:
 
-- `IFacialInputObservationBus` / `IFacialInputObserver` / `ITriggerEventObserver` の契約形状変更
-- `.fcrec` バイナリフォーマットのレコード種別・レイアウト変更（ヘッダ version を必ず上げる）
+- `IFacialInputObservationBus` / `IFacialInputObserver` / `ITriggerEventObserver` の契約形状変更（値提供型の消費元入力源引数を含む契約は `rec-full-input-coverage` を参照）
+- `.fcrec` バイナリフォーマットのレコード種別・レイアウト変更（kind 7〜11 とヘッダ必須 flags は `rec-full-input-coverage` を参照。formatVersion は 1 据え置き）
 - Replace / Unregister 再バインド伝搬の到達範囲・発火順・通知セマンティクス（Unregister = null 通知）の変更
 - 注入面の占有規則（`IInjectedInputSource` マーカー、占有中 id への注入スキップ、参照同一性による復元ガード）の変更
 - `ExpressionTriggerInputSourceBase.ResetToExpressionStack` の契約変更（観測フック非通知・遷移スキップの意味論）
@@ -97,7 +97,7 @@ graph TB
         LayerUC[LayerUseCase]
         GazeBone[GazeBonePoseProvider]
     end
-    subgraph Ext[既存拡張 無改修]
+    subgraph Ext[既存拡張（osc受信 binding除く）]
         OscBind[osc binding]
         InputBind[inputsystem binding]
         IfmBind[ifacialmocap binding]
@@ -130,7 +130,7 @@ graph TB
 - **Selected pattern**: 既存のクリーンアーキテクチャ + per-FC 観測バス（`FacialOutputBus` と対称の入力版）。rec は core の公開面のみを消費する独立パッケージ
 - **Domain/feature boundaries**: 観測面・注入面の契約は core が所有し rec を知らない。記録・再生・永続化のロジックはすべて rec 側
 - **Existing patterns preserved**: `HasObservers` ガード / publish 中変更の遅延適用 / 例外隔離（FacialOutputBus 踏襲）、`Subscribe` + `BindLateInputSource` による遅延・差し替えバインド、`StreamingAssets/FacialControl/{assetName}/` sidecar 規約（ARKit config.json 前例）
-- **New components rationale**: 入力観測バス（core にアナログ/gaze の push 集約点が存在しないため）、AnalogObservationSampler（拡張無改修制約下で唯一成立する pull 消費点観測）、SPSC チャンクキュー（既存 buffer 群は最新値スロット型で時系列保持に転用不可）
+- **New components rationale**: 入力観測バス（core にアナログ/gaze の push 集約点が存在しないため）、AnalogObservationSampler（拡張を原則無改修とする制約下で唯一成立する pull 消費点観測）、SPSC チャンクキュー（既存 buffer 群は最新値スロット型で時系列保持に転用不可）。osc 受信 binding の Replace 規則だけは `rec-full-input-coverage` が上書きする。
 - **Steering compliance**: 依存内向き（Adapters→Application→Domain）を rec でも asmdef 強制。エラーは Unity 標準ログのみ。UI Toolkit（Editor）。毎フレーム GC ゼロ。※steering `structure.md` の「3 パッケージ」記載は陳腐化しており（現在 5 パッケージ + 本 spec で 6 つ目）、steering 更新は実装フェーズで別途行う
 
 ### Dependency Direction（破ってはならない）
@@ -896,7 +896,7 @@ UI Toolkit 製の最小 Inspector。Play 中に記録/再生の開始・停止�
 |--------|------|-------|
 | 0 | u8[4] | magic `F` `R` `E` `C` |
 | 4 | u16 | formatVersion = 1 |
-| 6 | u16 | flags（予約 = 0） |
+| 6 | u16 | flags（bit0 `FullInputBaseline` 必須、bit1〜15 は予約） |
 | 8 | i64 | 記録開始時刻（Unix ms、メタ情報） |
 
 **レコード共通**: `[u8 kind]` + kind 別ペイロード（各レコードは自己記述長）
@@ -909,18 +909,23 @@ UI Toolkit 製の最小 Inspector。Play 中に記録/再生の開始・停止�
 | 4 | AnalogSample | f64 t, u16 sourceIdx, u8 axisCount, f32[axisCount] |
 | 5 | BaselineTrigger | u16 sourceIdx, u16 expressionIdx（時刻なし。同一 source の出現順 = スタック順） |
 | 6 | BaselineAnalog | u16 sourceIdx, u8 axisCount, f32[axisCount]（時刻なし） |
+| 7 | ValueProviderSample | f64 t, u16 sourceIdx, u8 flags, 条件付き mask / 値（詳細は `rec-full-input-coverage` を参照） |
+| 8 | BaselineValueProvider | u16 sourceIdx, u8 flags, 条件付き mask / 値（詳細は `rec-full-input-coverage` を参照） |
+| 9 | ExpressionActivate | f64 t, u16 sourceIdx, u16 expressionIdx |
+| 10 | ExpressionDeactivate | f64 t, u16 sourceIdx, u16 expressionIdx |
+| 11 | BaselineExpression | u16 sourceIdx, u16 expressionIdx（出現順 = アクティブ化順） |
 | 255 | Footer | f64 durationSeconds, u32 eventCount |
 
-- **基準状態レコード（kind 5/6）は最初の時刻付きレコード（kind 2/3/4）より前に出現しなければならない**（違反は読込エラー）。基準に必要な IdDefine は基準レコードに先行する
+- **基準状態レコード（kind 5/6/8/11）は最初の時刻付きレコード（kind 2/3/4/7/9/10）より前に出現しなければならない**（違反は読込エラー）。基準に必要な IdDefine は基準レコードに先行する。同一 sourceIdx の kind 8 は重複不可。詳細な payload と必須 header flags は `rec-full-input-coverage` が定義する（同 spec により上書き）。
 
 - **追記のみ**（Req 5.6）: id 辞書をヘッダに置かず初出時インライン定義することで、記録中の順次ストリーミング書き出しと辞書保持を両立
 - **復旧**: フッタ欠落（クラッシュ）時は先頭からスキャンし、途中で切れたレコードを警告付き破棄して読込続行。magic/version 不正・レコード kind 不明はエラー（`Debug.LogError` + 再生開始しない、Req 5.5）
 - **上限**: idIndex は u16（65,535 id）。プリセット上限 512 の既存要件に対し十分。axisCount は u8（255 軸）で ARKit 52 を包含
-- **バージョニング**: 破壊的変更時は formatVersion をインクリメント。preview 段階は旧 version の読込互換を持たない（既存の「preview 段階は破壊的変更許容」方針に整合）
+- **バージョニング**: `rec-full-input-coverage` の kind 7〜11 追加および header flags 必須化は formatVersion 1 のまま行う（同 spec により上書き）。以後の破壊的変更では formatVersion の扱いを同 spec の契約に従って再検討する。
 
 ### Data Contracts & Integration
 
-- 観測イベント契約（`IFacialInputObserver`）と注入契約（Injection Ports）が rec ↔ core の唯一の統合面。`ReadOnlySpan<float>` の axes は**コールバック中のみ有効**（保持禁止）を両契約共通の規約とする
+- 観測イベント契約（`IFacialInputObserver`）と注入契約（Injection Ports）が rec ↔ core の唯一の統合面。`ReadOnlySpan<float>` の axes は**コールバック中のみ有効**（保持禁止）を両契約共通の規約とする。値提供型の消費値・mask・有効性および消費元入力源引数の契約は `rec-full-input-coverage` を参照する（同 spec により上書き）。
 - 後続 spec `rec-timeline-baking` は同じ `.fcrec` と `RecTimeline` を入力として消費する想定。同 spec が注入面を使う場合は本 spec 定義の**占有規則**（`IInjectedInputSource` 節参照）に従う（Revalidation Triggers 参照）
 
 ## Error Handling

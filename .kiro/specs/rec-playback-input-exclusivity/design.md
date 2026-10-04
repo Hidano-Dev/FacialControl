@@ -17,10 +17,10 @@
 
 ### Non-Goals
 - 排他の on/off オプション（常時有効。設定は設けない）
-- osc / lipsync / ifacialmocap / timeline パッケージの改修
+- osc / lipsync / ifacialmocap / timeline パッケージの改修（osc の受信 binding は `rec-full-input-coverage` により上書きされ、同 spec の対象となる）
 - 再生中に新規登録された入力ソースの遮断（開始時スナップショット方式の既知制限として文書化）
-- 記録機能・`.fcrec` 永続化フォーマットの変更
-- rec-recording-playback 側 design.md ファイルの改稿（上書き関係の明記は本書で行う。原本の書き換えはスコープ外）
+- 記録機能・`.fcrec` 永続化フォーマットの変更（`rec-full-input-coverage` により上書き。kind 7〜11、値提供型・系1 の基準状態、ヘッダ必須 flags を同 spec が追加する）
+- rec-recording-playback 側 design.md ファイルの改稿（`rec-full-input-coverage` の task 10.1 により上書きされ、本リポジトリの先行 spec 文書も更新する）
 
 ## Boundary Commitments
 
@@ -28,7 +28,7 @@
 - `ExpressionTriggerInputSourceBase` のトリガー入力遮断面（`SuspendTriggerInput` / `ResumeTriggerInput` / `IsTriggerInputSuspended`）と注入面（`InjectTriggerOn` / `InjectTriggerOff`）の契約
 - `ITriggerInjectionPort` の新形状（`BeginInjection` / `InjectTriggerOn` / `InjectTriggerOff` / `EndInjection`）
 - 再生セッション中の入力排他ライフサイクル（確立順序・解放点・部分状態の禁止）
-- `RecAnalogInjector` の遮断対象決定規則（ベースライン ∪ registry 全アナログソース、0 埋め seed）
+- `RecAnalogInjector` の遮断対象決定規則（ベースライン ∪ registry 全アナログソース、0 埋め seed。値提供型には 0 埋め seed を適用せず無効とする。`rec-full-input-coverage` により上書き）
 - inputsystem の Toggle 状態整合規則（遮断中抑止 + 解除エッジ同期）と、その EditMode テスト継ぎ目（`ToggleStateReconciler`）
 
 ### Out of Boundary
