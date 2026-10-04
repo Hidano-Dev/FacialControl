@@ -8,6 +8,7 @@ using System.Text.RegularExpressions;
 using Hidano.FacialControl.Adapters.InputSources;
 using Hidano.FacialControl.Adapters.Playable;
 using Hidano.FacialControl.Adapters.ScriptableObject.Serializable;
+using Hidano.FacialControl.Application.UseCases;
 using Hidano.FacialControl.Domain.Interfaces;
 using Hidano.FacialControl.Domain.Adapters;
 using Hidano.FacialControl.Domain.Models;
@@ -98,6 +99,57 @@ namespace Hidano.FacialControl.Rec.Tests.PlayMode
             Assert.That(binding.PlaybackState, Is.EqualTo(RecPlaybackState.Idle));
             Assert.That(registry.TryResolve(analogSource.Id, out IInputSource restoredSource), Is.True);
             Assert.That(restoredSource, Is.SameAs(analogSource));
+        }
+
+        [UnityTest]
+        public IEnumerator RecordingAndPlayback_ReplaysValueProviderAndExpressionStateFromFrameZero()
+        {
+            SetupFullCoverageHarness(
+                out FacialController controller,
+                out RecCharacterBinding binding,
+                out FakeObservationBus bus,
+                out FakeInputSourceRegistry registry,
+                out FakeValueProvider valueProvider,
+                out Expression expression);
+
+            valueProvider.Publish(0.2f);
+            controller.Activate(expression);
+            Assert.That(binding.StartRecording("full-coverage"), Is.True);
+
+            valueProvider.Publish(0.75f);
+            var sample = new ValueProviderSample(
+                isValid: true,
+                validityChanged: true,
+                valuesChanged: true,
+                maskChanged: true,
+                values: new[] { 0.75f },
+                contributeMask: new BitArray(1, true));
+            bus.PublishValueProviderSample(valueProvider.Id, in sample);
+            binding.StopRecording();
+
+            controller.Deactivate(expression);
+            valueProvider.Publish(0f);
+            Assert.That(binding.LoadRecording("full-coverage"), Is.True);
+            Assert.That(binding.StartPlayback(), Is.True);
+
+            // PlayMode の最初のフレームで基準状態とイベントを適用させる。
+            yield return null;
+
+            var activeExpressionIds = new List<string>();
+            controller.ExpressionActivationGate.CollectActiveExpressionIds(activeExpressionIds);
+            Assert.That(activeExpressionIds, Is.EqualTo(new[] { expression.Id }));
+
+            Assert.That(registry.TryResolve(valueProvider.Id, out IInputSource resolved), Is.True);
+            Assert.That(resolved, Is.Not.SameAs(valueProvider));
+            Assert.That(resolved, Is.InstanceOf<IInjectedInputSource>());
+            var layerUseCase = GetLayerUseCase(controller);
+            layerUseCase.BindLateInputSource(0, resolved, 1f);
+            layerUseCase.UpdateWeights(0f);
+            Assert.That(layerUseCase.GetBlendedOutput(), Is.EqualTo(new[] { 0.75f }));
+
+            binding.StopPlayback();
+            Assert.That(registry.TryResolve(valueProvider.Id, out IInputSource restored), Is.True);
+            Assert.That(restored, Is.SameAs(valueProvider));
         }
 
         [UnityTest]
@@ -597,6 +649,58 @@ namespace Hidano.FacialControl.Rec.Tests.PlayMode
             SetControllerPrivateField(controller, "_inputSourceRegistry", registry);
         }
 
+        private void SetupFullCoverageHarness(
+            out FacialController controller,
+            out RecCharacterBinding binding,
+            out FakeObservationBus bus,
+            out FakeInputSourceRegistry registry,
+            out FakeValueProvider valueProvider,
+            out Expression expression)
+        {
+            _gameObject = new GameObject("RecCharacterBindingFullCoverageHost");
+            _gameObject.AddComponent<Animator>();
+
+            controller = _gameObject.AddComponent<FacialController>();
+            binding = _gameObject.AddComponent<RecCharacterBinding>();
+            binding.FacialController = controller;
+
+            _characterSo = ScriptableObject.CreateInstance<TestCharacterProfileSO>();
+            _characterSo.name = TestAssetName;
+            controller.CharacterSO = _characterSo;
+
+            var profile = new FacialProfile(
+                "1.0.0",
+                new[] { new LayerDefinition("emotion", 0, ExclusionMode.LastWins) },
+                new[] { new Expression("smile", "Smile", "emotion") });
+            expression = profile.FindExpressionById("smile").Value;
+            bus = new FakeObservationBus();
+            registry = new FakeInputSourceRegistry();
+            valueProvider = new FakeValueProvider("input:values", 1);
+            registry.AddSource(valueProvider);
+
+            var expressionUseCase = new ExpressionUseCase(profile);
+            expressionUseCase.SetActivationObserver(bus);
+            var layerUseCase = new LayerUseCase(
+                profile,
+                expressionUseCase,
+                new[] { "Smile" },
+                new[] { (layerIdx: 0, source: (IInputSource)valueProvider, weight: 1f) });
+
+            SetControllerPrivateField(controller, "_isInitialized", true);
+            SetControllerPrivateField(controller, "_currentProfile", (FacialProfile?)profile);
+            SetControllerPrivateField(controller, "_blendShapeNames", new[] { "Smile" });
+            SetControllerPrivateField(controller, "_expressionUseCase", expressionUseCase);
+            SetControllerPrivateField(controller, "_layerUseCase", layerUseCase);
+            SetControllerPrivateField(controller, "_inputObservationBus", bus);
+            SetControllerPrivateField(controller, "_inputSourceRegistry", registry);
+        }
+
+        private static LayerUseCase GetLayerUseCase(FacialController controller)
+        {
+            FieldInfo field = typeof(FacialController).GetField("_layerUseCase", BindingFlags.Instance | BindingFlags.NonPublic);
+            return (LayerUseCase)field.GetValue(controller);
+        }
+
         private static void DeleteGeneratedRecordingAssets()
         {
             string recordingsDirectory = Path.Combine(
@@ -896,6 +1000,36 @@ namespace Hidano.FacialControl.Rec.Tests.PlayMode
                 }
 
                 _axes.AsSpan().CopyTo(output);
+                return true;
+            }
+        }
+
+        private sealed class FakeValueProvider : ValueProviderInputSourceBase
+        {
+            private readonly float[] _values;
+
+            public FakeValueProvider(string id, int blendShapeCount)
+                : base(InputSourceId.Parse(id), blendShapeCount)
+            {
+                _values = new float[blendShapeCount];
+            }
+
+            public void Publish(params float[] values)
+            {
+                for (int i = 0; i < _values.Length; i++)
+                {
+                    _values[i] = i < values.Length ? values[i] : 0f;
+                }
+            }
+
+            public override bool TryWriteValues(Span<float> output)
+            {
+                if (output.Length < _values.Length)
+                {
+                    return false;
+                }
+
+                _values.AsSpan().CopyTo(output);
                 return true;
             }
         }
