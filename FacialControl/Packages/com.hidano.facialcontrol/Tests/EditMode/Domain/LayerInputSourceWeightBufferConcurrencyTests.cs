@@ -111,7 +111,8 @@ namespace Hidano.FacialControl.Tests.EditMode.Domain
             {
                 for (int iteration = 0; iteration < Iterations; iteration++)
                 {
-                    buffer.EnsureMaxSourcesPerLayer(3 + (iteration % 3));
+                    // 毎回 1 スロットずつ拡張し、全反復で実際の resize（配列差し替え）がワーカー書込と競合するようにする。
+                    buffer.EnsureMaxSourcesPerLayer(3 + iteration);
                     buffer.SwapIfDirty();
                     Assert.AreEqual(0.23f, buffer.GetWeight(0, 0));
                     Assert.AreEqual(0.47f, buffer.GetWeight(0, 1));
