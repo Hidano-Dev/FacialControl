@@ -25,6 +25,45 @@ namespace Hidano.FacialControl.Tests.Small.Testing
         }
 
         [Test]
+        public void ProductAssemblyNames_ExcludeTestAndTestingAssemblies()
+        {
+            Assert.That(TestAssemblyCatalog.IsProjectProductAssemblyName("Hidano.FacialControl.Application"), Is.True);
+            Assert.That(TestAssemblyCatalog.IsProjectProductAssemblyName("Hidano.FacialControl.Editor"), Is.True);
+            Assert.That(TestAssemblyCatalog.IsProjectProductAssemblyName("Hidano.FacialControl.Tests.EditMode"), Is.False);
+            Assert.That(TestAssemblyCatalog.IsProjectProductAssemblyName("Hidano.FacialControl.Tests.Shared"), Is.False);
+            Assert.That(TestAssemblyCatalog.IsProjectProductAssemblyName("Hidano.FacialControl.Testing"), Is.False);
+        }
+
+        [Test]
+        public void ProductAssemblies_AreDiscoverableAndSorted()
+        {
+            var assemblies = TestAssemblyCatalog.FindProjectProductAssemblies();
+            var previousName = string.Empty;
+            var foundDomain = false;
+
+            foreach (Assembly assembly in assemblies)
+            {
+                var name = assembly.GetName().Name;
+                Assert.That(name, Is.GreaterThanOrEqualTo(previousName));
+                Assert.That(TestAssemblyCatalog.IsProjectTestAssemblyName(name), Is.False);
+                Assert.That(name, Is.Not.EqualTo("Hidano.FacialControl.Testing"));
+                foundDomain |= name == "Hidano.FacialControl.Domain";
+                previousName = name;
+            }
+
+            Assert.That(foundDomain, Is.True);
+        }
+
+        [Test]
+        public void TryFindLoadedAssembly_ReturnsFalseForUnloadedName()
+        {
+            Assembly assembly;
+
+            Assert.That(TestAssemblyCatalog.TryFindLoadedAssembly("Hidano.FacialControl.DoesNotExist", out assembly), Is.False);
+            Assert.That(assembly, Is.Null);
+        }
+
+        [Test]
         public void AllTestMethods_DeclareExactlyOneSize()
         {
             var violations = new List<string>();

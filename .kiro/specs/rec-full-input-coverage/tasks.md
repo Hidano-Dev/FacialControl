@@ -212,14 +212,14 @@
   - 完了条件: 上記テストと既存 binding テストが EditMode で緑
   - _Requirements: 3.3, 3.9, 3.10, 8.4, 9.9_
 
-- [ ] 5.3 osc の Fake registry 登録契約（除外根拠の主契約）を追加する
+- [x] 5.3 osc の Fake registry 登録契約（除外根拠の主契約）を追加する
   - 対象: `com.hidano.facialcontrol.osc`（osc Tests EditMode asmdef。rec への参照は追加しない）
   - Register / Replace / Unregister の呼出を記録する Fake 入力源 registry を osc Tests 内に新設する
   - テスト（既存 `[MediumTest]` fixture へ追記）: `ArKitOscAdapterBindingTests.OnStart_FakeRegistry_RegistersNoInputSource`（Register / Replace が 0 回、公開されるアナログソースが非 null で入力源契約を実装しない）、`OscReceiverAdapterBindingTests.OnStart_FakeRegistry_RegisteredTypesAreOnlyCatalogObservedTypes`（BlendShape マッピングと gaze を含む設定で、登録された全インスタンスの実行時型がリテラル集合 {OscInputSource, GazeVector2InputSource} に閉じ、ArKit / Float のアナログ単独実装を実行時型とする登録が無い）
   - 完了条件: 上記 2 テストが EditMode で緑。fixture の FullName とメソッド名を 7.2 のカタログ宣言に転記できる状態
   - _Requirements: 1.2, 1.4_
 
-- [ ] 6. (P) inputsystem の Fake registry 登録契約（WrappedByObservedSource の主契約）を追加する
+- [x] 6. (P) inputsystem の Fake registry 登録契約（WrappedByObservedSource の主契約）を追加する
   - 対象: `com.hidano.facialcontrol.inputsystem`（inputsystem Tests PlayMode asmdef。rec への参照は追加しない。`InputSystem.*` は Small 禁止のため PlayMode）
   - Register / Replace / Unregister の呼出を記録する Fake 入力源 registry を inputsystem Tests 内に新設する
   - テスト（`InputSystemAdapterBindingIntegrationTests` 追記、既存 `[MediumTest]`）: `OnStart_FakeRegistry_RegisteredTypesAreOnlyCatalogObservedTypes` — analog / overlay / analog-expression を含む InputActionAsset で開始し、登録された全インスタンスの実行時型がリテラル集合 {アナログラッパ（nested）, ExpressionTriggerInputSource, AnalogExpressionInputSource, OverlayInputSource} に閉じ、InputActionAnalogSource を実行時型とする登録が無く、AnalogExpressionInputSource が受け取る辞書の値がすべて wrapper 登録済み id であること
