@@ -64,7 +64,7 @@
   - 完了条件: 上記 2 テストと既存 LayerUseCase テストが EditMode で緑
   - _Requirements: 4.7, 5.4, 8.1_
 
-- [ ] 2.3 FacialController に系1 の観測者配線と遮断面の公開を追加する
+- [x] 2.3 FacialController に系1 の観測者配線と遮断面の公開を追加する
   - 対象: `com.hidano.facialcontrol`（`Hidano.FacialControl.Adapters` の FacialController）
   - 初期化時に観測バスを系1 観測者として表情ユースケースへ配線し、系1 遮断面を公開プロパティで rec に見せる（未初期化時は null）。`Activate` / `Deactivate` 本体は不変
   - テスト: 既存の FacialController を対象とする Medium fixture（EditMode または PlayMode）に、初期化後に遮断面が非 null であること、`Activate` 呼出がバスの観測者へ予約 id `@expression` と表情 id で届くことを追記
