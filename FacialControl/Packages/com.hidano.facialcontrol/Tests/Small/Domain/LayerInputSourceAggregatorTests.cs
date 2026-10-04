@@ -1513,21 +1513,23 @@ namespace Hidano.FacialControl.Tests.EditMode.Domain
             public void OnSourceValuesObserved(
                 int layerIdx,
                 int sourceIdx,
+                IInputSource source,
                 InputSourceId sourceId,
                 bool isValid,
                 ReadOnlySpan<float> preWeightValues)
             {
                 var copy = new float[preWeightValues.Length];
                 preWeightValues.CopyTo(copy);
-                Calls.Add(new Call(layerIdx, sourceIdx, sourceId.Value, isValid, copy));
+                Calls.Add(new Call(layerIdx, sourceIdx, source, sourceId.Value, isValid, copy));
             }
 
             public readonly struct Call
             {
-                public Call(int layerIdx, int sourceIdx, string sourceId, bool isValid, float[] values)
+                public Call(int layerIdx, int sourceIdx, IInputSource source, string sourceId, bool isValid, float[] values)
                 {
                     LayerIdx = layerIdx;
                     SourceIdx = sourceIdx;
+                    Source = source;
                     SourceId = sourceId;
                     IsValid = isValid;
                     Values = values;
@@ -1535,6 +1537,7 @@ namespace Hidano.FacialControl.Tests.EditMode.Domain
 
                 public int LayerIdx { get; }
                 public int SourceIdx { get; }
+                public IInputSource Source { get; }
                 public string SourceId { get; }
                 public bool IsValid { get; }
                 public float[] Values { get; }
@@ -1608,12 +1611,14 @@ namespace Hidano.FacialControl.Tests.EditMode.Domain
             Assert.That(observer.Calls[0].LayerIdx, Is.EqualTo(0));
             Assert.That(observer.Calls[0].SourceIdx, Is.EqualTo(0));
             Assert.That(observer.Calls[0].SourceId, Is.EqualTo("osc"));
+            Assert.That(observer.Calls[0].Source, Is.SameAs(source0));
             Assert.That(observer.Calls[0].IsValid, Is.True);
             Assert.That(observer.Calls[0].Values, Is.EqualTo(new[] { 0.2f, 0.4f, 0.6f }));
 
             Assert.That(observer.Calls[1].LayerIdx, Is.EqualTo(0));
             Assert.That(observer.Calls[1].SourceIdx, Is.EqualTo(1));
             Assert.That(observer.Calls[1].SourceId, Is.EqualTo("lipsync"));
+            Assert.That(observer.Calls[1].Source, Is.SameAs(source1));
             Assert.That(observer.Calls[1].IsValid, Is.True);
             Assert.That(observer.Calls[1].Values, Is.EqualTo(new[] { 0.9f, 0.1f, 0.3f }));
         }
@@ -1643,6 +1648,7 @@ namespace Hidano.FacialControl.Tests.EditMode.Domain
 
             Assert.That(observer.Calls.Count, Is.EqualTo(1));
             Assert.That(observer.Calls[0].SourceId, Is.EqualTo("invalid"));
+            Assert.That(observer.Calls[0].Source, Is.SameAs(invalid));
             Assert.That(observer.Calls[0].IsValid, Is.False);
             Assert.That(observer.Calls[0].Values, Is.EqualTo(new[] { 0f, 0f }));
         }

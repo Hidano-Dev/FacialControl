@@ -1,4 +1,5 @@
 using System;
+using Hidano.FacialControl.Domain.Interfaces;
 using Hidano.FacialControl.Domain.Models;
 
 namespace Hidano.FacialControl.Domain.Adapters
@@ -17,6 +18,7 @@ namespace Hidano.FacialControl.Domain.Adapters
         void OnSourceValuesObserved(
             int layerIdx,
             int sourceIdx,
+            IInputSource source,
             InputSourceId sourceId,
             bool isValid,
             ReadOnlySpan<float> preWeightValues);

@@ -332,6 +332,7 @@ namespace Hidano.FacialControl.Domain.Services
                     sourceValueObserver?.OnSourceValuesObserved(
                         layerIdx: l,
                         sourceIdx: s,
+                        source: source,
                         sourceId: ResolveCachedSourceId(l, s, source),
                         isValid: sourceIsValid,
                         preWeightValues: scratchSpan);

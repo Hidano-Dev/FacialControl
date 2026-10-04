@@ -294,6 +294,7 @@ namespace Hidano.FacialControl.Timeline.Editor
             public void OnSourceValuesObserved(
                 int layerIdx,
                 int sourceIdx,
+                IInputSource source,
                 InputSourceId sourceId,
                 bool isValid,
                 ReadOnlySpan<float> preWeightValues)
