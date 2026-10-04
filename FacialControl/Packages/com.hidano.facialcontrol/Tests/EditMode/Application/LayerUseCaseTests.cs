@@ -212,6 +212,58 @@ namespace Hidano.FacialControl.Tests.EditMode.Application
             Assert.AreEqual(0.5f, observer.InputSourceSamples[0].weight);
         }
 
+        [Test]
+        public void UpdateWeights_NoObserver_DoesNotTouchNotificationArrays()
+        {
+            // 観測者が未設定なら比較ループ自体を走らせない（Req 9.2）。前回通知値は構築時の未観測（NaN）のまま。
+            _useCase.SetLayerWeight("emotion", 0.25f);
+            _useCase.SetInputSourceWeight(0, 0, 0.5f);
+            _useCase.UpdateWeights(0f);
+            _useCase.UpdateWeights(0f);
+
+            var flags = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic;
+            var layerWeights = (float[])typeof(LayerUseCase).GetField("_lastNotifiedLayerWeights", flags).GetValue(_useCase);
+            var slotWeights = (float[])typeof(LayerUseCase).GetField("_lastNotifiedSlotWeights", flags).GetValue(_useCase);
+
+            Assert.IsTrue(Array.TrueForAll(layerWeights, float.IsNaN), "レイヤー weight の前回通知値が未観測のまま");
+            Assert.IsTrue(Array.TrueForAll(slotWeights, float.IsNaN), "スロット weight の前回通知値が未観測のまま");
+        }
+
+        [Test]
+        public void BindLateInputSource_CapacityGrowthWhileObserved_NotifiesNewSlotWithoutException()
+        {
+            // 観測者接続中に late-bind で registry の容量が増えても、前回通知値の配列が追随し
+            // 新スロットは宣言 weight で通知される（範囲外例外・スロット取り違えなし）。
+            var declared = new FakeValueWritingSource("declared-source", CreateBlendShapeNames().Length, 0f);
+            var useCase = new LayerUseCase(
+                _profile,
+                _expressionUseCase,
+                CreateBlendShapeNames(),
+                new[] { (0, (IInputSource)declared, 1f) },
+                new[] { "declared-id" });
+            var observer = new FakeWeightObserver();
+            useCase.UpdateWeights(0f);
+            useCase.SetWeightObserver(observer);
+
+            var late = new FakeValueWritingSource("late-source", CreateBlendShapeNames().Length, 0f);
+            Assert.DoesNotThrow(() =>
+            {
+                useCase.BindLateInputSource(0, "late-id", late, 0.5f);
+                useCase.UpdateWeights(0f);
+            });
+
+            Assert.AreEqual(1, observer.InputSourceSamples.Count);
+            Assert.AreEqual("emotion", observer.InputSourceSamples[0].layerName);
+            Assert.AreEqual("late-id", observer.InputSourceSamples[0].slotId);
+            Assert.AreEqual(0.5f, observer.InputSourceSamples[0].weight);
+
+            // 既存スロットの前回通知値は保持されるため、同値の再通知は起きない。
+            useCase.UpdateWeights(0f);
+            Assert.AreEqual(1, observer.InputSourceSamples.Count);
+
+            useCase.Dispose();
+        }
+
         // --- SetLayerWeight ---
 
         [Test]

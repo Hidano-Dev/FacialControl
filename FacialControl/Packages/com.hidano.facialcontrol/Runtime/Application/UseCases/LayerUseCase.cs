@@ -384,13 +384,15 @@ namespace Hidano.FacialControl.Application.UseCases
 
             // TryAddSource は末尾スロット（現在の source 数）へ置く。追加前に確定させる。
             int newSourceIdx = _registry.GetSourceCountForLayer(layerIdx);
+            int previousMaxSources = _registry.MaxSourcesPerLayer;
             if (!_registry.TryAddSource(layerIdx, source, slotId))
             {
                 return;
             }
 
-            // registry が容量拡張していれば weight バッファを追随させ、宣言 weight を該当スロットへ焼く。
+            // registry が容量拡張していれば weight バッファと前回通知値の配列を追随させ、宣言 weight を該当スロットへ焼く。
             // これがないと Aggregator の w>0 ガードで source の書込値が破棄される。
+            EnsureLastNotifiedSlotCapacity(previousMaxSources);
             if (_weightBuffer != null)
             {
                 _weightBuffer.EnsureMaxSourcesPerLayer(_registry.MaxSourcesPerLayer);
@@ -726,6 +728,41 @@ namespace Hidano.FacialControl.Application.UseCases
                         _weightBuffer.GetWeight(l, s);
                 }
             }
+        }
+
+        /// <summary>
+        /// late-bind で registry の <c>MaxSourcesPerLayer</c> が増えたとき、前回通知値の配列を新しい stride へ
+        /// 写し替える（既存スロットの値は保持、追加スロットは未観測 = NaN）。非毎フレーム処理。
+        /// </summary>
+        private void EnsureLastNotifiedSlotCapacity(int previousMaxSources)
+        {
+            if (_registry == null || _lastNotifiedSlotWeights == null)
+            {
+                return;
+            }
+
+            int newMax = _registry.MaxSourcesPerLayer;
+            if (newMax <= previousMaxSources)
+            {
+                return;
+            }
+
+            int layerCount = _registry.LayerCount;
+            var grown = new float[layerCount * newMax];
+            InitializeUnobservedWeights(grown);
+            for (int l = 0; l < layerCount; l++)
+            {
+                for (int s = 0; s < previousMaxSources; s++)
+                {
+                    int oldIndex = (l * previousMaxSources) + s;
+                    if (oldIndex < _lastNotifiedSlotWeights.Length)
+                    {
+                        grown[(l * newMax) + s] = _lastNotifiedSlotWeights[oldIndex];
+                    }
+                }
+            }
+
+            _lastNotifiedSlotWeights = grown;
         }
 
         private static void InitializeUnobservedWeights(float[] weights)
