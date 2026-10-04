@@ -51,6 +51,7 @@ namespace Hidano.FacialControl.Application.UseCases
         // ベース表情を BlendShape index 順に解決した出力初期値。
         // プロファイル構築時に 1 度だけ確保し、毎フレーム _finalOutput へコピーする（GC ゼロ維持）。
         private float[] _baseValues;
+        private int _lastSeenResetGeneration;
         private bool _disposed;
 
         /// <summary>
@@ -92,6 +93,7 @@ namespace Hidano.FacialControl.Application.UseCases
             _blendShapeNames = blendShapeNames;
             _additionalInputSources = additionalInputSources;
             _layerWeights = new Dictionary<string, float>();
+            _lastSeenResetGeneration = expressionUseCase.ResetGeneration;
 
             BuildAggregatorPipeline();
         }
@@ -131,6 +133,9 @@ namespace Hidano.FacialControl.Application.UseCases
         /// <param name="deltaTime">経過時間（秒）</param>
         public void UpdateWeights(float deltaTime)
         {
+            bool resetGenerationChanged = _expressionUseCase.ResetGeneration != _lastSeenResetGeneration;
+            _lastSeenResetGeneration = _expressionUseCase.ResetGeneration;
+
             int bsCount = _blendShapeNames.Length;
             if (bsCount == 0 || _aggregator == null)
                 return;
@@ -184,11 +189,29 @@ namespace Hidano.FacialControl.Application.UseCases
                 if (expressionsByLayer.TryGetValue(layerName, out var layerExpressions)
                     && layerExpressions.Count > 0)
                 {
-                    _layerSources[l].UpdateExpressions(layerExpressions, exclusionMode, _blendShapeNames);
+                    if (resetGenerationChanged)
+                    {
+                        _layerSources[l].SnapToExpressions(layerExpressions, exclusionMode, _blendShapeNames);
+                    }
+                    else
+                    {
+                        _layerSources[l].UpdateExpressions(layerExpressions, exclusionMode, _blendShapeNames);
+                    }
                 }
                 else if (_layerSources[l].HasBeenActive)
                 {
-                    _layerSources[l].UpdateExpressions(EmptyExpressionList, exclusionMode, _blendShapeNames);
+                    if (resetGenerationChanged)
+                    {
+                        _layerSources[l].SnapToExpressions(EmptyExpressionList, exclusionMode, _blendShapeNames);
+                    }
+                    else
+                    {
+                        _layerSources[l].UpdateExpressions(EmptyExpressionList, exclusionMode, _blendShapeNames);
+                    }
+                }
+                else if (resetGenerationChanged)
+                {
+                    _layerSources[l].SnapToExpressions(EmptyExpressionList, exclusionMode, _blendShapeNames);
                 }
             }
 
@@ -763,6 +786,21 @@ namespace Hidano.FacialControl.Application.UseCases
                 }
 
                 HasBeenActive = true;
+            }
+
+            public void SnapToExpressions(
+                List<Expression> currentExpressions,
+                ExclusionMode exclusionMode,
+                string[] blendShapeNames)
+            {
+                ComputeTargetValues(currentExpressions, exclusionMode, blendShapeNames);
+                Array.Copy(_targetValues, _snapshotValues, _targetValues.Length);
+                Array.Copy(_targetValues, _currentValues, _targetValues.Length);
+                _elapsedTime = _duration;
+                _isComplete = true;
+                UpdateActiveIds(currentExpressions);
+                RebuildContributeMaskFromCurrent();
+                HasBeenActive = HasBeenActive || currentExpressions.Count > 0;
             }
 
             public void Tick(float deltaTime)

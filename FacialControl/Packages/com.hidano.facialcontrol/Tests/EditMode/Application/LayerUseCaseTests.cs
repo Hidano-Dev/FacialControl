@@ -285,6 +285,52 @@ namespace Hidano.FacialControl.Tests.EditMode.Application
         }
 
         [Test]
+        public void UpdateWeights_ResetGenerationChange_SnapsToTargetWithoutTransition()
+        {
+            var expr = CreateExpression(
+                transitionDuration: 1f,
+                blendShapeValues: new[]
+                {
+                    new BlendShapeMapping("bs_smile", 1f),
+                });
+            var profile = CreateProfile(expressions: new[] { expr });
+            var expressionUseCase = new ExpressionUseCase(profile);
+            var useCase = new LayerUseCase(profile, expressionUseCase, CreateBlendShapeNames());
+
+            expressionUseCase.Activate(expr);
+            useCase.UpdateWeights(0.25f);
+            Assert.That(useCase.GetBlendedOutput()[0], Is.GreaterThan(0f).And.LessThan(1f));
+
+            expressionUseCase.ResetActiveExpressions(new[] { expr.Id });
+            useCase.UpdateWeights(0f);
+
+            Assert.AreEqual(1f, useCase.GetBlendedOutput()[0], 0.001f);
+        }
+
+        [Test]
+        public void UpdateWeights_ResetGenerationToEmpty_SnapsPreviouslyActiveLayerToZero()
+        {
+            var expr = CreateExpression(
+                transitionDuration: 1f,
+                blendShapeValues: new[]
+                {
+                    new BlendShapeMapping("bs_smile", 1f),
+                });
+            var profile = CreateProfile(expressions: new[] { expr });
+            var expressionUseCase = new ExpressionUseCase(profile);
+            var useCase = new LayerUseCase(profile, expressionUseCase, CreateBlendShapeNames());
+
+            expressionUseCase.Activate(expr);
+            useCase.UpdateWeights(1f);
+            Assert.AreEqual(1f, useCase.GetBlendedOutput()[0], 0.001f);
+
+            expressionUseCase.ResetActiveExpressions(Array.Empty<string>());
+            useCase.UpdateWeights(0f);
+
+            Assert.AreEqual(0f, useCase.GetBlendedOutput()[0], 0.001f);
+        }
+
+        [Test]
         public void UpdateWeights_ZeroTransitionDuration_ImmediateSwitch()
         {
             var blendShapes = new[]
