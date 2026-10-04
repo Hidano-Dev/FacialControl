@@ -84,9 +84,9 @@ namespace Hidano.FacialControl.Rec.Tests.EditMode
         public void RecValidation_FindMissingExpressionIds_ReturnsDistinctMissingIdsFromTimelineAndBaseline()
         {
             var profile = new FacialProfile("1.0.0", layers: new[] { new LayerDefinition("emotion", 0, ExclusionMode.Blend) }, expressions: new[] { new Expression("smile", "Smile", "emotion"), new Expression("blink", "Blink", "emotion") });
-            var baseline = new RecBaselineState(new[] { new RecBaselineState.TriggerEntry("input:trigger", new[] { "smile", "missing-baseline", "missing-timeline" }) }, null);
+            var baseline = new RecBaselineState(new[] { new RecBaselineState.TriggerEntry("input:trigger", new[] { "smile", "missing-baseline", "missing-timeline" }) }, null, null, new[] { "missing-expression-baseline" });
             var timeline = new RecTimeline(baseline, new[] { RecEvent.CreateTriggerOn(0.1d, 0, 0), RecEvent.CreateTriggerOff(0.2d, 0, 2), RecEvent.CreateTriggerOn(0.3d, 0, 2) }, new[] { "input:trigger" }, new[] { "smile", "blink", "missing-timeline" }, 0.3d);
-            Assert.That(RecValidation.FindMissingExpressionIds(timeline, profile), Is.EqualTo(new[] { "missing-timeline", "missing-baseline" }));
+            Assert.That(RecValidation.FindMissingExpressionIds(timeline, profile), Is.EqualTo(new[] { "missing-timeline", "missing-baseline", "missing-expression-baseline" }));
         }
 
         [Test]

@@ -11,6 +11,12 @@ namespace Hidano.FacialControl.Rec.Domain.Services
         void VisitTriggerOff(string sourceId, string expressionId);
 
         void VisitAnalogSample(string sourceId, ReadOnlySpan<float> axes);
+
+        void VisitValueProviderSample(string sourceId, bool isValid, ReadOnlySpan<byte> maskBytes, ReadOnlySpan<float> values);
+
+        void VisitExpressionActivate(string sourceId, string expressionId);
+
+        void VisitExpressionDeactivate(string sourceId, string expressionId);
     }
 
     /// <summary>
@@ -177,6 +183,19 @@ namespace Hidano.FacialControl.Rec.Domain.Services
                     return;
                 case RecEventKind.AnalogSample:
                     visitor.VisitAnalogSample(sourceId, _timeline.GetAnalogAxesSpan(eventIndex));
+                    return;
+                case RecEventKind.ValueProviderSample:
+                    visitor.VisitValueProviderSample(
+                        sourceId,
+                        (evt.Flags & RecValueProviderFlags.IsValid) != 0,
+                        _timeline.GetMaskBytesSpan(eventIndex),
+                        _timeline.GetPayloadSpan(eventIndex));
+                    return;
+                case RecEventKind.ExpressionActivate:
+                    visitor.VisitExpressionActivate(sourceId, _timeline.ExpressionIds[evt.ExpressionIdIndex]);
+                    return;
+                case RecEventKind.ExpressionDeactivate:
+                    visitor.VisitExpressionDeactivate(sourceId, _timeline.ExpressionIds[evt.ExpressionIdIndex]);
                     return;
                 default:
                     throw new InvalidOperationException($"Unsupported timed event kind '{evt.Kind}'.");

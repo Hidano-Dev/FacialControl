@@ -42,6 +42,8 @@ namespace Hidano.FacialControl.Rec.Domain.Services
                 }
             }
 
+            CollectMissingIds(timeline.Baseline?.ExpressionEntries, availableIds, seenMissingIds, missingIds);
+
             return missingIds.Count == 0 ? Array.Empty<string>() : missingIds;
         }
 

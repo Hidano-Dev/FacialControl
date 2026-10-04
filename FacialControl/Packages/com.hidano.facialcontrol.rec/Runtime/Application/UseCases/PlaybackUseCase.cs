@@ -164,6 +164,21 @@ namespace Hidano.FacialControl.Rec.Application.UseCases
             _analogPort.InjectAnalogSample(sourceId, axes);
         }
 
+        public void VisitValueProviderSample(string sourceId, bool isValid, ReadOnlySpan<byte> maskBytes, ReadOnlySpan<float> values)
+        {
+            // Value-provider injection is added by the playback application task; retain the visitor contract here.
+        }
+
+        public void VisitExpressionActivate(string sourceId, string expressionId)
+        {
+            // Expression injection is added by the playback application task; retain the visitor contract here.
+        }
+
+        public void VisitExpressionDeactivate(string sourceId, string expressionId)
+        {
+            // Expression injection is added by the playback application task; retain the visitor contract here.
+        }
+
         private void LogMissingExpressionIdsOnce()
         {
             for (int i = 0; i < _missingExpressionIds.Length; i++)
