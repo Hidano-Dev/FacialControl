@@ -69,6 +69,32 @@ namespace Hidano.FacialControl.Rec.Tests.EditMode
         }
 
         [Test]
+        public void Complete_WritesValueProviderAndExpressionBaselinesBeforeRuntimeEvents()
+        {
+            string filePath = Path.Combine(_tempDirectory, "full-baseline.fcrec");
+            var baseline = new RecBaselineState(
+                Array.Empty<RecBaselineState.TriggerEntry>(),
+                Array.Empty<RecBaselineState.AnalogEntry>(),
+                new[] { new RecBaselineState.ValueProviderEntry("input:face", true, new byte[] { 0x05 }, new[] { 0.25f, -0.5f }) },
+                new[] { "smile" });
+
+            using var writer = new RecStreamWriter(filePath, segmentCapacity: 2, initialSegments: 2,
+                axisFloatCapacityPerSegment: 8, byteCapacityPerSegment: 1);
+            writer.Open(baseline);
+            writer.AppendEvent(RecEvent.CreateTriggerOn(0.1d, 0, 0), ReadOnlySpan<float>.Empty);
+            writer.Complete(0.1d, 1);
+
+            Assert.That(RecFileReader.TryRead(filePath, out RecBinaryFormat.ReadResult result), Is.True);
+            Assert.That(result.Timeline.Baseline.TryGetValueProviderEntry("input:face",
+                out RecBaselineState.ValueProviderEntry valueProvider), Is.True);
+            Assert.That(valueProvider.IsValid, Is.True);
+            Assert.That(valueProvider.MaskBytes, Is.EqualTo(new byte[] { 0x05 }));
+            Assert.That(valueProvider.Values, Is.EqualTo(new[] { 0.25f, -0.5f }));
+            Assert.That(result.Timeline.Baseline.ExpressionEntries, Is.EqualTo(new[] { "smile" }));
+            Assert.That(result.Timeline.Events, Is.EqualTo(new[] { RecEvent.CreateTriggerOn(0.1d, 0, 0) }));
+        }
+
+        [Test]
         public void Complete_WhenCalledTwice_IsQuietNoOp()
         {
             string filePath = Path.Combine(_tempDirectory, "noop.fcrec");

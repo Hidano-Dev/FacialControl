@@ -100,6 +100,22 @@ namespace Hidano.FacialControl.Rec.Tests.EditMode
             Assert.That(result, Is.Null);
         }
 
+        [Test]
+        public void TryRead_FileWithoutFullInputBaselineFlag_LogsErrorAndReturnsFalse()
+        {
+            byte[] bytes = RecBinaryFormat.Serialize(CreateTimeline(), 123L);
+            bytes[6] = 0;
+            bytes[7] = 0;
+            string filePath = WriteRecordingFile(bytes);
+
+            LogAssert.Expect(LogType.Error, new Regex("FullInputBaseline"));
+
+            bool success = RecFileReader.TryRead(filePath, out RecBinaryFormat.ReadResult result);
+
+            Assert.That(success, Is.False);
+            Assert.That(result, Is.Null);
+        }
+
         private string WriteRecordingFile(byte[] bytes)
         {
             string filePath = Path.Combine(_tempDirectory, "test.fcrec");
