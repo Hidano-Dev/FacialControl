@@ -37,6 +37,7 @@ Runtime asmdef は core と `Unity.Timeline` のみを参照し、rec への参�
 
 - トリガーの on/off は Expression ごとに **Facial Expression Clip** になり、重なりは `{layer} Lane n` の子トラックへ振り分けられる
 - アナログ / Gaze は入力源 id ごとに **Facial Value Track** 1 本になり、サンプルがキーフレームになる。Gaze 判定は Profile の Gaze チャネル定義と照合し、ウィンドウ上で Auto / Analog / Gaze を上書きできる
+- 値提供型・系1 のレコード kind（7 / 9 / 10）は Export 対象外として無視される。これらの kind が含まれていても読み込みは失敗せず、変換可能なレコードの Export を継続する
 - 出力先は `Assets/` または `Packages/` 配下。既存アセットの上書きは確認ダイアログを出す
 - REC の baseline とトリガーの入力源 id は Timeline には変換されない
 
