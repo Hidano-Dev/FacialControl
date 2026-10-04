@@ -40,6 +40,9 @@ namespace Hidano.FacialControl.Application.UseCases
         private float[] _layerInterWeights;
         private LayerBlender.LayerInput[] _layerInputScratch;
         private LayerBlender.LayerInput[] _filteredLayerInputs;
+        private ILayerWeightObserver _weightObserver;
+        private float[] _lastNotifiedLayerWeights;
+        private float[] _lastNotifiedSlotWeights;
         // プロファイルで inputSources を宣言したレイヤーは、そのレイヤー自体を
         // 恒常的に blend 対象とみなす (legacy HasBeenActive フィルタを補完する)。
         // 宣言したソースが未トリガ状態でも intra-layer aggregator 出力はゼロに保たれるため
@@ -239,6 +242,8 @@ namespace Hidano.FacialControl.Application.UseCases
                 _layerInterWeights,
                 _layerInputScratch);
 
+            NotifyWeightChanges();
+
             int activeCount = 0;
             for (int l = 0; l < layerSpan.Length; l++)
             {
@@ -312,6 +317,19 @@ namespace Hidano.FacialControl.Application.UseCases
         public void SetInputSourceWeight(int layerIdx, int sourceIdx, float weight)
         {
             _weightBuffer?.SetWeight(layerIdx, sourceIdx, weight);
+        }
+
+        /// <summary>
+        /// 消費点で確定したレイヤー / 入力源 weight の観測者を設定する。
+        /// 接続時は現在の実効値を前回通知値へ同期し、接続そのものでは通知しない。
+        /// </summary>
+        public void SetWeightObserver(ILayerWeightObserver observer)
+        {
+            _weightObserver = observer;
+            if (observer != null)
+            {
+                SyncLastNotifiedWeights();
+            }
         }
 
         /// <summary>
@@ -631,6 +649,96 @@ namespace Hidano.FacialControl.Application.UseCases
             }
             _aggregator = new LayerInputSourceAggregator(_registry, _weightBuffer, bsCount);
             _aggregator.SetSourceValueObserver(_sourceValueObserver);
+
+            _lastNotifiedLayerWeights = layerCount == 0 ? Array.Empty<float>() : new float[layerCount];
+            _lastNotifiedSlotWeights = layerCount == 0
+                ? Array.Empty<float>()
+                : new float[layerCount * maxSources];
+            InitializeUnobservedWeights(_lastNotifiedLayerWeights);
+            InitializeUnobservedWeights(_lastNotifiedSlotWeights);
+            if (_weightObserver != null)
+            {
+                SyncLastNotifiedWeights();
+            }
+        }
+
+        private void NotifyWeightChanges()
+        {
+            if (_weightObserver == null)
+            {
+                return;
+            }
+
+            var layerSpan = _profile.Layers.Span;
+            for (int l = 0; l < layerSpan.Length; l++)
+            {
+                float layerWeight = _layerInterWeights[l];
+                if (WeightsDiffer(layerWeight, _lastNotifiedLayerWeights[l]))
+                {
+                    _lastNotifiedLayerWeights[l] = layerWeight;
+                    _weightObserver.OnLayerWeightSample(layerSpan[l].Name, layerWeight);
+                }
+
+                int sourceCount = _registry.GetSourceCountForLayer(l);
+                for (int s = 0; s < sourceCount; s++)
+                {
+                    if (_registry.GetSource(l, s) == null)
+                    {
+                        continue;
+                    }
+
+                    float sourceWeight = _weightBuffer.GetWeight(l, s);
+                    int flatIndex = (l * _registry.MaxSourcesPerLayer) + s;
+                    if (!WeightsDiffer(sourceWeight, _lastNotifiedSlotWeights[flatIndex]))
+                    {
+                        continue;
+                    }
+
+                    _lastNotifiedSlotWeights[flatIndex] = sourceWeight;
+                    string slotId = s == 0
+                        ? WeightSlotIds.ExpressionSlotId
+                        : _registry.GetSlotId(l, s);
+                    _weightObserver.OnInputSourceWeightSample(layerSpan[l].Name, slotId, sourceWeight);
+                }
+            }
+        }
+
+        private void SyncLastNotifiedWeights()
+        {
+            if (_weightBuffer == null || _registry == null)
+            {
+                return;
+            }
+
+            var layerSpan = _profile.Layers.Span;
+            for (int l = 0; l < layerSpan.Length; l++)
+            {
+                _lastNotifiedLayerWeights[l] = _layerInterWeights[l];
+                int sourceCount = _registry.GetSourceCountForLayer(l);
+                for (int s = 0; s < sourceCount; s++)
+                {
+                    if (_registry.GetSource(l, s) == null)
+                    {
+                        continue;
+                    }
+
+                    _lastNotifiedSlotWeights[(l * _registry.MaxSourcesPerLayer) + s] =
+                        _weightBuffer.GetWeight(l, s);
+                }
+            }
+        }
+
+        private static void InitializeUnobservedWeights(float[] weights)
+        {
+            for (int i = 0; i < weights.Length; i++)
+            {
+                weights[i] = float.NaN;
+            }
+        }
+
+        private static bool WeightsDiffer(float current, float previous)
+        {
+            return BitConverter.SingleToInt32Bits(current) != BitConverter.SingleToInt32Bits(previous);
         }
 
         /// <summary>

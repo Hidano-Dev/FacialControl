@@ -64,6 +64,24 @@ namespace Hidano.FacialControl.Tests.EditMode.Application
         private ExpressionUseCase _expressionUseCase;
         private FacialProfile _profile;
 
+        private sealed class FakeWeightObserver : ILayerWeightObserver
+        {
+            public readonly List<(string layerName, float weight)> LayerSamples =
+                new List<(string layerName, float weight)>();
+            public readonly List<(string layerName, string slotId, float weight)> InputSourceSamples =
+                new List<(string layerName, string slotId, float weight)>();
+
+            public void OnLayerWeightSample(string layerName, float weight)
+            {
+                LayerSamples.Add((layerName, weight));
+            }
+
+            public void OnInputSourceWeightSample(string layerName, string slotId, float weight)
+            {
+                InputSourceSamples.Add((layerName, slotId, weight));
+            }
+        }
+
         [SetUp]
         public void SetUp()
         {
@@ -92,6 +110,106 @@ namespace Hidano.FacialControl.Tests.EditMode.Application
         {
             var useCase = new LayerUseCase(_profile, _expressionUseCase, Array.Empty<string>());
             Assert.IsNotNull(useCase);
+        }
+
+        [Test]
+        public void SetWeightObserver_Attach_SyncsWithoutNotifying()
+        {
+            var observer = new FakeWeightObserver();
+
+            _useCase.SetLayerWeight("emotion", 0.25f);
+            _useCase.UpdateWeights(0f);
+            _useCase.SetWeightObserver(observer);
+            _useCase.UpdateWeights(0f);
+
+            Assert.IsEmpty(observer.LayerSamples);
+            Assert.IsEmpty(observer.InputSourceSamples);
+        }
+
+        [Test]
+        public void UpdateWeights_ChangedLayerAndSourceWeights_NotifiesConsumedValuesOnce()
+        {
+            var source = new FakeValueWritingSource("declared-source", CreateBlendShapeNames().Length, 0f);
+            var useCase = new LayerUseCase(
+                _profile,
+                _expressionUseCase,
+                CreateBlendShapeNames(),
+                new[] { (0, (IInputSource)source, 1f) },
+                new[] { "declared-id" });
+            var observer = new FakeWeightObserver();
+            useCase.UpdateWeights(0f);
+            useCase.SetWeightObserver(observer);
+
+            useCase.SetLayerWeight("emotion", 0.25f);
+            useCase.SetInputSourceWeight(0, 1, 0.75f);
+            useCase.UpdateWeights(0f);
+
+            Assert.AreEqual(1, observer.LayerSamples.Count);
+            Assert.AreEqual("emotion", observer.LayerSamples[0].layerName);
+            Assert.AreEqual(0.25f, observer.LayerSamples[0].weight);
+            Assert.AreEqual(1, observer.InputSourceSamples.Count);
+            Assert.AreEqual("emotion", observer.InputSourceSamples[0].layerName);
+            Assert.AreEqual("declared-id", observer.InputSourceSamples[0].slotId);
+            Assert.AreEqual(0.75f, observer.InputSourceSamples[0].weight);
+
+            useCase.Dispose();
+        }
+
+        [Test]
+        public void UpdateWeights_SameFrameMultipleWeightWrites_NotifiesFinalValuesOnce()
+        {
+            var source = new FakeValueWritingSource("source", CreateBlendShapeNames().Length, 0f);
+            var useCase = new LayerUseCase(
+                _profile,
+                _expressionUseCase,
+                CreateBlendShapeNames(),
+                new[] { (0, (IInputSource)source, 1f) });
+            var observer = new FakeWeightObserver();
+            useCase.UpdateWeights(0f);
+            useCase.SetWeightObserver(observer);
+
+            useCase.SetLayerWeight("emotion", 0.2f);
+            useCase.SetLayerWeight("emotion", 0.8f);
+            useCase.SetInputSourceWeight(0, 1, 0.3f);
+            useCase.SetInputSourceWeight(0, 1, 0.7f);
+            useCase.UpdateWeights(0f);
+
+            Assert.AreEqual(1, observer.LayerSamples.Count);
+            Assert.AreEqual(0.8f, observer.LayerSamples[0].weight);
+            Assert.AreEqual(1, observer.InputSourceSamples.Count);
+            Assert.AreEqual(0.7f, observer.InputSourceSamples[0].weight);
+
+            useCase.Dispose();
+        }
+
+        [Test]
+        public void UpdateWeights_SameConsumedWeights_DoesNotNotifyAgain()
+        {
+            var observer = new FakeWeightObserver();
+            _useCase.UpdateWeights(0f);
+            _useCase.SetWeightObserver(observer);
+            _useCase.SetLayerWeight("emotion", 0.5f);
+            _useCase.SetInputSourceWeight(0, 0, 0.5f);
+
+            _useCase.UpdateWeights(0f);
+            _useCase.UpdateWeights(0f);
+
+            Assert.AreEqual(1, observer.LayerSamples.Count);
+            Assert.AreEqual(1, observer.InputSourceSamples.Count);
+        }
+
+        [Test]
+        public void UpdateWeights_ExpressionSlot_NotifiesWithReservedSlotId()
+        {
+            var observer = new FakeWeightObserver();
+            _useCase.UpdateWeights(0f);
+            _useCase.SetWeightObserver(observer);
+            _useCase.SetInputSourceWeight(0, 0, 0.5f);
+            _useCase.UpdateWeights(0f);
+
+            Assert.AreEqual(1, observer.InputSourceSamples.Count);
+            Assert.AreEqual(WeightSlotIds.ExpressionSlotId, observer.InputSourceSamples[0].slotId);
+            Assert.AreEqual(0.5f, observer.InputSourceSamples[0].weight);
         }
 
         // --- SetLayerWeight ---
