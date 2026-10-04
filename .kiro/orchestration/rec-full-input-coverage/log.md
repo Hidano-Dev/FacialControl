@@ -114,4 +114,4 @@
 - Gate D: **ESCALATED**
   - Rationale: approval-policy Gate D「FAIL / TIMEOUT のタスクがある」「validate-impl が NO-GO」に該当。Orchestrator は修正ループに入らない
   - Escalation: 選択肢「原因を修正して再検証 / 現状で受け入れて PR 化 / 中断して報告」を提示（回答は下記に追記）
-- Branch/PR: `feature/hid-35-rec-full-input-coverage`（未 push）。HEAD は spec-run の最終コミット + 本ログ/tasks.md 補正コミット
+- Branch/PR: `feature/hid-35-rec-full-input-coverage`（未 push）。HEAD は spec-run の最終コミット + 本ログ/tasks.md 補正コミット  - Answer: **「現状で受け入れて PR 化」**（2026-10-04T23:10:00Z）。赤 17 件を残したまま push / PR 作成へ進み、PR 本文に NO-GO の内訳・往復不良の原因・再現テスト名を明記する。修正は PR レビュー後の別コミットに委ねる
