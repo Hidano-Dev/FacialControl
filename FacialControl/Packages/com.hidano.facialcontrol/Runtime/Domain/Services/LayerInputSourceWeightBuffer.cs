@@ -52,6 +52,9 @@ namespace Hidano.FacialControl.Domain.Services
         private int _writeIndex;
         private int _dirtyTick;
         private int _observedTick;
+        private int _liveWritersInFlight;
+        private int _liveWritesSuspended;
+        private int _resizing;
         private bool _disposed;
 
         // BulkScope 用の pending dict プール。繰り返し BeginBulk → Dispose
@@ -111,13 +114,79 @@ namespace Hidano.FacialControl.Domain.Services
                 return;
             }
 
-            float clamped = weight < 0f ? 0f : (weight > 1f ? 1f : weight);
+            Interlocked.Increment(ref _liveWritersInFlight);
+            try
+            {
+                if (Volatile.Read(ref _liveWritesSuspended) != 0 ||
+                    Volatile.Read(ref _resizing) != 0)
+                {
+                    return;
+                }
 
+                WriteWeight(layerIdx, sourceIdx, weight);
+                Interlocked.Increment(ref _dirtyTick);
+            }
+            finally
+            {
+                Interlocked.Decrement(ref _liveWritersInFlight);
+            }
+        }
+
+        /// <summary>ライブ書込を遮断し、進行中の単発/bulk 書込が完了するまで待つ。</summary>
+        public bool SuspendLiveWrites()
+        {
+            if (Interlocked.CompareExchange(ref _liveWritesSuspended, 1, 0) != 0)
+            {
+                return false;
+            }
+
+            WaitForLiveWriters();
+            return true;
+        }
+
+        /// <summary>ライブ書込を再開する。既に再開中なら false を返す。</summary>
+        public bool ResumeLiveWrites()
+        {
+            return Interlocked.Exchange(ref _liveWritesSuspended, 0) != 0;
+        }
+
+        public bool IsLiveWritesSuspended => Volatile.Read(ref _liveWritesSuspended) != 0;
+
+        /// <summary>ライブゲートを迂回して注入値を書き込む。呼出元は直列化済みであること。</summary>
+        public void SetWeightBypassingLiveGate(int layerIdx, int sourceIdx, float weight)
+        {
+            if ((uint)layerIdx >= (uint)LayerCount ||
+                (uint)sourceIdx >= (uint)MaxSourcesPerLayer)
+            {
+                return;
+            }
+
+            WriteWeight(layerIdx, sourceIdx, weight);
+            Interlocked.Increment(ref _dirtyTick);
+        }
+
+        private void WriteWeight(int layerIdx, int sourceIdx, float weight)
+        {
+            float clamped = weight < 0f ? 0f : (weight > 1f ? 1f : weight);
             int flatIdx = (layerIdx * MaxSourcesPerLayer) + sourceIdx;
             var writeBuffer = Volatile.Read(ref _writeIndex) == 0 ? _bufferA : _bufferB;
             writeBuffer[flatIdx] = clamped;
+        }
 
-            Interlocked.Increment(ref _dirtyTick);
+        private void WaitForLiveWriters()
+        {
+            var spinner = new SpinWait();
+            const int maxIterations = 64;
+            for (int i = 0; i < maxIterations && Volatile.Read(ref _liveWritersInFlight) != 0; i++)
+            {
+                spinner.SpinOnce();
+            }
+
+            if (Volatile.Read(ref _liveWritersInFlight) != 0)
+            {
+                Debug.LogWarning(
+                    "LayerInputSourceWeightBuffer: live writers did not drain within the suspend window.");
+            }
         }
 
         /// <summary>
@@ -185,24 +254,33 @@ namespace Hidano.FacialControl.Domain.Services
                 return;
             }
 
-            int oldMax = MaxSourcesPerLayer;
-            int newSize = LayerCount * newMax;
-            var newA = new NativeArray<float>(newSize, Allocator.Persistent, NativeArrayOptions.ClearMemory);
-            var newB = new NativeArray<float>(newSize, Allocator.Persistent, NativeArrayOptions.ClearMemory);
-            for (int l = 0; l < LayerCount; l++)
+            Volatile.Write(ref _resizing, 1);
+            try
             {
-                for (int s = 0; s < oldMax; s++)
+                WaitForLiveWriters();
+                int oldMax = MaxSourcesPerLayer;
+                int newSize = LayerCount * newMax;
+                var newA = new NativeArray<float>(newSize, Allocator.Persistent, NativeArrayOptions.ClearMemory);
+                var newB = new NativeArray<float>(newSize, Allocator.Persistent, NativeArrayOptions.ClearMemory);
+                for (int l = 0; l < LayerCount; l++)
                 {
-                    newA[(l * newMax) + s] = _bufferA[(l * oldMax) + s];
-                    newB[(l * newMax) + s] = _bufferB[(l * oldMax) + s];
+                    for (int s = 0; s < oldMax; s++)
+                    {
+                        newA[(l * newMax) + s] = _bufferA[(l * oldMax) + s];
+                        newB[(l * newMax) + s] = _bufferB[(l * oldMax) + s];
+                    }
                 }
-            }
 
-            _bufferA.Dispose();
-            _bufferB.Dispose();
-            _bufferA = newA;
-            _bufferB = newB;
-            MaxSourcesPerLayer = newMax;
+                _bufferA.Dispose();
+                _bufferB.Dispose();
+                _bufferA = newA;
+                _bufferB = newB;
+                MaxSourcesPerLayer = newMax;
+            }
+            finally
+            {
+                Volatile.Write(ref _resizing, 0);
+            }
         }
 
         /// <summary>
@@ -234,14 +312,24 @@ namespace Hidano.FacialControl.Domain.Services
                 return;
             }
 
-            if (pending.Count > 0)
+            Interlocked.Increment(ref _liveWritersInFlight);
+            try
             {
-                var writeBuffer = Volatile.Read(ref _writeIndex) == 0 ? _bufferA : _bufferB;
-                foreach (var kvp in pending)
+                if (pending.Count > 0 &&
+                    Volatile.Read(ref _liveWritesSuspended) == 0 &&
+                    Volatile.Read(ref _resizing) == 0)
                 {
-                    writeBuffer[kvp.Key] = kvp.Value;
+                    var writeBuffer = Volatile.Read(ref _writeIndex) == 0 ? _bufferA : _bufferB;
+                    foreach (var kvp in pending)
+                    {
+                        writeBuffer[kvp.Key] = kvp.Value;
+                    }
+                    Interlocked.Increment(ref _dirtyTick);
                 }
-                Interlocked.Increment(ref _dirtyTick);
+            }
+            finally
+            {
+                Interlocked.Decrement(ref _liveWritersInFlight);
             }
 
             pending.Clear();

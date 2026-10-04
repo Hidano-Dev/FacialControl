@@ -468,6 +468,101 @@ namespace Hidano.FacialControl.Tests.EditMode.Domain
         }
 
         [Test]
+        public void SetWeight_WhileLiveWritesSuspended_DoesNotChangeReadValue()
+        {
+            using var buffer = new LayerInputSourceWeightBuffer(1, 1);
+            buffer.SetWeight(0, 0, 0.25f);
+            buffer.SwapIfDirty();
+
+            Assert.IsTrue(buffer.SuspendLiveWrites());
+            buffer.SetWeight(0, 0, 0.9f);
+            buffer.SwapIfDirty();
+
+            Assert.AreEqual(0.25f, buffer.GetWeight(0, 0));
+        }
+
+        [Test]
+        public void SetWeightBypassingLiveGate_WhileSuspended_ChangesReadValueAfterSwap()
+        {
+            using var buffer = new LayerInputSourceWeightBuffer(1, 1);
+            Assert.IsTrue(buffer.SuspendLiveWrites());
+
+            buffer.SetWeightBypassingLiveGate(0, 0, 0.75f);
+            buffer.SwapIfDirty();
+
+            Assert.AreEqual(0.75f, buffer.GetWeight(0, 0));
+        }
+
+        [Test]
+        public void CommitBulk_WhileSuspended_DiscardsPendingAndDoesNotAdvanceDirty()
+        {
+            using var buffer = new LayerInputSourceWeightBuffer(1, 1);
+            var scope = buffer.BeginBulk();
+            scope.SetWeight(0, 0, 0.8f);
+
+            Assert.IsTrue(buffer.SuspendLiveWrites());
+            scope.Dispose();
+            buffer.SwapIfDirty();
+
+            Assert.AreEqual(0f, buffer.GetWeight(0, 0));
+        }
+
+        [Test]
+        public void CommitBulk_ScopeOpenedBeforeSuspend_IsDiscarded()
+        {
+            using var buffer = new LayerInputSourceWeightBuffer(1, 1);
+            var scope = buffer.BeginBulk();
+            scope.SetWeight(0, 0, 0.8f);
+            Assert.IsTrue(buffer.SuspendLiveWrites());
+
+            scope.Dispose();
+            buffer.SwapIfDirty();
+
+            Assert.AreEqual(0f, buffer.GetWeight(0, 0));
+        }
+
+        [Test]
+        public void SuspendLiveWrites_Twice_IsIdempotent()
+        {
+            using var buffer = new LayerInputSourceWeightBuffer(1, 1);
+
+            Assert.IsTrue(buffer.SuspendLiveWrites());
+            Assert.IsFalse(buffer.SuspendLiveWrites());
+            Assert.IsTrue(buffer.IsLiveWritesSuspended);
+        }
+
+        [Test]
+        public void ResumeLiveWrites_ThenSetWeight_IsVisibleAfterSwap()
+        {
+            using var buffer = new LayerInputSourceWeightBuffer(1, 1);
+            buffer.SuspendLiveWrites();
+            Assert.IsTrue(buffer.ResumeLiveWrites());
+            Assert.IsFalse(buffer.ResumeLiveWrites());
+
+            buffer.SetWeight(0, 0, 0.6f);
+            buffer.SwapIfDirty();
+
+            Assert.AreEqual(0.6f, buffer.GetWeight(0, 0));
+        }
+
+        [Test]
+        public void EnsureMaxSourcesPerLayer_WhileSuspended_KeepsSuspended()
+        {
+            using var buffer = new LayerInputSourceWeightBuffer(1, 1);
+            buffer.SetWeightBypassingLiveGate(0, 0, 0.4f);
+            buffer.SwapIfDirty();
+            buffer.SuspendLiveWrites();
+
+            buffer.EnsureMaxSourcesPerLayer(2);
+            buffer.SetWeight(0, 1, 0.9f);
+            buffer.SwapIfDirty();
+
+            Assert.IsTrue(buffer.IsLiveWritesSuspended);
+            Assert.AreEqual(0.4f, buffer.GetWeight(0, 0));
+            Assert.AreEqual(0f, buffer.GetWeight(0, 1));
+        }
+
+        [Test]
         public void BulkScope_AtomicFlush_ObservationIsAllOrNothingPerSwap()
         {
             // Bulk scope 内で複数 layer/source に書いた値は、Dispose した瞬間の
