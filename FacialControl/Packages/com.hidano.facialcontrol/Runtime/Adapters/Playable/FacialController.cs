@@ -129,6 +129,12 @@ namespace Hidano.FacialControl.Adapters.Playable
             _isInitialized ? _expressionUseCase : null;
 
         /// <summary>
+        /// 系1.5（weight）の観測・遮断・注入・基準面。未初期化時は null。
+        /// </summary>
+        public IWeightInjectionGate WeightInjectionGate =>
+            _isInitialized ? _layerUseCase : null;
+
+        /// <summary>
         /// 1 体ぶんの入力 source registry。未初期化時は null。
         /// </summary>
         public IInputSourceRegistry InputSourceRegistry => _inputSourceRegistry;
@@ -183,6 +189,7 @@ namespace Hidano.FacialControl.Adapters.Playable
             if (hasObservers != _inputObservationHadObservers)
             {
                 _inputObservationHadObservers = hasObservers;
+                _layerUseCase.SetWeightObserver(hasObservers ? _inputObservationBus : null);
                 if (hasObservers)
                 {
                     _valueProviderObservationSampler?.Reset();
