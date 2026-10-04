@@ -496,11 +496,12 @@ namespace Hidano.FacialControl.Tests.EditMode.Domain
         [Test]
         public void CommitBulk_WhileSuspended_DiscardsPendingAndDoesNotAdvanceDirty()
         {
+            // 遮断後に開いたスコープの commit は破棄される（遮断前に開いたケースは下のテスト）。
             using var buffer = new LayerInputSourceWeightBuffer(1, 1);
+            Assert.IsTrue(buffer.SuspendLiveWrites());
+
             var scope = buffer.BeginBulk();
             scope.SetWeight(0, 0, 0.8f);
-
-            Assert.IsTrue(buffer.SuspendLiveWrites());
             scope.Dispose();
             buffer.SwapIfDirty();
 

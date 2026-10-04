@@ -254,7 +254,9 @@ namespace Hidano.FacialControl.Domain.Services
                 return;
             }
 
-            Volatile.Write(ref _resizing, 1);
+            // フルフェンス（Interlocked）でフラグを立てる。Volatile.Write（release）だと直後の in-flight 読取が
+            // store-load で先行し得て、ワーカーが旧フラグを見たまま書込に入る窓が残る。
+            Interlocked.Exchange(ref _resizing, 1);
             try
             {
                 WaitForLiveWriters();
@@ -279,7 +281,7 @@ namespace Hidano.FacialControl.Domain.Services
             }
             finally
             {
-                Volatile.Write(ref _resizing, 0);
+                Interlocked.Exchange(ref _resizing, 0);
             }
         }
 
