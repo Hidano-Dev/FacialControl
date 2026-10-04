@@ -525,8 +525,8 @@ namespace Hidano.FacialControl.Application.UseCases
             {
                 _weightBuffer.EnsureMaxSourcesPerLayer(_registry.MaxSourcesPerLayer);
                 ResizeDeclaredSlotWeights(previousMaxSources, _registry.MaxSourcesPerLayer);
-                _weightBuffer.SetWeightBypassingLiveGate(layerIdx, newSourceIdx, weight);
-                _declaredSlotWeights[layerIdx * _registry.MaxSourcesPerLayer + newSourceIdx] = Clamp01(weight);
+                // 新規スロットの初期値は構造書込。遮断中でも参加できるよう、常に live gate を迂回する。
+                SetStructuralSlotWeight(layerIdx, newSourceIdx, weight, applyWeight: false);
             }
 
             // blend フィルタ（UpdateWeights）がこのレイヤーを含めるよう追加ソース有りフラグを立てる。

@@ -431,6 +431,29 @@ namespace Hidano.FacialControl.Tests.EditMode.Application
         }
 
         [Test]
+        public void BindLateInputSource_AddingNewSlot_WhileSuspended_AppliesDeclaredWeightWithoutOpeningGate()
+        {
+            var layers = new[] { new LayerDefinition("emotion", 0, ExclusionMode.LastWins) };
+            var profile = new FacialProfile("1.0", layers, Array.Empty<Expression>());
+            var expressionUseCase = new ExpressionUseCase(profile);
+            using var useCase = new LayerUseCase(profile, expressionUseCase, new[] { "bs_smile" });
+            var gate = (IWeightInjectionGate)useCase;
+            var observer = new FakeWeightObserver();
+            useCase.SetWeightObserver(observer);
+
+            Assert.IsTrue(gate.SuspendLiveWeights());
+            useCase.BindLateInputSource(0, "late", new FakeValueWritingSource("late", 1, 0.6f), 0.35f);
+            useCase.UpdateWeights(0f);
+
+            var slots = new List<InputSourceWeightEntry>();
+            gate.CollectInputSourceWeights(slots);
+            Assert.AreEqual(0.35f, slots[1].Weight, 1e-6f);
+            var lateSample = observer.InputSourceSamples.Find(sample => sample.slotId == "late");
+            Assert.AreEqual("late", lateSample.slotId);
+            Assert.AreEqual(0.35f, lateSample.weight, 1e-6f);
+        }
+
+        [Test]
         public void UnbindLateInputSource_WhileSuspended_CompactsWeightsAndRenotifiesRemainingSlots()
         {
             var layers = new[] { new LayerDefinition("emotion", 0, ExclusionMode.LastWins) };
