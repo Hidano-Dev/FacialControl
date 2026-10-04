@@ -181,14 +181,14 @@
   - 完了条件: 上記テストと既存記録テストが EditMode で緑
   - _Requirements: 2.5, 2.6, 2.8, 4.3, 5.1, 5.2, 5.3, 6.3, 6.7_
 
-- [ ] 4.6 ストリームライターに新基準レコードの書込と容量引数を追加し、旧構造ファイルの拒否を確認する
+- [x] 4.6 ストリームライターに新基準レコードの書込と容量引数を追加し、旧構造ファイルの拒否を確認する
   - 対象: `com.hidano.facialcontrol.rec`（`Hidano.FacialControl.Rec.Adapters` の RecStreamWriter。RecFileReader は実装変更なし）
   - コンストラクタに float 容量 / byte 容量を取り、Open で kind 8（値提供型基準）と kind 11（系1 基準）を kind 5 / 6 に続けて時刻付きイベントより前に書く。レコードバッファの確保は拡張した最大レコードサイズ算出で行い、byte ペイロードをキューからライタースレッドへ運ぶ
   - テスト: rec `Tests/EditMode/RecStreamWriterTests` 追記（`Open_Always_WritesHeaderWithFullInputBaselineFlag`、値提供型 / 系1 を含む基準が時刻付きイベントより前に書かれ読み戻せること）、rec `Tests/EditMode/RecFileReaderTests` 追記（`TryRead_FileWithoutFullInputBaselineFlag_LogsErrorAndReturnsFalse`。ファイル I/O のため `[MediumTest]`）
   - 完了条件: 上記テストと既存ライター / リーダーテストが EditMode で緑
   - _Requirements: 5.3, 6.1, 6.5, 6.7_
 
-- [ ] 4.7 キャラクターバインディングの基準捕捉を拡張し、4 ポートと容量方針を配線する
+- [x] 4.7 キャラクターバインディングの基準捕捉を拡張し、4 ポートと容量方針を配線する
   - 対象: `com.hidano.facialcontrol.rec`（`Hidano.FacialControl.Rec.Adapters` の RecCharacterBinding）
   - 基準捕捉: registry の値提供型派生へ `TryWriteValues` を 1 回（Tick なし）呼び、戻り値・mask・scratch を値提供型エントリに写す（BlendShape 総数不一致は warn + スキップ）。系1 は遮断面の id 収集を表情 id 列に写す
   - 再生セッション構築: 系1 Injector（遮断面デリゲート）と値提供型 Injector（registry + BlendShape 総数デリゲート）を構築し 4 ポートを再生ユースケースへ渡す。再生開始が false のときは追加ログを出さず false を返す。記録セッション構築: BlendShape 総数 N から float 容量 max(128, 4N)・byte 容量 max(64, 4·ceil(N/8)) を算出してライターに渡し、記録ユースケースへ総数ヒントを渡す。停止時 Info に成長カウントを含める
