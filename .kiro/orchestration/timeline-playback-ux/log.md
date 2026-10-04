@@ -72,3 +72,10 @@
   - Escalation: none。approval-policy「実装開始の特例」（Gate A〜C でエスカレーションがあれば実装開始前に確認 1 回）に該当するが、ユーザー不在のため親セッションの委任（「途中で報告のために停止せず一気に進める」）に基づき spec-run を開始する
   - Retry: none
 - Branch/PR: `feature/hid-144-timeline-playback-ux`（worktree）
+
+## Phase 5: 実装 + 検証 — 2026-10-05T20:40:00+09:00（開始）
+
+- Command: `/kiro:spec-run timeline-playback-ux`（手順をオーケストレータが直接実行）
+- Engine: **degraded-claude-only**。spec-run の第一優先 `codex exec --dangerously-bypass-approvals-and-sandbox` は Claude Code の auto mode classifier に「Create Unsafe Agents」として拒否された（コマンドは起動していない）。同じ結果を別経路（`claude -p --enable-auto-mode` の無人ネスト起動）で得ることも拒否の意図に反するため行わず、実装は `/kiro:spec-impl` 相当の **spec-tdd-impl-agent（ハーネス内サブエージェント、通常の権限制御下）**、独立レビューは **別のサブエージェント（read-only）**、完了確認（kiro-verify-completion）はオーケストレータ自身が Unity Test Runner（batchmode）で実施する。タスク単位のコミット・tasks.md のチェック・FAIL 時の退避ルールは spec-run の定義どおり
+- 補足: `pwsh`（PowerShell 7）が未インストールのため `scripts/check-test-sizes.ps1` はローカルで正しく動かない（PS 5.1 では main 時点で 33 件の偽陽性）。静的チェックは CI に委ね、PS 5.1 実行の件数差分だけをローカルで監視する
+- Branch/PR: `feature/hid-144-timeline-playback-ux`
