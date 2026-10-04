@@ -10,6 +10,7 @@ using Hidano.FacialControl.Rec.Adapters.Playback;
 using Hidano.FacialControl.Rec.Application.UseCases;
 using Hidano.FacialControl.Rec.Domain.Interfaces;
 using Hidano.FacialControl.Rec.Domain.Models;
+using Hidano.FacialControl.Rec.Domain.Services;
 using NUnit.Framework;
 using UnityEngine;
 using UnityEngine.TestTools;
@@ -52,8 +53,8 @@ namespace Hidano.FacialControl.Rec.Tests.EditMode
 
             Assert.That(started, Is.True);
             Assert.That(useCase.State, Is.EqualTo(RecPlaybackState.Playing));
-            Assert.That(triggerPort.BeginInjectionCallCount, Is.EqualTo(1));
-            Assert.That(analogPort.BeginInjectionCallCount, Is.EqualTo(1));
+            Assert.That(triggerPort.TryBeginInjectionCallCount, Is.EqualTo(1));
+            Assert.That(analogPort.TryBeginInjectionCallCount, Is.EqualTo(1));
             Assert.That(triggerPort.Baseline.TryGetTriggerStack("input:trigger", out IReadOnlyList<string> expressionIds), Is.True);
             Assert.That(expressionIds, Is.EqualTo(new[] { "smile" }));
             Assert.That(analogPort.Baseline.TryGetAnalogAxes("input:gaze", out IReadOnlyList<float> axes), Is.True);
@@ -74,8 +75,8 @@ namespace Hidano.FacialControl.Rec.Tests.EditMode
             bool started = useCase.StartPlayback();
 
             Assert.That(started, Is.False);
-            Assert.That(triggerPort.BeginInjectionCallCount, Is.EqualTo(1));
-            Assert.That(analogPort.BeginInjectionCallCount, Is.EqualTo(1));
+            Assert.That(triggerPort.TryBeginInjectionCallCount, Is.EqualTo(1));
+            Assert.That(analogPort.TryBeginInjectionCallCount, Is.EqualTo(1));
         }
 
         [Test]
@@ -330,8 +331,8 @@ namespace Hidano.FacialControl.Rec.Tests.EditMode
 
             Assert.That(started, Is.False);
             Assert.That(useCase.State, Is.EqualTo(RecPlaybackState.Idle));
-            Assert.That(triggerPort.BeginInjectionCallCount, Is.EqualTo(0));
-            Assert.That(analogPort.BeginInjectionCallCount, Is.EqualTo(0));
+            Assert.That(triggerPort.TryBeginInjectionCallCount, Is.EqualTo(0));
+            Assert.That(analogPort.TryBeginInjectionCallCount, Is.EqualTo(0));
         }
 
         private static RecTimeline CreateSeekTimeline()
@@ -501,7 +502,7 @@ namespace Hidano.FacialControl.Rec.Tests.EditMode
                 _callOrder = callOrder;
             }
 
-            public int BeginInjectionCallCount { get; private set; }
+            public int TryBeginInjectionCallCount { get; private set; }
 
             public int EndInjectionCallCount { get; private set; }
 
@@ -511,11 +512,18 @@ namespace Hidano.FacialControl.Rec.Tests.EditMode
 
             public List<(string sourceId, string expressionId)> TriggerOffEvents { get; } = new List<(string sourceId, string expressionId)>();
 
-            public void BeginInjection(RecBaselineState baseline)
+            public bool CanBeginInjection(out string reason)
             {
-                BeginInjectionCallCount++;
+                reason = string.Empty;
+                return true;
+            }
+
+            public bool TryBeginInjection(RecBaselineState baseline)
+            {
+                TryBeginInjectionCallCount++;
                 Baseline = baseline;
                 _callOrder?.Add("trigger.begin");
+                return true;
             }
 
             public void InjectTriggerOn(string sourceId, string expressionId)
@@ -546,7 +554,7 @@ namespace Hidano.FacialControl.Rec.Tests.EditMode
                 _callOrder = callOrder;
             }
 
-            public int BeginInjectionCallCount { get; private set; }
+            public int TryBeginInjectionCallCount { get; private set; }
 
             public int EndInjectionCallCount { get; private set; }
 
@@ -554,11 +562,18 @@ namespace Hidano.FacialControl.Rec.Tests.EditMode
 
             public List<(string sourceId, float[] axes)> AnalogSamples { get; } = new List<(string sourceId, float[] axes)>();
 
-            public void BeginInjection(RecBaselineState baseline)
+            public bool CanBeginInjection(out string reason)
             {
-                BeginInjectionCallCount++;
+                reason = string.Empty;
+                return true;
+            }
+
+            public bool TryBeginInjection(RecBaselineState baseline)
+            {
+                TryBeginInjectionCallCount++;
                 Baseline = baseline;
                 _callOrder?.Add("analog.begin");
+                return true;
             }
 
             public void InjectAnalogSample(string sourceId, ReadOnlySpan<float> axes)
@@ -608,6 +623,21 @@ namespace Hidano.FacialControl.Rec.Tests.EditMode
                 CurrentObserver?.OnAnalogSample(sourceId, axes);
             }
 
+            public void PublishValueProviderSample(string sourceId, in ValueProviderSample sample)
+            {
+                CurrentObserver?.OnValueProviderSample(sourceId, in sample);
+            }
+
+            public void OnExpressionActivated(string sourceId, string expressionId)
+            {
+                CurrentObserver?.OnExpressionActivated(sourceId, expressionId);
+            }
+
+            public void OnExpressionDeactivated(string sourceId, string expressionId)
+            {
+                CurrentObserver?.OnExpressionDeactivated(sourceId, expressionId);
+            }
+
             public void PublishTriggerOn(string sourceId, string expressionId)
             {
                 OnTriggerOn(sourceId, expressionId);
@@ -643,9 +673,15 @@ namespace Hidano.FacialControl.Rec.Tests.EditMode
                 _sourceIds.Clear();
                 _expressionIds.Clear();
                 CompletedTimeline = null;
+
+                // 実際の RecStreamWriter と同じく、baseline 由来の ID（系1の予約 source を含む）はシンクが定義する。
+                // RecordingUseCase はこれらを既定義として IdDefine を出さない。
+                RecIdTable seeded = RecIdTable.CreateSeeded(_baseline);
+                _sourceIds.AddRange(seeded.SourceIds);
+                _expressionIds.AddRange(seeded.ExpressionIds);
             }
 
-            public void AppendEvent(in RecEvent evt, ReadOnlySpan<float> axes, string idValue = null)
+            public void AppendEvent(in RecEvent evt, ReadOnlySpan<float> payload, ReadOnlySpan<byte> maskBytes = default, string idValue = null)
             {
                 if (evt.Kind == RecEventKind.IdDefine)
                 {
@@ -662,7 +698,7 @@ namespace Hidano.FacialControl.Rec.Tests.EditMode
                 }
 
                 _timedEvents.Add(evt);
-                _analogAxesByEvent.Add(evt.Kind == RecEventKind.AnalogSample ? axes.ToArray() : Array.Empty<float>());
+                _analogAxesByEvent.Add(evt.Kind == RecEventKind.AnalogSample ? payload.ToArray() : Array.Empty<float>());
             }
 
             public void Complete(double durationSeconds, int eventCount)

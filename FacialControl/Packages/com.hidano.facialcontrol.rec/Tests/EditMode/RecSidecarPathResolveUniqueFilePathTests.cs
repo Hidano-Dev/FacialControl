@@ -56,6 +56,20 @@ namespace Hidano.FacialControl.Rec.Tests.EditMode
         }
 
         [Test]
+        public void ResolveUniqueFilePath_FileExists_PreservesDirectorySeparatorsOfInput()
+        {
+            // Application.streamingAssetsPath 由来のパスは Windows でも '/' を含む。連番テイクのパスは
+            // LoadRecording 側が同じ文字列を組み立てられるよう、ディレクトリ部分を正規化せずそのまま残す。
+            string fileName = "take01" + RecSidecarPath.FileExtension;
+            string mixedDirectory = _tempDirectory.Replace('\\', '/') + "/";
+            File.WriteAllText(Path.Combine(_tempDirectory, fileName), "original");
+
+            string resolved = RecSidecarPath.ResolveUniqueFilePath(mixedDirectory + fileName);
+
+            Assert.That(resolved, Is.EqualTo(mixedDirectory + "take01-2" + RecSidecarPath.FileExtension));
+        }
+
+        [Test]
         public void ResolveUniqueFilePath_SuffixedFileAlsoExists_IncrementsUntilFree()
         {
             string filePath = Path.Combine(_tempDirectory, "take01" + RecSidecarPath.FileExtension);

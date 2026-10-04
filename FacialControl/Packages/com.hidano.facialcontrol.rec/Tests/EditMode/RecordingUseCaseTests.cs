@@ -1,4 +1,5 @@
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Text.RegularExpressions;
 using Hidano.FacialControl.Domain.Adapters;
@@ -124,7 +125,7 @@ namespace Hidano.FacialControl.Rec.Tests.EditMode
             Assert.That(sink.AppendedEvents[4].idValue, Is.EqualTo("input:gaze"));
             Assert.That(sink.AppendedEvents[5].evt.Kind, Is.EqualTo(RecEventKind.AnalogSample));
             Assert.That(sink.AppendedEvents[5].evt.TimestampSeconds, Is.EqualTo(0.30d));
-            Assert.That(sink.AppendedEvents[5].axes, Is.EqualTo(new[] { 0.25f, -0.5f }));
+            Assert.That(sink.AppendedEvents[5].payload, Is.EqualTo(new[] { 0.25f, -0.5f }));
             Assert.That(sink.CompletedEventCount, Is.EqualTo(6));
             Assert.That(sink.CompletedDurationSeconds, Is.EqualTo(0.75d));
         }
@@ -308,6 +309,98 @@ namespace Hidano.FacialControl.Rec.Tests.EditMode
             Assert.That(sink.AppendedEvents.Count, Is.EqualTo(0));
         }
 
+        [Test]
+        public void ValueProviderSample_PacksMaskLsbFirstAndValuesInMaskOrder()
+        {
+            var bus = new FakeObservationBus();
+            var sink = new FakeRecEventSink();
+            using var useCase = new RecordingUseCase(bus, new FakeClock(), sink);
+            useCase.StartRecording(RecBaselineState.Empty, 10);
+
+            var mask = new BitArray(10);
+            mask[0] = true;
+            mask[3] = true;
+            mask[8] = true;
+            var sample = new ValueProviderSample(true, true, true, true,
+                new[] { 10.25f, 20f, 30f, 40.5f, 50f, 60f, 70f, 80f, 90f, 100f }, mask);
+            bus.PublishValueProviderSample("input:values", in sample);
+
+            Assert.That(sink.AppendedEvents.Count, Is.EqualTo(2));
+            Assert.That(sink.AppendedEvents[0].evt.Kind, Is.EqualTo(RecEventKind.IdDefine));
+            Assert.That(sink.AppendedEvents[1].evt.Kind, Is.EqualTo(RecEventKind.ValueProviderSample));
+            Assert.That(sink.AppendedEvents[1].evt.Flags, Is.EqualTo(RecValueProviderFlags.IsValid | RecValueProviderFlags.HasMask | RecValueProviderFlags.HasValues));
+            Assert.That(sink.AppendedEvents[1].evt.MaskByteCount, Is.EqualTo(2));
+            Assert.That(sink.AppendedEvents[1].evt.ValueCount, Is.EqualTo(3));
+            Assert.That(sink.AppendedEvents[1].maskBytes, Is.EqualTo(new byte[] { 0x09, 0x01 }));
+            Assert.That(BitConverter.SingleToInt32Bits(sink.AppendedEvents[1].payload[0]), Is.EqualTo(BitConverter.SingleToInt32Bits(10.25f)));
+            Assert.That(BitConverter.SingleToInt32Bits(sink.AppendedEvents[1].payload[1]), Is.EqualTo(BitConverter.SingleToInt32Bits(40.5f)));
+            Assert.That(BitConverter.SingleToInt32Bits(sink.AppendedEvents[1].payload[2]), Is.EqualTo(BitConverter.SingleToInt32Bits(90f)));
+        }
+
+        [Test]
+        public void ValueProviderSample_ValuesOnly_OmitsMaskAndKeepsPackedValues()
+        {
+            var bus = new FakeObservationBus();
+            var sink = new FakeRecEventSink();
+            using var useCase = new RecordingUseCase(bus, new FakeClock(), sink);
+            useCase.StartRecording(RecBaselineState.Empty, 10);
+
+            var mask = new BitArray(10);
+            mask[1] = true;
+            mask[9] = true;
+            var sample = new ValueProviderSample(true, false, true, false,
+                new[] { 0f, 0.5f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0.75f }, mask);
+            bus.PublishValueProviderSample("input:values", in sample);
+
+            Assert.That(sink.AppendedEvents.Count, Is.EqualTo(2));
+            RecEvent evt = sink.AppendedEvents[1].evt;
+            Assert.That(evt.Kind, Is.EqualTo(RecEventKind.ValueProviderSample));
+            Assert.That(evt.Flags, Is.EqualTo(RecValueProviderFlags.IsValid | RecValueProviderFlags.HasValues));
+            Assert.That(evt.MaskByteCount, Is.EqualTo(0));
+            Assert.That(evt.ValueCount, Is.EqualTo(2));
+            Assert.That(sink.AppendedEvents[1].maskBytes, Is.Empty);
+            Assert.That(sink.AppendedEvents[1].payload, Is.EqualTo(new[] { 0.5f, 0.75f }));
+        }
+
+        [Test]
+        public void ValueProviderSample_ValidityOnly_OmitsMaskAndValues()
+        {
+            var bus = new FakeObservationBus();
+            var sink = new FakeRecEventSink();
+            using var useCase = new RecordingUseCase(bus, new FakeClock(), sink);
+            useCase.StartRecording(RecBaselineState.Empty, 10);
+
+            var sample = new ValueProviderSample(false, true, false, false, new float[10], new BitArray(10, true));
+            bus.PublishValueProviderSample("input:values", in sample);
+
+            Assert.That(sink.AppendedEvents.Count, Is.EqualTo(2));
+            RecEvent evt = sink.AppendedEvents[1].evt;
+            Assert.That(evt.Flags, Is.EqualTo(RecValueProviderFlags.None));
+            Assert.That(evt.MaskByteCount, Is.EqualTo(0));
+            Assert.That(evt.ValueCount, Is.EqualTo(0));
+            Assert.That(sink.AppendedEvents[1].maskBytes, Is.Empty);
+            Assert.That(sink.AppendedEvents[1].payload, Is.Empty);
+        }
+
+        [Test]
+        public void ExpressionActivation_UsesReservedSourceAndExpressionSeedIds()
+        {
+            var bus = new FakeObservationBus();
+            var sink = new FakeRecEventSink();
+            var baseline = new RecBaselineState(null, null, null, new[] { "smile" });
+            using var useCase = new RecordingUseCase(bus, new FakeClock(), sink);
+            useCase.StartRecording(baseline);
+
+            bus.PublishExpressionActivated("@expression", "smile");
+            bus.PublishExpressionDeactivated("@expression", "smile");
+
+            Assert.That(sink.AppendedEvents.Count, Is.EqualTo(2));
+            Assert.That(sink.AppendedEvents[0].evt.Kind, Is.EqualTo(RecEventKind.ExpressionActivate));
+            Assert.That(sink.AppendedEvents[0].evt.SourceIdIndex, Is.EqualTo(0));
+            Assert.That(sink.AppendedEvents[0].evt.ExpressionIdIndex, Is.EqualTo(0));
+            Assert.That(sink.AppendedEvents[1].evt.Kind, Is.EqualTo(RecEventKind.ExpressionDeactivate));
+        }
+
         private sealed class FakeObservationBus : IFacialInputObservationBus
         {
             public int SubscribeCallCount { get; private set; }
@@ -346,6 +439,31 @@ namespace Hidano.FacialControl.Rec.Tests.EditMode
             public void PublishAnalogSample(string sourceId, ReadOnlySpan<float> axes)
             {
                 CurrentObserver?.OnAnalogSample(sourceId, axes);
+            }
+
+            public void PublishValueProviderSample(string sourceId, in ValueProviderSample sample)
+            {
+                CurrentObserver?.OnValueProviderSample(sourceId, in sample);
+            }
+
+            public void PublishExpressionActivated(string sourceId, string expressionId)
+            {
+                CurrentObserver?.OnExpressionActivated(sourceId, expressionId);
+            }
+
+            public void PublishExpressionDeactivated(string sourceId, string expressionId)
+            {
+                CurrentObserver?.OnExpressionDeactivated(sourceId, expressionId);
+            }
+
+            public void OnExpressionActivated(string sourceId, string expressionId)
+            {
+                CurrentObserver?.OnExpressionActivated(sourceId, expressionId);
+            }
+
+            public void OnExpressionDeactivated(string sourceId, string expressionId)
+            {
+                CurrentObserver?.OnExpressionDeactivated(sourceId, expressionId);
             }
 
             public void PublishTriggerOn(string sourceId, string expressionId)
@@ -387,7 +505,7 @@ namespace Hidano.FacialControl.Rec.Tests.EditMode
 
         private sealed class FakeRecEventSink : IRecEventSink
         {
-            public readonly List<(RecEvent evt, float[] axes, string idValue)> AppendedEvents = new List<(RecEvent evt, float[] axes, string idValue)>();
+            public readonly List<(RecEvent evt, float[] payload, byte[] maskBytes, string idValue)> AppendedEvents = new List<(RecEvent evt, float[] payload, byte[] maskBytes, string idValue)>();
 
             public int OpenCallCount { get; private set; }
 
@@ -405,9 +523,9 @@ namespace Hidano.FacialControl.Rec.Tests.EditMode
                 OpenedBaseline = baseline;
             }
 
-            public void AppendEvent(in RecEvent evt, ReadOnlySpan<float> axes, string idValue = null)
+            public void AppendEvent(in RecEvent evt, ReadOnlySpan<float> payload, ReadOnlySpan<byte> maskBytes = default, string idValue = null)
             {
-                AppendedEvents.Add((evt, axes.ToArray(), idValue));
+                AppendedEvents.Add((evt, payload.ToArray(), maskBytes.ToArray(), idValue));
             }
 
             public void Complete(double durationSeconds, int eventCount)

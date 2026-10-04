@@ -1,136 +1,89 @@
 # FacialControl REC
 
-`com.hidano.facialcontrol` に流れ込む入力（表情トリガーの on/off・アナログ値・Gaze）を記録し、あとから同じ入力を再現するパッケージ。再生中は live 入力を遮断するので、キャプチャした演技を配信中にそのまま再生したり、`com.hidano.facialcontrol.timeline` 経由で Timeline へ書き出したりできる。
+`com.hidano.facialcontrol.rec` は、`FacialController` に届く入力を `.fcrec` に記録し、同じ入力状態を再生するパッケージです。再生中は記録開始時点で存在した入力源を遮断し、記録値を注入します。
 
 ## 依存パッケージ
 
-| パッケージ | バージョン | 用途 |
-|---|---|---|
-| `com.hidano.facialcontrol` | 1.0.0 | 入力観測バス (`IFacialInputObservationBus`) と入力源レジストリ |
-
-OSC / InputSystem / LipSync / iFacialMocap パッケージには依存しない。どの入力源から来た値でも、core の観測バスを通る限り記録できる。
+| パッケージ | 用途 |
+|---|---|
+| `com.hidano.facialcontrol` | 入力観測バスと入力源レジストリ |
 
 ## 使い方
 
-1. `FacialController` を持つ GameObject に **Add Component → FacialControl → REC Character Binding** を追加する（`RecCharacterBinding`。同 GameObject の `FacialController` を自動で拾う）
-2. Play 中に Inspector の **Start Recording** を押す。Recording Name を空にすると Default Recording Name（初期値は空）が使われ、それも空なら `take-yyyyMMdd-HHmmss` 形式で命名される
-3. **Stop Recording** で `.fcrec` ファイルが確定する。保存先は `StreamingAssets/FacialControl/{キャラクター名}/recordings/{名前}.fcrec`。同名の録画がすでにある場合は上書きせず、`{名前}-2`, `{名前}-3`… と連番を付けて保存する（実際に保存した名前とパスは Inspector の Path 表示と `LastRecordingName` / `LastRecordingPath` で確認できる）。明示的に上書きする手段は API にも Inspector にも用意していない
-4. **Load Target** ドロップダウンで再生するテイクを選び、**Load Recording → Start Playback** で再生する。ドロップダウンには保存済み録画が更新日時の新しい順に並び、録画を止めると保存したテイクが選択された状態になる（フォルダへ直接ファイルを置いた場合は **Refresh** で読み直す）。録画が 1 件も無く Load Target が空のまま Load すると直近に録画したテイク（連番付与後の名前）を読み込む。再生中は live の表情トリガーとアナログ入力が遮断され、記録された値だけが反映される
-
-スクリプトからは同じ操作を `RecCharacterBinding` の API で行える。
+`FacialController` と同じ GameObject に `RecCharacterBinding` を追加し、Play 中に Inspector の **Start Recording** / **Stop Recording**、または `Load Recording` / **Start Playback** を使用します。スクリプトからは次の API を呼び出せます。
 
 ```csharp
 var rec = GetComponent<RecCharacterBinding>();
-rec.StartRecording("take01");   // take01.fcrec が既にあれば take01-2.fcrec に保存される
+rec.StartRecording("take01");
 rec.StopRecording();
-rec.LoadRecording();            // 名前を省略すると直近に録画したテイク（rec.LastRecordingName）を読み込む
-rec.LoadRecording("take01");    // 名前を指定すればそのテイクを読み込む
-IReadOnlyList<string> takes = rec.GetRecordingNames(); // 保存済みテイク名（新しい順）。uGUI の Dropdown の選択肢などに使う
-if (takes.Count > 0)
-{
-    rec.LoadRecording(takes[0]);
-}
-rec.StartPlayback();            // 完了時は rec.Completed イベント
-rec.StartPlayback(12.5);        // 録画の 12.5 秒の位置から再生する
+rec.LoadRecording("take01");
+rec.StartPlayback();
 rec.StopPlayback();
 ```
 
-`GetRecordingNames()` / `GetRecordings()`（テイク名・パス・更新日時）は録画フォルダを読むファイル I/O なので、毎フレームではなく画面を開いたときや録画を止めたときなど、一覧の更新が必要なときだけ呼ぶ。Play モード外でも呼べ、録画中のテイクと、テイク名としてそのまま読み込めない名前（`..` や前後の空白を含む等）のファイルは含めない。
-
-録画と再生は排他で、片方を開始するともう片方は自動停止する。`OnDisable` / `OnDestroy` でも録画・再生は停止され、録画中のファイルは末尾まで書き切られる。
-
-### 記録クロックと開始オフセット
-
-記録タイムスタンプは既定では録画開始からの経過秒（`RecStopwatchClock`）。外部の時計に揃えたい場合は、次の 2 つの差し替え点を使う（どちらも次の `StartRecording` から反映される）。
-
-- `RecordingClock`（`IRecClock`）: 記録に使うクロック。null なら既定の `RecStopwatchClock`。録画開始時に `Reset()` が 1 回呼ばれ、以後はメインスレッドから `ElapsedSeconds` が読まれる。値は有限・非負・単調非減少にすること（逆行は直前の値にクランプされ、例外・NaN・負の値は直前の値で置き換えて 1 回だけ警告される）。録画ごとに `Reset()` されるので、同時に録画する複数の binding で 1 つのインスタンスを共有しないこと
-- `RecordingStartOffsetSeconds`（Inspector の **Recording Start Offset Seconds**）: すべてのタイムスタンプに加算する開始オフセット（秒、0 以上）。Footer の duration にも加算されるため、再生・REC Export ではタイムライン全体がこの秒数だけ後ろにずれる（再生時は先頭にこの秒数の待ちが入る）。録画中の `ElapsedSeconds`（Inspector の Elapsed Seconds）もオフセット込みの値になる。`StartPlayback(startOffsetSeconds)`（[途中からの再生](#途中からの再生)）の開始位置も同じオフセット込みのタイムスタンプで指定するので、先頭の待ちを飛ばすには録画時のオフセット値（例: `rec.StartPlayback(3600d)`）を渡す。オフセット値はファイルには保存されない
-
-```csharp
-rec.RecordingClock = myTimecodeClock;       // IRecClock の独自実装
-rec.RecordingStartOffsetSeconds = 3600d;    // 例: 01:00:00:00 始まりに揃える
-rec.StartRecording("take01");
-```
-
-タイムコード（LTC / MTC 等）の受信自体は提供しない。上記の差し替え点に独自のクロックを渡す想定。
-
-### uGUI / UnityEvent から操作する
-
-`StartRecording` / `LoadRecording` / `StartPlayback` は結果を `bool` で返すため、Button の OnClick など Inspector の UnityEvent には列挙されない。UnityEvent からはコード無しで次の void 版を選ぶ（`bool` 版はスクリプト向けにそのまま使える）。
-
-| UnityEvent で選ぶもの | 動作 |
-|---|---|
-| `RecordingName`（string） | テイク名を設定する（Inspector の Default Recording Name と同じ値）。InputField の On End Edit などの Dynamic string に繋ぐ |
-| `Record ()` | `RecordingName` で録画を始める。空なら `take-yyyyMMdd-HHmmss` |
-| `Record (string)` | 指定した名前で録画を始める |
-| `StopRecording ()` | 録画を止めて確定する |
-| `Load ()` | `RecordingName` で直近に録画したテイクを読み込む（同名衝突で `{名前}-2` などに保存していればそちら）。空なら直近に録画したテイク |
-| `Load (string)` | 指定した名前のテイクをそのまま読み込む。空なら `Load ()` と同じ |
-| `Play ()` / `StopPlayback ()` | 再生を開始 / 停止する |
-
-配線例（InputField 1 つと Button 4 つ）:
-
-1. InputField の **On End Edit (String)** → `RecCharacterBinding` の Dynamic string から `RecordingName`
-2. Record ボタンの **On Click ()** → `RecCharacterBinding.Record ()`
-3. Stop ボタン → `RecCharacterBinding.StopRecording ()`
-4. Load ボタン → `RecCharacterBinding.Load ()`
-5. Play ボタン → `RecCharacterBinding.Play ()`
-
-同じ `RecordingName` のまま Record → Stop → Load → Play を繰り返しても、毎回いま録ったテイクが再生される。録画中に Load を押した場合は録画を止めて確定してから読み込む。失敗時（未初期化・該当ファイルなし等）は `bool` 版と同じく Console にログが出る。読み込みに失敗すると前に読み込んだテイクも破棄されるので、続く Play が古いテイクを再生することはない。
-
-`Play ()` は常に先頭（タイムスタンプ 0）から再生する。Recording Start Offset Seconds を 0 より大きくして録ったテイクは、再生の先頭にその秒数の待ちが入る（[記録クロックと開始オフセット](#記録クロックと開始オフセット)）。待ちを飛ばすにはスクリプトから `StartPlayback(double)` を呼ぶ。
-
 ## 記録される内容
 
-| 種別 | 内容 |
-|---|---|
-| Trigger on/off | 入力源 id と Expression id の組 |
-| Analog sample | 入力源 id と 1〜255 軸の float 値。Gaze の Vector2 もこの形式で記録される |
-| Baseline | 録画開始時点でアクティブだった Expression と、有効だったアナログ入力源の現在値 |
+REC は次の 4 系統を、入力源の消費点で記録します。
 
-Expression id や入力源 id は文字列として先頭で 1 度だけ定義され、以降のレコードは番号で参照する。Profile に存在しない Expression id は再生開始時に 1 回だけ警告され、その id のイベントは無視される。
+| 系統 | 記録内容 |
+|---|---|
+| トリガー | 入力源 id と Expression id の on/off、および系1の Expression の activate/deactivate |
+| アナログ・gaze | 入力源 id と軸ごとの float 値。gaze の Vector2 を含む |
+| 値提供型 | `TryWriteValues` が提供した値、`ContributeMask`、有効状態。BlendShape 等の疎な値は mask の立っている index 順で記録 |
+| 系1 | `ExpressionUseCase` / `FacialController.Activate` 経由の Expression 操作 |
+
+明示的除外は、入力源分類カタログと同じ次の 7 型です。これらは観測対象のレコードとして扱いません。
+
+| 型 | 除外区分 | 理由 |
+|---|---|---|
+| `Hidano.FacialControl.Timeline.Adapters.InputSources.TimelineGazeInputSource` | InjectionSource | `FacialTimelineReceiver` の注入ソース。注入者の占有規則により REC と排他 |
+| `Hidano.FacialControl.Rec.Adapters.Playback.RecPlaybackAnalogSource` | InjectionSource | REC 自身の再生注入用内部ソース |
+| `Hidano.FacialControl.Rec.Adapters.Playback.RecPlaybackValueProviderSource` | InjectionSource | REC 自身の値提供型再生注入用内部ソース |
+| `Hidano.FacialControl.Adapters.InputSources.InputActionAnalogSource` | WrappedByObservedSource | registry には観測対象の wrapper 経由で登録され、元型を直接記録しない |
+| `Hidano.FacialControl.Adapters.InputSources.ArKitOscAnalogSource` | NotRegisteredAtRuntime | Adapter が公開する値であり、runtime の registry に登録されない |
+| `Hidano.FacialControl.Adapters.InputSources.OscFloatAnalogSource` | NotRegisteredAtRuntime | runtime / Editor の合成パイプラインに到達しない |
+| `Hidano.FacialControl.Timeline.Editor.BakeSimulationHarness+OfflineExpressionSource` | EditorOnly | Editor のベイク専用で、runtime の registry に登録されない |
 
 ## ファイル形式
 
-`.fcrec` は独自バイナリ形式（little-endian）。マジック `FREC`、`formatVersion = 1`、開始時刻（Unix ms）のヘッダに続けてレコード列、末尾に duration と件数の Footer を持つ。ヘッダの開始時刻は、クロックを差し替えても常に録画開始時の壁時計（UTC）で、ヘッダの `flags`（u16）は予約（常に 0）。読み込み側は `flags` を検証しないので、将来「開始時刻の出自（壁時計 / 外部タイムコード）」などを `flags` のビットで表すときも `formatVersion` は上げずに済む。書き込みは専用スレッド（`RecStreamWriter`）でストリーム出力するため、録画中のメインスレッドに GC アロケーションは発生しない。Footer が欠けたファイルは末尾切れとして警告付きで復元される。
+`.fcrec` は little-endian のバイナリ形式で、`formatVersion` は **1 のまま**です。ヘッダの `flags` bit0（`FullInputBaseline`）は必須で、writer は常に `1` を書き、reader は bit0 がないファイルを読込エラーにします。
+
+本変更以前の構造で書かれたファイルには読込互換・移行を提供しません。`flags` bit0 がないため拒否され、再収録が必要です。kind 7〜11 の追加やヘッダ flags の変更があっても formatVersion は 1 です。
+
+| kind | 名称 | 内容 |
+|---:|---|---|
+| 1 | `IdDefine` | source / Expression id の定義 |
+| 2 / 3 | `TriggerOn` / `TriggerOff` | トリガーイベント |
+| 4 | `AnalogSample` | アナログ・gaze の時刻付き値 |
+| 5 / 6 | `BaselineTrigger` / `BaselineAnalog` | 開始時スナップショット |
+| 7 | `ValueProviderSample` | 値提供型の時刻付き値 |
+| 8 | `BaselineValueProvider` | 値提供型の開始時スナップショット |
+| 9 / 10 | `ExpressionActivate` / `ExpressionDeactivate` | 系1 の時刻付き操作 |
+| 11 | `BaselineExpression` | 系1 の開始時スナップショット |
+| 255 | `Footer` | duration と record count |
+
+値提供型の record は、全 BlendShape の dense 配列ではなく、mask の立った index の値だけを保存する。mask は byte 列の LSB-first の疎な表現で、mask 外の非ゼロ値は記録・再現しません。
 
 ## 再生中の入力遮断
 
-再生開始時点でレジストリに存在する入力源をスナップショットし、そのうえで記録を注入する。
+再生開始時に registry の入力源をスナップショットし、記録対象の各系統を遮断します。
 
-- **Trigger**: 各トリガー入力源を suspend し、スタックを baseline に置き換えてから記録イベントを注入する。停止時は suspend を解除するが、スタックは元に戻さない
-- **Analog / Gaze**: baseline にある入力源は記録値を seed にした再生用 source で置き換え、その他のアナログ入力源も 0 seed で置き換える。停止時は自分が置き換えたものだけを元に戻す
-- 再生開始後に新しく登録された入力源は遮断の対象外
-- `com.hidano.facialcontrol.timeline` の状態 sink もトリガー入力源の一種なので、REC 再生中は Timeline からの表情 on/off も抑止される
-- 再生が最後まで進んでも遮断は解除されない。`StopPlayback` を呼ぶまで最後の状態が保たれる
+- トリガー: suspend して baseline を復元し、REC の on/off を注入
+- アナログ・gaze: baseline 値を seed にした再生用 source に置換（その他は 0 seed）
+- 値提供型: baseline の有効状態・mask・値を再生用 source に設定し、無効 seed で live 値を遮断
+- 系1: `ExpressionUseCase` を Suspend し、baseline を確立してから REC の activate/deactivate を注入
 
-## 途中からの再生
+## 既知制限
 
-`StartPlayback(startOffsetSeconds)` は録画の途中から再生する。開始位置より前のイベントを時刻順に瞬時に畳み込み、その結果を baseline として注入してから、開始位置以降のイベントを通常どおり発火させる。
-
-- **Trigger**: 各入力源のスタックを最終的な on/off の状態にする（on は同じ id を末尾へ移動、off は取り除く）
-- **Analog / Gaze**: 各入力源の最後のサンプル値にする
-- 開始位置ちょうどのイベントは畳み込まず、最初のフレームで発火する。開始位置 0 は `StartPlayback()` と同じ動作になる
-- 録画長以上を指定すると、録画長ちょうどのイベントも含めて最終状態を注入し、即座に完了する（`Completed` が発火する）
-- 負値・NaN・無限大は警告を出して false を返す
-
-制限事項:
-
-- 開始位置で遷移途中だった表情は、遷移の進行度までは再現できない。その時点の目標状態（遷移完了後の状態）から始まる
-- 畳み込みでは入力源ごとのスタック上限（maxStackDepth）を適用しない。注入時に新しい側から上限数だけが残る。上限超過で押し出された表情が、後の off で再び表に出る稀なケースは再現されない
+1. レイヤー weight / 入力源 weight のランタイム変更は記録も遮断もされません（Linear HID-80）。`FacialController.SetLayerWeight` と `LayerUseCase.SetInputSourceWeight` の変更は再生中もライブです。
+2. 開始時スナップショット方式のため、再生開始後に新規登録された入力源（値提供型・系1 を含む）は遮断対象外です。
+3. 値提供型の `ContributeMask` 外に書かれた非ゼロ値は記録・再現されません。
+4. 値提供型の基準捕捉は `StartRecording` の Update 時点の読取です。同一フレームの LateUpdate までに届いた値は t≈0 のイベントになります。
+5. 再生中に記録すると、REC の注入イベント（系1 を含む）も記録されます。
 
 ## 構成
 
-```
-Runtime/
-├── Domain/        # RecEvent / RecTimeline / RecBinaryFormat / RecPlaybackScheduler（Unity 非依存）
-├── Application/   # RecordingUseCase / PlaybackUseCase
-└── Adapters/      # RecCharacterBinding (MonoBehaviour) / RecStreamWriter / RecFileReader / 注入用 Injector
-Editor/            # RecCharacterBinding の UI Toolkit Inspector
-Tests/             # EditMode 単体 + PlayMode E2E / GC ゼロ gate
-```
-
-サンプルは同梱しない。Timeline への書き出しは `com.hidano.facialcontrol.timeline` の **Tools → FacialControl → Timeline → REC Export** を使う。
+`Runtime/` に Domain / Application / Adapters、`Editor/` に Inspector、`Tests/` に EditMode / PlayMode テスト、`Documentation~/` に詳細ドキュメントを配置しています。Timeline への書き出しは `com.hidano.facialcontrol.timeline` の **Tools → FacialControl → Timeline → REC Export** を使用します。
 
 ## ライセンス
 

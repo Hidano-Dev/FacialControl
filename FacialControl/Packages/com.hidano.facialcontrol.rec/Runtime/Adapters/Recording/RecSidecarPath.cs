@@ -153,15 +153,18 @@ namespace Hidano.FacialControl.Rec.Adapters.Recording
                 return filePath;
             }
 
-            string directory = Path.GetDirectoryName(filePath) ?? string.Empty;
-            string baseName = Path.GetFileNameWithoutExtension(filePath);
-            string extension = Path.GetExtension(filePath);
+            // ディレクトリ部分は入力の文字列をそのまま使う。Path.GetDirectoryName は Windows で区切りを '\' に
+            // 正規化するため、Application.streamingAssetsPath 由来の '/' 混在パスから作った連番テイクのパスが
+            // LoadRecording 側（TryBuildRecordingFilePath）の文字列と一致しなくなる。
+            string fileName = Path.GetFileName(filePath);
+            string directoryPrefix = filePath.Substring(0, filePath.Length - fileName.Length);
+            string baseName = Path.GetFileNameWithoutExtension(fileName);
+            string extension = Path.GetExtension(fileName);
 
             for (int sequence = 2; ; sequence++)
             {
-                string candidate = Path.Combine(
-                    directory,
-                    baseName + "-" + sequence.ToString(CultureInfo.InvariantCulture) + extension);
+                string candidate = directoryPrefix
+                    + baseName + "-" + sequence.ToString(CultureInfo.InvariantCulture) + extension;
                 if (!File.Exists(candidate))
                 {
                     return candidate;

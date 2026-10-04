@@ -4,8 +4,12 @@ using System.Diagnostics;
 using System.IO;
 using System.Text.RegularExpressions;
 using System.Threading;
+using Hidano.FacialControl.Domain.Adapters;
+using Hidano.FacialControl.Domain.Interfaces;
 using Hidano.FacialControl.Rec.Adapters.FileSystem;
 using Hidano.FacialControl.Rec.Adapters.Recording;
+using Hidano.FacialControl.Rec.Application.UseCases;
+using Hidano.FacialControl.Rec.Domain.Interfaces;
 using Hidano.FacialControl.Rec.Domain.Models;
 using Hidano.FacialControl.Rec.Domain.Services;
 using NUnit.Framework;
@@ -56,7 +60,8 @@ namespace Hidano.FacialControl.Rec.Tests.EditMode
 
             Assert.That(success, Is.True);
             Assert.That(result, Is.Not.Null);
-            Assert.That(result.Timeline.SourceIds, Is.EqualTo(new[] { "input:trigger", "input:gaze" }));
+            // 系1の予約 source は baseline に無くても必ず IdDefine される（RecordingUseCase のシードと一致させる）。
+            Assert.That(result.Timeline.SourceIds, Is.EqualTo(new[] { "input:trigger", "input:gaze", "@expression" }));
             Assert.That(result.Timeline.ExpressionIds, Is.EqualTo(new[] { "smile" }));
             Assert.That(result.Timeline.Baseline.TryGetTriggerStack("input:trigger", out IReadOnlyList<string> triggerStack), Is.True);
             Assert.That(triggerStack, Is.EqualTo(new[] { "smile" }));
@@ -66,6 +71,58 @@ namespace Hidano.FacialControl.Rec.Tests.EditMode
             Assert.That(result.Timeline.Events[0], Is.EqualTo(RecEvent.CreateTriggerOn(0.1d, 0, 0)));
             Assert.That(result.Timeline.Events[1], Is.EqualTo(RecEvent.CreateAnalogSample(0.2d, 1, 2)));
             Assert.That(result.Timeline.GetAnalogAxes(1), Is.EqualTo(new[] { 0.4f, -0.75f }));
+        }
+
+        [Test]
+        public void Complete_WritesValueProviderAndExpressionBaselinesBeforeRuntimeEvents()
+        {
+            string filePath = Path.Combine(_tempDirectory, "full-baseline.fcrec");
+            var baseline = new RecBaselineState(
+                Array.Empty<RecBaselineState.TriggerEntry>(),
+                Array.Empty<RecBaselineState.AnalogEntry>(),
+                new[] { new RecBaselineState.ValueProviderEntry("input:face", true, new byte[] { 0x05 }, new[] { 0.25f, -0.5f }) },
+                new[] { "smile" });
+
+            using var writer = new RecStreamWriter(filePath, segmentCapacity: 2, initialSegments: 2,
+                axisFloatCapacityPerSegment: 8, byteCapacityPerSegment: 1);
+            writer.Open(baseline);
+            writer.AppendEvent(RecEvent.CreateTriggerOn(0.1d, 0, 0), ReadOnlySpan<float>.Empty);
+            writer.Complete(0.1d, 1);
+
+            Assert.That(RecFileReader.TryRead(filePath, out RecBinaryFormat.ReadResult result), Is.True);
+            Assert.That(result.Timeline.Baseline.TryGetValueProviderEntry("input:face",
+                out RecBaselineState.ValueProviderEntry valueProvider), Is.True);
+            Assert.That(valueProvider.IsValid, Is.True);
+            Assert.That(valueProvider.MaskBytes, Is.EqualTo(new byte[] { 0x05 }));
+            Assert.That(valueProvider.Values, Is.EqualTo(new[] { 0.25f, -0.5f }));
+            Assert.That(result.Timeline.Baseline.ExpressionEntries, Is.EqualTo(new[] { "smile" }));
+            Assert.That(result.Timeline.Events, Is.EqualTo(new[] { RecEvent.CreateTriggerOn(0.1d, 0, 0) }));
+        }
+
+        [Test]
+        public void Complete_ExpressionActivationThenNewSource_ReadsBackWithRecordingUseCaseIdOrder()
+        {
+            // RecordingUseCase は系1の予約 source "@expression" をシード済みとして IdDefine を出さない。
+            // ライター側の IdDefine も同じシードを書かないと、後から初登場した入力源の index が 1 つずれて
+            // 読み戻しが "Id values must be non-empty" で失敗する（PR #46 の赤 17 件の経路）。
+            string filePath = Path.Combine(_tempDirectory, "expression-then-source.fcrec");
+            using var writer = new RecStreamWriter(filePath, segmentCapacity: 2, initialSegments: 2, axisFloatCapacityPerSegment: 8);
+            var clock = new StubClock();
+            using var useCase = new RecordingUseCase(new NoopObservationBus(), clock, writer);
+
+            useCase.StartRecording(RecBaselineState.Empty);
+            useCase.OnExpressionActivated("@expression", "smile");
+            clock.ElapsedSeconds = 0.1d;
+            useCase.OnTriggerOn("input:trigger", "angry");
+            clock.ElapsedSeconds = 0.2d;
+            useCase.StopRecording();
+
+            Assert.That(RecFileReader.TryRead(filePath, out RecBinaryFormat.ReadResult result), Is.True);
+            Assert.That(result.Timeline.SourceIds, Is.EqualTo(new[] { "@expression", "input:trigger" }));
+            Assert.That(result.Timeline.ExpressionIds, Is.EqualTo(new[] { "smile", "angry" }));
+            Assert.That(result.Timeline.Events.Count, Is.EqualTo(2));
+            Assert.That(result.Timeline.Events[0], Is.EqualTo(RecEvent.CreateExpressionActivate(0d, 0, 0)));
+            Assert.That(result.Timeline.Events[1], Is.EqualTo(RecEvent.CreateTriggerOn(0.1d, 1, 1)));
         }
 
         [Test]
@@ -115,7 +172,7 @@ namespace Hidano.FacialControl.Rec.Tests.EditMode
 
                 Assert.That(writer.OutputFilePath, Is.EqualTo(Path.Combine(_tempDirectory, "existing-2.fcrec")));
                 Assert.That(RecFileReader.TryRead(writer.OutputFilePath, out RecBinaryFormat.ReadResult result), Is.True);
-                Assert.That(result.Timeline.SourceIds, Is.EqualTo(new[] { "input:trigger" }));
+                Assert.That(result.Timeline.SourceIds, Is.EqualTo(new[] { "input:trigger", "@expression" }));
                 Assert.That(result.Timeline.ExpressionIds, Is.EqualTo(new[] { "smile" }));
                 Assert.That(result.Timeline.Events, Is.EqualTo(new[] { RecEvent.CreateTriggerOn(0.1d, 0, 0) }));
             }
@@ -246,6 +303,29 @@ namespace Hidano.FacialControl.Rec.Tests.EditMode
             Assert.That(stopwatch.ElapsedMilliseconds, Is.LessThan(3000));
 
             releaseBlockedWrite.Set();
+        }
+
+        private sealed class StubClock : IRecClock
+        {
+            public double ElapsedSeconds { get; set; }
+
+            public void Reset()
+            {
+                ElapsedSeconds = 0d;
+            }
+        }
+
+        private sealed class NoopObservationBus : IFacialInputObservationBus
+        {
+            public bool HasObservers => false;
+            public void Subscribe(IFacialInputObserver observer) { }
+            public void Unsubscribe(IFacialInputObserver observer) { }
+            public void OnTriggerOn(string sourceId, string expressionId) { }
+            public void OnTriggerOff(string sourceId, string expressionId) { }
+            public void PublishAnalogSample(string sourceId, ReadOnlySpan<float> axes) { }
+            public void PublishValueProviderSample(string sourceId, in ValueProviderSample sample) { }
+            public void OnExpressionActivated(string sourceId, string expressionId) { }
+            public void OnExpressionDeactivated(string sourceId, string expressionId) { }
         }
 
         private sealed class BlockingStream : MemoryStream

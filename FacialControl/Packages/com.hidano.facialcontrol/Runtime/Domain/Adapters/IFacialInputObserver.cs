@@ -23,5 +23,16 @@ namespace Hidano.FacialControl.Domain.Adapters
         /// The supplied span is valid only during this call; observers must copy any data they retain.
         /// </summary>
         void OnAnalogSample(string sourceId, ReadOnlySpan<float> axes);
+
+        /// <summary>
+        /// Called when a value-provider source publishes a changed frame sample.
+        /// </summary>
+        void OnValueProviderSample(string sourceId, in ValueProviderSample sample);
+
+        /// <summary>Called when the system-1 expression path activates an expression.</summary>
+        void OnExpressionActivated(string sourceId, string expressionId);
+
+        /// <summary>Called when the system-1 expression path deactivates an expression.</summary>
+        void OnExpressionDeactivated(string sourceId, string expressionId);
     }
 }

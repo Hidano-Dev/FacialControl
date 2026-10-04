@@ -1,6 +1,7 @@
 using System;
 using System.Collections;
 using System.Collections.Generic;
+using Hidano.FacialControl.Domain.Adapters;
 using Hidano.FacialControl.Domain.Interfaces;
 using Hidano.FacialControl.Domain.Models;
 using Hidano.FacialControl.Domain.Services;
@@ -23,6 +24,7 @@ namespace Hidano.FacialControl.Application.UseCases
         private string[] _blendShapeNames;
         private readonly Dictionary<string, float> _layerWeights;
         private IReadOnlyList<(int layerIdx, IInputSource source, float weight)> _additionalInputSources;
+        private IReadOnlyList<string> _additionalInputSourceIds;
         private readonly List<Expression> _activeBuffer = new List<Expression>();
         private readonly Dictionary<string, List<Expression>> _groupedByLayer = new Dictionary<string, List<Expression>>();
         private readonly List<string> _activeGroupedLayerKeys = new List<string>();
@@ -32,6 +34,7 @@ namespace Hidano.FacialControl.Application.UseCases
         private LayerInputSourceRegistry _registry;
         private LayerInputSourceWeightBuffer _weightBuffer;
         private LayerInputSourceAggregator _aggregator;
+        private ILayerSourceValueObserver _sourceValueObserver;
         private LayerExpressionSource[] _layerSources;
         private int[] _layerPriorities;
         private float[] _layerInterWeights;
@@ -49,6 +52,7 @@ namespace Hidano.FacialControl.Application.UseCases
         // ベース表情を BlendShape index 順に解決した出力初期値。
         // プロファイル構築時に 1 度だけ確保し、毎フレーム _finalOutput へコピーする（GC ゼロ維持）。
         private float[] _baseValues;
+        private int _lastSeenResetGeneration;
         private bool _disposed;
 
         /// <summary>
@@ -81,6 +85,22 @@ namespace Hidano.FacialControl.Application.UseCases
             ExpressionUseCase expressionUseCase,
             string[] blendShapeNames,
             IReadOnlyList<(int layerIdx, IInputSource source, float weight)> additionalInputSources)
+            : this(profile, expressionUseCase, blendShapeNames, additionalInputSources, null)
+        {
+        }
+
+        /// <param name="additionalInputSourceIds">
+        /// <paramref name="additionalInputSources"/> と同じ並びのレイヤー宣言 id（<c>InputSourceRegistry</c> の登録キー）。
+        /// 各スロットの同定キーになる。null 要素・未指定は <c>source.Id</c> を使う。
+        /// <c>OscInputSource</c> のように <c>Id</c> が常に同じ入力源を同一レイヤーに複数宣言しても、
+        /// 後付けバインド・解除で宣言 id ごとにスロットを区別できる。
+        /// </param>
+        public LayerUseCase(
+            FacialProfile profile,
+            ExpressionUseCase expressionUseCase,
+            string[] blendShapeNames,
+            IReadOnlyList<(int layerIdx, IInputSource source, float weight)> additionalInputSources,
+            IReadOnlyList<string> additionalInputSourceIds)
         {
             if (blendShapeNames == null)
                 throw new ArgumentNullException(nameof(blendShapeNames));
@@ -89,7 +109,9 @@ namespace Hidano.FacialControl.Application.UseCases
             _expressionUseCase = expressionUseCase;
             _blendShapeNames = blendShapeNames;
             _additionalInputSources = additionalInputSources;
+            _additionalInputSourceIds = additionalInputSourceIds;
             _layerWeights = new Dictionary<string, float>();
+            _lastSeenResetGeneration = expressionUseCase.ResetGeneration;
 
             BuildAggregatorPipeline();
         }
@@ -129,6 +151,9 @@ namespace Hidano.FacialControl.Application.UseCases
         /// <param name="deltaTime">経過時間（秒）</param>
         public void UpdateWeights(float deltaTime)
         {
+            bool resetGenerationChanged = _expressionUseCase.ResetGeneration != _lastSeenResetGeneration;
+            _lastSeenResetGeneration = _expressionUseCase.ResetGeneration;
+
             int bsCount = _blendShapeNames.Length;
             if (bsCount == 0 || _aggregator == null)
                 return;
@@ -182,11 +207,29 @@ namespace Hidano.FacialControl.Application.UseCases
                 if (expressionsByLayer.TryGetValue(layerName, out var layerExpressions)
                     && layerExpressions.Count > 0)
                 {
-                    _layerSources[l].UpdateExpressions(layerExpressions, exclusionMode, _blendShapeNames);
+                    if (resetGenerationChanged)
+                    {
+                        _layerSources[l].SnapToExpressions(layerExpressions, exclusionMode, _blendShapeNames);
+                    }
+                    else
+                    {
+                        _layerSources[l].UpdateExpressions(layerExpressions, exclusionMode, _blendShapeNames);
+                    }
                 }
                 else if (_layerSources[l].HasBeenActive)
                 {
-                    _layerSources[l].UpdateExpressions(EmptyExpressionList, exclusionMode, _blendShapeNames);
+                    if (resetGenerationChanged)
+                    {
+                        _layerSources[l].SnapToExpressions(EmptyExpressionList, exclusionMode, _blendShapeNames);
+                    }
+                    else
+                    {
+                        _layerSources[l].UpdateExpressions(EmptyExpressionList, exclusionMode, _blendShapeNames);
+                    }
+                }
+                else if (resetGenerationChanged)
+                {
+                    _layerSources[l].SnapToExpressions(EmptyExpressionList, exclusionMode, _blendShapeNames);
                 }
             }
 
@@ -288,31 +331,42 @@ namespace Hidano.FacialControl.Application.UseCases
         /// </param>
         public void BindLateInputSource(int layerIdx, IInputSource source, float weight)
         {
+            BindLateInputSource(layerIdx, source?.Id, source, weight);
+        }
+
+        /// <summary>
+        /// <see cref="BindLateInputSource(int, IInputSource, float)"/> の宣言 id 指定版。
+        /// <paramref name="declaredId"/>（レイヤー宣言の id = <c>InputSourceRegistry</c> の登録キー）でスロットを同定する。
+        /// <c>OscInputSource</c> のように <c>source.Id</c> が常に同じ入力源を同一レイヤーに複数宣言していても、
+        /// 置換対象のスロットを取り違えない。
+        /// </summary>
+        public void BindLateInputSource(int layerIdx, string declaredId, IInputSource source, float weight)
+        {
             if (source == null || _registry == null)
             {
                 return;
             }
 
-            int count = _registry.GetSourceCountForLayer(layerIdx);
-            bool exists = false;
-            for (int s = 0; s < count; s++)
+            string slotId = string.IsNullOrEmpty(declaredId) ? source.Id : declaredId;
+            int existingIdx = _registry.FindSourceIndex(layerIdx, slotId);
+            if (existingIdx >= 0)
             {
-                var existing = _registry.GetSource(layerIdx, s);
-                if (existing != null && string.Equals(existing.Id, source.Id, System.StringComparison.Ordinal))
+                // 同 id は同じスロットへその場置換する。remove + append だと後続スロットの source だけが詰まり
+                // weight 列は詰まらないため、他 source の weight が入れ替わって元に戻らなくなる
+                // （例: [VP=.2, trigger=.8] → 置換後 [trigger=.2, VP=.2]）。
+                if (!_registry.TryReplaceSource(layerIdx, existingIdx, source))
                 {
-                    exists = true;
-                    break;
+                    return;
                 }
-            }
 
-            if (exists)
-            {
-                _registry.TryRemoveSource(layerIdx, Hidano.FacialControl.Domain.Models.InputSourceId.Parse(source.Id));
+                _weightBuffer?.SetWeight(layerIdx, existingIdx, weight);
+                MarkLayerHasAdditionalSources(layerIdx);
+                return;
             }
 
             // TryAddSource は末尾スロット（現在の source 数）へ置く。追加前に確定させる。
             int newSourceIdx = _registry.GetSourceCountForLayer(layerIdx);
-            if (!_registry.TryAddSource(layerIdx, source))
+            if (!_registry.TryAddSource(layerIdx, source, slotId))
             {
                 return;
             }
@@ -328,12 +382,18 @@ namespace Hidano.FacialControl.Application.UseCases
             // blend フィルタ（UpdateWeights）がこのレイヤーを含めるよう追加ソース有りフラグを立てる。
             // init 済み解決ソースは 457 行で立つが、購読経由の late-bind はこの経路で立てないと
             // (HasBeenActive || hasAdditional) が false のままレイヤーごと最終ブレンドから外れる。
+            MarkLayerHasAdditionalSources(layerIdx);
+        }
+
+        private void MarkLayerHasAdditionalSources(int layerIdx)
+        {
             if (_layerHasAdditionalSources != null
                 && (uint)layerIdx < (uint)_layerHasAdditionalSources.Length)
             {
                 _layerHasAdditionalSources[layerIdx] = true;
             }
         }
+
 
         /// <summary>
         /// 入力源ウェイトのバルク書込スコープを開始する。
@@ -357,9 +417,22 @@ namespace Hidano.FacialControl.Application.UseCases
                 return;
             }
 
+            int removedIdx = _registry.FindSourceIndex(layerIdx, id);
+            int countBefore = _registry.GetSourceCountForLayer(layerIdx);
             if (!_registry.TryRemoveSource(layerIdx, Hidano.FacialControl.Domain.Models.InputSourceId.Parse(id)))
             {
                 return;
+            }
+
+            // registry は後続スロットを詰める（compact）ので weight 列も同じだけ詰め、残る source の weight を保つ。
+            if (_weightBuffer != null && removedIdx >= 0)
+            {
+                for (int s = removedIdx; s < countBefore - 1; s++)
+                {
+                    _weightBuffer.SetWeight(layerIdx, s, _weightBuffer.GetWeight(layerIdx, s + 1));
+                }
+
+                _weightBuffer.SetWeight(layerIdx, countBefore - 1, 0f);
             }
 
             if (_layerHasAdditionalSources != null
@@ -414,8 +487,15 @@ namespace Hidano.FacialControl.Application.UseCases
             for (int i = 0; i < _additionalInputSources.Count; i++)
             {
                 var entry = _additionalInputSources[i];
-                if (entry.source is ExpressionTriggerInputSourceBase triggerSource
-                    && triggerSource.Id == id)
+                if (!(entry.source is ExpressionTriggerInputSourceBase triggerSource))
+                {
+                    continue;
+                }
+
+                string declaredId = _additionalInputSourceIds != null && i < _additionalInputSourceIds.Count
+                    ? _additionalInputSourceIds[i]
+                    : null;
+                if (triggerSource.Id == id || string.Equals(declaredId, id, StringComparison.Ordinal))
                 {
                     source = triggerSource;
                     return true;
@@ -435,6 +515,16 @@ namespace Hidano.FacialControl.Application.UseCases
             _blendShapeNames = blendShapeNames ?? throw new ArgumentNullException(nameof(blendShapeNames));
             _layerWeights.Clear();
             BuildAggregatorPipeline();
+        }
+
+        /// <summary>
+        /// Sets the optional observer for values consumed by the layer aggregator.
+        /// The setting is retained when the profile rebuilds the aggregator pipeline.
+        /// </summary>
+        public void SetSourceValueObserver(ILayerSourceValueObserver observer)
+        {
+            _sourceValueObserver = observer;
+            _aggregator?.SetSourceValueObserver(observer);
         }
 
         /// <summary>
@@ -487,6 +577,7 @@ namespace Hidano.FacialControl.Application.UseCases
             _layerSuppressed = layerCount == 0 ? Array.Empty<bool>() : new bool[layerCount];
 
             var bindings = new List<(int layerIdx, int sourceIdx, IInputSource source)>(layerCount);
+            var bindingSlotIds = new List<string>(layerCount);
             var layerSpan = _profile.Layers.Span;
             for (int l = 0; l < layerCount; l++)
             {
@@ -495,6 +586,7 @@ namespace Hidano.FacialControl.Application.UseCases
                 var src = new LayerExpressionSource(bsCount);
                 _layerSources[l] = src;
                 bindings.Add((l, 0, src));
+                bindingSlotIds.Add(null);
             }
 
             // 追加の IInputSource を各レイヤー内 sourceIdx=1,2,... に割当。
@@ -516,12 +608,16 @@ namespace Hidano.FacialControl.Application.UseCases
                     }
                     int sourceIdx = nextSourceIdx[entry.layerIdx]++;
                     bindings.Add((entry.layerIdx, sourceIdx, entry.source));
+                    bindingSlotIds.Add(
+                        _additionalInputSourceIds != null && i < _additionalInputSourceIds.Count
+                            ? _additionalInputSourceIds[i]
+                            : null);
                     additionalWeights.Add((entry.layerIdx, sourceIdx, entry.weight));
                     _layerHasAdditionalSources[entry.layerIdx] = true;
                 }
             }
 
-            _registry = new LayerInputSourceRegistry(_profile, bsCount, bindings);
+            _registry = new LayerInputSourceRegistry(_profile, bsCount, bindings, bindingSlotIds);
             int maxSources = _registry.MaxSourcesPerLayer > 0 ? _registry.MaxSourcesPerLayer : 1;
             _weightBuffer = new LayerInputSourceWeightBuffer(layerCount, maxSources);
             for (int l = 0; l < layerCount; l++)
@@ -534,6 +630,7 @@ namespace Hidano.FacialControl.Application.UseCases
                 _weightBuffer.SetWeight(aw.layerIdx, aw.sourceIdx, aw.weight);
             }
             _aggregator = new LayerInputSourceAggregator(_registry, _weightBuffer, bsCount);
+            _aggregator.SetSourceValueObserver(_sourceValueObserver);
         }
 
         /// <summary>
@@ -750,6 +847,21 @@ namespace Hidano.FacialControl.Application.UseCases
                 }
 
                 HasBeenActive = true;
+            }
+
+            public void SnapToExpressions(
+                List<Expression> currentExpressions,
+                ExclusionMode exclusionMode,
+                string[] blendShapeNames)
+            {
+                ComputeTargetValues(currentExpressions, exclusionMode, blendShapeNames);
+                Array.Copy(_targetValues, _snapshotValues, _targetValues.Length);
+                Array.Copy(_targetValues, _currentValues, _targetValues.Length);
+                _elapsedTime = _duration;
+                _isComplete = true;
+                UpdateActiveIds(currentExpressions);
+                RebuildContributeMaskFromCurrent();
+                HasBeenActive = HasBeenActive || currentExpressions.Count > 0;
             }
 
             public void Tick(float deltaTime)

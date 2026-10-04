@@ -538,6 +538,103 @@ namespace Hidano.FacialControl.InputSystem.Tests.PlayMode.Integration
         }
 
         // ---------------------------------------------------------------
+        [Test]
+        public void OnStart_FakeRegistry_RegisteredTypesAreOnlyCatalogObservedTypes()
+        {
+            var registry = new FakeInputSourceRegistry();
+            _registry = null;
+            _sourceAsset = CreateMultiPathActionAsset();
+            _binding = CreateBinding(
+                slug: "input-system-fake-registry",
+                asset: _sourceAsset,
+                actionMapName: "Expression",
+                expressionBindings: new List<ExpressionBindingEntry>
+                {
+                    new ExpressionBindingEntry
+                    {
+                        actionName = "analog-action",
+                        expressionId = "expr-001",
+                        bindingMode = BindingMode.Analog,
+                    },
+                    new ExpressionBindingEntry
+                    {
+                        actionName = "overlay-action",
+                        expressionId = "expr-001",
+                        bindingMode = BindingMode.Overlay,
+                        overlaySlot = "happy",
+                    },
+                });
+
+            var ctx = new AdapterBuildContext(
+                profile: new FacialProfile(
+                    "1.0",
+                    layers: new[] { new LayerDefinition("emotion", 0, ExclusionMode.LastWins) },
+                    expressions: new[]
+                    {
+                        new Expression(
+                            "expr-001",
+                            "Happy",
+                            "emotion",
+                            0.25f,
+                            TransitionCurve.Linear,
+                            new[] { new BlendShapeMapping("smile", 1f) }),
+                    },
+                    slots: new[] { "happy" }),
+                blendShapeNames: new List<string> { "smile", "frown" },
+                inputSourceRegistry: registry,
+                facialOutputBus: new FacialOutputBus(),
+                timeProvider: new UnityTimeProvider(),
+                hostGameObject: _hostGameObject,
+                lipSyncProvider: null);
+
+            _binding.OnStart(in ctx);
+            _bindingStarted = true;
+
+            const string wrapperType = "Hidano.FacialControl.Adapters.AdapterBindings.InputSystem.InputSystemAdapterBinding+AnalogInputSourceWrapper";
+            var allowedTypes = new HashSet<string>
+            {
+                wrapperType,
+                typeof(ExpressionTriggerInputSource).FullName,
+                typeof(AnalogExpressionInputSource).FullName,
+                typeof(OverlayInputSource).FullName,
+            };
+
+            Assert.That(registry.Calls, Is.Not.Empty);
+            foreach (var call in registry.Calls)
+            {
+                if (call.Operation != "Register" && call.Operation != "Replace") continue;
+                Assert.That(call.Source, Is.Not.Null, call.Id);
+                Assert.That(allowedTypes, Does.Contain(call.Source.GetType().FullName), call.Id);
+                Assert.That(call.Source, Is.Not.TypeOf<InputActionAnalogSource>(), call.Id);
+            }
+
+            var wrapperIds = registry.Calls
+                .Where(call => call.Source != null && call.Source.GetType().FullName == wrapperType)
+                .Select(call => call.Id)
+                .ToHashSet(StringComparer.Ordinal);
+            Assert.That(wrapperIds, Does.Contain("input-system-fake-registry:analog-action"));
+            Assert.That(wrapperIds, Does.Contain("input-system-fake-registry:overlay-action"));
+
+            Assert.IsTrue(registry.TryResolve(
+                "input-system-fake-registry:analog-expression", out var analogExpression));
+            Assert.IsInstanceOf<AnalogExpressionInputSource>(analogExpression);
+
+            var field = typeof(AnalogExpressionInputSource).GetField(
+                "_resolvedBindings",
+                System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+            var resolvedBindings = field.GetValue(analogExpression) as Array;
+            Assert.IsNotNull(resolvedBindings);
+            foreach (var binding in resolvedBindings)
+            {
+                var source = (IAnalogInputSource)binding.GetType().GetField(
+                    "Source",
+                    System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public).GetValue(binding);
+                Assert.IsTrue(
+                    wrapperIds.Any(id => id.EndsWith(":" + source.Id, StringComparison.Ordinal)),
+                    source.Id);
+            }
+        }
+
         // Helpers
         // ---------------------------------------------------------------
 
@@ -582,6 +679,17 @@ namespace Hidano.FacialControl.InputSystem.Tests.PlayMode.Integration
             var map = asset.AddActionMap(actionMapName);
             var action = map.AddAction(buttonActionName, InputActionType.Button);
             action.AddBinding(buttonBinding);
+            return asset;
+        }
+
+        private static InputActionAsset CreateMultiPathActionAsset()
+        {
+            var asset = ScriptableObject.CreateInstance<InputActionAsset>();
+            var map = asset.AddActionMap("Expression");
+            var analogAction = map.AddAction("analog-action", InputActionType.Value);
+            analogAction.AddBinding("<Gamepad>/leftTrigger");
+            var overlayAction = map.AddAction("overlay-action", InputActionType.Value);
+            overlayAction.AddBinding("<Gamepad>/rightTrigger");
             return asset;
         }
 

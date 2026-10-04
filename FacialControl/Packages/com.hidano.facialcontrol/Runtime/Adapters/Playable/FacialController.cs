@@ -72,6 +72,8 @@ namespace Hidano.FacialControl.Adapters.Playable
         private IFacialInputObservationBus _inputObservationBus;
         private IInputSourceRegistry _inputSourceRegistry;
         private AnalogObservationSampler _analogObservationSampler;
+        private ValueProviderObservationSampler _valueProviderObservationSampler;
+        private bool _inputObservationHadObservers;
         private IReadOnlyList<GazeChannel> _gazeChannels = Array.Empty<GazeChannel>();
         private readonly List<string> _gazeChannelIds = new List<string>();
         private GazeSnapshot[] _gazeSnapshotBuffer = Array.Empty<GazeSnapshot>();
@@ -121,9 +123,20 @@ namespace Hidano.FacialControl.Adapters.Playable
         public IFacialInputObservationBus InputObservationBus => _inputObservationBus;
 
         /// <summary>
+        /// 系1（表情アクティベーション）の観測・遮断・注入面。未初期化時は null。
+        /// </summary>
+        public IExpressionActivationGate ExpressionActivationGate =>
+            _isInitialized ? _expressionUseCase : null;
+
+        /// <summary>
         /// 1 体ぶんの入力 source registry。未初期化時は null。
         /// </summary>
         public IInputSourceRegistry InputSourceRegistry => _inputSourceRegistry;
+
+        /// <summary>
+        /// 現在のプロファイルで解決された BlendShape の総数。未初期化時は 0。
+        /// </summary>
+        public int BlendShapeCount => _blendShapeNames?.Length ?? 0;
 
         /// <summary>
         /// 統合キャラクター SO の参照。
@@ -165,6 +178,21 @@ namespace Hidano.FacialControl.Adapters.Playable
         {
             if (!_isInitialized || _layerUseCase == null)
                 return;
+
+            bool hasObservers = _inputObservationBus != null && _inputObservationBus.HasObservers;
+            if (hasObservers != _inputObservationHadObservers)
+            {
+                _inputObservationHadObservers = hasObservers;
+                if (hasObservers)
+                {
+                    _valueProviderObservationSampler?.Reset();
+                    _layerUseCase.SetSourceValueObserver(_valueProviderObservationSampler);
+                }
+                else
+                {
+                    _layerUseCase.SetSourceValueObserver(null);
+                }
+            }
 
             _analogObservationSampler?.Sample();
 
@@ -285,7 +313,7 @@ namespace Hidano.FacialControl.Adapters.Playable
             BuildAdapterBindingsChildScope(profile, blendShapeNames);
 
             // profile.LayerInputSources を child scope 内 InputSourceRegistry 経由で IInputSource に解決する。
-            var additionalSources = ResolveLayerInputSourcesFromRegistry(profile);
+            var additionalSources = ResolveLayerInputSourcesFromRegistry(profile, out List<string> declaredSourceIds);
 
             // overlay suppress の active 取得を系2(ExpressionTriggerInputSource)ベースにする。
             // OverlayInputSource は child scope build 時点（additionalSources 解決前）に
@@ -294,7 +322,7 @@ namespace Hidano.FacialControl.Adapters.Playable
 
             // LayerUseCase に組み立て済み IInputSource 列を注入し、
             // 内部で LayerInputSourceRegistry / LayerInputSourceWeightBuffer / LayerInputSourceAggregator を再構築させる。
-            _layerUseCase = new LayerUseCase(profile, _expressionUseCase, blendShapeNames, additionalSources);
+            _layerUseCase = new LayerUseCase(profile, _expressionUseCase, blendShapeNames, additionalSources, declaredSourceIds);
 
             // BoneWriter を生成・初期化。
             SetupBoneWriter(profile);
@@ -331,6 +359,8 @@ namespace Hidano.FacialControl.Adapters.Playable
             _inputObservationBus = null;
             _inputSourceRegistry = null;
             _analogObservationSampler = null;
+            _valueProviderObservationSampler = null;
+            _inputObservationHadObservers = false;
             _gazeChannels = gazeChannels ?? Array.Empty<GazeChannel>();
             _gazeChannelIds.Clear();
             for (int i = 0; i < _gazeChannels.Count; i++)
@@ -490,9 +520,11 @@ namespace Hidano.FacialControl.Adapters.Playable
         }
 
         private List<(int layerIdx, IInputSource source, float weight)> ResolveLayerInputSourcesFromRegistry(
-            FacialProfile profile)
+            FacialProfile profile,
+            out List<string> declaredIds)
         {
             var result = new List<(int layerIdx, IInputSource source, float weight)>();
+            declaredIds = new List<string>();
             if (_inputSourceRegistry == null)
             {
                 return result;
@@ -517,6 +549,7 @@ namespace Hidano.FacialControl.Adapters.Playable
                     if (_inputSourceRegistry.TryResolve(decl.Id, out var source) && source != null)
                     {
                         result.Add((l, source, decl.Weight));
+                        declaredIds.Add(decl.Id);
                     }
                     else
                     {
@@ -885,13 +918,17 @@ namespace Hidano.FacialControl.Adapters.Playable
             FacialProfile profile,
             IReadOnlyList<(int layerIdx, IInputSource source, float weight)> additionalSources)
         {
+            _expressionUseCase.SetActivationObserver(_inputObservationBus);
+
             if (_inputSourceRegistry == null || _inputObservationBus == null)
             {
                 _analogObservationSampler = null;
+                _valueProviderObservationSampler = null;
                 return;
             }
 
             _analogObservationSampler = new AnalogObservationSampler(_inputSourceRegistry, _inputObservationBus);
+            _valueProviderObservationSampler = new ValueProviderObservationSampler(_inputObservationBus);
 
             WireTriggerObserversForRegisteredSources();
             WireTriggerObserversForResolvedSources(additionalSources);
@@ -994,7 +1031,8 @@ namespace Hidano.FacialControl.Adapters.Playable
                 return;
             }
 
-            _layerUseCase.BindLateInputSource(layerIdx, source, weight);
+            // 宣言 id（registry キー）でスロットを同定する。source.Id は OscInputSource のように常に同じことがある。
+            _layerUseCase.BindLateInputSource(layerIdx, sourceId, source, weight);
             UpdateObservedTriggerSource(sourceId, source as ExpressionTriggerInputSourceBase);
         }
 
@@ -1449,6 +1487,8 @@ namespace Hidano.FacialControl.Adapters.Playable
 
             ClearObservedTriggerSources();
             _analogObservationSampler = null;
+            _valueProviderObservationSampler = null;
+            _inputObservationHadObservers = false;
 
             // child scope を build していた場合は最初に Dispose し、binding.Dispose を完了させる。
             // host 群の Dispose を完了させてから既存 cleanup を行う。

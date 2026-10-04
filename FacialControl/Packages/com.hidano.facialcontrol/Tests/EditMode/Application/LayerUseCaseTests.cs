@@ -285,6 +285,52 @@ namespace Hidano.FacialControl.Tests.EditMode.Application
         }
 
         [Test]
+        public void UpdateWeights_ResetGenerationChange_SnapsToTargetWithoutTransition()
+        {
+            var expr = CreateExpression(
+                transitionDuration: 1f,
+                blendShapeValues: new[]
+                {
+                    new BlendShapeMapping("bs_smile", 1f),
+                });
+            var profile = CreateProfile(expressions: new[] { expr });
+            var expressionUseCase = new ExpressionUseCase(profile);
+            var useCase = new LayerUseCase(profile, expressionUseCase, CreateBlendShapeNames());
+
+            expressionUseCase.Activate(expr);
+            useCase.UpdateWeights(0.25f);
+            Assert.That(useCase.GetBlendedOutput()[0], Is.GreaterThan(0f).And.LessThan(1f));
+
+            expressionUseCase.ResetActiveExpressions(new[] { expr.Id });
+            useCase.UpdateWeights(0f);
+
+            Assert.AreEqual(1f, useCase.GetBlendedOutput()[0], 0.001f);
+        }
+
+        [Test]
+        public void UpdateWeights_ResetGenerationToEmpty_SnapsPreviouslyActiveLayerToZero()
+        {
+            var expr = CreateExpression(
+                transitionDuration: 1f,
+                blendShapeValues: new[]
+                {
+                    new BlendShapeMapping("bs_smile", 1f),
+                });
+            var profile = CreateProfile(expressions: new[] { expr });
+            var expressionUseCase = new ExpressionUseCase(profile);
+            var useCase = new LayerUseCase(profile, expressionUseCase, CreateBlendShapeNames());
+
+            expressionUseCase.Activate(expr);
+            useCase.UpdateWeights(1f);
+            Assert.AreEqual(1f, useCase.GetBlendedOutput()[0], 0.001f);
+
+            expressionUseCase.ResetActiveExpressions(Array.Empty<string>());
+            useCase.UpdateWeights(0f);
+
+            Assert.AreEqual(0f, useCase.GetBlendedOutput()[0], 0.001f);
+        }
+
+        [Test]
         public void UpdateWeights_ZeroTransitionDuration_ImmediateSwitch()
         {
             var blendShapes = new[]
@@ -971,6 +1017,133 @@ namespace Hidano.FacialControl.Tests.EditMode.Application
             var output = useCase.GetBlendedOutput();
             Assert.AreEqual(0.2f, output[0], 1e-4f,
                 "指定 id のみ除去し、残存 source の寄与は維持すること");
+        }
+
+        [Test]
+        public void BindLateInputSource_ReplacingExistingId_KeepsOtherSourceWeights()
+        {
+            // REC の Replace（注入体の装着・原本の復元）は購読経由でここに来る。remove + append だと
+            // [vp=.2, other=.8] が [other=.2, vp=.2] になり、other の weight が恒久的に失われていた。
+            var layers = new[] { new LayerDefinition("emotion", 0, ExclusionMode.LastWins) };
+            var profile = new FacialProfile("1.0", layers, Array.Empty<Expression>());
+            var expressionUseCase = new ExpressionUseCase(profile);
+            var blendShapeNames = new[] { "bs_smile", "bs_sad", "bs_blink" };
+            var additional = new List<(int layerIdx, IInputSource source, float weight)>
+            {
+                (0, new FakeValueWritingSource("vp", blendShapeNames.Length, 0.5f), 0.2f),
+                (0, new FakeValueWritingSource("other", blendShapeNames.Length, 1.0f), 0.8f),
+            };
+
+            using var useCase = new LayerUseCase(profile, expressionUseCase, blendShapeNames, additional);
+            useCase.UpdateWeights(0.001f);
+            Assert.AreEqual(0.9f, useCase.GetBlendedOutput()[0], 1e-4f, "0.5*0.2 + 1.0*0.8");
+            int slotCountBefore = useCase.GetInputSourceWeightsSnapshot().Count;
+
+            useCase.BindLateInputSource(0, new FakeValueWritingSource("vp", blendShapeNames.Length, 0.5f), 0.2f);
+            useCase.UpdateWeights(0.001f);
+
+            Assert.AreEqual(0.9f, useCase.GetBlendedOutput()[0], 1e-4f,
+                "同 id の置換は同じスロットで行い、他 source の weight を入れ替えないこと");
+            Assert.AreEqual(slotCountBefore, useCase.GetInputSourceWeightsSnapshot().Count,
+                "同 id の置換でスロット数は増えないこと");
+        }
+
+        [Test]
+        public void BindLateInputSource_WithDeclaredId_ReplacesOnlyTheDeclaredSlotWhenSourceIdsCollide()
+        {
+            // 同一レイヤーに slug 違いの OSC receiver（どちらも source.Id == "osc"）を 2 つ宣言した構成。
+            // 宣言 id（registry キー）でスロットを同定しないと、2 件目の Replace が 1 件目のスロットを奪う。
+            var layers = new[] { new LayerDefinition("emotion", 0, ExclusionMode.LastWins) };
+            var profile = new FacialProfile("1.0", layers, Array.Empty<Expression>());
+            var expressionUseCase = new ExpressionUseCase(profile);
+            var blendShapeNames = new[] { "bs_smile", "bs_sad", "bs_blink" };
+            var liveA = new FakeValueWritingSource("osc", blendShapeNames.Length, 0.4f);
+            var liveB = new FakeValueWritingSource("osc", blendShapeNames.Length, 0.2f);
+            var additional = new List<(int layerIdx, IInputSource source, float weight)>
+            {
+                (0, liveA, 1.0f),
+                (0, liveB, 1.0f),
+            };
+
+            using var useCase = new LayerUseCase(profile, expressionUseCase, blendShapeNames, additional, new[] { "oscA", "oscB" });
+            useCase.UpdateWeights(0.001f);
+            Assert.AreEqual(0.6f, useCase.GetBlendedOutput()[0], 1e-4f, "両方の osc がスロットを持つ");
+
+            useCase.BindLateInputSource(0, "oscB", new FakeValueWritingSource("osc", blendShapeNames.Length, 0.3f), 1.0f);
+            useCase.UpdateWeights(0.001f);
+
+            Assert.AreEqual(0.7f, useCase.GetBlendedOutput()[0], 1e-4f,
+                "oscB のスロットだけが置換され、oscA（0.4）はそのまま残ること");
+
+            useCase.UnbindLateInputSource(0, "oscA");
+            useCase.UpdateWeights(0.001f);
+
+            Assert.AreEqual(0.3f, useCase.GetBlendedOutput()[0], 1e-4f,
+                "宣言 id で解除でき、残る oscB の置換後の値だけになること");
+        }
+
+        [Test]
+        public void UpdateWeights_SourceValueObserver_ReceivesDeclaredIdAsSourceId()
+        {
+            // OscInputSource は常に Id "osc" だが、観測 ID はレイヤー宣言の id（registry キー）でなければ
+            // REC の基準捕捉・注入（registry キー単位）と対応が取れない。
+            var layers = new[] { new LayerDefinition("emotion", 0, ExclusionMode.LastWins) };
+            var profile = new FacialProfile("1.0", layers, Array.Empty<Expression>());
+            var expressionUseCase = new ExpressionUseCase(profile);
+            var blendShapeNames = new[] { "bs_smile" };
+            var additional = new List<(int layerIdx, IInputSource source, float weight)>
+            {
+                (0, new FakeValueWritingSource("osc", blendShapeNames.Length, 0.4f), 1.0f),
+            };
+            var observer = new RecordingSourceValueObserver();
+
+            using var useCase = new LayerUseCase(profile, expressionUseCase, blendShapeNames, additional, new[] { "ifm" });
+            useCase.SetSourceValueObserver(observer);
+            useCase.UpdateWeights(0.001f);
+
+            Assert.That(observer.ObservedIds, Does.Contain("ifm"));
+            Assert.That(observer.ObservedIds, Does.Not.Contain("osc"));
+
+            useCase.BindLateInputSource(0, "ifm", new FakeValueWritingSource("osc", blendShapeNames.Length, 0.5f), 1.0f);
+            observer.ObservedIds.Clear();
+            useCase.UpdateWeights(0.001f);
+
+            Assert.That(observer.ObservedIds, Does.Contain("ifm"), "置換後も同じスロットは宣言 id で観測される");
+        }
+
+        private sealed class RecordingSourceValueObserver : Hidano.FacialControl.Domain.Adapters.ILayerSourceValueObserver
+        {
+            public List<string> ObservedIds { get; } = new List<string>();
+
+            public void OnSourceValuesObserved(int layerIdx, int sourceIdx, IInputSource source, InputSourceId sourceId,
+                bool isValid, ReadOnlySpan<float> preWeightValues)
+            {
+                ObservedIds.Add(sourceId.Value);
+            }
+        }
+
+        [Test]
+        public void UnbindLateInputSource_RemovingFirstSource_ShiftsRemainingWeights()
+        {
+            var layers = new[] { new LayerDefinition("emotion", 0, ExclusionMode.LastWins) };
+            var profile = new FacialProfile("1.0", layers, Array.Empty<Expression>());
+            var expressionUseCase = new ExpressionUseCase(profile);
+            var blendShapeNames = new[] { "bs_smile", "bs_sad", "bs_blink" };
+            var additional = new List<(int layerIdx, IInputSource source, float weight)>
+            {
+                (0, new FakeValueWritingSource("a", blendShapeNames.Length, 0.4f), 0.5f),
+                (0, new FakeValueWritingSource("b", blendShapeNames.Length, 0.2f), 1.0f),
+            };
+
+            using var useCase = new LayerUseCase(profile, expressionUseCase, blendShapeNames, additional);
+            useCase.UpdateWeights(0.001f);
+            Assert.AreEqual(0.4f, useCase.GetBlendedOutput()[0], 1e-4f, "0.4*0.5 + 0.2*1.0");
+
+            useCase.UnbindLateInputSource(0, "a");
+            useCase.UpdateWeights(0.001f);
+
+            Assert.AreEqual(0.2f, useCase.GetBlendedOutput()[0], 1e-4f,
+                "詰められた source b は自分の weight 1.0 を保つこと（a の 0.5 を引き継がない）");
         }
     }
 

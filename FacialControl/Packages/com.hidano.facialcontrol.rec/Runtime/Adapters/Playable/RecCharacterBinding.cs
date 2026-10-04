@@ -38,9 +38,12 @@ namespace Hidano.FacialControl.Rec.Adapters.Playable
         private double _recordingStartOffsetSeconds;
 
         private FacialController _runtimeController;
+        private IInputSourceRegistry _sessionRegistry;
         private PlaybackUseCase _playbackUseCase;
         private RecAnalogInjector _analogInjector;
         private RecTriggerInjector _triggerInjector;
+        private RecExpressionInjector _expressionInjector;
+        private RecValueProviderInjector _valueProviderInjector;
         private RecordingUseCase _recordingUseCase;
         private RecStreamWriter _streamWriter;
         private RecTimeline _loadedTimeline;
@@ -207,16 +210,25 @@ namespace Hidano.FacialControl.Rec.Adapters.Playable
 
             // 出力先の予約（同名衝突時の連番付与）とファイルのオープンは RecStreamWriter がライタースレッドで行う。
             // 結果（実際のパス / オープン失敗）は Update と StopRecording で SyncRecordingOutput が拾う。
-            RecBaselineState baseline = CaptureBaseline(profile, controller.InputSourceRegistry);
+            RecBaselineState baseline = RecBaselineCapture.Capture(
+                controller.InputSourceRegistry,
+                controller.ExpressionActivationGate,
+                controller.BlendShapeCount);
             _requestedRecordingPath = requestedFilePath;
             _recordingStartedUtc = DateTime.UtcNow;
-            _streamWriter = new RecStreamWriter(requestedFilePath);
+            GetQueueCapacities(controller.BlendShapeCount, out int floatCapacity, out int byteCapacity);
+            _streamWriter = new RecStreamWriter(
+                requestedFilePath,
+                segmentCapacity: 64,
+                initialSegments: 4,
+                axisFloatCapacityPerSegment: floatCapacity,
+                byteCapacityPerSegment: byteCapacity);
             _recordingUseCase = new RecordingUseCase(
                 controller.InputObservationBus,
                 RecordingClock ?? new RecStopwatchClock(),
                 _streamWriter,
                 ResolveStartOffsetSeconds());
-            _recordingUseCase.StartRecording(baseline);
+            _recordingUseCase.StartRecording(baseline, controller.BlendShapeCount);
             return true;
         }
 
@@ -471,7 +483,11 @@ namespace Hidano.FacialControl.Rec.Adapters.Playable
                 return;
             }
 
+            // controller が同じでも InitializeWithProfile 等で再初期化されると InputSourceRegistry が別インスタンスになる。
+            // 注入体は構築時の registry を掴むため、registry が変わったらセッションを作り直す
+            // （旧 registry へ置換して現行入力を遮断できない / 停止時に旧 source を復元してしまう）。
             if (ReferenceEquals(_runtimeController, controller)
+                && ReferenceEquals(_sessionRegistry, controller.InputSourceRegistry)
                 && _playbackUseCase != null
                 && _analogInjector != null
                 && _triggerInjector != null)
@@ -482,13 +498,22 @@ namespace Hidano.FacialControl.Rec.Adapters.Playable
             DisposePlaybackSession();
 
             _runtimeController = controller;
+            _sessionRegistry = controller.InputSourceRegistry;
             _analogInjector = new RecAnalogInjector(controller.InputSourceRegistry);
             _triggerInjector = new RecTriggerInjector(
                 id => controller.TryGetExpressionTriggerSourceById(id, out ExpressionTriggerInputSourceBase source)
                     ? source
                     : null,
                 () => CollectTriggerSources(controller.InputSourceRegistry));
-            _playbackUseCase = new PlaybackUseCase(_triggerInjector, _analogInjector);
+            _expressionInjector = new RecExpressionInjector(() => controller.ExpressionActivationGate);
+            _valueProviderInjector = new RecValueProviderInjector(
+                controller.InputSourceRegistry,
+                () => controller.BlendShapeCount);
+            _playbackUseCase = new PlaybackUseCase(
+                _triggerInjector,
+                _expressionInjector,
+                _analogInjector,
+                _valueProviderInjector);
             _playbackUseCase.Completed += HandlePlaybackCompleted;
         }
 
@@ -503,7 +528,10 @@ namespace Hidano.FacialControl.Rec.Adapters.Playable
 
             _analogInjector = null;
             _triggerInjector = null;
+            _expressionInjector = null;
+            _valueProviderInjector = null;
             _runtimeController = null;
+            _sessionRegistry = null;
         }
 
         private void DisposeRecordingSession()
@@ -611,48 +639,12 @@ namespace Hidano.FacialControl.Rec.Adapters.Playable
             return controller.gameObject.name;
         }
 
-        private static RecBaselineState CaptureBaseline(FacialProfile profile, IInputSourceRegistry registry)
+        private static void GetQueueCapacities(int blendShapeCount, out int floatCapacity, out int byteCapacity)
         {
-            var triggerEntries = new List<RecBaselineState.TriggerEntry>();
-            var analogEntries = new List<RecBaselineState.AnalogEntry>();
-
-            IReadOnlyList<string> registeredIds = registry.RegisteredIds ?? Array.Empty<string>();
-            for (int i = 0; i < registeredIds.Count; i++)
-            {
-                string sourceId = registeredIds[i];
-                if (!registry.TryResolve(sourceId, out IInputSource source) || source == null)
-                {
-                    continue;
-                }
-
-                if (source is ExpressionTriggerInputSourceBase triggerSource)
-                {
-                    IReadOnlyList<string> activeExpressionIds = triggerSource.ActiveExpressionIds;
-                    if (activeExpressionIds.Count > 0)
-                    {
-                        triggerEntries.Add(new RecBaselineState.TriggerEntry(sourceId, activeExpressionIds));
-                    }
-
-                    continue;
-                }
-
-                if (source is not IAnalogInputSource analogSource
-                    || !analogSource.IsValid
-                    || analogSource.AxisCount <= 0)
-                {
-                    continue;
-                }
-
-                var axes = new float[analogSource.AxisCount];
-                if (!analogSource.TryReadAxes(axes))
-                {
-                    continue;
-                }
-
-                analogEntries.Add(new RecBaselineState.AnalogEntry(sourceId, axes));
-            }
-
-            return new RecBaselineState(triggerEntries, analogEntries);
+            int safeCount = Math.Max(0, blendShapeCount);
+            int maskByteCount = (safeCount + 7) / 8;
+            floatCapacity = Math.Max(128, checked(4 * safeCount));
+            byteCapacity = Math.Max(64, checked(4 * maskByteCount));
         }
 
         private static IReadOnlyList<ExpressionTriggerInputSourceBase> CollectTriggerSources(IInputSourceRegistry registry)

@@ -745,5 +745,127 @@ namespace Hidano.FacialControl.Tests.EditMode.Application
             Assert.IsTrue(overlaySource.ContributeMask[0]);
             Assert.IsFalse(overlaySource.ContributeMask[1]);
         }
+
+        [Test]
+        public void Activate_ObserverRegistered_NotifiesWithReservedId()
+        {
+            var expression = new Expression("expr-1", "Smile", "emotion");
+            var observer = new ExpressionObserverSpy();
+            _useCase.SetActivationObserver(observer);
+
+            _useCase.Activate(expression);
+
+            Assert.AreEqual("@expression", observer.ActivatedSourceId);
+            Assert.AreEqual("expr-1", observer.ActivatedExpressionId);
+        }
+
+        [Test]
+        public void Deactivate_InactiveExpression_DoesNotNotify()
+        {
+            var observer = new ExpressionObserverSpy();
+            _useCase.SetActivationObserver(observer);
+
+            _useCase.Deactivate(new Expression("expr-1", "Smile", "emotion"));
+
+            Assert.AreEqual(0, observer.DeactivatedCount);
+        }
+
+        [Test]
+        public void SuspendActivation_LiveActivate_IsIgnoredWithoutNotification()
+        {
+            var observer = new ExpressionObserverSpy();
+            _useCase.SetActivationObserver(observer);
+            Assert.IsTrue(_useCase.SuspendActivation());
+
+            _useCase.Activate(new Expression("expr-1", "Smile", "emotion"));
+
+            Assert.IsEmpty(_useCase.GetActiveExpressions());
+            Assert.AreEqual(0, observer.ActivatedCount);
+        }
+
+        [Test]
+        public void InjectActivate_LastWins_MatchesLiveResult()
+        {
+            var profile = CreateProfile(expressions: new[]
+            {
+                new Expression("a", "A", "emotion"),
+                new Expression("b", "B", "emotion")
+            });
+            var sut = new ExpressionUseCase(profile);
+            sut.SuspendActivation();
+
+            Assert.IsTrue(sut.InjectActivate("a"));
+            Assert.IsTrue(sut.InjectActivate("b"));
+
+            CollectionAssert.AreEqual(new[] { "b" }, sut.GetActiveExpressions().ConvertAll(e => e.Id));
+        }
+
+        [Test]
+        public void ResetActiveExpressions_Blend_PreservesOrderWithoutNotificationAndAdvancesGeneration()
+        {
+            var profile = CreateProfile(
+                layers: new[] { new LayerDefinition("lipsync", 0, ExclusionMode.Blend) },
+                expressions: new[]
+                {
+                    new Expression("a", "A", "lipsync"),
+                    new Expression("b", "B", "lipsync")
+                });
+            var sut = new ExpressionUseCase(profile);
+            var observer = new ExpressionObserverSpy();
+            sut.SetActivationObserver(observer);
+            var before = sut.ResetGeneration;
+
+            sut.ResetActiveExpressions(new[] { "a", "b" });
+
+            CollectionAssert.AreEqual(new[] { "a", "b" }, sut.GetActiveExpressions().ConvertAll(e => e.Id));
+            Assert.AreEqual(before + 1, sut.ResetGeneration);
+            Assert.AreEqual(0, observer.ActivatedCount);
+        }
+
+        [Test]
+        public void CollectActiveExpressionIds_UsesDeclaredLayerOrderThenInternalOrder()
+        {
+            var profile = CreateProfile(
+                layers: new[]
+                {
+                    new LayerDefinition("eye", 0, ExclusionMode.Blend),
+                    new LayerDefinition("emotion", 1, ExclusionMode.Blend)
+                },
+                expressions: new[]
+                {
+                    new Expression("eye-a", "Eye A", "eye"),
+                    new Expression("emotion-a", "Emotion A", "emotion"),
+                    new Expression("emotion-b", "Emotion B", "emotion")
+                });
+            var sut = new ExpressionUseCase(profile);
+            sut.Activate(profile.FindExpressionById("emotion-a").Value);
+            sut.Activate(profile.FindExpressionById("eye-a").Value);
+            sut.Activate(profile.FindExpressionById("emotion-b").Value);
+            var ids = new List<string>();
+
+            sut.CollectActiveExpressionIds(ids);
+
+            CollectionAssert.AreEqual(new[] { "eye-a", "emotion-a", "emotion-b" }, ids);
+        }
+
+        private sealed class ExpressionObserverSpy : IExpressionActivationObserver
+        {
+            public int ActivatedCount;
+            public int DeactivatedCount;
+            public string ActivatedSourceId;
+            public string ActivatedExpressionId;
+
+            public void OnExpressionActivated(string sourceId, string expressionId)
+            {
+                ActivatedCount++;
+                ActivatedSourceId = sourceId;
+                ActivatedExpressionId = expressionId;
+            }
+
+            public void OnExpressionDeactivated(string sourceId, string expressionId)
+            {
+                DeactivatedCount++;
+            }
+        }
     }
 }

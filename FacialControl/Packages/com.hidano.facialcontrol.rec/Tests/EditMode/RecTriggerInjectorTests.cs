@@ -17,7 +17,7 @@ namespace Hidano.FacialControl.Rec.Tests.EditMode
     public class RecTriggerInjectorTests : SizedTestFixture
     {
         [Test]
-        public void BeginInjection_AllTriggerSources_AreSuspendedAndBaselineApplied()
+        public void TryBeginInjection_AllTriggerSources_AreSuspendedAndBaselineApplied()
         {
             var primary = CreateTriggerSource("input:primary");
             var secondary = CreateTriggerSource("input:secondary");
@@ -48,7 +48,7 @@ namespace Hidano.FacialControl.Rec.Tests.EditMode
                 },
                 null);
 
-            injector.BeginInjection(baseline);
+            Assert.That(injector.TryBeginInjection(baseline), Is.True);
 
             Assert.That(primary.IsTriggerInputSuspended, Is.True);
             Assert.That(secondary.IsTriggerInputSuspended, Is.True);
@@ -59,7 +59,7 @@ namespace Hidano.FacialControl.Rec.Tests.EditMode
         }
 
         [Test]
-        public void BeginInjection_WhenBaselineContainsMissingSource_LogsDistinctWarningAndSkips()
+        public void TryBeginInjection_WhenBaselineContainsMissingSource_LogsDistinctWarningAndSkips()
         {
             var source = CreateTriggerSource("input:primary");
             var injector = CreateInjector(
@@ -76,7 +76,7 @@ namespace Hidano.FacialControl.Rec.Tests.EditMode
 
             LogAssert.Expect(LogType.Warning, new Regex("trigger.*'missing:trigger'"));
 
-            injector.BeginInjection(baseline);
+            Assert.That(injector.TryBeginInjection(baseline), Is.True);
 
             Assert.That(source.IsTriggerInputSuspended, Is.True);
             Assert.That(source.ActiveExpressionIds, Is.EqualTo(new[] { "smile" }));
@@ -90,7 +90,7 @@ namespace Hidano.FacialControl.Rec.Tests.EditMode
                 id => id == source.Id ? source : null,
                 () => new[] { source });
 
-            injector.BeginInjection(RecBaselineState.Empty);
+            Assert.That(injector.TryBeginInjection(RecBaselineState.Empty), Is.True);
             injector.InjectTriggerOn("input:trigger", "smile");
             injector.InjectTriggerOn("input:trigger", "angry");
             injector.InjectTriggerOff("input:trigger", "smile");
@@ -107,7 +107,7 @@ namespace Hidano.FacialControl.Rec.Tests.EditMode
                 id => isRegistered && id == source.Id ? source : null,
                 () => isRegistered ? new[] { source } : Array.Empty<TestTriggerSource>());
 
-            injector.BeginInjection(RecBaselineState.Empty);
+            Assert.That(injector.TryBeginInjection(RecBaselineState.Empty), Is.True);
             isRegistered = false;
 
             injector.EndInjection();
@@ -116,7 +116,7 @@ namespace Hidano.FacialControl.Rec.Tests.EditMode
         }
 
         [Test]
-        public void BeginInjection_WhenReentered_ReleasesPreviousSnapshotBeforeReacquiring()
+        public void TryBeginInjection_WhenReentered_ReleasesPreviousSnapshotBeforeReacquiring()
         {
             var first = CreateTriggerSource("input:first");
             var second = CreateTriggerSource("input:second");
@@ -136,7 +136,7 @@ namespace Hidano.FacialControl.Rec.Tests.EditMode
                 },
                 () => sources.ToArray());
 
-            injector.BeginInjection(RecBaselineState.Empty);
+            Assert.That(injector.TryBeginInjection(RecBaselineState.Empty), Is.True);
             sources.Clear();
             sources.Add(second);
 
@@ -147,7 +147,7 @@ namespace Hidano.FacialControl.Rec.Tests.EditMode
                 },
                 null);
 
-            injector.BeginInjection(baseline);
+            Assert.That(injector.TryBeginInjection(baseline), Is.True);
 
             Assert.That(first.IsTriggerInputSuspended, Is.False);
             Assert.That(second.IsTriggerInputSuspended, Is.True);
@@ -155,17 +155,17 @@ namespace Hidano.FacialControl.Rec.Tests.EditMode
         }
 
         [Test]
-        public void BeginInjection_WhenReenteredWithSameSource_ReestablishesBaseline()
+        public void TryBeginInjection_WhenReenteredWithSameSource_ReestablishesBaseline()
         {
             var source = CreateTriggerSource("input:trigger");
             var injector = CreateInjector(
                 id => id == source.Id ? source : null,
                 () => new[] { source });
 
-            injector.BeginInjection(RecBaselineState.Empty);
+            Assert.That(injector.TryBeginInjection(RecBaselineState.Empty), Is.True);
             injector.InjectTriggerOn("input:trigger", "smile");
 
-            injector.BeginInjection(RecBaselineState.Empty);
+            Assert.That(injector.TryBeginInjection(RecBaselineState.Empty), Is.True);
 
             Assert.That(source.IsTriggerInputSuspended, Is.True);
             Assert.That(source.ActiveExpressionIds, Is.Empty);

@@ -47,6 +47,7 @@ namespace Hidano.FacialControl.Domain.Services
         public int BlendShapeCount { get; }
 
         private IInputSource[] _sources;                // 2D を flat で [l * Max + s] に格納
+        private string[] _slotIds;                      // スロットの同定キー（レイヤー宣言 id。未指定なら source.Id）
         private int _maxSourcesPerLayer;                // MaxSourcesPerLayer の backing field
         private readonly int[] _sourceCounts;           // 各レイヤーの登録済みスロット数
         private float[] _scratchBuffer;                 // 連続 1 本の scratch プール
@@ -66,6 +67,20 @@ namespace Hidano.FacialControl.Domain.Services
             FacialProfile profile,
             int blendShapeCount,
             IReadOnlyList<(int layerIdx, int sourceIdx, IInputSource source)> bindings)
+            : this(profile, blendShapeCount, bindings, null)
+        {
+        }
+
+        /// <param name="bindingSlotIds">
+        /// <paramref name="bindings"/> と同じ並びのスロット同定キー（レイヤー宣言の id = <c>InputSourceRegistry</c> の登録キー）。
+        /// null 要素・未指定は <c>source.Id</c> を使う。<c>OscInputSource</c> のように <c>Id</c> が常に同じ入力源を
+        /// 同一レイヤーに複数宣言しても、宣言 id でスロットを区別できるようにする。
+        /// </param>
+        public LayerInputSourceRegistry(
+            FacialProfile profile,
+            int blendShapeCount,
+            IReadOnlyList<(int layerIdx, int sourceIdx, IInputSource source)> bindings,
+            IReadOnlyList<string> bindingSlotIds)
         {
             if (bindings == null)
             {
@@ -103,6 +118,7 @@ namespace Hidano.FacialControl.Domain.Services
 
             int slotCount = LayerCount * MaxSourcesPerLayer;
             _sources = slotCount == 0 ? Array.Empty<IInputSource>() : new IInputSource[slotCount];
+            _slotIds = slotCount == 0 ? Array.Empty<string>() : new string[slotCount];
             _sourceCounts = LayerCount == 0 ? Array.Empty<int>() : new int[LayerCount];
 
             for (int i = 0; i < bindings.Count; i++)
@@ -119,6 +135,8 @@ namespace Hidano.FacialControl.Domain.Services
 
                 int flat = (b.layerIdx * MaxSourcesPerLayer) + b.sourceIdx;
                 _sources[flat] = b.source;
+                string slotId = bindingSlotIds != null && i < bindingSlotIds.Count ? bindingSlotIds[i] : null;
+                _slotIds[flat] = string.IsNullOrEmpty(slotId) ? b.source?.Id : slotId;
                 int registered = b.sourceIdx + 1;
                 if (registered > _sourceCounts[b.layerIdx])
                 {
@@ -158,6 +176,42 @@ namespace Hidano.FacialControl.Domain.Services
             }
             int flat = (layerIdx * MaxSourcesPerLayer) + sourceIdx;
             return _sources[flat];
+        }
+
+        /// <summary>
+        /// 指定 (layerIdx, sourceIdx) のスロット同定キーを返す。未登録または範囲外は <c>null</c>。
+        /// 宣言 id 付きで登録されたスロットは宣言 id、そうでなければ登録時の <c>source.Id</c>。
+        /// </summary>
+        public string GetSlotId(int layerIdx, int sourceIdx)
+        {
+            if ((uint)layerIdx >= (uint)LayerCount || (uint)sourceIdx >= (uint)MaxSourcesPerLayer)
+            {
+                return null;
+            }
+
+            return _slotIds[(layerIdx * MaxSourcesPerLayer) + sourceIdx];
+        }
+
+        /// <summary>
+        /// 指定レイヤーでスロット同定キーが <paramref name="slotId"/> に一致する sourceIdx を返す。無ければ -1。
+        /// </summary>
+        public int FindSourceIndex(int layerIdx, string slotId)
+        {
+            if ((uint)layerIdx >= (uint)LayerCount || string.IsNullOrEmpty(slotId))
+            {
+                return -1;
+            }
+
+            int count = _sourceCounts[layerIdx];
+            for (int s = 0; s < count; s++)
+            {
+                if (string.Equals(_slotIds[(layerIdx * MaxSourcesPerLayer) + s], slotId, StringComparison.Ordinal))
+                {
+                    return s;
+                }
+            }
+
+            return -1;
         }
 
         /// <summary>
@@ -212,6 +266,16 @@ namespace Hidano.FacialControl.Domain.Services
         /// </remarks>
         public bool TryAddSource(int layerIdx, IInputSource source)
         {
+            return TryAddSource(layerIdx, source, null);
+        }
+
+        /// <summary>
+        /// 低頻度ランタイム API: 指定レイヤーの末尾スロットへ入力源を追加する。
+        /// <paramref name="slotId"/>（レイヤー宣言の id）でスロットを同定し、null なら <c>source.Id</c> を使う。
+        /// 同じスロット同定キーが既にあれば警告 + false。
+        /// </summary>
+        public bool TryAddSource(int layerIdx, IInputSource source, string slotId)
+        {
             if (_disposed)
             {
                 Debug.LogWarning(
@@ -233,15 +297,12 @@ namespace Hidano.FacialControl.Domain.Services
                 return false;
             }
 
-            for (int s = 0; s < MaxSourcesPerLayer; s++)
+            string effectiveSlotId = string.IsNullOrEmpty(slotId) ? source.Id : slotId;
+            if (FindSourceIndex(layerIdx, effectiveSlotId) >= 0)
             {
-                var existing = _sources[(layerIdx * MaxSourcesPerLayer) + s];
-                if (existing != null && string.Equals(existing.Id, source.Id, StringComparison.Ordinal))
-                {
-                    Debug.LogWarning(
-                        $"LayerInputSourceRegistry: TryAddSource の id='{source.Id}' は layerIdx={layerIdx} に既に登録されているためスキップします。");
-                    return false;
-                }
+                Debug.LogWarning(
+                    $"LayerInputSourceRegistry: TryAddSource の id='{effectiveSlotId}' は layerIdx={layerIdx} に既に登録されているためスキップします。");
+                return false;
             }
 
             int newSourceIdx = _sourceCounts[layerIdx];
@@ -252,7 +313,49 @@ namespace Hidano.FacialControl.Domain.Services
 
             int flat = (layerIdx * MaxSourcesPerLayer) + newSourceIdx;
             _sources[flat] = source;
+            _slotIds[flat] = effectiveSlotId;
             _sourceCounts[layerIdx]++;
+            return true;
+        }
+
+        /// <summary>
+        /// 低頻度ランタイム API: 登録済みスロット <paramref name="sourceIdx"/> の入力源を <paramref name="source"/> で
+        /// その場置換する。スロット位置と <see cref="GetSourceCountForLayer"/> は変わらないため、
+        /// 同じ (layer, source) 位置の weight をそのまま引き継げる（remove + add だと後続スロットが詰まって
+        /// weight 列とずれる）。
+        /// </summary>
+        /// <returns>置換できれば true。範囲外 layer / 未登録スロット / null source は警告 + false。</returns>
+        public bool TryReplaceSource(int layerIdx, int sourceIdx, IInputSource source)
+        {
+            if (_disposed)
+            {
+                Debug.LogWarning(
+                    "LayerInputSourceRegistry: TryReplaceSource は Dispose 済みの Registry では利用できません。");
+                return false;
+            }
+
+            if ((uint)layerIdx >= (uint)LayerCount)
+            {
+                Debug.LogWarning(
+                    $"LayerInputSourceRegistry: TryReplaceSource の layerIdx={layerIdx} が範囲外のためスキップします (LayerCount={LayerCount})。");
+                return false;
+            }
+
+            if ((uint)sourceIdx >= (uint)_sourceCounts[layerIdx])
+            {
+                Debug.LogWarning(
+                    $"LayerInputSourceRegistry: TryReplaceSource の sourceIdx={sourceIdx} は layerIdx={layerIdx} に登録されていません (count={_sourceCounts[layerIdx]})。");
+                return false;
+            }
+
+            if (source == null)
+            {
+                Debug.LogWarning(
+                    $"LayerInputSourceRegistry: TryReplaceSource の source が null のためスキップします (layerIdx={layerIdx}, sourceIdx={sourceIdx})。");
+                return false;
+            }
+
+            _sources[(layerIdx * MaxSourcesPerLayer) + sourceIdx] = source;
             return true;
         }
 
@@ -288,17 +391,7 @@ namespace Hidano.FacialControl.Domain.Services
             }
 
             string idValue = id.Value;
-            int removedIdx = -1;
-            for (int s = 0; s < MaxSourcesPerLayer; s++)
-            {
-                var existing = _sources[(layerIdx * MaxSourcesPerLayer) + s];
-                if (existing != null && string.Equals(existing.Id, idValue, StringComparison.Ordinal))
-                {
-                    removedIdx = s;
-                    break;
-                }
-            }
-
+            int removedIdx = FindSourceIndex(layerIdx, idValue);
             if (removedIdx < 0)
             {
                 Debug.LogWarning(
@@ -309,9 +402,12 @@ namespace Hidano.FacialControl.Domain.Services
             int count = _sourceCounts[layerIdx];
             for (int s = removedIdx; s < count - 1; s++)
             {
-                _sources[(layerIdx * MaxSourcesPerLayer) + s] = _sources[(layerIdx * MaxSourcesPerLayer) + s + 1];
+                int to = (layerIdx * MaxSourcesPerLayer) + s;
+                _sources[to] = _sources[to + 1];
+                _slotIds[to] = _slotIds[to + 1];
             }
             _sources[(layerIdx * MaxSourcesPerLayer) + count - 1] = null;
+            _slotIds[(layerIdx * MaxSourcesPerLayer) + count - 1] = null;
             _sourceCounts[layerIdx] = count - 1;
 
             return true;
@@ -329,11 +425,13 @@ namespace Hidano.FacialControl.Domain.Services
 
             int newSlotCount = LayerCount * newMax;
             var newSources = newSlotCount == 0 ? Array.Empty<IInputSource>() : new IInputSource[newSlotCount];
+            var newSlotIds = newSlotCount == 0 ? Array.Empty<string>() : new string[newSlotCount];
             for (int l = 0; l < LayerCount; l++)
             {
                 for (int s = 0; s < oldMax; s++)
                 {
                     newSources[(l * newMax) + s] = _sources[(l * oldMax) + s];
+                    newSlotIds[(l * newMax) + s] = _slotIds[(l * oldMax) + s];
                 }
             }
 
@@ -341,6 +439,7 @@ namespace Hidano.FacialControl.Domain.Services
             var newScratch = newScratchSize == 0 ? Array.Empty<float>() : new float[newScratchSize];
 
             _sources = newSources;
+            _slotIds = newSlotIds;
             _scratchBuffer = newScratch;
             _maxSourcesPerLayer = newMax;
         }

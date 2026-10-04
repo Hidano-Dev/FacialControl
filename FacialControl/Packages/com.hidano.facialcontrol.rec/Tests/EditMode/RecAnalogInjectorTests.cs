@@ -28,14 +28,14 @@ namespace Hidano.FacialControl.Rec.Tests.EditMode
             new Regex("analog.*'input:analog'", RegexOptions.CultureInvariant);
 
         [Test]
-        public void BeginInjection_WithRegisteredOriginal_ReplacesSourceAndSeedsBaselineAxes()
+        public void TryBeginInjection_WithRegisteredOriginal_ReplacesSourceAndSeedsBaselineAxes()
         {
             var registry = new InputSourceRegistry();
             IInputSource original = new StubInputSource("live:analog");
             registry.Register(AdapterSlug.Parse("input"), "analog", original);
             var injector = new RecAnalogInjector(registry);
 
-            injector.BeginInjection(CreateBaseline("input:analog", 0.25f, -0.5f));
+            Assert.That(injector.TryBeginInjection(CreateBaseline("input:analog", 0.25f, -0.5f)), Is.True);
 
             Assert.That(registry.TryResolve("input:analog", out IInputSource resolved), Is.True);
             Assert.That(resolved, Is.TypeOf<RecPlaybackAnalogSource>());
@@ -47,14 +47,14 @@ namespace Hidano.FacialControl.Rec.Tests.EditMode
         }
 
         [Test]
-        public void BeginInjection_WithRegisteredAnalogOutsideBaseline_ReplacesSourceAndSeedsZeroAxes()
+        public void TryBeginInjection_WithRegisteredAnalogOutsideBaseline_ReplacesSourceAndSeedsZeroAxes()
         {
             var registry = new InputSourceRegistry();
             var original = new StubAnalogInputSource("input:gaze", 2, 0.9f, -0.4f);
             registry.Register(AdapterSlug.Parse("input"), "gaze", original);
             var injector = new RecAnalogInjector(registry);
 
-            injector.BeginInjection(RecBaselineState.Empty);
+            Assert.That(injector.TryBeginInjection(RecBaselineState.Empty), Is.True);
 
             Assert.That(registry.TryResolve("input:gaze", out IInputSource resolved), Is.True);
             Assert.That(resolved, Is.TypeOf<RecPlaybackAnalogSource>());
@@ -66,13 +66,13 @@ namespace Hidano.FacialControl.Rec.Tests.EditMode
         }
 
         [Test]
-        public void BeginInjection_WhenOriginalIsMissing_RegistersSourceAndLogsInfo()
+        public void TryBeginInjection_WhenOriginalIsMissing_RegistersSourceAndLogsInfo()
         {
             LogAssert.Expect(LogType.Log, RegisteredLogPattern);
             var registry = new InputSourceRegistry();
             var injector = new RecAnalogInjector(registry);
 
-            injector.BeginInjection(CreateBaseline("input:gaze", -1f, 0.75f));
+            Assert.That(injector.TryBeginInjection(CreateBaseline("input:gaze", -1f, 0.75f)), Is.True);
 
             Assert.That(registry.TryResolve("input:gaze", out IInputSource resolved), Is.True);
             Assert.That(resolved, Is.TypeOf<RecPlaybackAnalogSource>());
@@ -84,14 +84,14 @@ namespace Hidano.FacialControl.Rec.Tests.EditMode
         }
 
         [Test]
-        public void BeginInjection_WithBaselineAndRegisteredSource_PrefersBaselineSeed()
+        public void TryBeginInjection_WithBaselineAndRegisteredSource_PrefersBaselineSeed()
         {
             var registry = new InputSourceRegistry();
             var original = new StubAnalogInputSource("input:gaze", 2, 0.9f, -0.4f);
             registry.Register(AdapterSlug.Parse("input"), "gaze", original);
             var injector = new RecAnalogInjector(registry);
 
-            injector.BeginInjection(CreateBaseline("input:gaze", -1f, 0.75f));
+            Assert.That(injector.TryBeginInjection(CreateBaseline("input:gaze", -1f, 0.75f)), Is.True);
 
             Assert.That(registry.TryResolve("input:gaze", out IInputSource resolved), Is.True);
             Assert.That(resolved, Is.TypeOf<RecPlaybackAnalogSource>());
@@ -102,7 +102,7 @@ namespace Hidano.FacialControl.Rec.Tests.EditMode
         }
 
         [Test]
-        public void BeginInjection_WhenCurrentEntryIsInjected_LogsWarningAndSkipsReplacement()
+        public void TryBeginInjection_WhenCurrentEntryIsInjected_LogsWarningAndSkipsReplacement()
         {
             LogAssert.Expect(LogType.Warning, OccupiedLogPattern);
             var registry = new InputSourceRegistry();
@@ -110,7 +110,7 @@ namespace Hidano.FacialControl.Rec.Tests.EditMode
             registry.Register(AdapterSlug.Parse("input"), "analog", occupied);
             var injector = new RecAnalogInjector(registry);
 
-            injector.BeginInjection(CreateBaseline("input:analog", 0.5f));
+            Assert.That(injector.TryBeginInjection(CreateBaseline("input:analog", 0.5f)), Is.True);
 
             Assert.That(registry.TryResolve("input:analog", out IInputSource resolved), Is.True);
             Assert.That(resolved, Is.SameAs(occupied));
@@ -122,7 +122,7 @@ namespace Hidano.FacialControl.Rec.Tests.EditMode
             var registry = new InputSourceRegistry();
             registry.Register(AdapterSlug.Parse("input"), "analog", new StubInputSource("live:analog"));
             var injector = new RecAnalogInjector(registry);
-            injector.BeginInjection(CreateBaseline("input:analog", 0f, 0f));
+            Assert.That(injector.TryBeginInjection(CreateBaseline("input:analog", 0f, 0f)), Is.True);
 
             injector.InjectAnalogSample("input:analog", new float[] { 0.8f, -0.2f });
 
@@ -140,7 +140,7 @@ namespace Hidano.FacialControl.Rec.Tests.EditMode
             IInputSource original = new StubInputSource("live:analog");
             registry.Register(AdapterSlug.Parse("input"), "analog", original);
             var injector = new RecAnalogInjector(registry);
-            injector.BeginInjection(CreateBaseline("input:analog", 0.5f));
+            Assert.That(injector.TryBeginInjection(CreateBaseline("input:analog", 0.5f)), Is.True);
 
             injector.EndInjection();
 
@@ -154,7 +154,7 @@ namespace Hidano.FacialControl.Rec.Tests.EditMode
             LogAssert.Expect(LogType.Log, RegisteredLogPattern);
             var registry = new InputSourceRegistry();
             var injector = new RecAnalogInjector(registry);
-            injector.BeginInjection(CreateBaseline("input:gaze", 0.1f, 0.2f));
+            Assert.That(injector.TryBeginInjection(CreateBaseline("input:gaze", 0.1f, 0.2f)), Is.True);
 
             injector.EndInjection();
 
@@ -168,7 +168,7 @@ namespace Hidano.FacialControl.Rec.Tests.EditMode
             var registry = new InputSourceRegistry();
             registry.Register(AdapterSlug.Parse("input"), "analog", new StubInputSource("live:analog"));
             var injector = new RecAnalogInjector(registry);
-            injector.BeginInjection(CreateBaseline("input:analog", 0.5f));
+            Assert.That(injector.TryBeginInjection(CreateBaseline("input:analog", 0.5f)), Is.True);
             Assert.That(registry.TryResolve("input:analog", out IInputSource playbackSource), Is.True);
             var competingSource = new StubInjectedInputSource("other", playbackSource);
             registry.Replace(AdapterSlug.Parse("input"), "analog", competingSource);

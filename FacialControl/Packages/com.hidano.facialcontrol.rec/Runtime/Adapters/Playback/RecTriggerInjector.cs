@@ -29,7 +29,13 @@ namespace Hidano.FacialControl.Rec.Adapters.Playback
             _getAllTriggerSources = getAllTriggerSources ?? throw new ArgumentNullException(nameof(getAllTriggerSources));
         }
 
-        public void BeginInjection(RecBaselineState baseline)
+        public bool CanBeginInjection(out string reason)
+        {
+            reason = string.Empty;
+            return true;
+        }
+
+        public bool TryBeginInjection(RecBaselineState baseline)
         {
             // 再入吸収: 旧スナップショットの遮断を先に解放してから最新のソース集合を取り直す。
             EndInjection();
@@ -73,6 +79,7 @@ namespace Hidano.FacialControl.Rec.Adapters.Playback
 
             _resolvedSourceIdsBuffer.Clear();
             _isInjecting = true;
+            return true;
         }
 
         public void InjectTriggerOn(string sourceId, string expressionId)

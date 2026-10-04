@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Text;
 using System.Threading;
+using Hidano.FacialControl.Domain.Interfaces;
 using Hidano.FacialControl.Rec.Domain.Interfaces;
 using Hidano.FacialControl.Rec.Domain.Models;
 using Hidano.FacialControl.Rec.Domain.Services;
@@ -18,6 +19,7 @@ namespace Hidano.FacialControl.Rec.Adapters.Recording
         private const int DefaultSegmentCapacity = 64;
         private const int DefaultInitialSegments = 4;
         private const int DefaultAxisFloatCapacityPerSegment = 128;
+        private const int DefaultByteCapacityPerSegment = 64;
         private const double ErrorLogThrottleSeconds = 5d;
         private const int ThreadJoinTimeoutMs = 2000;
         private const int OpenWaitTimeoutMs = 5000;
@@ -50,12 +52,14 @@ namespace Hidano.FacialControl.Rec.Adapters.Recording
             string filePath,
             int segmentCapacity = DefaultSegmentCapacity,
             int initialSegments = DefaultInitialSegments,
-            int axisFloatCapacityPerSegment = DefaultAxisFloatCapacityPerSegment)
+            int axisFloatCapacityPerSegment = DefaultAxisFloatCapacityPerSegment,
+            int byteCapacityPerSegment = DefaultByteCapacityPerSegment)
             : this(
                 filePath,
                 segmentCapacity,
                 initialSegments,
                 axisFloatCapacityPerSegment,
+                byteCapacityPerSegment,
                 CreateFileStream,
                 CreatePostFinalizeAction())
         {
@@ -68,6 +72,19 @@ namespace Hidano.FacialControl.Rec.Adapters.Recording
             int axisFloatCapacityPerSegment,
             Func<string, Stream> streamFactory,
             Action postFinalizeAction)
+            : this(filePath, segmentCapacity, initialSegments, axisFloatCapacityPerSegment,
+                DefaultByteCapacityPerSegment, streamFactory, postFinalizeAction)
+        {
+        }
+
+        public RecStreamWriter(
+            string filePath,
+            int segmentCapacity,
+            int initialSegments,
+            int axisFloatCapacityPerSegment,
+            int byteCapacityPerSegment,
+            Func<string, Stream> streamFactory,
+            Action postFinalizeAction)
         {
             if (string.IsNullOrWhiteSpace(filePath))
             {
@@ -75,7 +92,7 @@ namespace Hidano.FacialControl.Rec.Adapters.Recording
             }
 
             _filePath = filePath;
-            _queue = new RecEventChunkQueue(segmentCapacity, initialSegments, axisFloatCapacityPerSegment);
+            _queue = new RecEventChunkQueue(segmentCapacity, initialSegments, axisFloatCapacityPerSegment, byteCapacityPerSegment);
             _streamFactory = streamFactory ?? throw new ArgumentNullException(nameof(streamFactory));
             _postFinalizeAction = postFinalizeAction;
         }
@@ -131,7 +148,7 @@ namespace Hidano.FacialControl.Rec.Adapters.Recording
             }
         }
 
-        public void AppendEvent(in RecEvent evt, ReadOnlySpan<float> axes, string idValue = null)
+        public void AppendEvent(in RecEvent evt, ReadOnlySpan<float> payload, ReadOnlySpan<byte> maskBytes = default, string idValue = null)
         {
             if (!_accepting)
             {
@@ -144,7 +161,8 @@ namespace Hidano.FacialControl.Rec.Adapters.Recording
                 return;
             }
 
-            _queue.Enqueue(in evt, axes, idValue);
+            // payload（float）と mask（byte）はキューの別区画にコピーされ、ライタースレッドが RecBinaryFormat で書き出す。
+            _queue.Enqueue(in evt, payload, maskBytes, idValue);
         }
 
         public void Complete(double durationSeconds, int eventCount)
@@ -246,7 +264,8 @@ namespace Hidano.FacialControl.Rec.Adapters.Recording
 
                 while (!_stopRequested || !_queue.IsEmpty)
                 {
-                    if (!_queue.TryDequeue(out RecEvent evt, out ReadOnlySpan<float> axes, out string idValue))
+                    if (!_queue.TryDequeue(out RecEvent evt, out ReadOnlySpan<float> axes,
+                        out ReadOnlySpan<byte> maskBytes, out string idValue))
                     {
                         Thread.Yield();
                         continue;
@@ -259,7 +278,7 @@ namespace Hidano.FacialControl.Rec.Adapters.Recording
 
                     try
                     {
-                        WriteRecord(stream, ref buffer, in evt, axes, idValue);
+                        WriteRecord(stream, ref buffer, in evt, axes, maskBytes, idValue);
                     }
                     catch (Exception ex)
                     {
@@ -296,7 +315,9 @@ namespace Hidano.FacialControl.Rec.Adapters.Recording
 
         private void WriteBaseline(Stream stream, ref byte[] buffer)
         {
-            var idTable = CreateSeededIdTable(_baseline);
+            // RecordingUseCase と同じシードで IdDefine を書く（系1の予約 ID を含む）。食い違うと記録側の index が
+            // ずれて読み戻しが失敗する。
+            RecIdTable idTable = RecIdTable.CreateSeeded(_baseline);
 
             for (int i = 0; i < idTable.SourceIds.Count; i++)
             {
@@ -305,6 +326,7 @@ namespace Hidano.FacialControl.Rec.Adapters.Recording
                     ref buffer,
                     RecEvent.CreateIdDefine((ushort)i, RecEvent.IdDefinitionKind.Source),
                     ReadOnlySpan<float>.Empty,
+                    ReadOnlySpan<byte>.Empty,
                     idTable.SourceIds[i]);
             }
 
@@ -315,6 +337,7 @@ namespace Hidano.FacialControl.Rec.Adapters.Recording
                     ref buffer,
                     RecEvent.CreateIdDefine((ushort)i, RecEvent.IdDefinitionKind.Expression),
                     ReadOnlySpan<float>.Empty,
+                    ReadOnlySpan<byte>.Empty,
                     idTable.ExpressionIds[i]);
             }
 
@@ -325,7 +348,8 @@ namespace Hidano.FacialControl.Rec.Adapters.Recording
                 for (int j = 0; j < entry.ExpressionIds.Count; j++)
                 {
                     ushort expressionIndex = idTable.GetOrAddExpressionId(entry.ExpressionIds[j]);
-                    WriteRecord(stream, ref buffer, RecEvent.CreateBaselineTrigger(sourceIndex, expressionIndex), ReadOnlySpan<float>.Empty, null);
+                    WriteRecord(stream, ref buffer, RecEvent.CreateBaselineTrigger(sourceIndex, expressionIndex),
+                        ReadOnlySpan<float>.Empty, ReadOnlySpan<byte>.Empty, null);
                 }
             }
 
@@ -334,17 +358,41 @@ namespace Hidano.FacialControl.Rec.Adapters.Recording
                 RecBaselineState.AnalogEntry entry = _baseline.AnalogEntries[i];
                 ushort sourceIndex = idTable.GetOrAddSourceId(entry.SourceId);
                 float[] axes = CopyAxes(entry.Axes);
-                WriteRecord(stream, ref buffer, RecEvent.CreateBaselineAnalog(sourceIndex, checked((byte)axes.Length)), axes, null);
+                WriteRecord(stream, ref buffer, RecEvent.CreateBaselineAnalog(sourceIndex, checked((byte)axes.Length)), axes,
+                    ReadOnlySpan<byte>.Empty, null);
+            }
+
+            for (int i = 0; i < _baseline.ValueProviderEntries.Count; i++)
+            {
+                RecBaselineState.ValueProviderEntry entry = _baseline.ValueProviderEntries[i];
+                ushort sourceIndex = idTable.GetOrAddSourceId(entry.SourceId);
+                float[] values = CopyValues(entry.Values);
+                byte[] maskBytes = CopyMaskBytes(entry.MaskBytes);
+                RecEvent evt = RecEvent.CreateBaselineValueProvider(sourceIndex, entry.IsValid,
+                    checked((ushort)values.Length), checked((ushort)maskBytes.Length));
+                WriteRecord(stream, ref buffer, in evt, values, maskBytes, null);
+            }
+
+            // 系1の予約 source は CreateSeeded が登録済み。index 0 とは限らない（trigger / analog / VP が先に並ぶ）。
+            ushort expressionSourceIndex = idTable.GetOrAddSourceId(ExpressionActivationSource.ReservedId);
+            for (int i = 0; i < _baseline.ExpressionEntries.Count; i++)
+            {
+                ushort expressionIndex = idTable.GetOrAddExpressionId(_baseline.ExpressionEntries[i]);
+                RecEvent evt = RecEvent.CreateBaselineExpression(expressionSourceIndex, expressionIndex);
+                WriteRecord(stream, ref buffer, in evt, ReadOnlySpan<float>.Empty, ReadOnlySpan<byte>.Empty, null);
             }
         }
 
-        private static void WriteRecord(Stream stream, ref byte[] buffer, in RecEvent evt, ReadOnlySpan<float> axes, string idValue)
+        private static void WriteRecord(Stream stream, ref byte[] buffer, in RecEvent evt,
+            ReadOnlySpan<float> values, ReadOnlySpan<byte> maskBytes, string idValue)
         {
             int requiredCapacity = evt.Kind == RecEventKind.IdDefine
-                ? RecBinaryFormat.GetMaxRecordSize(GetUtf8ByteCount(idValue), 0)
-                : RecBinaryFormat.GetMaxRecordSize(0, axes.Length);
+                ? RecBinaryFormat.GetMaxRecordSize(GetUtf8ByteCount(idValue), 0, 0, 0)
+                : RecBinaryFormat.GetMaxRecordSize(0,
+                    evt.Kind == RecEventKind.AnalogSample || evt.Kind == RecEventKind.BaselineAnalog ? values.Length : 0,
+                    values.Length, maskBytes.Length);
             EnsureBufferCapacity(ref buffer, requiredCapacity);
-            int bytesWritten = RecBinaryFormat.WriteRecord(buffer, evt, axes, idValue);
+            int bytesWritten = RecBinaryFormat.WriteRecord(buffer, evt, values, maskBytes, idValue);
             stream.Write(buffer, 0, bytesWritten);
         }
 
@@ -358,7 +406,7 @@ namespace Hidano.FacialControl.Rec.Adapters.Recording
 
         private static int CountBaselineRecords(RecBaselineState baseline)
         {
-            var idTable = CreateSeededIdTable(baseline);
+            RecIdTable idTable = RecIdTable.CreateSeeded(baseline);
             int count = idTable.SourceIds.Count + idTable.ExpressionIds.Count;
 
             for (int i = 0; i < baseline.TriggerEntries.Count; i++)
@@ -367,33 +415,9 @@ namespace Hidano.FacialControl.Rec.Adapters.Recording
             }
 
             count += baseline.AnalogEntries.Count;
+            count += baseline.ValueProviderEntries.Count;
+            count += baseline.ExpressionEntries.Count;
             return count;
-        }
-
-        private static RecIdTable CreateSeededIdTable(RecBaselineState baseline)
-        {
-            var idTable = new RecIdTable();
-            if (baseline == null)
-            {
-                return idTable;
-            }
-
-            for (int i = 0; i < baseline.TriggerEntries.Count; i++)
-            {
-                RecBaselineState.TriggerEntry entry = baseline.TriggerEntries[i];
-                idTable.GetOrAddSourceId(entry.SourceId);
-                for (int j = 0; j < entry.ExpressionIds.Count; j++)
-                {
-                    idTable.GetOrAddExpressionId(entry.ExpressionIds[j]);
-                }
-            }
-
-            for (int i = 0; i < baseline.AnalogEntries.Count; i++)
-            {
-                idTable.GetOrAddSourceId(baseline.AnalogEntries[i].SourceId);
-            }
-
-            return idTable;
         }
 
         private static float[] CopyAxes(IReadOnlyList<float> axes)
@@ -402,6 +426,28 @@ namespace Hidano.FacialControl.Rec.Adapters.Recording
             for (int i = 0; i < copied.Length; i++)
             {
                 copied[i] = axes[i];
+            }
+
+            return copied;
+        }
+
+        private static float[] CopyValues(IReadOnlyList<float> values)
+        {
+            var copied = new float[values.Count];
+            for (int i = 0; i < copied.Length; i++)
+            {
+                copied[i] = values[i];
+            }
+
+            return copied;
+        }
+
+        private static byte[] CopyMaskBytes(IReadOnlyList<byte> maskBytes)
+        {
+            var copied = new byte[maskBytes.Count];
+            for (int i = 0; i < copied.Length; i++)
+            {
+                copied[i] = maskBytes[i];
             }
 
             return copied;

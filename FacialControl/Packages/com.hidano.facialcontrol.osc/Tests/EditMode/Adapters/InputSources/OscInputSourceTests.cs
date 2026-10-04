@@ -1,3 +1,4 @@
+using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Reflection;
@@ -269,6 +270,61 @@ namespace Hidano.FacialControl.Tests.EditMode.Adapters.InputSources
             Assert.That(source.ContributeMask[1], Is.False);
             Assert.That(source.ContributeMask[2], Is.False);
             Assert.That(source.ContributeMask[3], Is.True);
+        }
+
+        [Test]
+        public void UpdateMapping_mask長一致_参照不変で寄与集合更新()
+        {
+            using var buffer = new OscDoubleBuffer(2);
+            var mask = new BitArray(new[] { true, false, false, false });
+            var source = CreateMeshMappedSource(buffer, mask, new[] { 0, 1 });
+            BitArray originalMask = source.ContributeMask;
+
+            source.UpdateMapping(new[] { 3 }, new BitArray(new[] { false, false, false, true }));
+
+            Assert.That(source.ContributeMask, Is.SameAs(originalMask));
+            Assert.That(source.ContributeMask[0], Is.False);
+            Assert.That(source.ContributeMask[1], Is.False);
+            Assert.That(source.ContributeMask[2], Is.False);
+            Assert.That(source.ContributeMask[3], Is.True);
+
+            buffer.Write(0, 0.75f);
+            buffer.Swap();
+            var output = new[] { -1f, -1f, -1f, -1f };
+            Assert.That(source.TryWriteValues(output), Is.True);
+            Assert.That(output[3], Is.EqualTo(0.75f).Within(1e-6f));
+        }
+
+        [Test]
+        public void TryWriteValues_空マッピング_false()
+        {
+            using var buffer = new OscDoubleBuffer(2);
+            var source = CreateMeshMappedSource(
+                buffer,
+                new BitArray(4, true),
+                new[] { 0 });
+
+            source.UpdateMapping(Array.Empty<int>(), new BitArray(4, false));
+
+            var output = new[] { 7f, 7f, 7f, 7f };
+            Assert.That(source.TryWriteValues(output), Is.False);
+            Assert.That(output, Is.EqualTo(new[] { 7f, 7f, 7f, 7f }));
+        }
+
+        [Test]
+        public void UpdateMapping_mask長不一致でArgumentException()
+        {
+            using var buffer = new OscDoubleBuffer(2);
+            var source = CreateMeshMappedSource(
+                buffer,
+                new BitArray(4, false),
+                new[] { 0 });
+            var originalMask = source.ContributeMask;
+
+            Assert.That(
+                () => source.UpdateMapping(new[] { 1 }, new BitArray(3, true)),
+                Throws.ArgumentException);
+            Assert.That(source.ContributeMask, Is.SameAs(originalMask));
         }
 
         [Test]

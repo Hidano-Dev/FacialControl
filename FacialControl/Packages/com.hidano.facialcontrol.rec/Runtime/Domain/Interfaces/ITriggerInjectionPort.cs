@@ -5,14 +5,11 @@ namespace Hidano.FacialControl.Rec.Domain.Interfaces
     /// <summary>
     /// Playback output port for trigger events.
     /// </summary>
-    public interface ITriggerInjectionPort
+    public interface ITriggerInjectionPort : IInjectionPort
     {
-        void BeginInjection(RecBaselineState baseline);
-
         void InjectTriggerOn(string sourceId, string expressionId);
 
         void InjectTriggerOff(string sourceId, string expressionId);
 
-        void EndInjection();
     }
 }

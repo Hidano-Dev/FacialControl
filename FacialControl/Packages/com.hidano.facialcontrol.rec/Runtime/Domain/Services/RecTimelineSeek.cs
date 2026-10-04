@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using Hidano.FacialControl.Domain.Models;
 using Hidano.FacialControl.Rec.Domain.Models;
 
 namespace Hidano.FacialControl.Rec.Domain.Services
@@ -21,6 +22,14 @@ namespace Hidano.FacialControl.Rec.Domain.Services
     public static class RecTimelineSeek
     {
         public static RecBaselineState BuildBaselineAt(RecTimeline timeline, double offsetSeconds)
+        {
+            return BuildBaselineAt(timeline, offsetSeconds, null);
+        }
+
+        public static RecBaselineState BuildBaselineAt(
+            RecTimeline timeline,
+            double offsetSeconds,
+            FacialProfile? profile)
         {
             if (timeline == null)
             {
@@ -48,6 +57,23 @@ namespace Hidano.FacialControl.Rec.Domain.Services
             for (int i = 0; i < baselineAnalogs.Count; i++)
             {
                 SetAnalogAxes(analogAxes, analogSourceOrder, baselineAnalogs[i].SourceId, baselineAnalogs[i].Axes);
+            }
+
+            var valueProviderSourceOrder = new List<string>();
+            var valueProviders = new Dictionary<string, RecBaselineState.ValueProviderEntry>(StringComparer.Ordinal);
+            IReadOnlyList<RecBaselineState.ValueProviderEntry> baselineValueProviders = timeline.Baseline.ValueProviderEntries;
+            for (int i = 0; i < baselineValueProviders.Count; i++)
+            {
+                SetValueProvider(
+                    valueProviders,
+                    valueProviderSourceOrder,
+                    baselineValueProviders[i]);
+            }
+
+            var activeExpressions = new List<string>();
+            for (int i = 0; i < timeline.Baseline.ExpressionEntries.Count; i++)
+            {
+                ApplyExpressionActivate(activeExpressions, timeline.Baseline.ExpressionEntries[i], profile);
             }
 
             IReadOnlyList<RecEvent> events = timeline.Events;
@@ -81,6 +107,34 @@ namespace Hidano.FacialControl.Rec.Domain.Services
 
                         break;
                     }
+                    case RecEventKind.ValueProviderSample:
+                    {
+                        // 値提供型イベントは差分形式。HasMask / HasValues が無い成分は直前の状態を引き継ぐ
+                        // （値だけの更新で mask を、有効性だけの更新で mask と値を失わないようにする）。
+                        RecValueProviderFlags flags = evt.Flags;
+                        bool hasPrevious = valueProviders.TryGetValue(sourceId, out RecBaselineState.ValueProviderEntry previous);
+                        IReadOnlyList<byte> maskBytes = (flags & RecValueProviderFlags.HasMask) != 0
+                            ? timeline.GetMaskBytesSpan(i).ToArray()
+                            : hasPrevious ? previous.MaskBytes : Array.Empty<byte>();
+                        IReadOnlyList<float> values = (flags & RecValueProviderFlags.HasValues) != 0
+                            ? timeline.GetPayloadSpan(i).ToArray()
+                            : hasPrevious ? previous.Values : Array.Empty<float>();
+                        SetValueProvider(
+                            valueProviders,
+                            valueProviderSourceOrder,
+                            new RecBaselineState.ValueProviderEntry(
+                                sourceId,
+                                (flags & RecValueProviderFlags.IsValid) != 0,
+                                maskBytes,
+                                values));
+                        break;
+                    }
+                    case RecEventKind.ExpressionActivate:
+                        ApplyExpressionActivate(activeExpressions, timeline.ExpressionIds[evt.ExpressionIdIndex], profile);
+                        break;
+                    case RecEventKind.ExpressionDeactivate:
+                        activeExpressions.Remove(timeline.ExpressionIds[evt.ExpressionIdIndex]);
+                        break;
                     default:
                         throw new InvalidOperationException($"Unsupported timed event kind '{evt.Kind}'.");
                 }
@@ -100,7 +154,64 @@ namespace Hidano.FacialControl.Rec.Domain.Services
                 analogEntries[i] = new RecBaselineState.AnalogEntry(sourceId, analogAxes[sourceId]);
             }
 
-            return new RecBaselineState(triggerEntries, analogEntries);
+            var valueProviderEntries = new RecBaselineState.ValueProviderEntry[valueProviderSourceOrder.Count];
+            for (int i = 0; i < valueProviderSourceOrder.Count; i++)
+            {
+                valueProviderEntries[i] = valueProviders[valueProviderSourceOrder[i]];
+            }
+
+            return new RecBaselineState(triggerEntries, analogEntries, valueProviderEntries, activeExpressions);
+        }
+
+        private static void SetValueProvider(
+            Dictionary<string, RecBaselineState.ValueProviderEntry> valueProviders,
+            List<string> sourceOrder,
+            RecBaselineState.ValueProviderEntry entry)
+        {
+            if (!valueProviders.ContainsKey(entry.SourceId))
+            {
+                sourceOrder.Add(entry.SourceId);
+            }
+
+            valueProviders[entry.SourceId] = entry;
+        }
+
+        private static void ApplyExpressionActivate(
+            List<string> activeExpressions,
+            string expressionId,
+            FacialProfile? profile)
+        {
+            activeExpressions.Remove(expressionId);
+
+            if (!profile.HasValue)
+            {
+                activeExpressions.Clear();
+                activeExpressions.Add(expressionId);
+                return;
+            }
+
+            FacialProfile currentProfile = profile.Value;
+            Expression? expression = currentProfile.FindExpressionById(expressionId);
+            if (!expression.HasValue)
+            {
+                activeExpressions.Add(expressionId);
+                return;
+            }
+
+            string layer = currentProfile.GetEffectiveLayer(expression.Value);
+            if (currentProfile.FindLayerByName(layer)?.ExclusionMode == ExclusionMode.LastWins)
+            {
+                for (int i = activeExpressions.Count - 1; i >= 0; i--)
+                {
+                    Expression? active = currentProfile.FindExpressionById(activeExpressions[i]);
+                    if (active.HasValue && currentProfile.GetEffectiveLayer(active.Value) == layer)
+                    {
+                        activeExpressions.RemoveAt(i);
+                    }
+                }
+            }
+
+            activeExpressions.Add(expressionId);
         }
 
         private static List<string> GetOrAddTriggerStack(

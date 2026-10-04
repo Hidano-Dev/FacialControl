@@ -213,6 +213,36 @@ namespace Hidano.FacialControl.Rec.Tests.EditMode
             Assert.That(RecPlaybackScheduler.GetStartEventIndex(timeline, 0d), Is.EqualTo(0));
         }
 
+        [Test]
+        public void Tick_DispatchesValueProviderAndExpressionEventsWithPayloads()
+        {
+            var timeline = new RecTimeline(
+                RecBaselineState.Empty,
+                new[]
+                {
+                    RecEvent.CreateValueProviderSample(0.1d, 0, RecValueProviderFlags.IsValid | RecValueProviderFlags.HasMask | RecValueProviderFlags.HasValues, 2, 1),
+                    RecEvent.CreateExpressionActivate(0.2d, 1, 0),
+                    RecEvent.CreateExpressionDeactivate(0.3d, 1, 0),
+                },
+                new[] { "vp", "@expression" },
+                new[] { "smile" },
+                0.3d,
+                new IReadOnlyList<float>[] { new[] { 0.25f, -0.5f }, Array.Empty<float>(), Array.Empty<float>() },
+                new IReadOnlyList<byte>[] { new byte[] { 0x05 }, Array.Empty<byte>(), Array.Empty<byte>() });
+            var scheduler = new RecPlaybackScheduler();
+            scheduler.Load(timeline);
+            var visitor = new RecordingVisitor();
+
+            scheduler.Tick(0.3f, visitor);
+
+            Assert.That(visitor.Entries, Is.EqualTo(new[]
+            {
+                "vp:vp:True:05:0.25,-0.50",
+                "activate:@expression:smile",
+                "deactivate:@expression:smile",
+            }));
+        }
+
         private static RecTimeline CreateTimeline()
         {
             return new RecTimeline(
@@ -255,6 +285,21 @@ namespace Hidano.FacialControl.Rec.Tests.EditMode
             public void VisitAnalogSample(string sourceId, ReadOnlySpan<float> axes)
             {
                 _entries.Add($"analog:{sourceId}:{axes[0]:0.00},{axes[1]:0.00}");
+            }
+
+            public void VisitValueProviderSample(string sourceId, bool isValid, ReadOnlySpan<byte> maskBytes, ReadOnlySpan<float> values)
+            {
+                _entries.Add($"vp:{sourceId}:{isValid}:{maskBytes[0]:X2}:{values[0]:0.00},{values[1]:0.00}");
+            }
+
+            public void VisitExpressionActivate(string sourceId, string expressionId)
+            {
+                _entries.Add($"activate:{sourceId}:{expressionId}");
+            }
+
+            public void VisitExpressionDeactivate(string sourceId, string expressionId)
+            {
+                _entries.Add($"deactivate:{sourceId}:{expressionId}");
             }
         }
     }

@@ -11,6 +11,11 @@ namespace Hidano.FacialControl.Rec.Domain.Models
         AnalogSample = 4,
         BaselineTrigger = 5,
         BaselineAnalog = 6,
+        ValueProviderSample = 7,
+        BaselineValueProvider = 8,
+        ExpressionActivate = 9,
+        ExpressionDeactivate = 10,
+        BaselineExpression = 11,
         Footer = 255,
     }
 }

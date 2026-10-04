@@ -39,7 +39,7 @@ namespace Hidano.FacialControl.Adapters.InputSources
         private readonly float _stalenessSeconds;
         private readonly FailSafeMode _failSafeMode;
         private readonly BitArray _contributeMask;
-        private readonly int[] _mappingIndexToMeshIndex;
+        private int[] _mappingIndexToMeshIndex;
 
         private int _lastObservedTick;
         private double _lastDataTime;
@@ -124,11 +124,42 @@ namespace Hidano.FacialControl.Adapters.InputSources
         public override BitArray ContributeMask => _contributeMask ?? base.ContributeMask;
 
         /// <summary>
+        /// OSC mapping と寄与対象集合を、入力源インスタンスを差し替えずに更新する。
+        /// </summary>
+        /// <param name="mappingIndexToMeshIndex">OSC mapping index から mesh BlendShape index への対応表。</param>
+        /// <param name="contributeMask">mesh BlendShape ごとの寄与対象集合。</param>
+        /// <exception cref="ArgumentNullException"><paramref name="contributeMask"/> が null。</exception>
+        /// <exception cref="ArgumentException">寄与対象集合の長さが BlendShape 総数と一致しない。</exception>
+        public void UpdateMapping(int[] mappingIndexToMeshIndex, BitArray contributeMask)
+        {
+            if (contributeMask == null)
+            {
+                throw new ArgumentNullException(nameof(contributeMask));
+            }
+
+            if (contributeMask.Length != BlendShapeCount)
+            {
+                throw new ArgumentException(
+                    "contributeMask の長さは BlendShape 総数と一致する必要があります。",
+                    nameof(contributeMask));
+            }
+
+            _mappingIndexToMeshIndex = mappingIndexToMeshIndex ?? Array.Empty<int>();
+            _contributeMask.SetAll(false);
+            _contributeMask.Or(contributeMask);
+        }
+
+        /// <summary>
         /// OSC 受信バッファの内容を <paramref name="output"/> に書込む。
         /// staleness 超過時は false を返し <paramref name="output"/> を変更しない。
         /// </summary>
         public override bool TryWriteValues(Span<float> output)
         {
+            if (_mappingIndexToMeshIndex.Length == 0)
+            {
+                return false;
+            }
+
             int currentTick = _buffer.WriteTick;
             if (currentTick != _lastObservedTick)
             {

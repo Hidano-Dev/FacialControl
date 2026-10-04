@@ -17,11 +17,16 @@ namespace Hidano.FacialControl.Timeline.Editor
             }
 
             DurationSeconds = timeline.DurationSeconds;
-            _events = new RecordedEvent[timeline.Events.Count];
+            var events = new List<RecordedEvent>(timeline.Events.Count);
             for (int i = 0; i < timeline.Events.Count; i++)
             {
-                _events[i] = ConvertEvent(timeline, i);
+                if (TryConvertEvent(timeline, i, out RecordedEvent recordedEvent))
+                {
+                    events.Add(recordedEvent);
+                }
             }
+
+            _events = events.ToArray();
         }
 
         public double DurationSeconds { get; }
@@ -30,27 +35,36 @@ namespace Hidano.FacialControl.Timeline.Editor
 
         public RecordedEvent this[int index] => _events[index];
 
-        private static RecordedEvent ConvertEvent(RecTimeline timeline, int index)
+        private static bool TryConvertEvent(RecTimeline timeline, int index, out RecordedEvent recordedEvent)
         {
             RecEvent evt = timeline.Events[index];
             switch (evt.Kind)
             {
                 case RecEventKind.TriggerOn:
-                    return new RecordedEvent(
+                    recordedEvent = new RecordedEvent(
                         evt.TimestampSeconds,
                         RecordedEventKind.TriggerOn,
                         expressionId: timeline.ExpressionIds[evt.ExpressionIdIndex]);
+                    return true;
                 case RecEventKind.TriggerOff:
-                    return new RecordedEvent(
+                    recordedEvent = new RecordedEvent(
                         evt.TimestampSeconds,
                         RecordedEventKind.TriggerOff,
                         expressionId: timeline.ExpressionIds[evt.ExpressionIdIndex]);
+                    return true;
                 case RecEventKind.AnalogSample:
-                    return new RecordedEvent(
+                    recordedEvent = new RecordedEvent(
                         evt.TimestampSeconds,
                         RecordedEventKind.AnalogValue,
                         sourceId: timeline.SourceIds[evt.SourceIdIndex],
                         axes: CopyAxes(timeline.GetAnalogAxes(index)));
+                    return true;
+                case RecEventKind.ValueProviderSample:
+                case RecEventKind.ExpressionActivate:
+                case RecEventKind.ExpressionDeactivate:
+                    // 再生では有効だが Timeline Export の表現を持たない kind は無視する。
+                    recordedEvent = default;
+                    return false;
                 default:
                     throw new InvalidOperationException($"Unsupported REC event kind '{evt.Kind}'.");
             }

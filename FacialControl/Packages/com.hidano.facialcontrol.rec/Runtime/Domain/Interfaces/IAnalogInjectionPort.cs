@@ -6,12 +6,8 @@ namespace Hidano.FacialControl.Rec.Domain.Interfaces
     /// <summary>
     /// Playback output port for analog and gaze samples.
     /// </summary>
-    public interface IAnalogInjectionPort
+    public interface IAnalogInjectionPort : IInjectionPort
     {
-        void BeginInjection(RecBaselineState baseline);
-
         void InjectAnalogSample(string sourceId, ReadOnlySpan<float> axes);
-
-        void EndInjection();
     }
 }

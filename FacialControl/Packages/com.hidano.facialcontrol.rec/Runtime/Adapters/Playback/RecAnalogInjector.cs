@@ -33,7 +33,13 @@ namespace Hidano.FacialControl.Rec.Adapters.Playback
             _registry = registry ?? throw new ArgumentNullException(nameof(registry));
         }
 
-        public void BeginInjection(RecBaselineState baseline)
+        public bool CanBeginInjection(out string reason)
+        {
+            reason = string.Empty;
+            return true;
+        }
+
+        public bool TryBeginInjection(RecBaselineState baseline)
         {
             EndInjection();
 
@@ -71,6 +77,8 @@ namespace Hidano.FacialControl.Rec.Adapters.Playback
 
                 AttachPlaybackSource(sourceId, new float[axisCount]);
             }
+
+            return true;
         }
 
         public void InjectAnalogSample(string sourceId, ReadOnlySpan<float> axes)
