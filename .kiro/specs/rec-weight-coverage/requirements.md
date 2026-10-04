@@ -21,6 +21,8 @@ HID-80: REC がレイヤー weight / 入力源 weight のランタイム変更�
 
 対象 Unity プロジェクト: `FacialControl/`（パッケージ `com.hidano.facialcontrol` / `com.hidano.facialcontrol.rec` / `com.hidano.facialcontrol.inputsystem`）
 
+実機症状（2026-10-05、Linear HID-137）: InputSystem の `BindingMode.Overlay` トリガー（目閉じ・笑顔の Override）が REC 再生中もライブで効き続け、記録値を上書きする。本 spec の受け入れ条件（Requirement 10.2）に「Overlay モードのトリガーを再生中に引いても表情が変わらない / 録画時のトリガー操作が再生で再現される」を含める。
+
 ## Introduction
 
 本機能は、REC（`com.hidano.facialcontrol.rec`）の記録・基準状態捕捉・再生時遮断・注入・`.fcrec` ラウンドトリップの対象に、**レイヤー weight**（レイヤー間ブレンドの inter-layer weight）と**入力源 weight**（レイヤー内 (layer, source) スロットの weight）のランタイム変更を加える。
