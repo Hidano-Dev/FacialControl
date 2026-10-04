@@ -31,6 +31,7 @@ HID-143: REC Export ウィンドウの Source Overrides（Auto / Analog / Gaze�
 
 - **In scope**:
   - Profile SO 側設定（Target Layer Names / Channel Definitions / `timeline:` の inputSources 宣言）の撤去と、TimelineAsset からの再生時導出
+  - Facial トラック（FacialExpressionTrack / FacialValueTrack）の Receiver への generic binding の自動設定（Track binding をユーザーに手で設定させない）
   - FacialTimelineReceiver への設定・状態・診断の集約と Inspector 診断表示
   - Bake の自動解決・内部キャッシュ化・Clip 編集時の自動再ベイク
   - Edit プレビューと Play 再生の結果一致
@@ -40,34 +41,37 @@ HID-143: REC Export ウィンドウの Source Overrides（Auto / Analog / Gaze�
   - REC Export の出力をそのまま使う PlayMode end-to-end テスト
 - **Out of scope**:
   - レイヤー weight / 入力源 weight のランタイム変更の REC 対応（HID-80、別 spec `rec-weight-coverage`）。core の LayerUseCase / FacialController の weight API は変更しない
+  - REC の記録フォーマット `.fcrec` の拡張（gaze 広告情報などの追加）。`.fcrec` には gaze の広告情報が存在しないため、Export 時の Gaze 自動判定は Profile の情報（各 binding の `IGazeSourceProvider` 宣言 / `GazeChannels`）と `GazeSourceIdConvention` の source id 規約のみで行う
   - 音声解析・リップシンク本体・OSC 伝送など Timeline 以外の入力経路の変更
   - Timeline の新しいトラック種別・Clip 種別の追加
   - ランタイム UI の提供
 - **Adjacent expectations**:
   - `rec-weight-coverage` spec が並走する。本仕様は REC の記録フォーマット（.fcrec）と core の weight API に手を入れず、REC Export が出力する TimelineAsset の構造変更は本仕様側で完結させる
   - core の `FacialController` のレイヤー接続（inputSources 解決）は、Timeline 統合が再生開始時に入力源を自動接続・解放できる経路を提供する範囲で変更する。既存の OSC / InputSystem / LipSync 等の binding の接続挙動は変えない
+  - FacialTimelineReceiver が PlayableDirector を解決する規則（同一 GameObject → 親 → シーン内で Facial トラックを持つ TimelineAsset をバインドしている Director、の順で探索する）と、複数の Director が同じ Receiver を指す構成の扱いは設計が定義し根拠を文書化する
   - 既存テスト方針（`docs/test-policy.md` / `docs/testing.md`）と Small / Medium / Large のサイズ属性、`pwsh ./scripts/check-test-sizes.ps1` の静的チェックに従う
 
 ## Requirements
 
 ### Requirement 1: 最小手順での Play 再現
-**Objective:** As a Unity エンジニア, I want 「REC で録画 → REC Export → Director に TimelineAsset をセット → Receiver を FacialController に追加」の 4 手順だけで Play モードに録画内容が再現されること, so that 内部構造（Bake / sink / inputSources）を知らなくても Timeline 再生を使える
+**Objective:** As a Unity エンジニア, I want 「REC で録画 → REC Export → Director に TimelineAsset をセット（トラック binding は自動）→ Receiver を FacialController に追加」の 4 手順だけで Play モードに録画内容が再現されること, so that 内部構造（Bake / sink / inputSources / Track binding）を知らなくても Timeline 再生を使える
 
 #### Acceptance Criteria
-1. When ユーザーが REC Export で生成した TimelineAsset を PlayableDirector にバインドし、FacialController と同じ GameObject に FacialTimelineReceiver を追加し、録画時と同じ Profile SO で Play モードを開始する, the Timeline 統合 shall 追加設定なしに表情（Expression トリガーと連続値）と目線（Gaze）を SkinnedMeshRenderer の BlendShape 変化として再現する
-2. The Timeline 統合 shall 上記 4 手順以外の手入力（Target Layer Names / Channel Definitions / Layer.inputSources への `timeline:` 宣言 / BakeAsset の手動登録 / Export 時の Director・Receiver 配線指定）を要求しない
+1. When ユーザーが REC Export で生成した TimelineAsset を PlayableDirector にセットし（トラック binding は自動）、FacialController と同じ GameObject に FacialTimelineReceiver を追加し、録画時と同じ Profile SO で Play モードを開始する, the Timeline 統合 shall 追加設定なしに表情（Expression トリガーと連続値）と目線（Gaze）を SkinnedMeshRenderer の BlendShape 変化として再現する
+2. The Timeline 統合 shall 上記 4 手順以外の手入力（Target Layer Names / Channel Definitions / Layer.inputSources への `timeline:` 宣言 / BakeAsset の手動登録 / Facial トラックの Track binding の手動設定 / Export 時の Director・Receiver 配線指定）を要求しない
 3. The Timeline 統合 shall Gaze を表情と同じ 4 手順・同じ診断の中で扱い、Gaze のみに追加の設定手順を要求しない
 4. While Play モードで Timeline を再生している, the Timeline 統合 shall 毎フレーム処理でヒープ確保を発生させない（再生セッション開始時の確保は許容する）
 5. When 録画時に使った Profile SO を変更せずに Play を開始する, the Timeline 統合 shall Profile SO に対する Timeline 専用の編集を要求せず再生する
+6. When 再生セッションが開始される（および Edit モードで診断を評価する）, the FacialTimelineReceiver shall PlayableDirector にバインドされた TimelineAsset の全 Facial トラック（FacialExpressionTrack / FacialValueTrack）の generic binding を自身へ自動設定し、ユーザーに Track binding の手動設定を要求しない
 
 ### Requirement 2: Profile 側設定の撤去と TimelineAdapterBinding の格下げ
 **Objective:** As a Unity エンジニア, I want TimelineAdapterBinding が「Timeline からの受信を有効にするフラグ」程度の設定だけを持つこと, so that Profile SO を REC 時のまま流用でき、Profile に Timeline 固有の構成を書かなくてよい
 
 #### Acceptance Criteria
-1. The TimelineAdapterBinding shall シリアライズ設定として Slug と有効/無効フラグのみを保持し、Target Layer Names と Channel Definitions を Profile 側に保持しない
+1. The TimelineAdapterBinding shall Inspector で編集可能なシリアライズ設定として Slug と有効/無効フラグのみを保持し、Target Layer Names と Channel Definitions を編集対象として保持しない
 2. When Profile Inspector の AdapterBindings 一覧に TimelineAdapterBinding が表示される, the Profile Inspector shall PropertyDrawer により Slug と有効/無効フラグのみを表示する
-3. When 再生セッションが開始される, the FacialTimelineReceiver shall PlayableDirector にバインドされた TimelineAsset のトラック構成（FacialExpressionTrack 名、FacialValueTrack の ChannelSubId / ChannelKind / クリップ軸数）から対象レイヤーと値チャネル定義を導出する
-4. If 旧形式の Profile SO（Target Layer Names / Channel Definitions を保持）が読み込まれた, then the TimelineAdapterBinding shall 旧フィールドの値に依存せず再生を継続し、旧フィールドが残っていることを Console に 1 回警告する（旧データの移行方式は設計が判定し根拠を文書化する）
+3. When 再生セッションが開始される, the FacialTimelineReceiver shall PlayableDirector にバインドされた TimelineAsset のトラック構成（FacialExpressionTrack 名、FacialValueTrack の ChannelSubId / ChannelKind / クリップ軸数）から対象レイヤーと値チャネル定義を導出する（レイヤー導出は root トラックのみを対象とし、`{layer} Lane n` の子トラックは親レイヤーに畳む。非 ASCII のレイヤー名は `InputSourceId` の文字制約（ASCII のみ）に抵触するため、sink id にレイヤー名をそのまま含めない方式（レイヤー index またはサニタイズ名）を設計が判定し根拠を文書化する）
+4. If 旧形式の Profile SO（Target Layer Names / Channel Definitions を保持）が読み込まれた, then the TimelineAdapterBinding shall 旧フィールドを `[SerializeField, HideInInspector]` の legacy フィールドとして読み取り専用で残し（既存 `FacialCharacterProfileSO._legacyGazeConfigs` と同方式）、旧フィールドの値に依存せず再生を継続し、値が残っていれば旧フィールドが残っていることを Console に 1 回警告する
 5. When 入力源 id の検証（InvalidIdValidator）が `timeline:` プレフィックスの id を評価する, the InvalidIdValidator shall その id を不正扱いしない
 6. While TimelineAdapterBinding の有効/無効フラグが無効である, the TimelineAdapterBinding shall sink の登録・Receiver の生成・レイヤー接続を行わず、無効であることを Receiver の診断に表示する
 7. If Profile SO に TimelineAdapterBinding が含まれていない状態で FacialTimelineReceiver が配置された GameObject の Play を開始する, then the FacialTimelineReceiver shall Timeline binding が無いことと追加手順を Console に 1 回明示する
@@ -76,23 +80,24 @@ HID-143: REC Export ウィンドウの Source Overrides（Auto / Analog / Gaze�
 **Objective:** As a Unity エンジニア, I want Timeline の sink が再生開始時にレイヤーへ自動接続されること, so that Layer.inputSources に `timeline:{layer}` を手で宣言しなくてよい
 
 #### Acceptance Criteria
-1. When 再生セッションが開始される, the FacialTimelineReceiver shall 導出した各レイヤーに対し `timeline:{layer}` と `timeline:{layer}:state` の sink を FacialController のレイヤー入力源へ自動接続し、ユーザーに Layer.inputSources の宣言を要求しない
+1. When 再生セッションが開始される, the FacialTimelineReceiver shall 導出した各レイヤーに対し `timeline:{layer}` の値 sink を FacialController のレイヤー入力源へ自動接続し、`timeline:{layer}:state` sink は状態供給先（overlay suppress の active provider / REC の観測）へ登録し、ユーザーに Layer.inputSources の宣言を要求しない（`:state` sink をレイヤー入力源としても接続するかは設計が判定し根拠を文書化する。接続する場合は Req 8.8 の修正を前提とする）
 2. When 再生セッションが終了する（Director の停止、ReleaseAll、Play 終了、Receiver の無効化・破棄）, the FacialTimelineReceiver shall 自動接続した sink を取り外し、接続前のレイヤー入力源構成を復元する
 3. If Layer.inputSources に同じ id の `timeline:` 宣言がすでに存在する, then the FacialTimelineReceiver shall 既存宣言を優先して重複登録せず、自動接続をスキップしたことを診断に記録する
-4. The Timeline 統合 shall Analog（非 Gaze）チャネルの Play 時の消費先を定義する（Gaze と同じ既存入力源の乗っ取り方式に揃えるか、レイヤー入力源として接続するかは設計が判定し根拠を文書化する）
+4. The Timeline 統合 shall Analog（非 Gaze）チャネルの Play 時の消費先を定義する。消費先は Gaze と同じ乗っ取り方式（registry Replace）を基本とする。直接参照を保持する既存消費者（`AnalogExpressionInputSource` / `AnalogBlendShapeInputSource`）が registry の差し替えを追えない場合、core 側の消費者に registry 経由の再解決を追加するか、本仕様では「再生で反映されない Analog チャネル」として Receiver の診断に表示し backlog に送るかを設計が判定し根拠を文書化する。並走中の `rec-weight-coverage` との衝突を避けるため `InputSystemAdapterBinding` の weight 経路（`ApplyOverlayLayerWeights`）には触らない
 5. If Analog チャネルの消費先が解決できない, then the FacialTimelineReceiver shall 該当チャネルの ChannelSubId と解決できなかった理由を Console に 1 回明示し、他のチャネルの再生を継続する
 6. When Gaze チャネルを含む TimelineAsset を再生する, the FacialTimelineReceiver shall 既存の Gaze 乗っ取り（takeover）方式で Gaze 入力源を置き換え、再生セッション終了時に元の入力源を復元する
-7. When Gaze チャネルの乗っ取り先（takeover 対象の入力源 id）を決定する, the FacialTimelineReceiver shall ユーザーの手入力ではなく TimelineAsset と Profile の情報から導出する（導出規則は設計が判定し根拠を文書化する）
+7. When Gaze チャネルの乗っ取り先（takeover 対象の入力源 id）を決定する, the FacialTimelineReceiver shall ユーザーの手入力ではなく TimelineAsset と Profile の情報から導出する（`ChannelSubId` に REC の source id（`slug:sub`）をそのまま保持し、takeover 先はその id から導出する方向を優先候補とする。最終決定は設計が Req 10.4 と同時に行い根拠を文書化する）
+8. The FacialController shall 宣言の無い入力源をレイヤーへ接続・解放し、接続済みかを判定する public API を提供する（既存の OSC / InputSystem / LipSync binding の接続挙動は変えない）。後付けで接続した系2（状態供給型）の入力源が overlay suppress の active provider に反映されるよう必要最小限の更新を行う（系1/系2 の統合そのもの（backlog M-25）には踏み込まない）
 
 ### Requirement 4: Bake の自動解決と内部キャッシュ化
 **Objective:** As a Unity エンジニア, I want Bake が TimelineAsset から自動で解決され、ユーザーから見えない内部キャッシュとして扱われること, so that BakeAsset を手で登録・更新する必要がない
 
 #### Acceptance Criteria
-1. When 再生セッションが開始される, the FacialTimelineReceiver shall PlayableDirector にバインドされた TimelineAsset から FacialTimelineBake を Editor 専用 API を使わずに解決する（Track / Marker 側にサブアセット参照を持たせる方式を推奨とし、TimelineAsset 本体の継承は採用しない。最終方式は設計が判定し根拠を文書化する）
+1. When 再生セッションが開始される, the FacialTimelineReceiver shall PlayableDirector にバインドされた TimelineAsset から FacialTimelineBake を Editor 専用 API を使わずに解決する（Track 側（FacialExpressionTrack / FacialValueTrack）にサブアセット参照を持たせる方式を優先候補、Marker 側を次候補とし、TimelineAsset 本体の継承は採用しない。最終方式は設計が判定し根拠を文書化する）
 2. The FacialTimelineReceiver shall BakeAsset フィールドを任意の上書きとして扱い、未設定時は自動解決結果を、設定時は上書き値を使用する
 3. When 再生セッションが開始される, the FacialTimelineReceiver shall Value sink の BlendShape 名を OnStart 時点で固定せず、解決した Bake から取得して確定する
 4. The Timeline 統合 shall Bake をユーザーが直接操作しない内部キャッシュとして扱い、Project ウィンドウでの手動登録・手動更新・手動削除の操作手順を要求しない
-5. When Bake を生成または更新する, the TimelineBakeService shall Runtime の再生が参照する Profile ソース（StreamingAssets の profile.json または Profile SO）と同一のソースを参照する（どちらを正とするかの決定規則は設計が判定し根拠を文書化する）
+5. When Bake を生成または更新する, the TimelineBakeService shall Runtime の再生が参照する Profile ソース（StreamingAssets の profile.json または Profile SO）と同一のソースを参照する（Runtime が使う `LoadProfile()`（StreamingAssets の profile.json 優先、無ければ SO）を Editor 系（Bake / Validator / Preview / Exporter）にも揃える方向を優先候補とする。最終決定は設計が判定し根拠を文書化する）
 6. If 解決した Bake のソースハッシュが現在の TimelineAsset と Profile から計算したハッシュと一致しない, then the FacialTimelineReceiver shall 鮮度不一致を診断に記録し、値再生を継続するか停止するかを Console に 1 回明示する
 7. When REC Export が TimelineAsset を出力する, the RecToTimelineExporter shall 再生側が Bake を自動解決できる情報を同じ TimelineAsset 内に含める
 
@@ -123,12 +128,12 @@ HID-143: REC Export ウィンドウの Source Overrides（Auto / Analog / Gaze�
 **Objective:** As a Unity エンジニア, I want Edit プレビューで見た結果が Play モードでも同じになること, so that Edit で確認した表情・目線を信頼して Play へ進める
 
 #### Acceptance Criteria
-1. The Timeline 統合 shall 同一の TimelineAsset・Profile・時刻に対し、Edit プレビューと Play 再生が同じ BlendShape 値を出力する（比較の許容誤差と比較対象の時刻サンプルは設計が判定し根拠を文書化する）
+1. The Timeline 統合 shall 同一の TimelineAsset・Profile・時刻で、Timeline の sink 以外の live 入力が無く、レイヤー weight が既定値の状態において、Edit プレビューと Play 再生が同じ BlendShape 値を出力する（比較の許容誤差と比較対象の時刻サンプルは設計が判定し根拠を文書化する）
 2. While Edit モードである, the FacialTimelineEditorPreview shall BeginPlaybackSession を呼ばない
 3. If Edit モードで FacialTimelineReceiver が未構成である, then the FacialTimelineEditorPreview shall 例外を投げず、1 回だけ警告してプレビューを継続する
 4. When Edit プレビューが Gaze チャネルを解決する, the FacialTimelineEditorPreview shall トラックの index ではなくチャネル id で解決する
 5. The FacialTimelineEditorPreview shall Bake および Runtime と同一の Profile ソースを参照する
-6. When Edit プレビューが Profile の情報を要する（レイヤー排他モード、Expression の定義）, the FacialTimelineEditorPreview shall Profile を参照して Play 再生と同じ合成規則を適用する
+6. When Edit プレビューが Profile の情報を要する（レイヤー排他モード、レイヤー優先度、Expression の定義）, the FacialTimelineEditorPreview shall Profile を参照し、Domain 層の既存 `LayerBlender` を再利用して Play 再生と同じ合成規則を適用する（Editor 側で合成規則を再実装しない）
 
 ### Requirement 8: 無言 early return の排除と Play 開始時の明示診断
 **Objective:** As a Unity エンジニア, I want 手順のどれかが欠けたときに欠けている項目が Console または Receiver の Inspector に表示されること, so that 無言で止まる原因を推測せずに直せる
@@ -141,7 +146,7 @@ HID-143: REC Export ウィンドウの Source Overrides（Auto / Analog / Gaze�
 5. If Play 開始時に PlayableDirector が存在しない、または TimelineAsset がバインドされていない, then the FacialTimelineReceiver shall その旨を Console に 1 回明示する
 6. The Timeline 統合 shall 上記のケースを含む異常経路において、ログも診断表示もなく処理を打ち切る経路を持たない
 7. The Timeline 統合 shall 同一原因の警告を同じ再生セッション中に繰り返さない（1 セッション 1 回）
-8. The Timeline 統合 shall `timeline:{layer}:state` sink の ContributeMask 長 0 が LayerInputSourceAggregator で ArgumentException を起こすかをテストで実在確認し、実在する場合は ContributeMask 長を他の入力源と揃えて修正し、実在しない場合は確認結果を設計文書に記録する
+8. The Timeline 統合 shall `timeline:{layer}:state` sink の ContributeMask 長 0 が LayerInputSourceAggregator で ArgumentException を起こす経路（静的解析で実在を確認済み。research.md §5）について、先に再現テスト（state sink を LayerInputSourceRegistry + LayerInputSourceAggregator に直差しして Expression ON 後に Aggregate）を書いて ArgumentException を再現し、その後 ContributeMask 長を他の入力源と揃える（または Aggregator 側に長さ不一致の防御を入れる）修正を行う
 9. When Play 開始時の診断がすべて問題なしである, the FacialTimelineReceiver shall 診断状態（Inspector から参照できる値）を問題なしとして保持し、不要な警告を出さない
 
 ### Requirement 9: Editor 操作の Undo / Dirty とコンポーネントのライフサイクル
@@ -159,8 +164,8 @@ HID-143: REC Export ウィンドウの Source Overrides（Auto / Analog / Gaze�
 #### Acceptance Criteria
 1. The RecTimelineExportWindow shall Channel Definitions が TimelineAsset から導出される前提で Source Overrides（Auto / Analog / Gaze）の必要性を見直し、不要なら撤去し、残す場合は行ごとに自動判定結果とその理由を表示する（存続の判定は設計が行い根拠を文書化する）
 2. Where Source Overrides を残す, the RecTimelineExportWindow shall 上書きが効かない行（トリガー専用の入力源）を非表示またはグレーアウトにする
-3. When チャネル種別（Analog / Gaze）を自動判定する, the RecToTimelineExporter shall REC 側の gaze 広告情報を判定に用いる
-4. The Timeline 統合 shall Export の ChannelSubId と binding 側 IsValidChannelId の id 形式を統一し、Export が出力した id を再生側が不正扱いしない（`slug:sub` 形式を許容するか sub のみに正規化するかは設計が判定し根拠を文書化する）
+3. When チャネル種別（Analog / Gaze）を自動判定する, the RecToTimelineExporter shall Export 時に渡される Profile の各 binding が宣言する gaze source（`IGazeSourceProvider.GetGazeSourceDeclarations()`）、Profile の `GazeChannels`、および `GazeSourceIdConvention` による source id 規約を判定に用いる（`.fcrec` の拡張は行わない）
+4. The Timeline 統合 shall Export の ChannelSubId と binding 側 IsValidChannelId の id 形式を統一し、Export が出力した id を再生側が不正扱いしない（`ChannelSubId` に REC の source id（`slug:sub`）をそのまま保持し、binding 側（`IsValidChannelId`）で許容する方向を優先候補とし、Gaze takeover 先（Req 3.7）はその id から導出する。最終決定は設計が判定し根拠を文書化する）
 5. The RecToTimelineExporter shall 出力を TimelineAsset 1 つで完結させ、Export 時に PlayableDirector / FacialTimelineReceiver の配線指定を要求しない
 6. When Export が完了する, the RecTimelineExportWindow shall 残りの手順（Director へのセット、Receiver の追加）を表示する
 7. If 既存の Export 出力（本仕様以前の形式の TimelineAsset）が再生される, then the FacialTimelineReceiver shall 旧形式であることを診断に表示し、再 Export で解決できることを示す
