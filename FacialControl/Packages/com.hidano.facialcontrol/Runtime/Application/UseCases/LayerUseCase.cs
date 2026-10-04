@@ -15,7 +15,7 @@ namespace Hidano.FacialControl.Application.UseCases
     /// <see cref="IInputSource"/> アダプタとして供給する。公開 API シグネチャは非破壊に維持する
     /// 。
     /// </summary>
-    public class LayerUseCase : IDisposable
+    public class LayerUseCase : IDisposable, IWeightInjectionGate
     {
         private static readonly List<Expression> EmptyExpressionList = new List<Expression>(0);
 
@@ -43,6 +43,9 @@ namespace Hidano.FacialControl.Application.UseCases
         private ILayerWeightObserver _weightObserver;
         private float[] _lastNotifiedLayerWeights;
         private float[] _lastNotifiedSlotWeights;
+        private float[] _declaredSlotWeights;
+        private bool _liveWeightsSuspended;
+        private bool _layerNamesAreUnique;
         // プロファイルで inputSources を宣言したレイヤーは、そのレイヤー自体を
         // 恒常的に blend 対象とみなす (legacy HasBeenActive フィルタを補完する)。
         // 宣言したソースが未トリガ状態でも intra-layer aggregator 出力はゼロに保たれるため
@@ -128,6 +131,9 @@ namespace Hidano.FacialControl.Application.UseCases
         {
             if (layer == null)
                 throw new ArgumentNullException(nameof(layer));
+
+            if (_liveWeightsSuspended)
+                return;
 
             float clamped = Clamp01(weight);
             _layerWeights[layer] = clamped;
@@ -319,6 +325,121 @@ namespace Hidano.FacialControl.Application.UseCases
             _weightBuffer?.SetWeight(layerIdx, sourceIdx, weight);
         }
 
+        public bool IsLiveWeightSuspended => _liveWeightsSuspended;
+        public bool LayerNamesAreUnique => _layerNamesAreUnique;
+
+        public bool SuspendLiveWeights()
+        {
+            if (_liveWeightsSuspended) return false;
+            _liveWeightsSuspended = true;
+            return _weightBuffer == null || _weightBuffer.SuspendLiveWrites();
+        }
+
+        public bool ResumeLiveWeights()
+        {
+            if (!_liveWeightsSuspended) return false;
+            _weightBuffer?.ResumeLiveWrites();
+            _liveWeightsSuspended = false;
+            return true;
+        }
+
+        public void ResetWeightsToDeclared()
+        {
+            if (_weightBuffer == null) return;
+            for (int l = 0; l < _layerInterWeights.Length; l++)
+            {
+                _layerInterWeights[l] = 1f;
+                _lastNotifiedLayerWeights[l] = 1f;
+                int count = _registry.GetSourceCountForLayer(l);
+                for (int s = 0; s < count; s++)
+                {
+                    float weight = GetDeclaredSlotWeight(l, s);
+                    _weightBuffer.SetWeightBypassingLiveGate(l, s, weight);
+                    _lastNotifiedSlotWeights[l * _registry.MaxSourcesPerLayer + s] = weight;
+                }
+            }
+        }
+
+        public bool TrySetBaselineLayerWeight(string layerName, float weight)
+        {
+            int layerIdx = FindLayerIndex(layerName);
+            if (layerIdx < 0) return false;
+            float clamped = Clamp01(weight);
+            _layerInterWeights[layerIdx] = clamped;
+            _lastNotifiedLayerWeights[layerIdx] = clamped;
+            return true;
+        }
+
+        public bool TrySetBaselineInputSourceWeight(string layerName, string slotId, float weight)
+            => TrySetInputSourceWeight(layerName, slotId, weight, true);
+
+        public bool TryInjectLayerWeight(string layerName, float weight)
+        {
+            int layerIdx = FindLayerIndex(layerName);
+            if (layerIdx < 0) return false;
+            _layerInterWeights[layerIdx] = Clamp01(weight);
+            return true;
+        }
+
+        public bool TryInjectInputSourceWeight(string layerName, string slotId, float weight)
+            => TrySetInputSourceWeight(layerName, slotId, weight, false);
+
+        public void CollectLayerWeights(List<LayerWeightEntry> buffer)
+        {
+            if (buffer == null) throw new ArgumentNullException(nameof(buffer));
+            buffer.Clear();
+            var layers = _profile.Layers.Span;
+            for (int l = 0; l < layers.Length; l++)
+                buffer.Add(new LayerWeightEntry(layers[l].Name, _layerInterWeights[l]));
+        }
+
+        public void CollectInputSourceWeights(List<InputSourceWeightEntry> buffer)
+        {
+            if (buffer == null) throw new ArgumentNullException(nameof(buffer));
+            buffer.Clear();
+            if (_registry == null || _weightBuffer == null) return;
+            var layers = _profile.Layers.Span;
+            for (int l = 0; l < layers.Length; l++)
+            {
+                int count = _registry.GetSourceCountForLayer(l);
+                for (int s = 0; s < count; s++)
+                {
+                    string slotId = s == 0 ? WeightSlotIds.ExpressionSlotId : _registry.GetSlotId(l, s);
+                    if (_registry.GetSource(l, s) != null && !string.IsNullOrEmpty(slotId))
+                        buffer.Add(new InputSourceWeightEntry(layers[l].Name, slotId, _weightBuffer.GetWeight(l, s)));
+                }
+            }
+        }
+
+        private bool TrySetInputSourceWeight(string layerName, string slotId, float weight, bool updateLastNotified)
+        {
+            int layerIdx = FindLayerIndex(layerName);
+            if (layerIdx < 0 || _registry == null || _weightBuffer == null || string.IsNullOrEmpty(slotId)) return false;
+            int sourceIdx = slotId == WeightSlotIds.ExpressionSlotId ? 0 : _registry.FindSourceIndex(layerIdx, slotId);
+            if (sourceIdx < 0 || sourceIdx >= _registry.GetSourceCountForLayer(layerIdx)) return false;
+            float clamped = Clamp01(weight);
+            _weightBuffer.SetWeightBypassingLiveGate(layerIdx, sourceIdx, clamped);
+            if (updateLastNotified)
+                _lastNotifiedSlotWeights[layerIdx * _registry.MaxSourcesPerLayer + sourceIdx] = clamped;
+            return true;
+        }
+
+        private int FindLayerIndex(string layerName)
+        {
+            if (string.IsNullOrEmpty(layerName)) return -1;
+            var layers = _profile.Layers.Span;
+            for (int l = 0; l < layers.Length; l++)
+                if (layers[l].Name == layerName) return l;
+            return -1;
+        }
+
+        private float GetDeclaredSlotWeight(int layerIdx, int sourceIdx)
+        {
+            if (_declaredSlotWeights == null || _registry == null) return sourceIdx == 0 ? 1f : 0f;
+            int index = layerIdx * _registry.MaxSourcesPerLayer + sourceIdx;
+            return index < _declaredSlotWeights.Length ? _declaredSlotWeights[index] : 0f;
+        }
+
         /// <summary>
         /// 消費点で確定したレイヤー / 入力源 weight の観測者を設定する。
         /// 接続時は現在の実効値を前回通知値へ同期し、接続そのものでは通知しない。
@@ -377,7 +498,7 @@ namespace Hidano.FacialControl.Application.UseCases
                     return;
                 }
 
-                _weightBuffer?.SetWeight(layerIdx, existingIdx, weight);
+                SetStructuralSlotWeight(layerIdx, existingIdx, weight, applyWeight: !_liveWeightsSuspended);
                 MarkLayerHasAdditionalSources(layerIdx);
                 return;
             }
@@ -396,7 +517,9 @@ namespace Hidano.FacialControl.Application.UseCases
             if (_weightBuffer != null)
             {
                 _weightBuffer.EnsureMaxSourcesPerLayer(_registry.MaxSourcesPerLayer);
-                _weightBuffer.SetWeight(layerIdx, newSourceIdx, weight);
+                ResizeDeclaredSlotWeights(previousMaxSources, _registry.MaxSourcesPerLayer);
+                _weightBuffer.SetWeightBypassingLiveGate(layerIdx, newSourceIdx, weight);
+                _declaredSlotWeights[layerIdx * _registry.MaxSourcesPerLayer + newSourceIdx] = Clamp01(weight);
             }
 
             // blend フィルタ（UpdateWeights）がこのレイヤーを含めるよう追加ソース有りフラグを立てる。
@@ -447,12 +570,33 @@ namespace Hidano.FacialControl.Application.UseCases
             // registry は後続スロットを詰める（compact）ので weight 列も同じだけ詰め、残る source の weight を保つ。
             if (_weightBuffer != null && removedIdx >= 0)
             {
+                float[] declaredWeightsBefore = null;
+                if (_declaredSlotWeights != null)
+                {
+                    declaredWeightsBefore = new float[countBefore];
+                    int max = _registry.MaxSourcesPerLayer;
+                    for (int s = 0; s < countBefore; s++)
+                        declaredWeightsBefore[s] = _declaredSlotWeights[layerIdx * max + s];
+                }
                 for (int s = removedIdx; s < countBefore - 1; s++)
                 {
-                    _weightBuffer.SetWeight(layerIdx, s, _weightBuffer.GetWeight(layerIdx, s + 1));
+                    SetStructuralSlotWeight(layerIdx, s, _weightBuffer.GetWeight(layerIdx, s + 1), applyWeight: !_liveWeightsSuspended);
                 }
 
-                _weightBuffer.SetWeight(layerIdx, countBefore - 1, 0f);
+                SetStructuralSlotWeight(layerIdx, countBefore - 1, 0f, applyWeight: !_liveWeightsSuspended);
+                if (_declaredSlotWeights != null)
+                {
+                    int max = _registry.MaxSourcesPerLayer;
+                    for (int s = removedIdx; s < countBefore - 1; s++)
+                        _declaredSlotWeights[layerIdx * max + s] = declaredWeightsBefore[s + 1];
+                    _declaredSlotWeights[layerIdx * max + countBefore - 1] = 0f;
+                }
+                if (_lastNotifiedSlotWeights != null)
+                {
+                    int max = _registry.MaxSourcesPerLayer;
+                    for (int s = removedIdx; s < countBefore; s++)
+                        _lastNotifiedSlotWeights[layerIdx * max + s] = float.NaN;
+                }
             }
 
             if (_layerHasAdditionalSources != null
@@ -469,6 +613,25 @@ namespace Hidano.FacialControl.Application.UseCases
                 return default;
             }
             return _weightBuffer.BeginBulk();
+        }
+
+        private void SetStructuralSlotWeight(int layerIdx, int sourceIdx, float weight, bool applyWeight)
+        {
+            if (_weightBuffer == null) return;
+            if (applyWeight) _weightBuffer.SetWeight(layerIdx, sourceIdx, weight);
+            else _weightBuffer.SetWeightBypassingLiveGate(layerIdx, sourceIdx, weight);
+            if (_declaredSlotWeights != null && _registry != null)
+                _declaredSlotWeights[layerIdx * _registry.MaxSourcesPerLayer + sourceIdx] = Clamp01(weight);
+        }
+
+        private void ResizeDeclaredSlotWeights(int oldMax, int newMax)
+        {
+            if (_declaredSlotWeights == null || oldMax == newMax) return;
+            var resized = new float[_registry.LayerCount * newMax];
+            for (int l = 0; l < _registry.LayerCount; l++)
+                for (int s = 0; s < oldMax; s++)
+                    resized[l * newMax + s] = _declaredSlotWeights[l * oldMax + s];
+            _declaredSlotWeights = resized;
         }
 
         /// <summary>
@@ -575,6 +738,7 @@ namespace Hidano.FacialControl.Application.UseCases
             _weightBuffer?.Dispose();
             _registry = null;
             _weightBuffer = null;
+            _declaredSlotWeights = null;
             _aggregator = null;
         }
 
@@ -588,6 +752,10 @@ namespace Hidano.FacialControl.Application.UseCases
             InitializeGroupedByLayerBuffer();
 
             int layerCount = _profile.Layers.Length;
+            _layerNamesAreUnique = true;
+            var layerNames = new HashSet<string>();
+            for (int i = 0; i < layerCount; i++)
+                if (!layerNames.Add(_profile.Layers.Span[i].Name)) _layerNamesAreUnique = false;
             _layerPriorities = layerCount == 0 ? Array.Empty<int>() : new int[layerCount];
             _layerInterWeights = layerCount == 0 ? Array.Empty<float>() : new float[layerCount];
             _layerSources = layerCount == 0 ? Array.Empty<LayerExpressionSource>() : new LayerExpressionSource[layerCount];
@@ -640,14 +808,17 @@ namespace Hidano.FacialControl.Application.UseCases
             _registry = new LayerInputSourceRegistry(_profile, bsCount, bindings, bindingSlotIds);
             int maxSources = _registry.MaxSourcesPerLayer > 0 ? _registry.MaxSourcesPerLayer : 1;
             _weightBuffer = new LayerInputSourceWeightBuffer(layerCount, maxSources);
+            _declaredSlotWeights = new float[layerCount * maxSources];
             for (int l = 0; l < layerCount; l++)
             {
                 _weightBuffer.SetWeight(l, 0, 1f);
+                _declaredSlotWeights[l * maxSources] = 1f;
             }
             for (int i = 0; i < additionalWeights.Count; i++)
             {
                 var aw = additionalWeights[i];
                 _weightBuffer.SetWeight(aw.layerIdx, aw.sourceIdx, aw.weight);
+                _declaredSlotWeights[(aw.layerIdx * maxSources) + aw.sourceIdx] = Clamp01(aw.weight);
             }
             _aggregator = new LayerInputSourceAggregator(_registry, _weightBuffer, bsCount);
             _aggregator.SetSourceValueObserver(_sourceValueObserver);
