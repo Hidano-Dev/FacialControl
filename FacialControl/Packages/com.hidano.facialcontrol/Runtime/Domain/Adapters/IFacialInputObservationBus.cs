@@ -7,7 +7,7 @@ namespace Hidano.FacialControl.Domain.Adapters
     /// Domain contract for publishing trigger and analog input observations for one FacialController scope.
     /// Implementations own observer dispatch only; they do not sample, blend, or write back to the pipeline.
     /// </summary>
-    public interface IFacialInputObservationBus : ITriggerEventObserver
+    public interface IFacialInputObservationBus : ITriggerEventObserver, IExpressionActivationObserver
     {
         /// <summary>
         /// Gets whether at least one observer is currently registered.
@@ -29,5 +29,8 @@ namespace Hidano.FacialControl.Domain.Adapters
         /// The supplied span is valid only during this call; observers must copy any data they retain.
         /// </summary>
         void PublishAnalogSample(string sourceId, ReadOnlySpan<float> axes);
+
+        /// <summary>Publishes a value-provider sample to registered observers.</summary>
+        void PublishValueProviderSample(string sourceId, in ValueProviderSample sample);
     }
 }

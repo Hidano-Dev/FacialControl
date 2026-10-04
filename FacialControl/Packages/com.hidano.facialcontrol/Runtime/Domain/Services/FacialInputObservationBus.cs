@@ -145,6 +145,87 @@ namespace Hidano.FacialControl.Domain.Services
             }
         }
 
+        public void PublishValueProviderSample(string sourceId, in ValueProviderSample sample)
+        {
+            if (!HasObservers)
+            {
+                return;
+            }
+
+            _publishDepth++;
+            try
+            {
+                for (int i = 0; i < _observers.Count; i++)
+                {
+                    try
+                    {
+                        _observers[i].OnValueProviderSample(sourceId, in sample);
+                    }
+                    catch (Exception ex)
+                    {
+                        Debug.LogException(ex);
+                    }
+                }
+            }
+            finally
+            {
+                _publishDepth--;
+                if (_publishDepth == 0)
+                {
+                    ApplyPendingChanges();
+                }
+            }
+        }
+
+        public void OnExpressionActivated(string sourceId, string expressionId)
+        {
+            PublishExpressionEvent(sourceId, expressionId, true);
+        }
+
+        public void OnExpressionDeactivated(string sourceId, string expressionId)
+        {
+            PublishExpressionEvent(sourceId, expressionId, false);
+        }
+
+        private void PublishExpressionEvent(string sourceId, string expressionId, bool activated)
+        {
+            if (!HasObservers)
+            {
+                return;
+            }
+
+            _publishDepth++;
+            try
+            {
+                for (int i = 0; i < _observers.Count; i++)
+                {
+                    try
+                    {
+                        if (activated)
+                        {
+                            _observers[i].OnExpressionActivated(sourceId, expressionId);
+                        }
+                        else
+                        {
+                            _observers[i].OnExpressionDeactivated(sourceId, expressionId);
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        Debug.LogException(ex);
+                    }
+                }
+            }
+            finally
+            {
+                _publishDepth--;
+                if (_publishDepth == 0)
+                {
+                    ApplyPendingChanges();
+                }
+            }
+        }
+
         private void QueueSubscribe(IFacialInputObserver observer)
         {
             int pendingRemoveIndex = _pendingRemoves.IndexOf(observer);

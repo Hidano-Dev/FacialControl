@@ -176,6 +176,18 @@ namespace Hidano.FacialControl.Tests.EditMode.Adapters.InputSources
             {
                 Calls.Add((sourceId, Copy(axes)));
             }
+
+            public void OnValueProviderSample(string sourceId, in ValueProviderSample sample)
+            {
+            }
+
+            public void OnExpressionActivated(string sourceId, string expressionId)
+            {
+            }
+
+            public void OnExpressionDeactivated(string sourceId, string expressionId)
+            {
+            }
         }
 
         private sealed class FakeAnalogSource : IInputSource, IAnalogInputSource

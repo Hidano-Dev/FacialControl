@@ -1,4 +1,5 @@
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Text.RegularExpressions;
 using Hidano.FacialControl.Domain.Adapters;
@@ -27,6 +28,10 @@ namespace Hidano.FacialControl.Tests.EditMode.Domain.Services
                 bus.OnTriggerOn("input", "smile");
                 bus.OnTriggerOff("input", "smile");
                 bus.PublishAnalogSample("gaze", new[] { -0.5f, 0.25f });
+                var sample = new ValueProviderSample(true, true, true, true, new[] { 0.5f }, new BitArray(1, true));
+                bus.PublishValueProviderSample("vp", in sample);
+                bus.OnExpressionActivated("@expression", "smile");
+                bus.OnExpressionDeactivated("@expression", "smile");
             });
         }
 
@@ -133,6 +138,27 @@ namespace Hidano.FacialControl.Tests.EditMode.Domain.Services
         }
 
         [Test]
+        public void Publish_NewContracts_DispatchesAndAppliesSubscriptionChangesAfterPublish()
+        {
+            var bus = new FacialInputObservationBus();
+            var first = new RecordingObserver();
+            var second = new RecordingObserver();
+            first.OnValueProviderAction = () => bus.Subscribe(second);
+            var sample = new ValueProviderSample(true, true, true, true, new[] { 0.25f }, new BitArray(1, true));
+
+            bus.Subscribe(first);
+            bus.PublishValueProviderSample("vp", in sample);
+            bus.OnExpressionActivated("@expression", "smile");
+            bus.OnExpressionDeactivated("@expression", "smile");
+
+            Assert.AreEqual(1, first.ValueProviderCalls);
+            Assert.AreEqual(0, second.ValueProviderCalls);
+            Assert.That(first.ActivatedCalls, Is.EqualTo(new[] { ("@expression", "smile") }));
+            Assert.That(first.DeactivatedCalls, Is.EqualTo(new[] { ("@expression", "smile") }));
+            Assert.AreEqual(1, second.ActivatedCalls.Count);
+        }
+
+        [Test]
         public void Unsubscribe_NullObserver_ThrowsArgumentNullException()
         {
             var bus = new FacialInputObservationBus();
@@ -152,12 +178,18 @@ namespace Hidano.FacialControl.Tests.EditMode.Domain.Services
         {
             public Action OnTriggerOnAction { get; set; }
             public Action OnAnalogAction { get; set; }
+            public Action OnValueProviderAction { get; set; }
             public List<(string sourceId, string expressionId)> TriggerOnCalls { get; } =
                 new List<(string sourceId, string expressionId)>();
             public List<(string sourceId, string expressionId)> TriggerOffCalls { get; } =
                 new List<(string sourceId, string expressionId)>();
             public List<(string sourceId, float[] axes)> AnalogCalls { get; } =
                 new List<(string sourceId, float[] axes)>();
+            public int ValueProviderCalls { get; private set; }
+            public List<(string sourceId, string expressionId)> ActivatedCalls { get; } =
+                new List<(string sourceId, string expressionId)>();
+            public List<(string sourceId, string expressionId)> DeactivatedCalls { get; } =
+                new List<(string sourceId, string expressionId)>();
 
             public void OnTriggerOn(string sourceId, string expressionId)
             {
@@ -174,6 +206,22 @@ namespace Hidano.FacialControl.Tests.EditMode.Domain.Services
             {
                 AnalogCalls.Add((sourceId, Copy(axes)));
                 OnAnalogAction?.Invoke();
+            }
+
+            public void OnValueProviderSample(string sourceId, in ValueProviderSample sample)
+            {
+                ValueProviderCalls++;
+                OnValueProviderAction?.Invoke();
+            }
+
+            public void OnExpressionActivated(string sourceId, string expressionId)
+            {
+                ActivatedCalls.Add((sourceId, expressionId));
+            }
+
+            public void OnExpressionDeactivated(string sourceId, string expressionId)
+            {
+                DeactivatedCalls.Add((sourceId, expressionId));
             }
         }
 
@@ -192,6 +240,21 @@ namespace Hidano.FacialControl.Tests.EditMode.Domain.Services
             public void OnAnalogSample(string sourceId, ReadOnlySpan<float> axes)
             {
                 AnalogCallCount++;
+                throw new InvalidOperationException("FacialInputObservationBusTests observer failure");
+            }
+
+            public void OnValueProviderSample(string sourceId, in ValueProviderSample sample)
+            {
+                throw new InvalidOperationException("FacialInputObservationBusTests observer failure");
+            }
+
+            public void OnExpressionActivated(string sourceId, string expressionId)
+            {
+                throw new InvalidOperationException("FacialInputObservationBusTests observer failure");
+            }
+
+            public void OnExpressionDeactivated(string sourceId, string expressionId)
+            {
                 throw new InvalidOperationException("FacialInputObservationBusTests observer failure");
             }
         }

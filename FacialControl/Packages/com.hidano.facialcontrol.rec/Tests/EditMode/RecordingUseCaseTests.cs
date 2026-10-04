@@ -348,6 +348,21 @@ namespace Hidano.FacialControl.Rec.Tests.EditMode
                 CurrentObserver?.OnAnalogSample(sourceId, axes);
             }
 
+            public void PublishValueProviderSample(string sourceId, in ValueProviderSample sample)
+            {
+                CurrentObserver?.OnValueProviderSample(sourceId, in sample);
+            }
+
+            public void OnExpressionActivated(string sourceId, string expressionId)
+            {
+                CurrentObserver?.OnExpressionActivated(sourceId, expressionId);
+            }
+
+            public void OnExpressionDeactivated(string sourceId, string expressionId)
+            {
+                CurrentObserver?.OnExpressionDeactivated(sourceId, expressionId);
+            }
+
             public void PublishTriggerOn(string sourceId, string expressionId)
             {
                 OnTriggerOn(sourceId, expressionId);

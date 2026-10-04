@@ -167,6 +167,18 @@ namespace Hidano.FacialControl.Rec.Application.UseCases
             AppendEvent(RecEvent.CreateAnalogSample(SampleClock(), sourceIndex, checked((byte)axes.Length)), axes);
         }
 
+        public void OnValueProviderSample(string sourceId, in ValueProviderSample sample)
+        {
+        }
+
+        public void OnExpressionActivated(string sourceId, string expressionId)
+        {
+        }
+
+        public void OnExpressionDeactivated(string sourceId, string expressionId)
+        {
+        }
+
         public void Dispose()
         {
             if (_disposed)

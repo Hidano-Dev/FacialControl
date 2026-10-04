@@ -9,6 +9,7 @@ using Hidano.FacialControl.Adapters.InputSources;
 using Hidano.FacialControl.Adapters.Playable;
 using Hidano.FacialControl.Adapters.ScriptableObject.Serializable;
 using Hidano.FacialControl.Domain.Interfaces;
+using Hidano.FacialControl.Domain.Adapters;
 using Hidano.FacialControl.Domain.Models;
 using Hidano.FacialControl.Domain.Services;
 using Hidano.FacialControl.Rec.Adapters.Playback;
@@ -687,6 +688,21 @@ namespace Hidano.FacialControl.Rec.Tests.PlayMode
             public void PublishAnalogSample(string sourceId, ReadOnlySpan<float> axes)
             {
                 _observer?.OnAnalogSample(sourceId, axes);
+            }
+
+            public void PublishValueProviderSample(string sourceId, in ValueProviderSample sample)
+            {
+                _observer?.OnValueProviderSample(sourceId, in sample);
+            }
+
+            public void OnExpressionActivated(string sourceId, string expressionId)
+            {
+                _observer?.OnExpressionActivated(sourceId, expressionId);
+            }
+
+            public void OnExpressionDeactivated(string sourceId, string expressionId)
+            {
+                _observer?.OnExpressionDeactivated(sourceId, expressionId);
             }
 
             public void PublishTriggerOn(string sourceId, string expressionId)
