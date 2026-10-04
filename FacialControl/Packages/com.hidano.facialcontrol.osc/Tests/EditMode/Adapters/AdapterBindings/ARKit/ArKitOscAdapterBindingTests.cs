@@ -5,11 +5,16 @@ using Hidano.FacialControl.Adapters.AdapterBindings;
 using Hidano.FacialControl.Adapters.AdapterBindings.ARKit;
 using Hidano.FacialControl.Adapters.RuntimeSettings;
 using Hidano.FacialControl.Domain.Adapters;
+using Hidano.FacialControl.Domain.Interfaces;
+using Hidano.FacialControl.Domain.Models;
+using Hidano.FacialControl.Domain.Services;
+using Hidano.FacialControl.Tests.Shared;
 using NUnit.Framework;
 using UnityEditor;
 using UnityEngine;
 
 using Hidano.FacialControl.Testing;
+using Hidano.FacialControl.Osc.Tests.EditMode.Testing;
 namespace Hidano.FacialControl.Osc.Tests.EditMode.Adapters.AdapterBindings
 {
     /// <summary>
@@ -125,6 +130,32 @@ namespace Hidano.FacialControl.Osc.Tests.EditMode.Adapters.AdapterBindings
 
             CollectionAssert.Contains(discovered, typeof(ArKitOscAdapterBinding),
                 "TypeCache discovery で ArKitOscAdapterBinding が列挙されるべき。");
+        }
+
+        [Test]
+        public void OnStart_FakeRegistry_RegistersNoInputSource()
+        {
+            var registry = new FakeInputSourceRegistry();
+            var binding = new ArKitOscAdapterBinding { Slug = "arkit" };
+            binding.Configure("127.0.0.1", 39539, new[] { "jawOpen" });
+            var host = new GameObject("ArKitOscFakeRegistryTests");
+
+            try
+            {
+                binding.OnStart(new AdapterBuildContext(
+                    new FacialProfile("2.0.0"), Array.Empty<string>(), registry,
+                    new FacialOutputBus(), new ManualTimeProvider(), host, lipSyncProvider: null));
+
+                Assert.That(registry.RegisterCallCount, Is.EqualTo(0));
+                Assert.That(registry.ReplaceCallCount, Is.EqualTo(0));
+                Assert.That(binding.AnalogSource, Is.Not.Null);
+                Assert.That(typeof(IInputSource).IsAssignableFrom(binding.AnalogSource.GetType()), Is.False);
+            }
+            finally
+            {
+                binding.Dispose();
+                UnityEngine.Object.DestroyImmediate(host);
+            }
         }
 
         // ============================================================

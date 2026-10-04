@@ -19,6 +19,7 @@ using UnityEngine;
 using UnityEngine.TestTools;
 
 using Hidano.FacialControl.Testing;
+using Hidano.FacialControl.Osc.Tests.EditMode.Testing;
 namespace Hidano.FacialControl.Tests.EditMode.Adapters.AdapterBindings
 {
     /// <summary>
@@ -880,8 +881,57 @@ namespace Hidano.FacialControl.Tests.EditMode.Adapters.AdapterBindings
             }
         }
 
+        [Test]
+        public void OnStart_FakeRegistry_RegisteredTypesAreOnlyCatalogObservedTypes()
+        {
+            var registry = new FakeInputSourceRegistry();
+            var binding = new OscReceiverAdapterBinding
+            {
+                Slug = "osc",
+                Port = AllocatePort(),
+                Mappings = new List<OscMappingEntry>
+                {
+                    new OscMappingEntry
+                    {
+                        mode = OscMappingMode.Normal_BlendShape,
+                        expressionId = "smile",
+                        addressPattern = "/avatar/parameters/smile",
+                    },
+                    new OscMappingEntry
+                    {
+                        mode = OscMappingMode.Gaze_VRChat_XY,
+                        expressionId = "eye",
+                        addressPattern = "/avatar/parameters/eye",
+                    },
+                },
+            };
+            var host = new GameObject("OscFakeRegistryTests");
+
+            try
+            {
+                binding.OnStart(CreateContext(registry, host, blendShapeNames: new[] { "smile" }));
+
+                var allowedTypes = new[] { typeof(OscInputSource), typeof(GazeVector2InputSource) };
+                Assert.That(registry.RegisterCallCount, Is.GreaterThan(0));
+                Assert.That(registry.ReplaceCallCount, Is.EqualTo(0));
+                Assert.That(registry.RegisteredSources, Is.Not.Empty);
+                foreach (IInputSource source in registry.RegisteredSources)
+                {
+                    CollectionAssert.Contains(allowedTypes, source.GetType(),
+                        $"登録型 {source.GetType().FullName} は観測対象型ではありません。");
+                    Assert.That(source, Is.Not.TypeOf<OscFloatAnalogSource>());
+                    Assert.That(source, Is.Not.TypeOf<ArKitOscAnalogSource>());
+                }
+            }
+            finally
+            {
+                binding.Dispose();
+                UnityEngine.Object.DestroyImmediate(host);
+            }
+        }
+
         private static AdapterBuildContext CreateContext(
-            InputSourceRegistry registry,
+            IInputSourceRegistry registry,
             GameObject host,
             ManualTimeProvider timeProvider = null,
             IReadOnlyList<string> blendShapeNames = null)
