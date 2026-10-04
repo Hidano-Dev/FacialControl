@@ -269,6 +269,10 @@ namespace Hidano.FacialControl.Rec.Application.UseCases
             AppendEvent(RecEvent.CreateExpressionDeactivate(SampleClock(), sourceIndex, expressionIndex), ReadOnlySpan<float>.Empty, ReadOnlySpan<byte>.Empty);
         }
 
+        public void OnLayerWeightSample(string layerName, float weight) { }
+
+        public void OnInputSourceWeightSample(string layerName, string slotId, float weight) { }
+
         public void Dispose()
         {
             if (_disposed)

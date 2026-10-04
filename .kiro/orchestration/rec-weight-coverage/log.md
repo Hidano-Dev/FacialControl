@@ -69,3 +69,9 @@
   - Retry: none
 - 実装開始の特例: Gate A（委任）/ Gate B（3 回目を代行エスカレーション）があるため本来は実装前確認 1 回が必要だが、ユーザー不在の委任実行（directive）のため確認なしで Phase 5 へ進む（その旨を完了報告に明記）
 - Branch/PR: `feature/hid-80-rec-weight-coverage`（既に作業中。spec 文書と本ログをコミット済み）
+
+## Phase 5: 実装 + 検証（spec-run 開始） — 2026-10-04T22:40:00Z
+
+- Command: `/kiro:spec-run rec-weight-coverage`（Bash 不可のため、コマンド定義と同じ手順を PowerShell ランナーで実行: タスクごとに `codex exec --dangerously-bypass-approvals-and-sandbox` をバックグラウンド起動（30 分タイムアウト）→ 出力末尾の OK / FAIL → `claude -p`（stdin プロンプト）で独立レビュー → Orchestrator が Unity batchmode でテスト再実行 → OK 記録。FAIL / REJECTED は退避してタスク開始時点へ戻し次へ。3 連続 FAIL で打ち切り）
+- 前提: worktree の Library は main からコピー済みで baseline Small EditMode 1876 件 passed（failed 0）。他 Unity プロセスは別プロジェクト。pre_head = 63b89b9f。leaf 21 タスク
+- 経過は下記に追記

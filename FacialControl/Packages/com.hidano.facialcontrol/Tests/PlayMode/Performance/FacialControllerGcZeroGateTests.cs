@@ -161,6 +161,8 @@ namespace Hidano.FacialControl.Tests.PlayMode.Performance
             public void OnTriggerOff(string sourceId, string expressionId) { }
             public void OnAnalogSample(string sourceId, ReadOnlySpan<float> axes) { }
             public void OnValueProviderSample(string sourceId, in ValueProviderSample sample) { }
+            public void OnLayerWeightSample(string layerName, float weight) { }
+            public void OnInputSourceWeightSample(string layerName, string slotId, float weight) { }
         }
 
         private static Action<FacialController> CreateLateUpdateDelegate()

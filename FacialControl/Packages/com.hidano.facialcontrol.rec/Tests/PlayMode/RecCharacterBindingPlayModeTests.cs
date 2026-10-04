@@ -860,6 +860,9 @@ namespace Hidano.FacialControl.Rec.Tests.PlayMode
                 _observer?.OnExpressionDeactivated(sourceId, expressionId);
             }
 
+            public void OnLayerWeightSample(string layerName, float weight) { _observer?.OnLayerWeightSample(layerName, weight); }
+            public void OnInputSourceWeightSample(string layerName, string slotId, float weight) { _observer?.OnInputSourceWeightSample(layerName, slotId, weight); }
+
             public void PublishTriggerOn(string sourceId, string expressionId)
             {
                 OnTriggerOn(sourceId, expressionId);
