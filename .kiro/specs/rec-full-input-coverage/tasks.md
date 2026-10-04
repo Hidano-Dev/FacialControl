@@ -122,7 +122,7 @@
   - 完了条件: 上記 4 テストが緑。既存テストで flags = 0 を前提にしていたものは新契約に合わせて更新済み
   - _Requirements: 5.1, 5.4, 6.4, 6.5_
 
-- [ ] 3.7 再生スケジューラの訪問者契約と記録検証を新 kind へ拡張する
+- [x] 3.7 再生スケジューラの訪問者契約と記録検証を新 kind へ拡張する
   - 対象: `com.hidano.facialcontrol.rec`（`Hidano.FacialControl.Rec.Domain` の RecPlaybackScheduler / IRecEventVisitor / RecValidation。実装側 PlaybackUseCase は空実装でコンパイル追随、本実装は 4.4）
   - 訪問者契約に値提供型サンプル（有効性・mask バイト列・値）・系1 アクティブ化・系1 非アクティブ化の 3 メソッドを追加し、Dispatch が kind 7 / 9 / 10 を対応メソッドへ振り分ける（未知 kind の例外は防御として維持）
   - 記録検証の欠落表情 id 検出を系1 イベントと基準の表情 id 列にも適用する

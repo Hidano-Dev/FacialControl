@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using Hidano.FacialControl.Domain.Models;
 using Hidano.FacialControl.Rec.Domain.Models;
 using Hidano.FacialControl.Rec.Domain.Services;
 using NUnit.Framework;
@@ -128,6 +129,69 @@ namespace Hidano.FacialControl.Rec.Tests.EditMode
 
             Assert.That(baseline.TryGetTriggerStack("input:trigger", out IReadOnlyList<string> expressionIds), Is.True);
             Assert.That(expressionIds, Is.Empty);
+        }
+
+        [Test]
+        public void BuildBaselineAt_ValueProviderSamplesBeforeOffset_UsesLastStatePerSource()
+        {
+            var timeline = new RecTimeline(
+                new RecBaselineState(
+                    null,
+                    null,
+                    new[] { new RecBaselineState.ValueProviderEntry("input:osc", false, new byte[] { 1 }, new[] { 0.1f }) },
+                    null),
+                new[]
+                {
+                    RecEvent.CreateValueProviderSample(0.10d, 0, RecValueProviderFlags.HasMask | RecValueProviderFlags.HasValues, 1, 1),
+                    RecEvent.CreateValueProviderSample(0.20d, 0, RecValueProviderFlags.IsValid | RecValueProviderFlags.HasValues, 2, 0),
+                },
+                new[] { "input:osc" },
+                null,
+                1d,
+                new[] { new float[] { 0.1f }, new float[] { 0.2f, 0.3f } },
+                new[] { new byte[] { 2 }, Array.Empty<byte>() });
+
+            RecBaselineState baseline = RecTimelineSeek.BuildBaselineAt(timeline, 0.3d);
+
+            Assert.That(baseline.TryGetValueProviderEntry("input:osc", out RecBaselineState.ValueProviderEntry entry), Is.True);
+            Assert.That(entry.IsValid, Is.True);
+            Assert.That(entry.MaskBytes, Is.Empty);
+            Assert.That(entry.Values, Is.EqualTo(new[] { 0.2f, 0.3f }));
+        }
+
+        [Test]
+        public void BuildBaselineAt_ExpressionEventsBeforeOffset_AppliesLastWinsAndBlend()
+        {
+            var profile = new FacialProfile(
+                "1",
+                new[]
+                {
+                    new LayerDefinition("emotion", 0, ExclusionMode.LastWins),
+                    new LayerDefinition("accent", 1, ExclusionMode.Blend),
+                },
+                new[]
+                {
+                    new Expression("smile", "Smile", "emotion"),
+                    new Expression("angry", "Angry", "emotion"),
+                    new Expression("blink", "Blink", "accent"),
+                });
+            var timeline = new RecTimeline(
+                new RecBaselineState(null, null, null, new[] { "smile" }),
+                new[]
+                {
+                    RecEvent.CreateExpressionActivate(0.1d, 0, 1),
+                    RecEvent.CreateExpressionActivate(0.2d, 0, 2),
+                    RecEvent.CreateExpressionActivate(0.3d, 0, 0),
+                    RecEvent.CreateExpressionDeactivate(0.4d, 0, 1),
+                },
+                new[] { "@expression" },
+                new[] { "smile", "angry", "blink" },
+                1d,
+                new[] { Array.Empty<float>(), Array.Empty<float>(), Array.Empty<float>(), Array.Empty<float>() });
+
+            RecBaselineState baseline = RecTimelineSeek.BuildBaselineAt(timeline, 0.5d, profile);
+
+            Assert.That(baseline.ExpressionEntries, Is.EqualTo(new[] { "blink", "smile" }));
         }
 
         private static RecTimeline CreateTimeline()
