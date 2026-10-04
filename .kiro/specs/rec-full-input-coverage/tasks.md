@@ -72,7 +72,7 @@
   - _Requirements: 4.1, 4.2, 8.2_
 
 - [ ] 3. rec Domain（レコードモデル → 基準状態 → タイムライン / キュー → バイナリ形式 → スケジューラ / 検証 / 途中再生）
-- [ ] 3.1 (P) 新レコード種別とイベントモデル・フラグ定義を追加する
+- [x] 3.1 (P) 新レコード種別とイベントモデル・フラグ定義を追加する
   - 対象: `com.hidano.facialcontrol.rec`（`Hidano.FacialControl.Rec.Domain`、Models 配下）
   - レコード種別に 7 ValueProviderSample / 8 BaselineValueProvider / 9 ExpressionActivate / 10 ExpressionDeactivate / 11 BaselineExpression を追加。値提供型フラグ（IsValid / HasMask / HasValues）とヘッダフラグ（FullInputBaseline = 0x0001）を定義する
   - イベント構造体に u16 値数・u16 mask バイト数・値提供型フラグ・float ペイロード長・時刻付き判定（2/3/4/7/9/10）と新 5 種の factory を追加する（既存 kind のレイアウトと u8 軸数は不変）
@@ -81,7 +81,7 @@
   - _Requirements: 6.1, 6.3, 6.4_
   - _Boundary: RecEvent, RecEventKind, RecValueProviderFlags, RecHeaderFlags_
 
-- [ ] 3.2 (P) 基準状態に値提供型エントリと系1 エントリを追加し、記録内 id 一意性を契約化する
+- [x] 3.2 (P) 基準状態に値提供型エントリと系1 エントリを追加し、記録内 id 一意性を契約化する
   - 対象: `com.hidano.facialcontrol.rec`（`Hidano.FacialControl.Rec.Domain`）
   - 基準状態に値提供型エントリ列（入力源 id・有効性・LSB-first mask バイト列・mask 順の値）と系1 の順序付き表情 id 列を追加する 4 引数コンストラクタと、id から高々 1 件を返す参照 API を追加。値提供型エントリの同一 id 重複は `ArgumentException` で拒否（既存トリガー / アナログの後勝ち畳み込みは不変）
   - 既存 id 表の「同一 id を別 index へ定義すると `InvalidOperationException`」挙動をテストで固定する（実装変更なし）
