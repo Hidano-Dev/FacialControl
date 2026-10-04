@@ -44,7 +44,7 @@
   - 既存テスト `BindLateInputSource_ReplacingExistingId_KeepsOtherSourceWeights` / `BindLateInputSource_AppliesDeclaredWeight_ScalesOutput` が緑のまま、新規 Small テストで「遮断中でない置換は宣言 weight を再適用する」「遮断中の置換は現在の weight を維持する」「遮断中の新規スロットは宣言 weight で参加する」「遮断中の解除で残るスロットの weight が詰め直され再通知される」が緑になる
   - _Requirements: 6.3, 6.7, 9.1_
 
-- [ ] 2.4 レイヤー名重複の読み捨てと一意性フラグを実装する
+- [x] 2.4 レイヤー名重複の読み捨てと一意性フラグを実装する
   - JSON パーサと SO コンバータで `layers` のレイヤー名重複を検出し、後続の重複レイヤーを読み捨てて Warning を 1 回出す（既存の `inputSources` / `gaze.channels` 重複と同じ流儀。例外にしない）
   - LayerUseCase はパイプライン構築時にレイヤー名の一意性を計算し、weight ゲート契約の `LayerNamesAreUnique` として公開する（REC 側はこれが false のとき録画・再生を開始しない。4.2 / 4.3 で配線）
   - Small テストで「重複名の JSON / SO から構築した profile の Layers 名が一意で Warning が出る」「直接構築した重複名 profile では `LayerNamesAreUnique` が false、一意なら true」が緑になる

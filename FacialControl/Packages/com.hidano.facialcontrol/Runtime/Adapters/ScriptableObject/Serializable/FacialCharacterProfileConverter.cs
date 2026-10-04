@@ -58,9 +58,10 @@ namespace Hidano.FacialControl.Adapters.ScriptableObject.Serializable
             string version = string.IsNullOrWhiteSpace(schemaVersion)
                 ? SystemTextJsonParser.SchemaVersionV2
                 : schemaVersion;
-            var layerArr = ConvertLayers(layers);
-            var inputSourceArr = ConvertLayerInputSources(layers);
-            var expressionArr = ConvertExpressions(expressions, layers);
+            var uniqueLayers = RemoveDuplicateLayers(layers);
+            var layerArr = ConvertLayers(uniqueLayers);
+            var inputSourceArr = ConvertLayerInputSources(uniqueLayers);
+            var expressionArr = ConvertExpressions(expressions, uniqueLayers);
             var rendererArr = ConvertStrings(rendererPaths);
             var defaultOverlayArr = ConvertOverlays(defaultOverlays);
             var slotArr = ConvertStrings(slots);
@@ -458,6 +459,35 @@ namespace Hidano.FacialControl.Adapters.ScriptableObject.Serializable
                 result.Add(new LayerDefinition(src.name, priority, src.exclusionMode));
             }
             return result.ToArray();
+        }
+
+        private static List<LayerDefinitionSerializable> RemoveDuplicateLayers(
+            IReadOnlyList<LayerDefinitionSerializable> layers)
+        {
+            if (layers == null || layers.Count == 0)
+                return new List<LayerDefinitionSerializable>();
+
+            var accepted = new List<LayerDefinitionSerializable>(layers.Count);
+            var names = new HashSet<string>(StringComparer.Ordinal);
+            bool warned = false;
+            for (int i = 0; i < layers.Count; i++)
+            {
+                var layer = layers[i];
+                if (layer != null && !string.IsNullOrWhiteSpace(layer.name) && !names.Add(layer.name))
+                {
+                    if (!warned)
+                    {
+                        Debug.LogWarning(
+                            "[FacialControl] layers にレイヤー名の重複があるため、後続の重複レイヤーを読み捨てました。");
+                        warned = true;
+                    }
+                    continue;
+                }
+
+                accepted.Add(layer);
+            }
+
+            return accepted;
         }
 
         private static InputSourceDeclaration[][] ConvertLayerInputSources(IReadOnlyList<LayerDefinitionSerializable> layers)

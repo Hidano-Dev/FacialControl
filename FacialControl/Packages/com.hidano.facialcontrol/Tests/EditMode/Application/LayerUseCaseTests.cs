@@ -431,6 +431,27 @@ namespace Hidano.FacialControl.Tests.EditMode.Application
         }
 
         [Test]
+        public void LayerNamesAreUnique_DuplicateLayerNames_ReturnsFalse()
+        {
+            var profile = CreateProfile(new[]
+            {
+                new LayerDefinition("emotion", 0, ExclusionMode.LastWins),
+                new LayerDefinition("emotion", 1, ExclusionMode.Blend),
+            });
+            var expressionUseCase = new ExpressionUseCase(profile);
+
+            using var useCase = new LayerUseCase(profile, expressionUseCase, CreateBlendShapeNames());
+
+            Assert.That(((IWeightInjectionGate)useCase).LayerNamesAreUnique, Is.False);
+        }
+
+        [Test]
+        public void LayerNamesAreUnique_UniqueLayerNames_ReturnsTrue()
+        {
+            Assert.That(((IWeightInjectionGate)_useCase).LayerNamesAreUnique, Is.True);
+        }
+
+        [Test]
         public void BindLateInputSource_AddingNewSlot_WhileSuspended_AppliesDeclaredWeightWithoutOpeningGate()
         {
             var layers = new[] { new LayerDefinition("emotion", 0, ExclusionMode.LastWins) };
