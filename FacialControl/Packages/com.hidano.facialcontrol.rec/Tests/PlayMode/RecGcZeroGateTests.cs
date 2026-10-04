@@ -1,5 +1,7 @@
 using System;
+using System.Collections;
 using System.Collections.Generic;
+using Hidano.FacialControl.Domain.Adapters;
 using Hidano.FacialControl.Domain.Services;
 using Hidano.FacialControl.Rec.Application.UseCases;
 using Hidano.FacialControl.Rec.Domain.Interfaces;
@@ -17,6 +19,7 @@ namespace Hidano.FacialControl.Rec.Tests.PlayMode
         private const int WarmupFrames = 8;
         private const int MeasurementFrames = 120;
         private const float DeltaTime = 1f / 60f;
+        private const int LargeBlendShapeCount = 300;
 
         [Test]
         public void RecordingUseCase_SteadyState_AfterWarmup_AllocatesZeroGC()
@@ -59,6 +62,51 @@ namespace Hidano.FacialControl.Rec.Tests.PlayMode
         }
 
         [Test]
+        public void RecordingUseCase_LargeValueProviderSteadyState_AfterWarmup_AllocatesZeroGC()
+        {
+            var observationBus = new FacialInputObservationBus();
+            var clock = new ManualRecClock();
+            var sink = new NullRecEventSink();
+            using var useCase = new RecordingUseCase(observationBus, clock, sink);
+            float[] values = CreateLargeValues();
+            var mask = CreateFullMask();
+
+            RecBaselineState baseline = new RecBaselineState(
+                null,
+                null,
+                new[]
+                {
+                    new RecBaselineState.ValueProviderEntry(
+                        "input:vector",
+                        true,
+                        CreateMaskBytes(),
+                        values),
+                },
+                null);
+
+            useCase.StartRecording(baseline, LargeBlendShapeCount);
+
+            for (int i = 0; i < WarmupFrames; i++)
+            {
+                PublishLargeValueProviderFrame(observationBus, clock, values, mask, i);
+            }
+
+            ForceFullCollection();
+            using var recorder = StartGcRecorder();
+
+            for (int i = 0; i < MeasurementFrames; i++)
+            {
+                values[0] = i;
+                PublishLargeValueProviderFrame(observationBus, clock, values, mask, WarmupFrames + i);
+            }
+
+            Assert.That(recorder.LastValue, Is.EqualTo(0L),
+                "RecordingUseCase large value-provider steady-state hot path must not allocate GC.");
+
+            useCase.StopRecording();
+        }
+
+        [Test]
         public void PlaybackUseCase_SteadyState_AfterWarmup_AllocatesZeroGC()
         {
             var triggerPort = new NullTriggerInjectionPort();
@@ -84,6 +132,36 @@ namespace Hidano.FacialControl.Rec.Tests.PlayMode
 
             Assert.That(recorder.LastValue, Is.EqualTo(0L),
                 "PlaybackUseCase steady-state Tick path must not allocate GC.");
+        }
+
+        [Test]
+        public void PlaybackUseCase_LargeValueProviderSteadyState_AfterWarmup_AllocatesZeroGC()
+        {
+            var triggerPort = new NullTriggerInjectionPort();
+            var expressionPort = new NullExpressionInjectionPort();
+            var analogPort = new NullAnalogInjectionPort();
+            var valueProviderPort = new NullValueProviderInjectionPort();
+            var useCase = new PlaybackUseCase(triggerPort, expressionPort, analogPort, valueProviderPort);
+            RecTimeline timeline = CreateLargeValueProviderPlaybackTimeline(WarmupFrames + MeasurementFrames + 1);
+
+            useCase.Load(timeline, CreateProfile());
+            Assert.That(useCase.StartPlayback(), Is.True);
+
+            for (int i = 0; i < WarmupFrames; i++)
+            {
+                useCase.Tick(DeltaTime);
+            }
+
+            ForceFullCollection();
+            using var recorder = StartGcRecorder();
+
+            for (int i = 0; i < MeasurementFrames; i++)
+            {
+                useCase.Tick(DeltaTime);
+            }
+
+            Assert.That(recorder.LastValue, Is.EqualTo(0L),
+                "PlaybackUseCase large value-provider steady-state Tick path must not allocate GC.");
         }
 
         [Test]
@@ -125,6 +203,24 @@ namespace Hidano.FacialControl.Rec.Tests.PlayMode
             useCase.OnAnalogSample("input:gaze", axes);
         }
 
+        private static void PublishLargeValueProviderFrame(
+            FacialInputObservationBus observationBus,
+            ManualRecClock clock,
+            float[] values,
+            BitArray mask,
+            int frameIndex)
+        {
+            clock.SetElapsedSeconds(frameIndex * DeltaTime);
+            var sample = new ValueProviderSample(
+                true,
+                false,
+                true,
+                true,
+                values,
+                mask);
+            observationBus.PublishValueProviderSample("input:vector", in sample);
+        }
+
         private static RecTimeline CreatePlaybackTimeline(int frameCount)
         {
             var events = new RecEvent[frameCount];
@@ -142,6 +238,74 @@ namespace Hidano.FacialControl.Rec.Tests.PlayMode
                 Array.Empty<string>(),
                 (frameCount + 1) * DeltaTime,
                 analogAxes);
+        }
+
+        private static RecTimeline CreateLargeValueProviderPlaybackTimeline(int frameCount)
+        {
+            var events = new RecEvent[frameCount];
+            var valuesByEvent = new IReadOnlyList<float>[frameCount];
+            var masksByEvent = new IReadOnlyList<byte>[frameCount];
+            byte[] mask = CreateMaskBytes();
+            for (int i = 0; i < frameCount; i++)
+            {
+                events[i] = RecEvent.CreateValueProviderSample(
+                    (i + 1) * DeltaTime,
+                    0,
+                    RecValueProviderFlags.IsValid
+                        | RecValueProviderFlags.HasMask
+                        | RecValueProviderFlags.HasValues,
+                    LargeBlendShapeCount,
+                    (ushort)mask.Length);
+                valuesByEvent[i] = CreateLargeValues();
+                masksByEvent[i] = mask;
+            }
+
+            return new RecTimeline(
+                new RecBaselineState(
+                    null,
+                    null,
+                    new[]
+                    {
+                        new RecBaselineState.ValueProviderEntry(
+                            "input:vector",
+                            true,
+                            mask,
+                            CreateLargeValues()),
+                    },
+                    null),
+                events,
+                new[] { "input:vector" },
+                Array.Empty<string>(),
+                (frameCount + 1) * DeltaTime,
+                valuesByEvent,
+                masksByEvent);
+        }
+
+        private static float[] CreateLargeValues()
+        {
+            var values = new float[LargeBlendShapeCount];
+            for (int i = 0; i < values.Length; i++)
+            {
+                values[i] = i / (float)LargeBlendShapeCount;
+            }
+
+            return values;
+        }
+
+        private static BitArray CreateFullMask()
+        {
+            return new BitArray(LargeBlendShapeCount, true);
+        }
+
+        private static byte[] CreateMaskBytes()
+        {
+            var mask = new byte[(LargeBlendShapeCount + 7) / 8];
+            for (int i = 0; i < LargeBlendShapeCount; i++)
+            {
+                mask[i >> 3] |= (byte)(1 << (i & 7));
+            }
+
+            return mask;
         }
 
         private static Hidano.FacialControl.Domain.Models.FacialProfile CreateProfile()
@@ -225,6 +389,32 @@ namespace Hidano.FacialControl.Rec.Tests.PlayMode
             }
         }
 
+        private sealed class NullExpressionInjectionPort : IExpressionInjectionPort
+        {
+            public bool CanBeginInjection(out string reason)
+            {
+                reason = string.Empty;
+                return true;
+            }
+
+            public bool TryBeginInjection(RecBaselineState baseline)
+            {
+                return true;
+            }
+
+            public void InjectActivate(string expressionId)
+            {
+            }
+
+            public void InjectDeactivate(string expressionId)
+            {
+            }
+
+            public void EndInjection()
+            {
+            }
+        }
+
         private sealed class NullAnalogInjectionPort : IAnalogInjectionPort
         {
             public bool CanBeginInjection(out string reason)
@@ -239,6 +429,28 @@ namespace Hidano.FacialControl.Rec.Tests.PlayMode
             }
 
             public void InjectAnalogSample(string sourceId, ReadOnlySpan<float> axes)
+            {
+            }
+
+            public void EndInjection()
+            {
+            }
+        }
+
+        private sealed class NullValueProviderInjectionPort : IValueProviderInjectionPort
+        {
+            public bool CanBeginInjection(out string reason)
+            {
+                reason = string.Empty;
+                return true;
+            }
+
+            public bool TryBeginInjection(RecBaselineState baseline)
+            {
+                return true;
+            }
+
+            public void InjectValueProviderState(string sourceId, bool isValid, ReadOnlySpan<byte> maskBytes, ReadOnlySpan<float> values)
             {
             }
 

@@ -272,7 +272,7 @@
   - _Requirements: 1.2, 1.4, 7.3, 7.4, 7.5, 7.6, 7.7, 7.8_
   - _Depends: 5.3, 6, 7.2, 7.4_
 
-- [ ] 8. timeline Editor の REC Export が新 kind を含むファイルを読めるようにする
+- [x] 8. timeline Editor の REC Export が新 kind を含むファイルを読めるようにする
   - 対象: `com.hidano.facialcontrol.timeline`（`Hidano.FacialControl.Timeline.Editor`、RecEventSequenceAdapter。observer シグネチャ追随は 1.1 で完了済み）
   - イベント変換で Export 対象外の kind 7 / 9 / 10 を例外にせずスキップ（配列を詰める）。基準の kind 8 / 11 は既存どおり変換対象外。kind 2 / 3 / 4 の変換は不変
   - テスト（timeline Editor の既存 REC Export テスト fixture へ追記。ファイル I/O を伴うなら `[MediumTest]`、インメモリの RecTimeline のみなら `[SmallTest]`）: kind 7 / 9 / 10 を含むタイムラインを変換しても例外が出ず、出力が kind 2 / 3 / 4 由来のみで順序が保たれること
@@ -280,7 +280,7 @@
   - _Requirements: 6.9_
 
 - [ ] 9. PlayMode 受け入れ検証と GC ゲート
-- [ ] 9.1 キャラクターバインディングの PlayMode 受け入れテストを追加する
+- [x] 9.1 キャラクターバインディングの PlayMode 受け入れテストを追加する
   - 対象: `com.hidano.facialcontrol.rec`（rec Tests PlayMode asmdef、`RecCharacterBindingPlayModeTests` 追記、`[MediumTest]`）
   - Fake 値提供型（registry 登録）と系1 `Activate` / `Deactivate` を含む操作列を記録 → 停止 → 読込 → 再生し、ブレンド出力がフレーム 0 から収録時と一致すること（同一プロファイル・同一レイヤー設定）
   - 再生中のライブ値提供型更新とライブ `Activate` が出力に反映されないこと、停止後に原本が registry へ復元され系1 のアクティブ集合が停止時点のまま維持されること
