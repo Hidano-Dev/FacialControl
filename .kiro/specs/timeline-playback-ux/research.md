@@ -368,3 +368,137 @@ core（`FacialControl/Packages/com.hidano.facialcontrol/`）:
 - **B2（Analog 消費先）**: 「設計が判定する」のまま維持するが、制約を要件に明記: (i) 乗っ取り方式（registry Replace）を Gaze と統一して採用し、(ii) 直接参照を保持する既存消費者（`AnalogExpressionInputSource` / `AnalogBlendShapeInputSource`）が registry の差し替えを追えない場合は、core 側の消費者に registry 経由の再解決を追加するか、本 spec では「再生で反映されない Analog チャネル」として Receiver 診断に表示し backlog へ送るかを設計が判定する。(iii) `rec-weight-coverage` が並走中のため `InputSystemAdapterBinding` の weight 経路（`ApplyOverlayLayerWeights`）には触らない
 - **B3（Edit/Play 一致）**: ユーザー決定 3「Edit プレビューと Play 再生で見える結果を一致させる」を直接実現する要件なので採用。ただし比較条件を「同一 TimelineAsset・Profile・時刻、Timeline の sink 以外の live 入力なし、レイヤー weight 既定」に限定し、合成は Domain 層の既存 `LayerBlender` を再利用して再実装しないことを要件に明記
 - **C1〜C9** は設計判断として design へ送る。オーケストレータの方向性: C3 は「Runtime と同じ `LoadProfile()`（JSON 優先）に Editor 系を揃える」（JSON ファースト方針）、C2 は Track 側参照を優先候補、C4/C5 は `ChannelSubId` に REC の source id（`slug:sub`）を保持して binding 側で許容する方向を優先候補とする（最終決定は設計）
+
+---
+
+## 12. 設計フェーズ追記（Research Log / Design Decisions、2026-10-05）
+
+- **Discovery Scope**: Extension（既存システムの統合面の再設計）。§2 の棚卸しを前提に、設計判断に必要な箇所のみ実コードを再確認した
+- **Key Findings**
+  - `IAdapterBindingDefaultLayerInputs` は `AdapterBindingsListView`（binding 追加時の inputSources 自動追加）と `AutoWireService` が参照しており、Timeline binding が実装すると Profile へ宣言が自動追加される副作用が出る → Req 2.5 は新マーカー `IAdapterBindingDynamicInputs` + `InvalidIdValidator` 内での prefix 許容で満たす（呼び出し側無変更）
+  - `scripts/check-test-sizes.ps1` は Small で `AddComponent<FacialTimelineReceiver>` / `AddComponent<FacialController>` / `AssetDatabase` / `EditorApplication` / `[UnityTest]` を禁止 → Receiver / Controller / Director を触るテストは Medium、純粋関数（導出・id 規約・診断モデル・Locator・Takeover with Fake registry）は Small
+  - `FacialController.OnEnable` は `CharacterSO` が設定済みなら `Initialize()` を自動実行する → e2e fixture は非アクティブ GameObject に設定してから `SetActive(true)`
+  - `GazeChannel` に `leftEyeBonePath` / `rightEyeBonePath` があり Humanoid Avatar 無しで目ボーンを明示できる → e2e の Gaze 検証は明示ボーンの `localRotation` で行える
+  - `RecToTimelineExportWorkflowTests` は `RecBinaryFormat.Serialize(RecTimeline, ...)` で `.fcrec` を生成している → Tests/Shared に移して PlayMode e2e と共用できる
+  - `TimelineStateEventCollector.Collect(rootTrack)` は子トラックを root のレイヤー名で畳んでいる（§8-5 の確認完了）
+  - `Layer2ActiveExpressionProvider.SetSources` は全置換のみで増減 API が無い → `AddSource / RemoveSource` を追加しないと後付け系2 が overlay suppress に乗らない
+
+### Research Log
+
+#### Unity Timeline 1.8 Editor コールバックと更新 API
+- **Context**: Req 6.1 の変更検知経路、Req 6.2 のプレビュー再評価
+- **Sources Consulted**: `UnityEditor.Timeline.ClipEditor`（1.8 API）、`UnityEditor.Timeline.TrackEditor`（1.8 API）、`UnityEditor.Timeline.TimelineEditor` / `RefreshReason`（1.8 API）、`UnityEditor.ObjectChangeEvents`（Unity 6 ScriptReference）
+- **Findings**: `ClipEditor` は `OnClipChanged(TimelineClip)` / `OnCreate(TimelineClip, TrackAsset, TimelineClip)` / `GetClipOptions` が virtual。`TrackEditor` は `OnTrackChanged(TrackAsset)` / `OnCreate(TrackAsset, TrackAsset)` / `GetBindingFrom` / `IsBindingAssignableFrom` が virtual。`TimelineEditor.Refresh(RefreshReason)` は次の GUI ループで実行され、`RefreshReason` は `ContentsAddedOrRemoved | ContentsModified | SceneNeedsUpdate | WindowNeedsRedraw` のフラグ。`ObjectChangeEvents.changesPublished` はフレームに 1 回、Undo 可能な変更（アセット・GameObject）と Undo/Redo 自体を `ObjectChangeEventStream` で通知する
+- **Implications**: Timeline ウィンドウ操作は TrackEditor / ClipEditor、Undo/Redo・Inspector 編集・削除は `Undo.undoRedoPerformed` + `ObjectChangeEvents` で補う 3 経路構成（design.md D8）。再評価は `Refresh(ContentsModified | SceneNeedsUpdate)`
+
+#### core の後付け接続経路と `_layer2Provider`
+- **Context**: Req 3.1 / 3.8 の API 設計
+- **Sources Consulted**: `FacialController.cs`（L297-342 / L522-593 / L917-1037 / L1484-）、`LayerUseCase.cs`（L332-443）、`LayerInputSourceRegistry.cs`（L198-319）、`Layer2ActiveExpressionProvider.cs`
+- **Findings**: `BindLateInputSource(layerIdx, declaredId, source, weight)` は同 slot をその場置換し、無ければ末尾追加（容量超過時のみ再確保）。`UnbindLateInputSource` は weight 列を詰めて復元する。`FindSourceIndex(layerIdx, slotId)` が接続済み判定に使える。`HandleLayerInputSourceRebound` は `_layer2Provider` を更新しない。`Cleanup` で registry / LayerUseCase が破棄される
+- **Implications**: `FacialController` に接続 / 解放 / 判定 + 系2 登録 / 解除の 5 メソッドを追加し、既存の宣言経路は変更しない（design.md D2）。Receiver は `ReloadProfile` 後の再接続を自分で行う
+
+#### Analog 消費者の参照形態
+- **Context**: Req 3.4 の消費先判定
+- **Sources Consulted**: `AnalogExpressionInputSource.cs`（コンストラクタで `IReadOnlyDictionary<string, IAnalogInputSource>` から直接解決）、`GazeChannelResolver.cs`、`FacialController.SubscribeGazeInputSources`
+- **Findings**: Gaze 消費者（目ボーン provider）は registry 購読で Replace を追う。`AnalogExpressionInputSource` / `AnalogBlendShapeInputSource` は構築時の直接参照で Replace を追わない。REC 再生の `RecAnalogInjector` も Replace 方式なので同じ到達範囲
+- **Implications**: Timeline は REC と同じ Replace 方式を採用し、直接参照型消費者への反映は backlog へ（design.md D3）
+
+### Architecture Pattern Evaluation
+
+| Option | Description | Strengths | Risks / Limitations | Notes |
+|---|---|---|---|---|
+| A: 既存拡張中心 | Receiver に全機能を追加 | ファイル増加なし | 1,000 行超級、Edit 診断と Play 接続が同居、OnStart 時点で TimelineAsset が無い構造と噛み合わない | 不採用 |
+| B: 責務分割 | Deriver / Locator / Connector / Takeover / Diagnostics / BindingResolver + Receiver ファサード | EditMode で単体テスト可能、Edit 診断と Play 接続を分離 | 公開面が増える | **採用** |
+| C: 段階導入 | B を 3 段で tasks に並べる | 受け入れ条件 (1)(3)(4) を先に固定 | 段間の一時的な二重構造 | tasks の依存順として採用 |
+
+### Design Decisions
+
+#### Decision: sink id は名前優先・index フォールバック（D1）
+- **Context**: `InputSourceId` は ASCII のみ。非 ASCII レイヤー名を `timeline:{layer}` にすると `Parse` が例外
+- **Alternatives Considered**: 1. 常に `timeline:layer{index}` 2. サニタイズ名 3. 名前優先 + index フォールバック
+- **Selected Approach**: 3
+- **Rationale**: 1 は既存 README / 旧 Profile 宣言 / 既存テストの id と非互換になり Req 3.3 の重複判定が成立しない。2 は「感情」「表情」が同じ空文字に潰れて衝突する
+- **Trade-offs**: 非 ASCII 名の id が Profile のレイヤー順に依存する。sink id は永続化しない内部識別子なので許容
+- **Follow-up**: 64 文字境界と `:` を含む名前のテスト
+
+#### Decision: `:state` sink はレイヤー入力源に接続しない（D2）
+- **Context**: Req 3.1 の「設計が判定」、Req 8.8 の例外経路
+- **Alternatives Considered**: 1. 値 sink と同様にレイヤー接続（Req 8.8 修正が前提） 2. `_layer2Provider` と観測にのみ登録
+- **Selected Approach**: 2。ただし旧宣言経路のために registry には Register し、Req 8.8 の mask 長統一も行う
+- **Rationale**: state sink は値を持たず、レイヤー接続は `layerWeightSum` を汚すだけで BlendShape に寄与しない
+- **Trade-offs**: `FacialController` に系2 登録専用 API が 2 つ増える
+- **Follow-up**: `LayerInputSourceAggregator` の長さ不一致防御は core 変更範囲外として backlog に記録する
+
+#### Decision: Analog は Replace 乗っ取り + 診断、core 再解決は backlog（D3）
+- **Context**: §4-B2
+- **Alternatives Considered**: (a) core / inputsystem に analog 再解決を追加 (b) 診断表示 + backlog (c) Bake 時に analog → Expression を BlendShape カーブ化
+- **Selected Approach**: Replace 乗っ取り + (b)
+- **Rationale**: (a) は `InputSystemAdapterBinding` の構築経路に触れ並走 spec と衝突、(c) は inputsystem パッケージへの依存方向違反。REC 再生と同じ到達範囲が本仕様の目的（REC 再現）に整合
+- **Trade-offs**: InputSystem の analog expression / blendshape 消費者には Timeline の Analog が届かない。Inspector に注記を出す
+- **Follow-up**: backlog に「analog 消費者の registry 再解決（REC / Timeline 共通）」を登録
+
+#### Decision: `ChannelSubId` は REC の source id をそのまま保持し takeover 先にする（D4）
+- **Context**: §4-C4 / C5 の相互依存
+- **Alternatives Considered**: 1. sub 正規化 + Track に takeover 先を別途保持 2. `slug:sub` 保持 + binding 側許容
+- **Selected Approach**: 2。takeover 先 = `ChannelSubId`。`IsValidChannelId` は core で変更しない
+- **Rationale**: Export が既に書いている id を正とすれば導出が一意。`providerSlug` / active slug 列挙の曖昧さが消える
+- **Trade-offs**: `TimelineAdapterBinding` は `IGazeSourceProvider` を外す（乗っ取りは提供ではない）
+
+#### Decision: Bake 参照は Track 側（D5）
+- **Context**: §4-C2
+- **Alternatives Considered**: Track フィールド / Marker / 専用 TrackAsset
+- **Selected Approach**: Track フィールド（`IFacialTimelineBakeHolder`）+ `BakeReferenceWriter` で全トラックに同じ参照
+- **Rationale**: Runtime から `GetOutputTracks()` で辿れ、Timeline ウィンドウに余計な行 / マーカーが出ない
+- **Trade-offs**: トラック追加時の補完（`TrackEditor.OnCreate` + 再ベイク時の上書き）が必要
+- **Follow-up**: `HideFlags.HideInHierarchy` の Project ウィンドウ表示を実機確認
+
+#### Decision: Profile ソースは `LoadProfile()` に統一（D6）
+- **Context**: §4-C3
+- **Alternatives Considered**: 1. Editor 系を `LoadProfile()` に揃える 2. Timeline 経路だけ SO 固定
+- **Selected Approach**: 1（`TimelineProfileSource` でキャッシュ付き）
+- **Rationale**: Runtime ハッシュが JSON 優先で計算されるため、2 では JSON と SO が食い違うと常に HashMismatch。JSON ファースト方針とも一致
+- **Trade-offs**: Editor でファイル I/O が発生する → `LastWriteTimeUtc` キャッシュで抑える
+
+#### Decision: Director 解決規則と Track binding 自動設定の実行時点（D7）
+- **Context**: §4-C9、Req 1.6
+- **Selected Approach**: 上書き → 同 GO → 親 → シーン走査（Facial トラックを持つ Director のうち自分を指すもの、複数なら Ambiguous）。自動 binding は Play の `OnEnable`（必要なら `RebuildGraph`）と Edit の Inspector 評価（Undo 付き）
+- **Rationale**: Mixer は binding 済みトラックしか Receiver を解決しないため、グラフ構築前に binding が必要
+- **Follow-up**: `FindObjectsByType` のコストはセッション開始時と Inspector 評価時のみ（§8-13）
+
+#### Decision: 変更検知 3 経路 + デバウンス 300 ms（D8）
+- **Context**: §4-C7
+- **Selected Approach**: TrackEditor / ClipEditor コールバック + `Undo.undoRedoPerformed` + `ObjectChangeEvents`（Facial 型に限定）→ 300 ms デバウンス → ハッシュ比較 → 再ベイク → `BakeUpdated` + `TimelineEditor.Refresh`
+- **Rationale**: ドラッグ中は OnClipChanged がマウス移動ごとに発火する。300 ms は入力間隔より十分長く「待ち」と感じる閾値より短い
+- **Follow-up**: `OnClipChanged` が Inspector 編集で発火するかは実機確認（§8-2）。発火しなくても ObjectChangeEvents で拾える
+
+#### Decision: Edit 合成はオフライン `LayerUseCase`（D9）
+- **Context**: §4-B3
+- **Alternatives Considered**: 1. Editor で `LayerBlender.Blend` を直接呼び優先度 / override / base を自前で組む 2. `LayerUseCase` + `ExpressionUseCase` をオフラインで構築し Play と同じ sink を `BindLateInputSource`
+- **Selected Approach**: 2
+- **Rationale**: 1 でも `LayerBlender` は再利用できるが、`LayerOverrideMask` 除外・`HasBeenActive || hasAdditional` のレイヤー包含・Base Expression 初期化など `LayerUseCase` 側の規則を Editor に再実装することになる。2 はそれらを丸ごと再利用する
+- **Trade-offs**: `FacialController.CollectBlendShapeNames` の public static 化と `SkinnedMeshRendererBlendShapeWriter` の Editor からの利用（いずれも core Adapters の既存実装）
+- **Follow-up**: 比較時刻集合と許容誤差（1e-4 正規化、renderer 0.01、Gaze 1e-3）を `TimelinePreviewCompositorTests` に固定
+
+#### Decision: Edit の「1 回」= 診断エポック（D10）
+- **Selected Approach**: (Receiver instanceID, code, subject) につき 1 回。エポックは BakeUpdated / Director 配線変更 / ドメインリロード / Play → Edit 復帰でリセット
+
+#### Decision: Source Overrides は撤去（D13）
+- **Context**: Req 10.1 / 10.2
+- **Alternatives Considered**: 1. 残して行ごとに理由表示 + トリガー専用行のグレーアウト 2. 撤去し検出結果の読み取り専用表示
+- **Selected Approach**: 2。Exporter の `sourceKindOverrides` 引数はテスト / プログラム用途として維持
+- **Rationale**: 判定は Profile の情報から決定的に行え、例外は Export 後の `FacialValueTrack.ChannelKind` 編集（変更検知で再ベイク）で足りる。HID-144 の「設定を減らす」方針に合う
+
+### Risks & Mitigations
+- `HideFlags.HideInHierarchy` の見え方が想定と違う → 受け入れ条件に影響しないため実装時に確認し、必要なら `HideFlags` を外す
+- `ClipEditor.OnClipChanged` の発火条件が想定と違う → `ObjectChangeEvents` 経路が補完。二重発火はデバウンスで吸収
+- `rec-weight-coverage` が `BindLateInputSource` の weight 列の扱いを変える → Revalidation Triggers に従い `TimelineLayerConnectorTests` を再実行
+- Analog が InputSystem 消費者に届かない誤解 → Inspector の注記と README で明示、backlog 登録
+
+### References
+- https://docs.unity3d.com/Packages/com.unity.timeline@1.8/api/UnityEditor.Timeline.ClipEditor.html — `OnClipChanged` / `OnCreate` / `GetClipOptions`
+- https://docs.unity3d.com/Packages/com.unity.timeline@1.8/api/UnityEditor.Timeline.TrackEditor.html — `OnTrackChanged` / `OnCreate` / `GetBindingFrom`
+- https://docs.unity3d.com/Packages/com.unity.timeline@1.8/api/UnityEditor.Timeline.TimelineEditor.html — `Refresh(RefreshReason)` / `inspectedDirector`
+- https://docs.unity3d.com/Packages/com.unity.timeline@1.8/api/UnityEditor.Timeline.RefreshReason.html — フラグ値
+- https://docs.unity3d.com/6000.0/Documentation/ScriptReference/ObjectChangeEvents.html — `changesPublished`
+- `docs/testing.md` / `scripts/check-test-sizes.ps1` — Small 禁止 API と Medium の定義
+- `docs/test-policy.md` — D 区分（ログ文言一致・private reflection は原則削除）
