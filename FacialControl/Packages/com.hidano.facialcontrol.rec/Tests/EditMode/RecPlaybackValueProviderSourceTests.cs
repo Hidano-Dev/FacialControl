@@ -38,6 +38,61 @@ namespace Hidano.FacialControl.Rec.Tests.EditMode
         }
 
         [Test]
+        public void ApplyState_ValuesOnly_KeepsMaskAndAppliesValuesInMaskOrder()
+        {
+            var source = new RecPlaybackValueProviderSource("input:values", 4, null);
+            Assert.That(source.ApplyState(true, new byte[] { 0x05 }, new[] { 1f, 2f }), Is.True);
+
+            Assert.That(source.ApplyState(true, ReadOnlySpan<byte>.Empty, new[] { 3f, 4f }), Is.True);
+
+            Span<float> output = stackalloc float[4];
+            Assert.That(source.TryWriteValues(output), Is.True);
+            Assert.That(output.ToArray(), Is.EqualTo(new[] { 3f, 0f, 4f, 0f }));
+            Assert.That(source.ContributeMask[0], Is.True);
+            Assert.That(source.ContributeMask[2], Is.True);
+        }
+
+        [Test]
+        public void ApplyState_ValidityOnly_KeepsMaskAndValues()
+        {
+            var source = new RecPlaybackValueProviderSource("input:values", 3, null);
+            Assert.That(source.ApplyState(true, new byte[] { 0x05 }, new[] { 1f, 2f }), Is.True);
+
+            Assert.That(source.ApplyState(false, ReadOnlySpan<byte>.Empty, ReadOnlySpan<float>.Empty), Is.True);
+            Span<float> output = stackalloc float[3];
+            Assert.That(source.TryWriteValues(output), Is.False);
+
+            Assert.That(source.ApplyState(true, ReadOnlySpan<byte>.Empty, ReadOnlySpan<float>.Empty), Is.True);
+            Assert.That(source.TryWriteValues(output), Is.True);
+            Assert.That(output.ToArray(), Is.EqualTo(new[] { 1f, 0f, 2f }));
+        }
+
+        [Test]
+        public void ApplyState_ValuesOnlyCountMismatch_ReturnsFalseAndKeepsPreviousState()
+        {
+            var source = new RecPlaybackValueProviderSource("input:values", 3, null);
+            Assert.That(source.ApplyState(true, new byte[] { 0x05 }, new[] { 1f, 2f }), Is.True);
+
+            Assert.That(source.ApplyState(true, ReadOnlySpan<byte>.Empty, new[] { 9f }), Is.False);
+
+            Span<float> output = stackalloc float[3];
+            source.TryWriteValues(output);
+            Assert.That(output.ToArray(), Is.EqualTo(new[] { 1f, 0f, 2f }));
+        }
+
+        [Test]
+        public void ApplyState_MaskClearedToEmptyWithNoValues_ClearsContribution()
+        {
+            var source = new RecPlaybackValueProviderSource("input:values", 3, null);
+            Assert.That(source.ApplyState(true, new byte[] { 0x05 }, new[] { 1f, 2f }), Is.True);
+
+            Assert.That(source.ApplyState(true, new byte[] { 0x00 }, ReadOnlySpan<float>.Empty), Is.True);
+
+            Assert.That(source.ContributeMask[0], Is.False);
+            Assert.That(source.ContributeMask[2], Is.False);
+        }
+
+        [Test]
         public void ApplyState_InvalidState_TryWriteReturnsFalse()
         {
             var source = new RecPlaybackValueProviderSource("input:values", 3, null);

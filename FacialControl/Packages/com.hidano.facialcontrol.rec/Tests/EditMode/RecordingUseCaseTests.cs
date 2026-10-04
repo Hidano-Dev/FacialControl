@@ -338,6 +338,51 @@ namespace Hidano.FacialControl.Rec.Tests.EditMode
         }
 
         [Test]
+        public void ValueProviderSample_ValuesOnly_OmitsMaskAndKeepsPackedValues()
+        {
+            var bus = new FakeObservationBus();
+            var sink = new FakeRecEventSink();
+            using var useCase = new RecordingUseCase(bus, new FakeClock(), sink);
+            useCase.StartRecording(RecBaselineState.Empty, 10);
+
+            var mask = new BitArray(10);
+            mask[1] = true;
+            mask[9] = true;
+            var sample = new ValueProviderSample(true, false, true, false,
+                new[] { 0f, 0.5f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0.75f }, mask);
+            bus.PublishValueProviderSample("input:values", in sample);
+
+            Assert.That(sink.AppendedEvents.Count, Is.EqualTo(2));
+            RecEvent evt = sink.AppendedEvents[1].evt;
+            Assert.That(evt.Kind, Is.EqualTo(RecEventKind.ValueProviderSample));
+            Assert.That(evt.Flags, Is.EqualTo(RecValueProviderFlags.IsValid | RecValueProviderFlags.HasValues));
+            Assert.That(evt.MaskByteCount, Is.EqualTo(0));
+            Assert.That(evt.ValueCount, Is.EqualTo(2));
+            Assert.That(sink.AppendedEvents[1].maskBytes, Is.Empty);
+            Assert.That(sink.AppendedEvents[1].payload, Is.EqualTo(new[] { 0.5f, 0.75f }));
+        }
+
+        [Test]
+        public void ValueProviderSample_ValidityOnly_OmitsMaskAndValues()
+        {
+            var bus = new FakeObservationBus();
+            var sink = new FakeRecEventSink();
+            using var useCase = new RecordingUseCase(bus, new FakeClock(), sink);
+            useCase.StartRecording(RecBaselineState.Empty, 10);
+
+            var sample = new ValueProviderSample(false, true, false, false, new float[10], new BitArray(10, true));
+            bus.PublishValueProviderSample("input:values", in sample);
+
+            Assert.That(sink.AppendedEvents.Count, Is.EqualTo(2));
+            RecEvent evt = sink.AppendedEvents[1].evt;
+            Assert.That(evt.Flags, Is.EqualTo(RecValueProviderFlags.None));
+            Assert.That(evt.MaskByteCount, Is.EqualTo(0));
+            Assert.That(evt.ValueCount, Is.EqualTo(0));
+            Assert.That(sink.AppendedEvents[1].maskBytes, Is.Empty);
+            Assert.That(sink.AppendedEvents[1].payload, Is.Empty);
+        }
+
+        [Test]
         public void ExpressionActivation_UsesReservedSourceAndExpressionSeedIds()
         {
             var bus = new FakeObservationBus();

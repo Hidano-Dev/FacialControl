@@ -132,7 +132,7 @@ namespace Hidano.FacialControl.Rec.Tests.EditMode
         }
 
         [Test]
-        public void BuildBaselineAt_ValueProviderSamplesBeforeOffset_UsesLastStatePerSource()
+        public void BuildBaselineAt_ValueProviderValuesOnlyBeforeOffset_KeepsPreviousMask()
         {
             var timeline = new RecTimeline(
                 new RecBaselineState(
@@ -143,20 +143,47 @@ namespace Hidano.FacialControl.Rec.Tests.EditMode
                 new[]
                 {
                     RecEvent.CreateValueProviderSample(0.10d, 0, RecValueProviderFlags.HasMask | RecValueProviderFlags.HasValues, 1, 1),
-                    RecEvent.CreateValueProviderSample(0.20d, 0, RecValueProviderFlags.IsValid | RecValueProviderFlags.HasValues, 2, 0),
+                    RecEvent.CreateValueProviderSample(0.20d, 0, RecValueProviderFlags.IsValid | RecValueProviderFlags.HasValues, 1, 0),
                 },
                 new[] { "input:osc" },
                 null,
                 1d,
-                new[] { new float[] { 0.1f }, new float[] { 0.2f, 0.3f } },
+                new[] { new float[] { 0.2f }, new float[] { 0.3f } },
                 new[] { new byte[] { 2 }, Array.Empty<byte>() });
 
             RecBaselineState baseline = RecTimelineSeek.BuildBaselineAt(timeline, 0.3d);
 
             Assert.That(baseline.TryGetValueProviderEntry("input:osc", out RecBaselineState.ValueProviderEntry entry), Is.True);
             Assert.That(entry.IsValid, Is.True);
-            Assert.That(entry.MaskBytes, Is.Empty);
-            Assert.That(entry.Values, Is.EqualTo(new[] { 0.2f, 0.3f }));
+            Assert.That(entry.MaskBytes, Is.EqualTo(new byte[] { 2 }));
+            Assert.That(entry.Values, Is.EqualTo(new[] { 0.3f }));
+        }
+
+        [Test]
+        public void BuildBaselineAt_ValueProviderValidityOnlyBeforeOffset_KeepsPreviousMaskAndValues()
+        {
+            var timeline = new RecTimeline(
+                new RecBaselineState(
+                    null,
+                    null,
+                    new[] { new RecBaselineState.ValueProviderEntry("input:osc", true, new byte[] { 1 }, new[] { 0.1f }) },
+                    null),
+                new[]
+                {
+                    RecEvent.CreateValueProviderSample(0.10d, 0, RecValueProviderFlags.None, 0, 0),
+                },
+                new[] { "input:osc" },
+                null,
+                1d,
+                new[] { Array.Empty<float>() },
+                new[] { Array.Empty<byte>() });
+
+            RecBaselineState baseline = RecTimelineSeek.BuildBaselineAt(timeline, 0.3d);
+
+            Assert.That(baseline.TryGetValueProviderEntry("input:osc", out RecBaselineState.ValueProviderEntry entry), Is.True);
+            Assert.That(entry.IsValid, Is.False);
+            Assert.That(entry.MaskBytes, Is.EqualTo(new byte[] { 1 }));
+            Assert.That(entry.Values, Is.EqualTo(new[] { 0.1f }));
         }
 
         [Test]

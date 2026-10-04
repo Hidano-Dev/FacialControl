@@ -109,19 +109,24 @@ namespace Hidano.FacialControl.Rec.Domain.Services
                     }
                     case RecEventKind.ValueProviderSample:
                     {
+                        // 値提供型イベントは差分形式。HasMask / HasValues が無い成分は直前の状態を引き継ぐ
+                        // （値だけの更新で mask を、有効性だけの更新で mask と値を失わないようにする）。
                         RecValueProviderFlags flags = evt.Flags;
+                        bool hasPrevious = valueProviders.TryGetValue(sourceId, out RecBaselineState.ValueProviderEntry previous);
+                        IReadOnlyList<byte> maskBytes = (flags & RecValueProviderFlags.HasMask) != 0
+                            ? timeline.GetMaskBytesSpan(i).ToArray()
+                            : hasPrevious ? previous.MaskBytes : Array.Empty<byte>();
+                        IReadOnlyList<float> values = (flags & RecValueProviderFlags.HasValues) != 0
+                            ? timeline.GetPayloadSpan(i).ToArray()
+                            : hasPrevious ? previous.Values : Array.Empty<float>();
                         SetValueProvider(
                             valueProviders,
                             valueProviderSourceOrder,
                             new RecBaselineState.ValueProviderEntry(
                                 sourceId,
                                 (flags & RecValueProviderFlags.IsValid) != 0,
-                                (flags & RecValueProviderFlags.HasMask) != 0
-                                    ? timeline.GetMaskBytesSpan(i).ToArray()
-                                    : Array.Empty<byte>(),
-                                (flags & RecValueProviderFlags.HasValues) != 0
-                                    ? timeline.GetPayloadSpan(i).ToArray()
-                                    : Array.Empty<float>()));
+                                maskBytes,
+                                values));
                         break;
                     }
                     case RecEventKind.ExpressionActivate:

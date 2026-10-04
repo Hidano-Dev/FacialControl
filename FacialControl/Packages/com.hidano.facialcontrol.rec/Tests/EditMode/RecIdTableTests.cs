@@ -19,5 +19,29 @@ namespace Hidano.FacialControl.Rec.Tests.EditMode
             Assert.Throws<InvalidOperationException>(() =>
                 table.AddDefinedId(1, RecEvent.IdDefinitionKind.Source, "osc"));
         }
+
+        [Test]
+        public void CreateSeeded_EmptyBaseline_RegistersReservedExpressionSource()
+        {
+            RecIdTable table = RecIdTable.CreateSeeded(RecBaselineState.Empty);
+
+            Assert.That(table.SourceIds, Is.EqualTo(new[] { "@expression" }));
+            Assert.That(table.ExpressionIds, Is.Empty);
+        }
+
+        [Test]
+        public void CreateSeeded_FullBaseline_OrdersTriggerAnalogValueProviderThenReservedSource()
+        {
+            var baseline = new RecBaselineState(
+                new[] { new RecBaselineState.TriggerEntry("input:trigger", new[] { "smile" }) },
+                new[] { new RecBaselineState.AnalogEntry("input:gaze", new[] { 0.5f }) },
+                new[] { new RecBaselineState.ValueProviderEntry("input:osc", true, new byte[] { 1 }, new[] { 0.1f }) },
+                new[] { "angry" });
+
+            RecIdTable table = RecIdTable.CreateSeeded(baseline);
+
+            Assert.That(table.SourceIds, Is.EqualTo(new[] { "input:trigger", "input:gaze", "input:osc", "@expression" }));
+            Assert.That(table.ExpressionIds, Is.EqualTo(new[] { "smile", "angry" }));
+        }
     }
 }

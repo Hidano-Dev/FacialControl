@@ -26,6 +26,10 @@
 - 録画名の解決ロジックを `RecRecordingNaming` に切り出した
 - Inspector の Load Recording は、テイク名の文字入力ではなく保存済み録画から選ぶ **Load Target** ドロップダウンで対象を指定するようにした。一覧は Inspector の表示時・録画停止時・Refresh ボタンで更新し、録画を止めると保存したテイクが選択される。Recording Name 欄は Start Recording 専用になった
 
+### Fixed
+
+- Windows で連番テイク（`{名前}-2` 以降）の `LastRecordingPath` の区切り文字が `LoadedRecordingPath` と一致しなかった（`Application.streamingAssetsPath` 由来の `/` が `\` に正規化されていた）
+
 ## [1.0.0] - 2026-09-25
 
 初回リリース。

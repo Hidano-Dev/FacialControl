@@ -20,6 +20,7 @@ namespace Hidano.FacialControl.Rec.Application.UseCases
         private readonly RecPlaybackScheduler _scheduler = new RecPlaybackScheduler();
 
         private RecLoadResult _loadResult;
+        private FacialProfile? _profile;
         private string[] _missingExpressionIds = Array.Empty<string>();
 
         public PlaybackUseCase(
@@ -65,6 +66,7 @@ namespace Hidano.FacialControl.Rec.Application.UseCases
             StopPlayback();
 
             _loadResult = new RecLoadResult(timeline, RecValidation.FindMissingExpressionIds(timeline, profile));
+            _profile = profile;
             _missingExpressionIds = _loadResult.HasMissingExpressionIds
                 ? CopyMissingExpressionIds(_loadResult.MissingExpressionIds)
                 : Array.Empty<string>();
@@ -106,7 +108,8 @@ namespace Hidano.FacialControl.Rec.Application.UseCases
             LogMissingExpressionIdsOnce();
 
             RecTimeline timeline = _loadResult.Timeline;
-            RecBaselineState baseline = CreateFilteredBaseline(RecTimelineSeek.BuildBaselineAt(timeline, startOffsetSeconds));
+            // 系1の畳み込みには Load で受け取った profile のレイヤー排他規則を使う（profile 無しだと最後の 1 件しか残らない）。
+            RecBaselineState baseline = CreateFilteredBaseline(RecTimelineSeek.BuildBaselineAt(timeline, startOffsetSeconds, _profile));
 
             IInjectionPort[] ports = { _triggerPort, _expressionPort, _analogPort, _valueProviderPort };
             string[] portNames = { "trigger", "expression", "analog", "valueProvider" };
@@ -304,7 +307,18 @@ namespace Hidano.FacialControl.Rec.Application.UseCases
                 copiedAnalogs[i] = new RecBaselineState.AnalogEntry(analogEntries[i].SourceId, analogEntries[i].Axes);
             }
 
-            return new RecBaselineState(filteredTriggers, copiedAnalogs);
+            // 値提供型の基準は表情 ID と無関係なのでそのまま引き継ぎ、系1の基準は欠落 ID だけを除く。
+            IReadOnlyList<string> expressionEntries = baseline.ExpressionEntries;
+            var filteredExpressions = new List<string>(expressionEntries.Count);
+            for (int i = 0; i < expressionEntries.Count; i++)
+            {
+                if (!IsMissingExpressionId(expressionEntries[i]))
+                {
+                    filteredExpressions.Add(expressionEntries[i]);
+                }
+            }
+
+            return new RecBaselineState(filteredTriggers, copiedAnalogs, baseline.ValueProviderEntries, filteredExpressions);
         }
 
         private static string[] CopyMissingExpressionIds(IReadOnlyList<string> missingExpressionIds)

@@ -10,6 +10,7 @@ using Hidano.FacialControl.Rec.Adapters.Playback;
 using Hidano.FacialControl.Rec.Application.UseCases;
 using Hidano.FacialControl.Rec.Domain.Interfaces;
 using Hidano.FacialControl.Rec.Domain.Models;
+using Hidano.FacialControl.Rec.Domain.Services;
 using NUnit.Framework;
 using UnityEngine;
 using UnityEngine.TestTools;
@@ -672,6 +673,12 @@ namespace Hidano.FacialControl.Rec.Tests.EditMode
                 _sourceIds.Clear();
                 _expressionIds.Clear();
                 CompletedTimeline = null;
+
+                // 実際の RecStreamWriter と同じく、baseline 由来の ID（系1の予約 source を含む）はシンクが定義する。
+                // RecordingUseCase はこれらを既定義として IdDefine を出さない。
+                RecIdTable seeded = RecIdTable.CreateSeeded(_baseline);
+                _sourceIds.AddRange(seeded.SourceIds);
+                _expressionIds.AddRange(seeded.ExpressionIds);
             }
 
             public void AppendEvent(in RecEvent evt, ReadOnlySpan<float> payload, ReadOnlySpan<byte> maskBytes = default, string idValue = null)

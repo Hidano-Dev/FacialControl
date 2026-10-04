@@ -209,8 +209,7 @@ namespace Hidano.FacialControl.Rec.Adapters.Playable
 
             // 出力先の予約（同名衝突時の連番付与）とファイルのオープンは RecStreamWriter がライタースレッドで行う。
             // 結果（実際のパス / オープン失敗）は Update と StopRecording で SyncRecordingOutput が拾う。
-            RecBaselineState baseline = CaptureBaseline(
-                profile,
+            RecBaselineState baseline = RecBaselineCapture.Capture(
                 controller.InputSourceRegistry,
                 controller.ExpressionActivationGate,
                 controller.BlendShapeCount);
@@ -631,98 +630,6 @@ namespace Hidano.FacialControl.Rec.Adapters.Playable
             }
 
             return controller.gameObject.name;
-        }
-
-        private static RecBaselineState CaptureBaseline(
-            FacialProfile profile,
-            IInputSourceRegistry registry,
-            IExpressionActivationGate expressionGate,
-            int blendShapeCount)
-        {
-            var triggerEntries = new List<RecBaselineState.TriggerEntry>();
-            var analogEntries = new List<RecBaselineState.AnalogEntry>();
-            var valueProviderEntries = new List<RecBaselineState.ValueProviderEntry>();
-            var expressionEntries = new List<string>();
-
-            if (expressionGate != null)
-            {
-                expressionGate.CollectActiveExpressionIds(expressionEntries);
-            }
-
-            int maskByteCount = blendShapeCount > 0 ? (blendShapeCount + 7) / 8 : 0;
-            var valueScratch = blendShapeCount > 0 ? new float[blendShapeCount] : Array.Empty<float>();
-
-            IReadOnlyList<string> registeredIds = registry.RegisteredIds ?? Array.Empty<string>();
-            for (int i = 0; i < registeredIds.Count; i++)
-            {
-                string sourceId = registeredIds[i];
-                if (!registry.TryResolve(sourceId, out IInputSource source) || source == null)
-                {
-                    continue;
-                }
-
-                if (source is ExpressionTriggerInputSourceBase triggerSource)
-                {
-                    IReadOnlyList<string> activeExpressionIds = triggerSource.ActiveExpressionIds;
-                    if (activeExpressionIds.Count > 0)
-                    {
-                        triggerEntries.Add(new RecBaselineState.TriggerEntry(sourceId, activeExpressionIds));
-                    }
-
-                    continue;
-                }
-
-                if (source is ValueProviderInputSourceBase valueProvider)
-                {
-                    if (valueProvider.BlendShapeCount != blendShapeCount)
-                    {
-                        UnityEngine.Debug.LogWarning(
-                            $"REC baseline skipped value-provider '{sourceId}' because BlendShapeCount " +
-                            $"({valueProvider.BlendShapeCount}) did not match the controller ({blendShapeCount}).");
-                        continue;
-                    }
-
-                    Array.Clear(valueScratch, 0, valueScratch.Length);
-                    bool isValid = valueProvider.TryWriteValues(valueScratch);
-                    var maskBytes = new byte[maskByteCount];
-                    System.Collections.BitArray mask = valueProvider.ContributeMask;
-                    if (mask != null)
-                    {
-                        int maskLength = Math.Min(mask.Length, blendShapeCount);
-                        for (int maskIndex = 0; maskIndex < maskLength; maskIndex++)
-                        {
-                            if (mask[maskIndex])
-                            {
-                                maskBytes[maskIndex >> 3] |= (byte)(1 << (maskIndex & 7));
-                            }
-                        }
-                    }
-
-                    valueProviderEntries.Add(new RecBaselineState.ValueProviderEntry(
-                        sourceId,
-                        isValid,
-                        maskBytes,
-                        valueScratch));
-                    continue;
-                }
-
-                if (source is not IAnalogInputSource analogSource
-                    || !analogSource.IsValid
-                    || analogSource.AxisCount <= 0)
-                {
-                    continue;
-                }
-
-                var axes = new float[analogSource.AxisCount];
-                if (!analogSource.TryReadAxes(axes))
-                {
-                    continue;
-                }
-
-                analogEntries.Add(new RecBaselineState.AnalogEntry(sourceId, axes));
-            }
-
-            return new RecBaselineState(triggerEntries, analogEntries, valueProviderEntries, expressionEntries);
         }
 
         private static void GetQueueCapacities(int blendShapeCount, out int floatCapacity, out int byteCapacity)

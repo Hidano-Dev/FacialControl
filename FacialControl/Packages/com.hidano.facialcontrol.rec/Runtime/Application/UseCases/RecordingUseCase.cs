@@ -85,7 +85,7 @@ namespace Hidano.FacialControl.Rec.Application.UseCases
             }
 
             baseline ??= RecBaselineState.Empty;
-            _idTable = CreateSeededIdTable(baseline);
+            _idTable = RecIdTable.CreateSeeded(baseline);
             EnsureScratchCapacity(blendShapeCountHint, (blendShapeCountHint + 7) / 8);
             _eventCount = 0;
             _clock.Reset();
@@ -200,7 +200,10 @@ namespace Hidano.FacialControl.Rec.Application.UseCases
                 flags |= RecValueProviderFlags.HasValues;
             }
 
-            int maskByteCount = (sample.ContributeMask.Length + 7) / 8;
+            // 差分形式: mask / values は変化したときだけ載せる。RecEvent は HasMask 無しの非ゼロ mask count を
+            // 拒否するため、省略する成分の count は 0 にする。
+            int fullMaskByteCount = (sample.ContributeMask.Length + 7) / 8;
+            int maskByteCount = sample.MaskChanged ? fullMaskByteCount : 0;
             int valueCount = 0;
             if (sample.ValuesChanged)
             {
@@ -213,7 +216,7 @@ namespace Hidano.FacialControl.Rec.Application.UseCases
                 }
             }
 
-            EnsureScratchCapacity(sample.ContributeMask.Length, maskByteCount, valueCount);
+            EnsureScratchCapacity(sample.ContributeMask.Length, fullMaskByteCount, valueCount);
             if ((flags & RecValueProviderFlags.HasMask) != 0)
             {
                 Array.Clear(_maskScratch, 0, maskByteCount);
@@ -378,43 +381,6 @@ namespace Hidano.FacialControl.Rec.Application.UseCases
         {
             _sink.AppendEvent(evt, payload, maskBytes, idValue);
             _eventCount++;
-        }
-
-        private static RecIdTable CreateSeededIdTable(RecBaselineState baseline)
-        {
-            var idTable = new RecIdTable();
-            if (baseline == null)
-            {
-                return idTable;
-            }
-
-            for (int i = 0; i < baseline.TriggerEntries.Count; i++)
-            {
-                RecBaselineState.TriggerEntry entry = baseline.TriggerEntries[i];
-                idTable.GetOrAddSourceId(entry.SourceId);
-                for (int j = 0; j < entry.ExpressionIds.Count; j++)
-                {
-                    idTable.GetOrAddExpressionId(entry.ExpressionIds[j]);
-                }
-            }
-
-            for (int i = 0; i < baseline.AnalogEntries.Count; i++)
-            {
-                idTable.GetOrAddSourceId(baseline.AnalogEntries[i].SourceId);
-            }
-
-            for (int i = 0; i < baseline.ValueProviderEntries.Count; i++)
-            {
-                idTable.GetOrAddSourceId(baseline.ValueProviderEntries[i].SourceId);
-            }
-
-            idTable.GetOrAddSourceId(ExpressionActivationSource.ReservedId);
-            for (int i = 0; i < baseline.ExpressionEntries.Count; i++)
-            {
-                idTable.GetOrAddExpressionId(baseline.ExpressionEntries[i]);
-            }
-
-            return idTable;
         }
 
         private void EnsureScratchCapacity(int blendShapeCount, int maskByteCount, int valueCount = 0)

@@ -1,5 +1,7 @@
 using System;
 using System.Collections.Generic;
+using Hidano.FacialControl.Domain.Interfaces;
+using Hidano.FacialControl.Rec.Domain.Models;
 
 namespace Hidano.FacialControl.Rec.Domain.Services
 {
@@ -16,6 +18,49 @@ namespace Hidano.FacialControl.Rec.Domain.Services
         public IReadOnlyList<string> SourceIds => _sourceIds;
 
         public IReadOnlyList<string> ExpressionIds => _expressionIds;
+
+        /// <summary>
+        /// 録画開始時の baseline から初期 ID テーブルを作る。記録側（<c>RecordingUseCase</c>）とライター側
+        /// （<c>RecStreamWriter</c> の IdDefine 出力）が同じ順序で同じ ID を持つ必要があるため、両者はこの 1 本を使う。
+        /// 系1（<see cref="ExpressionActivationSource.ReservedId"/>）は baseline に無くても必ず登録する。
+        /// </summary>
+        public static RecIdTable CreateSeeded(RecBaselineState baseline)
+        {
+            var idTable = new RecIdTable();
+            if (baseline == null)
+            {
+                idTable.GetOrAddSourceId(ExpressionActivationSource.ReservedId);
+                return idTable;
+            }
+
+            for (int i = 0; i < baseline.TriggerEntries.Count; i++)
+            {
+                RecBaselineState.TriggerEntry entry = baseline.TriggerEntries[i];
+                idTable.GetOrAddSourceId(entry.SourceId);
+                for (int j = 0; j < entry.ExpressionIds.Count; j++)
+                {
+                    idTable.GetOrAddExpressionId(entry.ExpressionIds[j]);
+                }
+            }
+
+            for (int i = 0; i < baseline.AnalogEntries.Count; i++)
+            {
+                idTable.GetOrAddSourceId(baseline.AnalogEntries[i].SourceId);
+            }
+
+            for (int i = 0; i < baseline.ValueProviderEntries.Count; i++)
+            {
+                idTable.GetOrAddSourceId(baseline.ValueProviderEntries[i].SourceId);
+            }
+
+            idTable.GetOrAddSourceId(ExpressionActivationSource.ReservedId);
+            for (int i = 0; i < baseline.ExpressionEntries.Count; i++)
+            {
+                idTable.GetOrAddExpressionId(baseline.ExpressionEntries[i]);
+            }
+
+            return idTable;
+        }
 
         public ushort GetOrAddSourceId(string sourceId)
         {

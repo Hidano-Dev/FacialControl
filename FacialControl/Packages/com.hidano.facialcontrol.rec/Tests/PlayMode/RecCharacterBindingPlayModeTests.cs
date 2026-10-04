@@ -643,8 +643,15 @@ namespace Hidano.FacialControl.Rec.Tests.PlayMode
             registry.AddSource(triggerSource);
             registry.AddSource(analogSource);
 
+            // 4 ポート注入は all-or-nothing の事前検査で系1（ExpressionActivationGate）と値提供型（BlendShapeCount > 0）
+            // の準備も要求するため、初期化済みコントローラと同じ面を揃える。
+            var expressionUseCase = new ExpressionUseCase(profile);
+            expressionUseCase.SetActivationObserver(bus);
+
             SetControllerPrivateField(controller, "_isInitialized", true);
             SetControllerPrivateField(controller, "_currentProfile", (FacialProfile?)profile);
+            SetControllerPrivateField(controller, "_blendShapeNames", new[] { "Smile" });
+            SetControllerPrivateField(controller, "_expressionUseCase", expressionUseCase);
             SetControllerPrivateField(controller, "_inputObservationBus", bus);
             SetControllerPrivateField(controller, "_inputSourceRegistry", registry);
         }

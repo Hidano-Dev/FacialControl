@@ -203,6 +203,30 @@ namespace Hidano.FacialControl.Rec.Tests.EditMode
             Assert.That(result.Timeline.GetAnalogAxes(1).ToArray(), Is.EqualTo(new[] { 1f, -2f }));
         }
 
+        [Test]
+        public void SerializeThenRead_ValueProviderMaskClearedToEmpty_RoundTripsWithZeroValueCount()
+        {
+            // mask が空集合へ変化したイベントは HasMask | HasValues かつ ValueCount 0 になる。
+            // Writer は HasValues があれば count の 2 バイトを書くので、サイズ計算も同じ判定でないと末尾が溢れる。
+            var events = new[]
+            {
+                RecEvent.CreateValueProviderSample(0.1d, 0,
+                    RecValueProviderFlags.IsValid | RecValueProviderFlags.HasMask | RecValueProviderFlags.HasValues, 0, 1),
+            };
+            var timeline = new RecTimeline(RecBaselineState.Empty, events, new[] { "vp" }, Array.Empty<string>(), 0.1d,
+                new IReadOnlyList<float>[] { Array.Empty<float>() },
+                new IReadOnlyList<byte>[] { new byte[] { 0x00 } });
+
+            byte[] bytes = RecBinaryFormat.Serialize(timeline, 123L);
+
+            Assert.That(bytes.Length, Is.EqualTo(RecBinaryFormat.GetSerializedSize(timeline)));
+            Assert.That(RecBinaryFormat.TryRead(bytes, out RecBinaryFormat.ReadResult result, out string error), Is.True, error);
+            Assert.That(result.HasFooter, Is.True);
+            Assert.That(result.Timeline.Events.ToArray(), Is.EqualTo(events));
+            Assert.That(result.Timeline.GetMaskBytesSpan(0).ToArray(), Is.EqualTo(new byte[] { 0x00 }));
+            Assert.That(result.Timeline.GetPayloadSpan(0).Length, Is.EqualTo(0));
+        }
+
         private static RecTimeline CreateTimeline()
         {
             var baseline = new RecBaselineState(

@@ -96,7 +96,7 @@ namespace Hidano.FacialControl.Rec.Domain.Services
 
             int idDefineSize = 1 + 2 + 1 + 2 + maxIdUtf8ByteCount;
             int analogSize = 1 + 8 + 2 + 1 + (4 * maxAxisCount);
-            int valueProviderSize = GetValueProviderRecordSize(maxValueCount, maxMaskByteCount, true);
+            int valueProviderSize = GetValueProviderRecordSize(maxValueCount, maxMaskByteCount, true, true);
             int baselineValueProviderSize = GetBaselineValueProviderRecordSize(maxValueCount, maxMaskByteCount);
             int expressionSize = 1 + 8 + 2 + 2;
             int baselineExpressionSize = 1 + 2 + 2;
@@ -460,7 +460,11 @@ namespace Hidano.FacialControl.Rec.Domain.Services
                 case RecEventKind.BaselineAnalog:
                     return 1 + 2 + 1 + (4 * axesCount);
                 case RecEventKind.ValueProviderSample:
-                    return GetValueProviderRecordSize(evt.ValueCount, evt.MaskByteCount, (evt.Flags & RecValueProviderFlags.HasMask) != 0);
+                    return GetValueProviderRecordSize(
+                        evt.ValueCount,
+                        evt.MaskByteCount,
+                        (evt.Flags & RecValueProviderFlags.HasMask) != 0,
+                        (evt.Flags & RecValueProviderFlags.HasValues) != 0);
                 case RecEventKind.BaselineValueProvider:
                     return GetBaselineValueProviderRecordSize(evt.ValueCount, evt.MaskByteCount);
                 case RecEventKind.ExpressionActivate:
@@ -624,9 +628,13 @@ namespace Hidano.FacialControl.Rec.Domain.Services
             WriteAxes(destination.Slice(offset), values);
         }
 
-        private static int GetValueProviderRecordSize(int valueCount, int maskByteCount, bool hasMask)
+        /// <summary>
+        /// <see cref="WriteValueProvider"/> と同じ判定で求める。HasValues が立っていれば ValueCount が 0 でも
+        /// 2 バイトの count を書くため、値数ではなくフラグで領域を数える（mask が空集合へ変化したイベントが該当する）。
+        /// </summary>
+        private static int GetValueProviderRecordSize(int valueCount, int maskByteCount, bool hasMask, bool hasValues)
         {
-            return 1 + 8 + 2 + 1 + (hasMask ? 2 + maskByteCount : 0) + (valueCount > 0 ? 2 + (valueCount * 4) : 0);
+            return 1 + 8 + 2 + 1 + (hasMask ? 2 + maskByteCount : 0) + (hasValues ? 2 + (valueCount * 4) : 0);
         }
 
         private static int GetBaselineValueProviderRecordSize(int valueCount, int maskByteCount)

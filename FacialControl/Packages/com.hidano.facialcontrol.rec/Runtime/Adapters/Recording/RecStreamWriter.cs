@@ -314,7 +314,9 @@ namespace Hidano.FacialControl.Rec.Adapters.Recording
 
         private void WriteBaseline(Stream stream, ref byte[] buffer)
         {
-            var idTable = CreateSeededIdTable(_baseline);
+            // RecordingUseCase と同じシードで IdDefine を書く（系1の予約 ID を含む）。食い違うと記録側の index が
+            // ずれて読み戻しが失敗する。
+            RecIdTable idTable = RecIdTable.CreateSeeded(_baseline);
 
             for (int i = 0; i < idTable.SourceIds.Count; i++)
             {
@@ -401,7 +403,7 @@ namespace Hidano.FacialControl.Rec.Adapters.Recording
 
         private static int CountBaselineRecords(RecBaselineState baseline)
         {
-            var idTable = CreateSeededIdTable(baseline);
+            RecIdTable idTable = RecIdTable.CreateSeeded(baseline);
             int count = idTable.SourceIds.Count + idTable.ExpressionIds.Count;
 
             for (int i = 0; i < baseline.TriggerEntries.Count; i++)
@@ -413,42 +415,6 @@ namespace Hidano.FacialControl.Rec.Adapters.Recording
             count += baseline.ValueProviderEntries.Count;
             count += baseline.ExpressionEntries.Count;
             return count;
-        }
-
-        private static RecIdTable CreateSeededIdTable(RecBaselineState baseline)
-        {
-            var idTable = new RecIdTable();
-            if (baseline == null)
-            {
-                return idTable;
-            }
-
-            for (int i = 0; i < baseline.TriggerEntries.Count; i++)
-            {
-                RecBaselineState.TriggerEntry entry = baseline.TriggerEntries[i];
-                idTable.GetOrAddSourceId(entry.SourceId);
-                for (int j = 0; j < entry.ExpressionIds.Count; j++)
-                {
-                    idTable.GetOrAddExpressionId(entry.ExpressionIds[j]);
-                }
-            }
-
-            for (int i = 0; i < baseline.AnalogEntries.Count; i++)
-            {
-                idTable.GetOrAddSourceId(baseline.AnalogEntries[i].SourceId);
-            }
-
-            for (int i = 0; i < baseline.ValueProviderEntries.Count; i++)
-            {
-                idTable.GetOrAddSourceId(baseline.ValueProviderEntries[i].SourceId);
-            }
-
-            for (int i = 0; i < baseline.ExpressionEntries.Count; i++)
-            {
-                idTable.GetOrAddExpressionId(baseline.ExpressionEntries[i]);
-            }
-
-            return idTable;
         }
 
         private static float[] CopyAxes(IReadOnlyList<float> axes)
