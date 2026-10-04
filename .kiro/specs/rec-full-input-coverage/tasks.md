@@ -10,7 +10,7 @@
 
 ---
 
-- [ ] 1. core 値提供型観測面（Aggregator フック拡張 → 配信契約 → サンプラー → FacialController 配線）
+- [x] 1. core 値提供型観測面（Aggregator フック拡張 → 配信契約 → サンプラー → FacialController 配線）
 - [x] 1.1 消費点フックに消費元入力源インスタンスを渡せるようにする
   - 対象: `FacialControl/` の `com.hidano.facialcontrol`（`Hidano.FacialControl.Domain`）、追随のみ `com.hidano.facialcontrol.timeline`（`Hidano.FacialControl.Timeline.Editor`）
   - レイヤー入力源観測者の契約に「消費元入力源」引数を 1 個追加し、Aggregator が `TryWriteValues` 直後・レイヤー mask 合成前の既存フック位置で渡す（observer が null のとき追加コストなし）
@@ -45,7 +45,7 @@
   - 完了条件: 上記 Small テストが緑、`FacialControllerGcZeroGateTests` が PlayMode で緑
   - _Requirements: 2.1, 2.4, 8.1, 8.2_
 
-- [ ] 2. core 系1 経路（観測・遮断・注入・遷移なし基準確立）
+- [x] 2. core 系1 経路（観測・遮断・注入・遷移なし基準確立）
 - [x] 2.1 (P) 表情ユースケースに系1 の観測・遮断・注入・基準確立の面を追加する
   - 対象: `com.hidano.facialcontrol`（`Hidano.FacialControl.Domain` の遮断契約、`Hidano.FacialControl.Application` の ExpressionUseCase）
   - 系1 遮断契約（遮断中フラグ・冪等な Suspend / Resume・ゲート迂回の Inject アクティブ化 / 非アクティブ化・観測者非通知の基準確立・レイヤー宣言順 × 内部順の id 収集・基準確立世代カウンタ）を Domain に定義し、ExpressionUseCase が実装する
@@ -71,7 +71,7 @@
   - 完了条件: 上記テストが緑、`FacialControllerGcZeroGateTests` が継続緑
   - _Requirements: 4.1, 4.2, 8.2_
 
-- [ ] 3. rec Domain（レコードモデル → 基準状態 → タイムライン / キュー → バイナリ形式 → スケジューラ / 検証 / 途中再生）
+- [x] 3. rec Domain（レコードモデル → 基準状態 → タイムライン / キュー → バイナリ形式 → スケジューラ / 検証 / 途中再生）
 - [x] 3.1 (P) 新レコード種別とイベントモデル・フラグ定義を追加する
   - 対象: `com.hidano.facialcontrol.rec`（`Hidano.FacialControl.Rec.Domain`、Models 配下）
   - レコード種別に 7 ValueProviderSample / 8 BaselineValueProvider / 9 ExpressionActivate / 10 ExpressionDeactivate / 11 BaselineExpression を追加。値提供型フラグ（IsValid / HasMask / HasValues）とヘッダフラグ（FullInputBaseline = 0x0001）を定義する
@@ -173,7 +173,7 @@
   - 完了条件: 上記テストが EditMode で緑。状態不変条件（Idle 以外 ⇔ 4 ポート全確立）がテストで固定されている
   - _Requirements: 3.6, 3.7, 4.4, 4.8, 4.10, 5.4, 6.8, 8.8_
 
-- [ ] 4.5 記録ユースケースに値提供型サンプルと系1 イベントの記録を追加する
+- [x] 4.5 記録ユースケースに値提供型サンプルと系1 イベントの記録を追加する
   - 対象: `com.hidano.facialcontrol.rec`（`Hidano.FacialControl.Rec.Application` の RecordingUseCase）
   - 値提供型サンプル通知で flags を組み（IsValid / mask 変化 → HasMask / 値変化 → HasValues）、HasMask なら mask を LSB-first の byte スクラッチへ、HasValues なら mask の立った index 順で値を float スクラッチへパックして kind 7 を追記。スクラッチは記録開始時に BlendShape 総数ヒントぶん事前確保し超過時のみ再確保。変化判定は core に委ね比較しない。値は正規化・clamp・量子化しない
   - 系1 通知はトリガーと同じ id 表解決で kind 9 / 10 を追記。id 表のシードに基準の値提供型 id・予約 id `@expression`・基準の表情 id を加える
@@ -196,7 +196,7 @@
   - 完了条件: 上記テストと既存バインディングテストが EditMode で緑
   - _Requirements: 3.7, 5.1, 5.2, 6.7, 8.6_
 
-- [ ] 5. osc 受信 binding の heartbeat in-place 更新（Req 8.4 の唯一の拡張パッケージ改修）
+- [x] 5. osc 受信 binding の heartbeat in-place 更新（Req 8.4 の唯一の拡張パッケージ改修）
 - [x] 5.1 (P) OSC 入力源にマッピング表と寄与集合の in-place 更新を追加する
   - 対象: `com.hidano.facialcontrol.osc`（`Hidano.FacialControl.Osc`、OscInputSource）
   - マッピング表（参照差し替え）と寄与 mask（参照不変でビット置換）を更新する API を追加。mask 長が BlendShape 総数と一致しない場合は `ArgumentException`。staleness 状態は維持。マッピング表が空のとき `TryWriteValues` は false
@@ -227,8 +227,8 @@
   - _Requirements: 1.2, 1.4_
   - _Boundary: inputsystem Tests_
 
-- [ ] 7. 網羅性ゲート（アセンブリ列挙 → 分類正本 → ゲートテスト → IL 走査 → 除外契約テスト）
-- [ ] 7.1 (P) テストアセンブリカタログに product アセンブリの列挙を追加する
+- [x] 7. 網羅性ゲート（アセンブリ列挙 → 分類正本 → ゲートテスト → IL 走査 → 除外契約テスト）
+- [x] 7.1 (P) テストアセンブリカタログに product アセンブリの列挙を追加する
   - 対象: `com.hidano.facialcontrol`（`Hidano.FacialControl.Testing`、Tests/Testing 配下。engine 非依存）
   - 「`Hidano.FacialControl` で始まり、テストアセンブリでも Testing でもない」を product 判定とし、AppDomain のロード済みアセンブリを絞り込んで名前順に返す列挙と、名前からロード済みアセンブリを探す照会を追加する
   - テスト（core `Tests/Small/Testing` の既存 fixture へ追記、`[SmallTest]`）: product 判定がテスト / Testing アセンブリを除外し Runtime / Editor の product を含むこと、照会が未ロード名で false を返すこと
@@ -279,7 +279,7 @@
   - 完了条件: 上記テストと既存 Export テスト・ベイクハーネステストが EditMode で緑
   - _Requirements: 6.9_
 
-- [ ] 9. PlayMode 受け入れ検証と GC ゲート
+- [x] 9. PlayMode 受け入れ検証と GC ゲート
 - [x] 9.1 キャラクターバインディングの PlayMode 受け入れテストを追加する
   - 対象: `com.hidano.facialcontrol.rec`（rec Tests PlayMode asmdef、`RecCharacterBindingPlayModeTests` 追記、`[MediumTest]`）
   - Fake 値提供型（registry 登録）と系1 `Activate` / `Deactivate` を含む操作列を記録 → 停止 → 読込 → 再生し、ブレンド出力がフレーム 0 から収録時と一致すること（同一プロファイル・同一レイヤー設定）
@@ -288,7 +288,7 @@
   - 完了条件: 上記テストが PlayMode で緑、既存 `RecCharacterBindingPlayModeTests` が緑のまま
   - _Requirements: 1.5, 9.1, 9.2, 9.3, 9.4, 9.5, 9.6, 9.10_
 
-- [ ] 9.2 (P) GC ゼロゲートを大ベクトル値提供型へ拡張し既存ゲートの継続緑を確認する
+- [x] 9.2 (P) GC ゼロゲートを大ベクトル値提供型へ拡張し既存ゲートの継続緑を確認する
   - 対象: `com.hidano.facialcontrol.rec`（`RecGcZeroGateTests` 追記、`[MediumTest]`）、`com.hidano.facialcontrol`（`FacialControllerGcZeroGateTests` 実行のみ）
   - BlendShape 総数 300 相当の Fake 値提供型を毎フレーム変化させた記録と再生の定常フレームで GC 確保がゼロであること（計測は既存ゲートと同じ計測器を使う）。Null 注入ポート Fake は 4.1 で新契約に追随済み
   - `FacialControllerGcZeroGateTests` が観測者ゼロで継続緑であること（Aggregator フックが null のまま）

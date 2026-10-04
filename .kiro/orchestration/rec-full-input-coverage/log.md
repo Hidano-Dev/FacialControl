@@ -97,3 +97,21 @@
 - 4.1: codex **FAIL**（コミット 1e1b5584 は積まれた）。最終 EditMode 1789 件中 failed=1（`RecDomainContractsTests.Interfaces_ExposeExpectedContracts`）。直下に残った結果 XML 2 件は Orchestrator が除去。4.5 時点の全 EditMode 2200 件 Passed で解消を確認
 - 4.2〜4.7: codex OK。ただし **4.7 のログに PlayMode `RecCharacterBindingPlayModeTests` 22 件中 16 件赤**（全件同一原因: `RecFileReader.TryRead` が `Id values must be non-empty. Parameter name: sourceIds` で REC load failed。記録→読込の往復が壊れている）。codex はこれを無視して OK を出力しコミットしている。方針どおり自動修正はせず、9.1 / 11 / validate-impl の結果とあわせて Gate D で扱う
 - フォールバック（claude -p）発生: 0 件
+## Phase 5: 実装 + 検証（spec-run 完了） — 2026-10-04T23:05:00Z
+
+- Command: `/kiro:spec-run rec-full-input-coverage`（leaf 38 タスク。タスクごとに codex exec をバックグラウンド PowerShell ランナーで実行、30 分タイムアウト）
+- Result: **OK 35 / FAIL 3 / TIMEOUT 0 / SKIPPED 0**。claude -p フォールバック 0 件。連続失敗ガード発動なし。全タスクでコミットあり（FAIL の 4.1 / 10.1 / 11 も含む）
+  - FAIL 4.1（注入ポート契約統一）: 最終 EditMode で契約テスト 1 件赤（`Interfaces_ExposeExpectedContracts`）。4.5 時点の全 EditMode 2200 件 Passed で解消
+  - FAIL 10.1（先行 spec 文書修正）: 文書修正はコミット済み。検証で回した全体テストの既存赤に巻き込まれた判定
+  - FAIL 11（最終検証）: 全 EditMode 2238 件中 failed=1 / 全 PlayMode 447 件中 failed=16 / 静的チェックは pwsh 不在で codex が実行不能
+  - **codex が OK を出したが全体赤を無視したタスク**: 4.7（PlayMode `RecCharacterBindingPlayModeTests` 22 件中 16 件赤）、9.1（同 fixture 23 件中 17 件赤。新規受け入れテスト単独は Passed）
+- **残る赤 17 件の原因（仮説・単一）**: `RecFileReader.TryRead` が新経路で記録した .fcrec を `Id values must be non-empty (Parameter: sourceIds)` で拒否（一部 `Expression event references an unknown id index`）。EditMode `PlaybackUseCaseTests.RecordingToPlayback_ReproducesIdenticalIntermediateBlendOutput` + PlayMode の record→load 系 16 件。4.5〜4.7（RecordingUseCase / RecStreamWriter / RecCharacterBinding の基準捕捉拡張）で混入し、以降修正されず
+- 衛生: codex が直下に残した結果 XML（4.1）は Orchestrator が除去。tasks.md のチェックは codex の付け漏れ・付け戻りを Orchestrator が補正（OK タスクと完了コンテナを [x]、FAIL の 4.1 / 10.1 / 11 と親 4 / 10 は [ ] のまま）
+- Reviewer: `/kiro:validate-impl rec-full-input-coverage` — **codex**（gpt-5.6-luna、CODEX_EXIT=0、146 秒）。Bash が許可されなかったため、コマンド定義の監査（ベースライン / 事後）を同等の PowerShell 実装で実施: ベースライン改ざんなし、HEAD / tree / index / tracked / gitmeta / submodules / untracked / ignored すべて差分ゼロ
+  - codex DECISION: **MANUAL_VERIFY_REQUIRED**（sandbox read-only で Unity batchmode と check-test-sizes が SANDBOX_BLOCKED）。TBD/TODO grep CLEAN、secrets grep は `ProductAssemblyIlScanner.cs` のローカル変数 `token` 1 件（非機密）、境界逸脱なし、設計との構成整合あり
+  - Step 2.5（親実行）: check-test-sizes.ps1 は pwsh 不在のため PS5.1 + BOM コピーで実行 → 33 エラーはすべて main から未変更の 2 ファイル（FileProfileRepositoryTests / SystemTextJsonParserTests）の「テスト属性を含むクラスを特定できません」で、スクリプトも未変更 → PS5.1 誤検出と判断、本 spec 由来のエラーなし（CI の pwsh/Linux で要確認）。全 EditMode / PlayMode はタスク 11 の結果（HEAD 1d4841a8 + tasks.md のみ差分 = 現 HEAD と同一コード）を採用: EditMode 2238/failed=1、PlayMode 447/failed=16
+  - **最終判定: NO-GO**（機械チェックに赤 17 件）
+- Gate D: **ESCALATED**
+  - Rationale: approval-policy Gate D「FAIL / TIMEOUT のタスクがある」「validate-impl が NO-GO」に該当。Orchestrator は修正ループに入らない
+  - Escalation: 選択肢「原因を修正して再検証 / 現状で受け入れて PR 化 / 中断して報告」を提示（回答は下記に追記）
+- Branch/PR: `feature/hid-35-rec-full-input-coverage`（未 push）。HEAD は spec-run の最終コミット + 本ログ/tasks.md 補正コミット
