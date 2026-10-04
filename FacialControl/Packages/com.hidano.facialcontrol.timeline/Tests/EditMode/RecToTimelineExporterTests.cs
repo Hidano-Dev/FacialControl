@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
 using Hidano.FacialControl.Domain.Models;
+using Hidano.FacialControl.Rec.Domain.Models;
+using Hidano.FacialControl.Timeline.Editor;
 using Hidano.FacialControl.Timeline.Clips;
 using Hidano.FacialControl.Timeline.Domain.Models;
 using Hidano.FacialControl.Timeline.Tracks;
@@ -15,6 +17,43 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
     [SmallTest]
     public sealed class RecToTimelineExporterTests : SizedTestFixture
     {
+        [Test]
+        public void RecEventSequenceAdapter_NewRecKinds_AreSkippedAndExistingEventsArePreserved()
+        {
+            var timeline = new RecTimeline(
+                RecBaselineState.Empty,
+                new[]
+                {
+                    RecEvent.CreateTriggerOn(0.10d, 0, 0),
+                    RecEvent.CreateValueProviderSample(0.20d, 1, RecValueProviderFlags.None, 0, 0),
+                    RecEvent.CreateExpressionActivate(0.30d, 0, 1),
+                    RecEvent.CreateAnalogSample(0.40d, 1, 2),
+                    RecEvent.CreateExpressionDeactivate(0.50d, 0, 1),
+                    RecEvent.CreateTriggerOff(0.60d, 0, 0),
+                },
+                new[] { "input:trigger", "value:provider" },
+                new[] { "smile", "blink" },
+                1.0d,
+                new IReadOnlyList<float>[]
+                {
+                    Array.Empty<float>(),
+                    Array.Empty<float>(),
+                    Array.Empty<float>(),
+                    new[] { 0.25f, -0.25f },
+                    Array.Empty<float>(),
+                    Array.Empty<float>(),
+                });
+
+            var sequence = new RecEventSequenceAdapter(timeline);
+
+            Assert.That(sequence.Count, Is.EqualTo(3));
+            Assert.That(sequence[0].Kind, Is.EqualTo(RecordedEventKind.TriggerOn));
+            Assert.That(sequence[1].Kind, Is.EqualTo(RecordedEventKind.AnalogValue));
+            Assert.That(sequence[1].SourceId, Is.EqualTo("value:provider"));
+            Assert.That(sequence[2].Kind, Is.EqualTo(RecordedEventKind.TriggerOff));
+            Assert.That(sequence[2].ExpressionId, Is.EqualTo("smile"));
+        }
+
         [Test]
         public void CreateTimelineAsset_BuildsExpressionLanes_ClosesDanglingOnAtDuration_AndWarnsForMissingExpressions()
         {

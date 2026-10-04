@@ -249,7 +249,10 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
                     new[]
                     {
                         RecEvent.CreateTriggerOn(0.10d, 0, 0),
+                        RecEvent.CreateValueProviderSample(0.15d, 1, RecValueProviderFlags.None, 0, 0),
+                        RecEvent.CreateExpressionActivate(0.17d, 0, 0),
                         RecEvent.CreateAnalogSample(0.20d, 1, 2),
+                        RecEvent.CreateExpressionDeactivate(0.25d, 0, 0),
                         RecEvent.CreateTriggerOff(0.60d, 0, 0),
                     },
                     new[]
@@ -265,7 +268,10 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
                     new IReadOnlyList<float>[]
                     {
                         Array.Empty<float>(),
+                        Array.Empty<float>(),
+                        Array.Empty<float>(),
                         new[] { 0.25f, -0.25f },
+                        Array.Empty<float>(),
                         Array.Empty<float>(),
                     });
             }
