@@ -806,6 +806,22 @@ HID-80 の本質的なギャップは、weight の値そのものではなく、
 - **Trade-offs**: 「Replace で宣言 weight にリセットされる」挙動に依存する利用者がいれば挙動変更になる（リポジトリ内に該当なし）。Revalidation Trigger に記載
 - **Follow-up**: `LayerUseCaseTests.BindLateInputSource_ReplacingExistingId_KeepsRuntimeWeightOfThatSlot` を追加
 
+### Decision（設計レビュー 1 回目の指摘 1 で改訂）: `BindLateInputSource` の宣言 weight 再適用は遮断中だけ抑止し、W ポートを A / V の外側に置く
+- **Context**: codex 設計レビュー 1 回目 Critical 1「既存スロット置換で weight を常に変更しない契約は、ライブの late-bind で宣言 weight の更新が反映されず Req 9.1 と既存テスト契約を損なう」
+- **Alternatives Considered**: 1. 置換で常に weight 不変（初版） 2. 遮断中のみ不変、通常時は従来どおり再適用 3. REC 専用の構造更新 API を別に設ける
+- **Selected Approach**: 2。あわせて `PlaybackUseCase` の解放順を `T → E → A → V → W` にし、確立 `W → T → E → A → V` と対にする（W が Replace 型ポートを外側から包む）。ロールバックは確立済みの逆順
+- **Rationale**: ライブ契約（`BindLateInputSource_AppliesDeclaredWeight_ScalesOutput` 等）を変えずに Req 6.3 を満たすには、Replace が走る時点で必ず遮断中である必要があり、それは解放順で W を最後にすれば保証できる。rec-full-input-coverage の「確立・解放同順」は既存 4 ポートの相対順序として維持する
+- **Trade-offs**: `PlaybackUseCase` が確立順と解放順の 2 配列を持つ。`Completed` からの再開時の全解放も解放順を使う
+- **Follow-up**: `PlaybackUseCaseTests.StopPlayback_ReleasesTriggerExpressionAnalogValueProviderThenWeight`、`LayerUseCaseTests.BindLateInputSource_ReplacingExistingId_WhileSuspended_KeepsCurrentWeight` / `_WhileNotSuspended_AppliesDeclaredWeight`
+
+### Decision（設計レビュー 1 回目の指摘 2 で改訂）: レイヤー名の一意性はプロファイル読込境界で確立し、weight 面は先勝ちフォールバックを持つ
+- **Context**: codex 設計レビュー 1 回目 Critical 2「レイヤー名を識別子にしながら重複を『先勝ち』とする契約は、全レイヤー基準の収集で `RecBaselineState` の重複拒否に到達し、ラウンドトリップが成立しない」
+- **Alternatives Considered**: 1. `FacialProfile` コンストラクタで重複を例外にする 2. レイヤー配列 index を記録キーにする 3. 読込境界（`SystemTextJsonParser` / `FacialCharacterProfileConverter`）で後続の重複レイヤーを読み捨て Warning + weight 面は先勝ちフォールバック
+- **Selected Approach**: 3
+- **Rationale**: 既存の重複解決の流儀（`inputSources` 重複 id は last-wins、`gaze.channels` 重複 id は後続読み捨て）が「Warning + 確定的な解決」であり、例外化は既存プロファイルの初期化を壊す。index キーは `SetLayerWeight` が名前で解決する既存契約と食い違い、`.fcrec` の可読性も落とす。読込境界で一意化すれば実行時プロファイルでは重複が発生せず、直接構築（テスト等）に対しては先勝ちフォールバックで `RecBaselineState` の重複拒否に到達しない
+- **Trade-offs**: core Adapters の読込経路 2 箇所に小さな変更が入る（Req 9.1 の「面の追加に限定」に対する明示的例外。レビューで指摘された識別契約の穴を塞ぐため）
+- **Follow-up**: `SystemTextJsonParserTests` / `FacialCharacterProfileConverterTests.Parse_DuplicateLayerNames_KeepsFirstAndWarns`、`LayerUseCaseTests.CollectLayerWeights_DuplicateLayerNames_ReturnsFirstOccurrenceOnlyAndWarnsOnce`
+
 ### Decision: 基準に無い対象の確定値は「宣言値へのリセット」
 - **Context**: Req 4.5（ライブの残存 weight を引き継がない）
 - **Alternatives Considered**: 1. 0 2. 現在値維持 3. 宣言値（レイヤー 1.0、スロットは宣言 weight、sourceIdx 0 は 1.0）
@@ -813,10 +829,10 @@ HID-80 の本質的なギャップは、weight の値そのものではなく、
 - **Rationale**: 0 はレイヤー出力を消し「同一構成で再生しても何も出ない」事故を招く。宣言値は `BuildAggregatorPipeline` の初期化値と同じで、記録時に weight を一度も触っていない構成の再現と一致する。VP の「無効」・analog の「0 埋め」と同じ「ライブ値を読まない確定的な中立状態」の原則に従う
 - **Follow-up**: `LayerUseCase` が late-bind スロットの宣言 weight を保持する配列を持つ
 
-### Decision: weight ポートは確立・解放とも先頭（W → T → E → A → V）
-- **Context**: Req 5.5 / 6.4
-- **Selected Approach**: 上記 Research Log「既存ポートの確立順」のとおり
-- **Rationale**: ゲート型（W / T / E）を Replace 型（A / V）より先に立てる既存規則の延長。4 ポート化時の「同順解放・逆順ロールバック」規則を変えない
+### Decision: weight ポートは確立で先頭・解放で末尾（確立 W → T → E → A → V、解放 T → E → A → V → W）
+- **Context**: Req 5.5 / 6.3 / 6.4
+- **Selected Approach**: 初版は「確立・解放とも先頭」としたが、設計レビュー 1 回目の指摘 1 の改訂（`BindLateInputSource` の宣言 weight 再適用を遮断中だけ抑止）に合わせ、解放では W を末尾にして A / V の原本復元を遮断中に走らせる
+- **Rationale**: ゲート型（W / T / E）を Replace 型（A / V）より先に立てる既存規則の延長。既存 4 ポートの相対順序（確立・解放とも T → E → A → V）と逆順ロールバックは変えない
 
 ### Decision: 5 ポートコンストラクタを正とし、4 ポート / 2 ポートは Null weight ポートへ委譲する互換コンストラクタとして残す
 - **Context**: Req 6.4、既存テスト（`PlaybackUseCaseFourPortTests` 等）の互換

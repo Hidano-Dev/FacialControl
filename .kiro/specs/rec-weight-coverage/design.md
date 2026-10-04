@@ -31,7 +31,8 @@
 - core の weight 観測面: `ILayerWeightObserver`（core Domain Interfaces）、`IFacialInputObserver.OnLayerWeightSample / OnInputSourceWeightSample`、`IFacialInputObservationBus : ILayerWeightObserver`、`FacialInputObservationBus` の配信、`LayerUseCase.SetWeightObserver` と消費点の変化検出、`FacialController` の observer 着脱
 - core の weight 遮断面・注入面・基準確立面: `IWeightInjectionGate`（core Domain Interfaces）と `LayerUseCase` による実装、`LayerInputSourceWeightBuffer` のライブ書込ゲート（`SuspendLiveWrites` / `ResumeLiveWrites` / in-flight フェンス）と遮断迂回書込、`FacialController.WeightInjectionGate` 公開
 - スロット同定キーの契約: `WeightSlotIds.ExpressionSlotId`（sourceIdx 0 の予約 id）、sourceIdx ≥ 1 は registry のスロット id（宣言 id）、レイヤーはレイヤー名
-- `LayerUseCase.BindLateInputSource` の契約変更（既存スロットの置換は weight を書き換えない。新規スロットの初期 weight と `UnbindLateInputSource` の詰め直しは構造書込として遮断を迂回）
+- `LayerUseCase.BindLateInputSource` / `UnbindLateInputSource` の weight 書込の遮断中挙動（遮断中は既存スロットの置換で宣言 weight を再適用しない。新規スロットの初期 weight と `UnbindLateInputSource` の詰め直しは構造書込として遮断を迂回。遮断中でないときの挙動は不変）
+- プロファイル読込境界（`SystemTextJsonParser` / `FacialCharacterProfileConverter`）でのレイヤー名重複の検出と後続重複の読み捨て（Warning）
 - rec の拡張: `RecEventKind` 12〜15、`RecEvent.LayerIdIndex` / `IdDefinitionKind.Layer`、`RecHeaderFlags.WeightBaseline` と `RequiredHeaderFlags`、`RecBaselineState` の weight エントリ、`RecIdTable` のレイヤー id、`RecBinaryFormat` / `RecTimeline` / `RecTimelineSeek` / `RecPlaybackScheduler` / `IRecEventVisitor` の weight 対応、`IWeightInjectionPort` / `RecWeightInjector`、`PlaybackUseCase` の 5 ポート順序（W → T → E → A → V）、`RecordingUseCase` / `RecStreamWriter` / `RecBaselineCapture` / `RecCharacterBinding` の weight 対応
 - weight 書込経路の分類正本 `RecInputSourceCoverageCatalog.WeightWritePaths` と網羅性ゲート `RecWeightWritePathCatalogTests`
 - 既存 spec 文書（rec-full-input-coverage の requirements / design、rec-recording-playback の design）と rec / timeline パッケージドキュメントの整合修正
@@ -57,10 +58,10 @@
 - `IFacialInputObserver` / `IFacialInputObservationBus` / `IRecEventVisitor` / `RecBaselineState` コンストラクタ / `PlaybackUseCase` コンストラクタの形状変更（本 spec でいずれも拡張する。利用者: `RecordingUseCase`、各 Fake、timeline Editor `BakeSimulationHarness.RecordingObserver` は `IFacialInputObserver` を実装しないため無影響）
 - `IWeightInjectionGate` の形状（Suspend / Resume / Reset / Baseline / Inject / Collect）と `WeightSlotIds.ExpressionSlotId`（`@expression`）
 - `LayerInputSourceWeightBuffer.SetWeight` の任意スレッド契約と `SuspendLiveWrites` の in-flight フェンス（単純フラグへの退行は Req 5.3 を崩す）
-- `LayerUseCase.BindLateInputSource` の weight 契約（既存スロット置換は weight 不変）。宣言 weight へのリセットへ戻すと Req 6.3 が崩れる
-- `LayerInputSourceRegistry.GetSlotId` が Replace 前後で不変であること（PR #46 で確立）、`FacialProfile.Layers` のレイヤー名がプロファイル内で一意であること（重複時は先勝ち）
+- `LayerUseCase.BindLateInputSource` の遮断中契約（遮断中は既存スロット置換で宣言 weight を再適用しない）。遮断中にも再適用する実装に戻すと Req 6.3 が崩れる
+- `LayerInputSourceRegistry.GetSlotId` が Replace 前後で不変であること（PR #46 で確立）、プロファイル読込境界がレイヤー名重複を読み捨てること（`SystemTextJsonParser` / `FacialCharacterProfileConverter`）。読込境界を増やす場合（新しいプロファイル供給源）は同じ重複解決を入れる
 - `.fcrec` のレコード kind 追加・レイアウト変更、`RecBinaryFormat.RequiredHeaderFlags`（0x0003）の変更
-- `PlaybackUseCase` のポート順（確立・解放 W → T → E → A → V、ロールバックは確立済みの逆順）
+- `PlaybackUseCase` のポート順（確立 W → T → E → A → V、解放 T → E → A → V → W、ロールバックは確立済みの逆順）。weight ゲートが Replace 型ポート（A / V）の確立と解放を外側から包む配置を崩すと Req 6.3 が崩れる
 - `RecInputSourceCoverageCatalog.WeightWritePaths` のエントリ形状。weight を書く core API の追加・改名・削除は同時にカタログを更新しないとゲートが失敗する
 
 ## Architecture
@@ -70,7 +71,8 @@
 - **weight の消費点は 2 箇所**: `LayerUseCase.UpdateWeights` は `_aggregator.Aggregate(deltaTime, _layerPriorities, _layerInterWeights, _layerInputScratch)` を 1 回呼ぶ。`AggregateInternal` 冒頭の `_weightBuffer.SwapIfDirty()` で任意スレッドからの入力源 weight 書込がこのフレームの read buffer に確定し、以後 `GetWeight(l, s)` が返す値が加重和に使われる。レイヤー weight は `_layerInterWeights[l]` が `LayerBlender.LayerInput.Weight` に無加工で載る。`Aggregate` 直後に両者を読めば「合成に実際に使われた最終値」である（Req 2.3 / 2.4）
 - **ライブ書込の入口は 3 つ**: 入力源 weight は `LayerInputSourceWeightBuffer.SetWeight`（即時書込 + `Interlocked.Increment(_dirtyTick)`、任意スレッド）と `BulkScope.SetWeight → CommitBulk`（pending dict の一括 flush）。レイヤー weight は `LayerUseCase.SetLayerWeight`（`Dictionary` と `float[]` を直接書く。メインスレッド前提の既存契約）。`FacialController.SetLayerWeight / SetInputSourceWeight / BeginInputSourceWeightBatch` はこれらへの薄い委譲、inputsystem の `ApplyOverlayLayerWeights` は `OnLateTick` から `FacialController.SetLayerWeight` を毎フレーム呼ぶのみ。この 3 入口に遮断を置けば拡張パッケージ無改修で全呼出元を遮断できる（Req 5.4）
 - **スロット同定キー**: `LayerInputSourceRegistry._slotIds` は宣言 id（registry キー）を保持し `GetSlotId(l, s)` で読める。`TryReplaceSource` はスロット id を変えない（rec-full-input-coverage「入力源識別スコープ」5）。sourceIdx 0（`LayerExpressionSource`）はスロット id が `source.Id = "input"` で inputsystem の予約 slug `input` と文字列衝突するため、weight の同定には使えない
-- **`BindLateInputSource` の weight 書込**: 既存スロットの置換後に `_weightBuffer.SetWeight(layerIdx, existingIdx, weight)` で宣言 weight を再書込している。REC の注入体装着・原本復元はこの経路（`Replace` → Subscribe → `FacialController.HandleLayerInputSourceRebound` → `BindLateInputSource`）に乗るため、注入済み weight を上書きする。`UnbindLateInputSource` は後続スロットの weight を詰め直す（構造書込）
+- **`BindLateInputSource` の weight 書込**: 既存スロットの置換後に `_weightBuffer.SetWeight(layerIdx, existingIdx, weight)` で宣言 weight を再書込している（ライブの late-bind 契約。`BindLateInputSource_AppliesDeclaredWeight_ScalesOutput` 等が固定）。REC の注入体装着・原本復元はこの経路（`Replace` → Subscribe → `FacialController.HandleLayerInputSourceRebound` → `BindLateInputSource`）に乗るため、遮断が無いと注入済み weight を上書きする。`UnbindLateInputSource` は後続スロットの weight を詰め直す（構造書込）
+- **レイヤー名の重複**: `FacialProfile` コンストラクタ・`SystemTextJsonParser`・`FacialCharacterProfileConverter` のいずれもレイヤー名の重複を検証していない。`SetLayerWeight` / `FindLayerByName` / `_groupedByLayer` は先勝ちで解決する。既存の重複解決の流儀は「Warning + 確定的な解決」（`inputSources` 重複 id は last-wins、`gaze.channels` 重複 id は後続読み捨て）で、例外にはしない
 - **既存ゲートのパターン**: `ExpressionUseCase : IExpressionActivationGate`（Suspend / Resume / Inject / Reset / Collect、`FacialController.ExpressionActivationGate` で公開）と `RecExpressionInjector`（`CanBegin` = gate 解決可、`TryBegin` = Suspend → Reset、`End` = Resume）。weight ゲートはこの形を `LayerUseCase` に写す
 - **4 ポートのトランザクション**: `PlaybackUseCase.StartPlayback` は `IInjectionPort[]` を同一ループで preflight → 確立 → 失敗時逆順ロールバック。確立と `StopPlayback` 解放は同順（T → E → A → V）
 - **`.fcrec`**: ヘッダ `flags` bit0 は必須化済み（bit1〜15 予約）。weight 値は float 1 個で、既存の float ペイロード区画（`RecTimeline._payloadByEvent`、`RecEventChunkQueue` の float 区画、`RecEvent.PayloadFloatCount`）に載せられる。`RecEvent.IdDefinitionKind` は Source / Expression の 2 種
@@ -143,8 +145,9 @@ timeline Editor → Rec.Domain（RecEventSequenceAdapter は kind 12 / 13 をス
 | 入力源 weight（sourceIdx 0） | `(layerName, WeightSlotIds.ExpressionSlotId)` = `(layerName, "@expression")` | 予約 id。`ExpressionActivationSource.ReservedId` と同じ文字列（系1 の消費アダプタ `LayerExpressionSource` がこのスロット） | 不変 |
 | 入力源 weight（sourceIdx ≥ 1） | `(layerName, slotId)`、`slotId = LayerInputSourceRegistry.GetSlotId(l, s)`（宣言 id = `InputSourceRegistry` キー） | レイヤー宣言 / late-bind の宣言 id | 不変（`TryReplaceSource` はスロット id を変えない） |
 
-- レイヤー名はプロファイル内で一意であることを前提契約とする（検証はスコープ外）。重複時は `SetLayerWeight` と同じ先勝ち（最初に一致したレイヤー）で解決し、REC は同名を 1 対象として扱う
-- 予約 id `@expression` は registry の id 文字集合 `[a-zA-Z0-9_.\-:]` に `@` を含まないため、宣言 id と衝突しない。`.fcrec` の Source id 表には既に seed 済み
+- **レイヤー名の一意性はプロファイル読込境界で確立する**（設計レビュー 1 回目の指摘 2 への対応）。`SystemTextJsonParser`（JSON → `FacialProfile`）と `FacialCharacterProfileConverter`（SO → `FacialProfile`）はレイヤー名の重複を検出し、**後続の重複レイヤーを読み捨てて Warning を 1 回出す**（既存の `gaze.channels` 重複 id・`inputSources` 重複 id と同じ「警告 + 確定的な解決」の流儀。例外にはしない）。これにより `FacialController` が実行時に持つ `FacialProfile.Layers` のレイヤー名は常に一意で、`(layerName)` / `(layerName, slotId)` が全対象を一意に指す
+- **防御的フォールバック**: `FacialProfile` を直接構築したテスト等で重複名が残っている場合、`LayerUseCase` の weight 面は「最初に一致したレイヤー（先勝ち）」だけを対象にする（`CollectLayerWeights` / `CollectInputSourceWeights` は 2 回目以降の同名レイヤーとそのスロットを列挙せず、観測・基準・注入も先勝ちの 1 レイヤーに閉じる。`SetLayerWeight` の既存解決規則と同一）。これで `RecBaselineState` の重複拒否に到達せず、挙動は確定的になる。初回の `CollectLayerWeights` で重複を検出したら Warning を 1 回出す
+- 予約 id `@expression` は registry の id 文字集合 `[a-zA-Z0-9_.\-:]` に `@` を含まないため、宣言 id と衝突しない。`.fcrec` の Source id 表には既に seed 済み。同一レイヤー内のスロット id は `LayerInputSourceRegistry.TryAddSource` が重複を拒否し、JSON の `inputSources` 重複はパーサが last-wins で解決するため、レイヤー内で一意
 - `UnbindLateInputSource` の compact でスロット index は動くが、キーはスロット id なので対象は変わらない。`LayerUseCase` は compact 後に当該レイヤーの「前回通知値」を未観測へ戻し、次フレームで現在値を通知する
 
 ### Technology Stack
@@ -179,7 +182,11 @@ Runtime/Application/UseCases/
 └── LayerUseCase.cs                        # 変更: IWeightInjectionGate 実装、消費点の変化検出と observer 通知、SetLayerWeight のゲート、BindLateInputSource / UnbindLateInputSource の weight 契約、宣言 weight 配列
 Runtime/Adapters/Playable/
 └── FacialController.cs                    # 変更: WeightInjectionGate 公開、HasObservers エッジで SetWeightObserver 着脱
-Tests/EditMode/Application/LayerUseCaseTests.cs            # 追記 [SmallTest]: 観測・遮断・注入・基準・BindLate 契約
+Runtime/Adapters/Json/SystemTextJsonParser.cs                              # 変更: layers のレイヤー名重複を検出し後続を読み捨て（Warning）
+Runtime/Adapters/ScriptableObject/Serializable/FacialCharacterProfileConverter.cs  # 変更: 同上（SO → FacialProfile）
+Tests/EditMode/Application/LayerUseCaseTests.cs            # 追記 [SmallTest]: 観測・遮断・注入・基準・BindLate 契約・重複名フォールバック
+Tests/EditMode/Adapters/Json/SystemTextJsonParserTests.cs  # 追記 [SmallTest]: レイヤー名重複の読み捨て
+Tests/EditMode/Adapters/ScriptableObject/FacialCharacterProfileConverterTests.cs  # 追記 [SmallTest]: 同上
 Tests/Small/Domain/LayerInputSourceWeightBufferTests.cs    # 追記 [SmallTest]: ゲート、bypass、bulk 破棄
 Tests/EditMode/Domain/LayerInputSourceWeightBufferConcurrencyTests.cs  # 新規 [MediumTest]: ワーカースレッド書込と Suspend の競合
 Tests/Small/Domain/Services/FacialInputObservationBusTests.cs          # 追記 [SmallTest]: 新 2 メソッド
@@ -287,10 +294,10 @@ sequenceDiagram
     WI->>LUC: ResumeLiveWeights 値は維持
 ```
 
-- **順序（Req 5.5 / 6.4）**: 確立・`StopPlayback` 解放とも **W → T → E → A → V**。ゲート型（W / T / E）を Replace 型（A / V）より先に立てる既存規則の延長。W を先頭に置くことで、基準 weight は遮断確立後に書かれ、以後の A / V の Replace に伴う構造書込（新規スロットの初期 weight のみ）は注入済みスロットに触れない。ロールバックは確立済みポートの逆順
+- **順序（Req 5.5 / 6.3 / 6.4）**: 確立は **W → T → E → A → V**、`StopPlayback` の解放は **T → E → A → V → W**（weight ゲートが Replace 型ポート A / V の確立と解放を外側から包む）。既存 4 ポートの相対順序（確立・解放とも T → E → A → V）は不変。W を外側に置く理由: A / V の Replace（注入体装着・原本復元）は `BindLateInputSource` に乗り、ライブ契約では既存スロットに宣言 weight を再適用する。遮断中はこの再適用を行わないため、Replace が注入済み / 停止時点の weight を乱さない（Req 6.3）。ロールバックは確立済みポートの逆順（例: A で失敗 → E → T → W）。`PlaybackUseCase` は確立順配列と解放順配列を分けて持つ（既存の単一配列ループを 2 配列に拡張）
 - **W の確立手順**: `SuspendLiveWeights()`（false = 既に遮断中 → `TryBeginInjection` は false。他者が weight ゲートを使うことは無いため通常は true）→ `ResetWeightsToDeclared()`（全レイヤー 1.0、全スロットは宣言 weight、sourceIdx 0 は 1.0。通知なし）→ baseline の `LayerWeightEntries` / `InputSourceWeightEntries` を `TrySetBaseline*`（通知なし。未知の対象は warn-once）→ true
 - **注入（Req 6.1 / 6.2）**: `TryInject*` は遮断を迂回して通常の clamp・反映タイミング（次 `SwapIfDirty`）で書く。前回通知値は更新しないため、次フレームの消費点で変化として観測される（再生中の再記録に注入イベントが残る。Req 3.5）
-- **解放（Req 5.6 / 5.7）**: `EndInjection` は `ResumeLiveWeights()` のみ。weight 値は維持し自動復元しない。自然完了（Completed）では呼ばれない
+- **解放（Req 5.6 / 5.7）**: `EndInjection` は `ResumeLiveWeights()` のみ。weight 値は維持し自動復元しない。自然完了（Completed）では呼ばれない。解放順で W が最後なので、A / V の原本復元に伴う `BindLateInputSource` は遮断中に走り、停止時点の weight を変えない
 
 ### ライブ書込ゲートの原子性（Req 5.3）
 
@@ -327,7 +334,7 @@ sequenceDiagram
 | 2.3 | clamp 後の実効値・呼出元非依存 | `LayerUseCase`（`_layerInterWeights` / `GetWeight` を読む） | — | 記録フロー |
 | 2.4 | 消費粒度・フレーム内畳み込み | `LayerUseCase.UpdateWeights`（`Aggregate` 直後に 1 回） | — | 記録フロー |
 | 2.5 | 同値非通知 | `LayerUseCase`（前回通知値配列、ビット比較） | — | 記録フロー |
-| 2.6 | 安定したスロット識別子 | 本書「weight 対象の識別契約」、`WeightSlotIds`、`LayerInputSourceRegistry.GetSlotId` | `WeightSlotIds.ExpressionSlotId` | — |
+| 2.6 | 安定したスロット識別子 | 本書「weight 対象の識別契約」、`WeightSlotIds`、`LayerInputSourceRegistry.GetSlotId`、`SystemTextJsonParser` / `FacialCharacterProfileConverter` のレイヤー名重複読み捨て、`LayerUseCase` の先勝ちフォールバック | `WeightSlotIds.ExpressionSlotId` | — |
 | 2.7 | 観測のみ | `LayerUseCase` は比較と通知のみ、書き戻しなし | — | — |
 | 3.1–3.2 | 時刻付き記録 | `RecordingUseCase.OnLayerWeightSample / OnInputSourceWeightSample`（kind 12 / 13） | `IFacialInputObserver` | 記録フロー |
 | 3.3 | 無変化で記録増なし | `LayerUseCase` の変化検出 | — | 記録フロー |
@@ -348,8 +355,8 @@ sequenceDiagram
 | 5.8 | 常時有効・オプションなし | 設定項目を設けない | — | — |
 | 6.1 | 遮断迂回の注入経路 | `IWeightInjectionGate.TryInject*`、`LayerInputSourceWeightBuffer.SetWeightBypassingLiveGate` | — | 再生フロー |
 | 6.2 | 時刻到達で注入 | `PlaybackUseCase.VisitLayerWeightSample / VisitInputSourceWeightSample` → `IWeightInjectionPort` | `IRecEventVisitor` | 再生フロー |
-| 6.3 | Replace / 復元で weight 不変 | `LayerUseCase.BindLateInputSource`（既存スロット置換は weight 不変） | — | 再生フロー注記 |
-| 6.4 | 5 種の一貫順序・all-or-nothing | `PlaybackUseCase`（W → T → E → A → V、逆順ロールバック） | `IInjectionPort` | 再生フロー |
+| 6.3 | Replace / 復元で weight 不変 | `LayerUseCase.BindLateInputSource`（遮断中は既存スロット置換で宣言 weight を再適用しない）+ `PlaybackUseCase` の順序（W が A / V を外側から包む） | — | 再生フロー注記 |
+| 6.4 | 5 種の一貫順序・all-or-nothing | `PlaybackUseCase`（確立 W → T → E → A → V、解放 T → E → A → V → W、逆順ロールバック） | `IInjectionPort` | 再生フロー |
 | 6.5 | 依存未解決で開始拒否 | `RecWeightInjector.CanBeginInjection`（gate null → false） | `IInjectionPort.CanBeginInjection` | 再生フロー |
 | 6.6 | 未知対象のスキップ・warn-once | `RecWeightInjector`（`TryInject*` / `TrySetBaseline*` false → id 単位 1 回の Warning） | — | — |
 | 6.7 | 新規スロットは遮断対象外 | `LayerUseCase.BindLateInputSource`（新規スロット初期 weight は構造書込） | — | — |
@@ -541,9 +548,10 @@ namespace Hidano.FacialControl.Domain.Models
 - **基準**: `ResetWeightsToDeclared()` は全 `l` に `_layerInterWeights[l] = 1f`、全スロットに `SetWeightBypassingLiveGate(l, s, _declaredSlotWeights[l * max + s])`（s = 0 は 1f）、前回通知値も同じ値に更新。`TrySetBaseline*` は対象解決 → bypass 書込 → 前回通知値更新
 - **注入**: `TryInject*` は対象解決 → `_layerInterWeights[l] = clamp(w)` / `SetWeightBypassingLiveGate` → 前回通知値は更新しない
 - **収集**: `Collect*` は `_layerInterWeights` と `GetWeight(l, s)`（read 側）を列挙
-- **宣言 weight の保持**: `_declaredSlotWeights`（flat 配列）を `BuildAggregatorPipeline` で宣言値から埋め、`BindLateInputSource` の新規スロット追加・`UnbindLateInputSource` の compact で追随させる
-- **`BindLateInputSource` の契約変更**: 既存スロットの置換（`TryReplaceSource` 成功）では weight を**書かない**。新規スロット（`TryAddSource`）の初期 weight は `SetWeightBypassingLiveGate` で書き、`_declaredSlotWeights` と前回通知値（NaN）を拡張する。`UnbindLateInputSource` の詰め直しも bypass で行い、当該レイヤーの前回通知値を NaN に戻す
-- **既存挙動の維持**: observer 未設定・遮断未使用時、`UpdateWeights` に増えるのは null チェック 1 回、`SetLayerWeight` に bool 比較 1 回
+- **宣言 weight の保持**: `_declaredSlotWeights`（flat 配列）を `BuildAggregatorPipeline` で宣言値から埋め、`BindLateInputSource` の新規スロット追加・既存スロット置換（宣言 weight の更新）・`UnbindLateInputSource` の compact で追随させる
+- **`BindLateInputSource` の遮断中挙動**: 遮断中でないときは従来どおり（既存スロットの置換で宣言 weight を再適用、新規スロットは初期 weight）。**遮断中**（`_liveWeightsSuspended`）は既存スロットの置換で weight を**書かない**（注入済み / 停止時点の値を維持。宣言 weight は `_declaredSlotWeights` にだけ記録し、次の `ResetWeightsToDeclared` で使う）。新規スロット（`TryAddSource`）の初期 weight は遮断中でも `SetWeightBypassingLiveGate` で書き（構造書込。Req 6.7）、`_declaredSlotWeights` と前回通知値（NaN）を拡張する。`UnbindLateInputSource` の詰め直しも bypass で行い、当該レイヤーの前回通知値を NaN に戻す
+- **レイヤー名重複の先勝ちフォールバック**: 観測・基準・注入・収集は各レイヤー名について最初に一致したレイヤーだけを対象にし、2 回目以降の同名レイヤーとそのスロットは対象外（`CollectLayerWeights` の初回で重複を検出したら Warning 1 回）。読込境界の重複読み捨てにより実行時プロファイルでは発生しない
+- **既存挙動の維持**: observer 未設定・遮断未使用時、`UpdateWeights` に増えるのは null チェック 1 回、`SetLayerWeight` に bool 比較 1 回、`BindLateInputSource` に bool 比較 1 回
 
 **Contracts**: Service [x] / State [x]
 
@@ -555,7 +563,7 @@ public class LayerUseCase : IDisposable, IWeightInjectionGate
     public void SetInputSourceWeight(int layerIdx, int sourceIdx, float weight); // 既存。ライブ。任意スレッド。遮断中は no-op
     public LayerInputSourceWeightBuffer.BulkScope BeginInputSourceWeightBatch(); // 既存。commit 時に遮断判定
     public void SetWeightObserver(ILayerWeightObserver observer);   // 新規。非 null 設定時に前回通知値を現在値へ同期（非通知）
-    public void BindLateInputSource(int layerIdx, string declaredId, IInputSource source, float weight); // 既存。既存スロット置換は weight 不変、新規スロットは初期 weight（構造書込）
+    public void BindLateInputSource(int layerIdx, string declaredId, IInputSource source, float weight); // 既存。遮断中でなければ従来どおり。遮断中は既存スロット置換で weight を書かず、新規スロットの初期 weight のみ構造書込
     // IWeightInjectionGate の全メソッド（上記契約）
 }
 ```
@@ -694,7 +702,7 @@ namespace Hidano.FacialControl.Rec.Domain.Interfaces
 
 **Responsibilities & Constraints**
 - 5 ポートコンストラクタ `PlaybackUseCase(IWeightInjectionPort weightPort, ITriggerInjectionPort, IExpressionInjectionPort, IAnalogInjectionPort, IValueProviderInjectionPort)` を正とする。既存 4 ポート / 2 ポートコンストラクタは `NullWeightInjectionPort` へ委譲する互換（テスト用。本番配線は 5 ポート）
-- `ports = { weight, trigger, expression, analog, valueProvider }`、`portNames = { "weight", "trigger", "expression", "analog", "valueProvider" }`。preflight 全件 → 順に `TryBeginInjection` → 失敗時は確立済みを逆順 `EndInjection`。`StopPlayback` は同順で `EndInjection`。手順・不変条件は rec-full-input-coverage「再生開始のトランザクション」と同一
+- 確立順配列 `establishOrder = { weight, trigger, expression, analog, valueProvider }`（名前 `"weight"`, `"trigger"`, `"expression"`, `"analog"`, `"valueProvider"`）と解放順配列 `releaseOrder = { trigger, expression, analog, valueProvider, weight }` を持つ。preflight は確立順で全件 → 確立順に `TryBeginInjection` → 失敗時は確立済みを逆順 `EndInjection`。`StopPlayback` と `Completed` からの再開時の全解放は解放順で `EndInjection`。それ以外の手順・不変条件は rec-full-input-coverage「再生開始のトランザクション」と同一
 - `VisitLayerWeightSample(layerName, weight)` → `_weightPort.InjectLayerWeight`、`VisitInputSourceWeightSample(layerName, slotId, weight)` → `_weightPort.InjectInputSourceWeight`
 - `CreateFilteredBaseline` は weight エントリを無加工で引き継ぐ（expressionId と無関係）
 
@@ -819,7 +827,8 @@ TDD（Red-Green-Refactor）厳守。`{Target}Tests.cs`、`{Method}_{Condition}_{
 ### Unit Tests（Small / EditMode）
 1. core `LayerInputSourceWeightBufferTests`（追記）: `SetWeight_WhileLiveWritesSuspended_DoesNotChangeReadValue`、`SetWeightBypassingLiveGate_WhileSuspended_ChangesReadValueAfterSwap`、`CommitBulk_WhileSuspended_DiscardsPendingAndDoesNotAdvanceDirty`、`SuspendLiveWrites_Twice_IsIdempotent`、`ResumeLiveWrites_ThenSetWeight_IsVisibleAfterSwap`（5.1, 5.3, 6.1）
 2. core `LayerInputSourceWeightBufferConcurrencyTests`（新規 `[MediumTest]`、EditMode。スレッドを使うため Small にしない）: ワーカー 4 本が `SetWeight` を連打する中で `SuspendLiveWrites` → `SetWeightBypassingLiveGate(基準)` → `SwapIfDirty` → `GetWeight` が基準値であることを 200 回反復（5.3 / 5.5 の原子性）
-3. core `LayerUseCaseTests`（追記）: `UpdateWeights_WeightObserverSet_NotifiesLayerWeightOnChangeOnly`、`UpdateWeights_SameFrameMultipleSetLayerWeight_NotifiesFinalValueOnce`、`UpdateWeights_SetInputSourceWeightFromBulk_NotifiesConsumedValueOnce`、`UpdateWeights_UnchangedWeights_DoesNotNotify`、`SetWeightObserver_Attach_SyncsWithoutNotifying`、`UpdateWeights_SlotZero_NotifiesWithExpressionSlotId`、`UpdateWeights_DeclaredSlot_NotifiesWithDeclaredSlotId`、`SetLayerWeight_WhileSuspended_IsNoOp`、`TryInjectLayerWeight_WhileSuspended_AppliesAndNotifiesNextFrame`、`TrySetBaselineLayerWeight_DoesNotNotify`、`ResetWeightsToDeclared_RestoresDeclaredValuesWithoutNotifying`、`TryInjectInputSourceWeight_UnknownSlot_ReturnsFalse`、`CollectInputSourceWeights_ReturnsAllSlotsWithStableKeys`、`BindLateInputSource_ReplacingExistingId_KeepsRuntimeWeightOfThatSlot`（契約変更の固定）、`BindLateInputSource_NewSlotWhileSuspended_AppliesDeclaredWeight`（6.7）、`UnbindLateInputSource_WhileSuspended_CompactsWeightsAndRenotifiesRemainingSlots`、`UpdateWeights_NoObserver_DoesNotTouchNotificationArrays`（9.2）（2.1–2.7, 4.5, 4.6, 5.2, 6.1, 6.3, 6.7）
+3. core `LayerUseCaseTests`（追記）: `UpdateWeights_WeightObserverSet_NotifiesLayerWeightOnChangeOnly`、`UpdateWeights_SameFrameMultipleSetLayerWeight_NotifiesFinalValueOnce`、`UpdateWeights_SetInputSourceWeightFromBulk_NotifiesConsumedValueOnce`、`UpdateWeights_UnchangedWeights_DoesNotNotify`、`SetWeightObserver_Attach_SyncsWithoutNotifying`、`UpdateWeights_SlotZero_NotifiesWithExpressionSlotId`、`UpdateWeights_DeclaredSlot_NotifiesWithDeclaredSlotId`、`SetLayerWeight_WhileSuspended_IsNoOp`、`TryInjectLayerWeight_WhileSuspended_AppliesAndNotifiesNextFrame`、`TrySetBaselineLayerWeight_DoesNotNotify`、`ResetWeightsToDeclared_RestoresDeclaredValuesWithoutNotifying`、`TryInjectInputSourceWeight_UnknownSlot_ReturnsFalse`、`CollectInputSourceWeights_ReturnsAllSlotsWithStableKeys`、`BindLateInputSource_ReplacingExistingId_WhileNotSuspended_AppliesDeclaredWeight`（既存挙動の固定）、`BindLateInputSource_ReplacingExistingId_WhileSuspended_KeepsCurrentWeight`（6.3）、`BindLateInputSource_NewSlotWhileSuspended_AppliesDeclaredWeight`（6.7）、`UnbindLateInputSource_WhileSuspended_CompactsWeightsAndRenotifiesRemainingSlots`、`CollectLayerWeights_DuplicateLayerNames_ReturnsFirstOccurrenceOnlyAndWarnsOnce`、`UpdateWeights_DuplicateLayerNames_NotifiesFirstOccurrenceOnly`（2.6）、`UpdateWeights_NoObserver_DoesNotTouchNotificationArrays`（9.2）（2.1–2.7, 4.5, 4.6, 5.2, 6.1, 6.3, 6.7）
+3b. core `SystemTextJsonParserTests` / `FacialCharacterProfileConverterTests`（追記）: `Parse_DuplicateLayerNames_KeepsFirstAndWarns`（後続の重複レイヤーが読み捨てられ、`FacialProfile.Layers` の名前が一意、Warning 1 回）（2.6）
 4. core `FacialInputObservationBusTests`（追記）: 新 2 メソッドの HasObservers 早期 return・遅延適用・例外隔離（2.1, 2.2）
 5. rec `RecEventTests` / `RecBaselineStateTests`（追記）: 新 factory の `PayloadFloatCount == 1`、`IsTimedEvent`、`Constructor_DuplicateLayerWeight_ThrowsArgumentException`、`Constructor_DuplicateInputSourceWeight_ThrowsArgumentException`、`TryGetLayerWeight_KnownLayer_ReturnsValue`（4.1, 4.2, 7.1）
 6. rec `RecIdTableTests`（追記）: `CreateSeeded_WeightBaseline_SeedsLayerIdsAndSlotIds`、`AddDefinedId_LayerKind_RoundTrips`（7.1）
@@ -828,7 +837,7 @@ TDD（Red-Green-Refactor）厳守。`{Target}Tests.cs`、`{Method}_{Condition}_{
 9. rec `RecTimelineSeekTests`（追記）: `BuildBaselineAt_FoldsLayerAndSlotWeightsToLastValue`（7.6）
 10. rec `RecordingUseCaseTests`（追記）: `OnLayerWeightSample_DefinesLayerIdThenAppendsKind12`、`OnInputSourceWeightSample_AppendsKind13WithSlotSourceId`、`OnLayerWeightSample_SteadyState_AllocatesZero`（3.1, 3.2, 9.5）
 11. rec `RecPlaybackSchedulerTests`（追記）: kind 12 / 13 の Dispatch（6.2）
-12. rec `PlaybackUseCaseTests` / `PlaybackUseCaseFourPortTests`（追記。Fake 5 ポート）: `StartPlayback_WhenLoaded_EstablishesInWeightTriggerExpressionAnalogValueProviderOrder`、`StopPlayback_ReleasesInSameOrder`、`StartPlayback_WeightPreflightFails_NoPortBegun`、`StartPlayback_SecondPortFails_RollsBackWeightPort`、`StartPlayback_FifthPortFails_RollsBackFourInReverseOrder`、`FourPortConstructor_UsesNullWeightPort`（6.4, 6.5）
+12. rec `PlaybackUseCaseTests` / `PlaybackUseCaseFourPortTests`（追記。Fake 5 ポート）: `StartPlayback_WhenLoaded_EstablishesInWeightTriggerExpressionAnalogValueProviderOrder`、`StopPlayback_ReleasesTriggerExpressionAnalogValueProviderThenWeight`（W が最後）、`StartPlayback_FromCompleted_ReleasesWeightLastBeforeReestablishing`、`StartPlayback_WeightPreflightFails_NoPortBegun`、`StartPlayback_SecondPortFails_RollsBackWeightPort`、`StartPlayback_FifthPortFails_RollsBackFourInReverseOrder`、`FourPortConstructor_UsesNullWeightPort`（既存の T → E → A → V 相対順序テストは不変）（6.3, 6.4, 6.5）
 13. rec `RecWeightInjectorTests`（新規）: `CanBeginInjection_GateUnresolved_ReturnsFalseWithReason`、`TryBeginInjection_GateUnresolved_ReturnsFalseWithoutSuspending`、`TryBeginInjection_Resolved_SuspendsThenResetsThenAppliesBaseline`（呼出順を Fake gate で記録）、`TryBeginInjection_UnknownBaselineTarget_WarnsOnceAndContinues`、`InjectLayerWeight_Unknown_WarnsOnce`、`EndInjection_ResumesAndIsIdempotent`（4.4–4.6, 5.1, 5.5, 5.6, 6.5, 6.6）
 14. rec `RecBaselineCaptureTests`（追記）: `Capture_WithWeightGate_IncludesAllLayersAndSlots`、`Capture_NullWeightGate_HasEmptyWeightEntries`（4.1, 4.2）
 15. rec `RecCharacterBindingTests`（追記）: `EnsurePlaybackSession_ConstructsWeightInjector`（reflection で `_weightInjector` 非 null。5 ポート配線の固定）（6.4）
@@ -855,7 +864,8 @@ TDD（Red-Green-Refactor）厳守。`{Target}Tests.cs`、`{Method}_{Condition}_{
 ## Migration Strategy
 
 - `.fcrec` formatVersion 1 の在置き変更（HID-35 Gate A の決定を継承。Req 7.3 / 7.4）。ヘッダ flags の必須ビットを 0x0003 に広げ、HID-35 以降・本 spec 以前の構造（flags = 0x0001）を `TryRead` のヘッダ検査で確定的に拒否する。読込互換・移行は提供せず再収録を案内する（rec README に記載）
-- API の破壊的変更（preview 段階で許容。すべて同一リポジトリ内で同時改修）: `IFacialInputObserver`（2 メソッド追加。実装: `RecordingUseCase`、各 Fake）、`IFacialInputObservationBus`（`ILayerWeightObserver` 継承。実装: `FacialInputObservationBus`、各 Fake）、`IRecEventVisitor`（2 メソッド追加）、`RecBaselineState` / `RecTimeline` コンストラクタ（既存シグネチャは委譲で維持）、`PlaybackUseCase` コンストラクタ（5 ポートを追加。4 / 2 ポートは互換）、`RecBaselineCapture.Capture`（gate 引数追加）、`LayerUseCase.BindLateInputSource` の weight 契約（既存スロット置換で weight 不変）
+- API の破壊的変更（preview 段階で許容。すべて同一リポジトリ内で同時改修）: `IFacialInputObserver`（2 メソッド追加。実装: `RecordingUseCase`、各 Fake）、`IFacialInputObservationBus`（`ILayerWeightObserver` 継承。実装: `FacialInputObservationBus`、各 Fake）、`IRecEventVisitor`（2 メソッド追加）、`RecBaselineState` / `RecTimeline` コンストラクタ（既存シグネチャは委譲で維持）、`PlaybackUseCase` コンストラクタ（5 ポートを追加。4 / 2 ポートは互換）、`RecBaselineCapture.Capture`（gate 引数追加）
+- 挙動の変更（既存の正常系は不変）: `LayerUseCase.BindLateInputSource` は weight 遮断中に限り既存スロット置換で宣言 weight を再適用しない。`SystemTextJsonParser` / `FacialCharacterProfileConverter` はレイヤー名重複を読み捨てる（従来は重複のまま構築され、先勝ち解決と `_groupedByLayer` の上書きが混在していた）
 
 ## weight 書込経路分類表（Req 1.1–1.3 の成果物。`RecInputSourceCoverageCatalog.WeightWritePaths` と 1:1）
 
@@ -871,7 +881,7 @@ TDD（Red-Green-Refactor）厳守。`{Target}Tests.cs`、`{Method}_{Condition}_{
 | 8 | `Hidano.FacialControl.Domain.Services.LayerInputSourceWeightBuffer+BulkScope` | `SetWeight` | Hidano.FacialControl.Domain | Gated | — | pending への蓄積のみ。`Dispose`（CommitBulk）時に遮断判定し、遮断中は破棄 |
 | 9 | `Hidano.FacialControl.Domain.Services.LayerInputSourceWeightBuffer` | `SetWeightBypassingLiveGate` | Hidano.FacialControl.Domain | Excluded | InjectionPath | REC の基準・注入・構造書込が使う迂回入口。ライブの呼出元は使わない（core 内部専用） |
 | 10 | `Hidano.FacialControl.Application.UseCases.LayerUseCase` | `TryInjectLayerWeight` / `TryInjectInputSourceWeight` / `TrySetBaselineLayerWeight` / `TrySetBaselineInputSourceWeight` / `ResetWeightsToDeclared` | Hidano.FacialControl.Application | Excluded | InjectionPath | `IWeightInjectionGate` の注入・基準面。再生中の注入は次の消費点で観測され、再記録に残る |
-| 11 | `Hidano.FacialControl.Application.UseCases.LayerUseCase` | `BindLateInputSource` | Hidano.FacialControl.Application | Excluded | StructuralWrite | 既存スロットの置換では weight を書かない。新規スロットの初期 weight（宣言値）のみ書く。新規スロットは開始時スナップショット外（Req 6.7） |
+| 11 | `Hidano.FacialControl.Application.UseCases.LayerUseCase` | `BindLateInputSource` | Hidano.FacialControl.Application | Excluded | StructuralWrite | 宣言由来の構造値。遮断中は既存スロットの置換で weight を書かず（Req 6.3）、新規スロットの初期 weight（宣言値）のみ書く。新規スロットは開始時スナップショット外（Req 6.7）。遮断中でないときの再適用はライブ契約そのまま |
 | 12 | `Hidano.FacialControl.Application.UseCases.LayerUseCase` | `UnbindLateInputSource` | Hidano.FacialControl.Application | Excluded | StructuralWrite | 残るスロットの weight を詰め直すだけで新しい値を生まない。詰め直し後に当該レイヤーを再観測する |
 | 13 | `Hidano.FacialControl.Application.UseCases.LayerUseCase` | `BuildAggregatorPipeline` | Hidano.FacialControl.Application | Excluded | Initialization | プロファイル構築 / `SetProfile` の初期値（レイヤー 1、sourceIdx 0 は 1、宣言スロットは宣言 weight）。再初期化は記録セッションを跨ぐ既知制限 |
 | 14 | `Hidano.FacialControl.Adapters.AdapterBindings.InputSystem.InputSystemAdapterBinding` | `ApplyOverlayLayerWeights` | Hidano.FacialControl.InputSystem | Gated | — | 拡張側の呼出元（Req 1.2）。#1 を毎 LateTick 呼ぶだけで生の weight 配列に触れない。core の遮断面に乗る |
@@ -881,7 +891,7 @@ TDD（Red-Green-Refactor）厳守。`{Target}Tests.cs`、`{Method}_{Condition}_{
 ## 既知制限（文書化対象）
 
 1. 再生開始後に新規登録された入力源スロットの weight は遮断対象外（開始時スナップショット方式。宣言 weight で late-bind される）
-2. レイヤー名はプロファイル内で一意であることを前提とする。重複時は先勝ちの 1 対象として扱う
+2. レイヤー名が重複するプロファイルは、JSON / SO の読込時に後続の重複レイヤーが読み捨てられる（Warning）。読込境界を通らない `FacialProfile` 直接構築では先勝ちの 1 対象として扱う
 3. レイヤー weight の `SetLayerWeight` はメインスレッド専用（既存契約の明文化）
 4. 基準捕捉・観測者接続は Update 時点の read 側の値を読む。同一フレームの LateUpdate までに届いた weight 書込は t≈0 の時刻付きイベントとして記録される（analog / VP と同じ性質）
 5. 再生中の記録には weight の注入イベントも残る
