@@ -201,8 +201,15 @@ namespace Hidano.FacialControl.Rec.Tests.PlayMode
 
         private sealed class NullTriggerInjectionPort : ITriggerInjectionPort
         {
-            public void BeginInjection(RecBaselineState baseline)
+            public bool CanBeginInjection(out string reason)
             {
+                reason = string.Empty;
+                return true;
+            }
+
+            public bool TryBeginInjection(RecBaselineState baseline)
+            {
+                return true;
             }
 
             public void InjectTriggerOn(string sourceId, string expressionId)
@@ -220,8 +227,15 @@ namespace Hidano.FacialControl.Rec.Tests.PlayMode
 
         private sealed class NullAnalogInjectionPort : IAnalogInjectionPort
         {
-            public void BeginInjection(RecBaselineState baseline)
+            public bool CanBeginInjection(out string reason)
             {
+                reason = string.Empty;
+                return true;
+            }
+
+            public bool TryBeginInjection(RecBaselineState baseline)
+            {
+                return true;
             }
 
             public void InjectAnalogSample(string sourceId, ReadOnlySpan<float> axes)

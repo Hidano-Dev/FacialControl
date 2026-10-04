@@ -111,13 +111,13 @@ namespace Hidano.FacialControl.Rec.Tests.EditMode
             Assert.That(typeof(IRecEventSink).GetMethod(nameof(IRecEventSink.Open)), Is.Not.Null);
             Assert.That(typeof(IRecEventSink).GetMethod(nameof(IRecEventSink.AppendEvent)), Is.Not.Null);
             Assert.That(typeof(IRecEventSink).GetMethod(nameof(IRecEventSink.Complete)), Is.Not.Null);
-            Assert.That(typeof(ITriggerInjectionPort).GetMethod(nameof(ITriggerInjectionPort.BeginInjection)), Is.Not.Null);
+            Assert.That(typeof(IInjectionPort).GetMethod(nameof(IInjectionPort.CanBeginInjection)), Is.Not.Null);
+            Assert.That(typeof(IInjectionPort).GetMethod(nameof(IInjectionPort.TryBeginInjection)), Is.Not.Null);
             Assert.That(typeof(ITriggerInjectionPort).GetMethod(nameof(ITriggerInjectionPort.InjectTriggerOn)), Is.Not.Null);
             Assert.That(typeof(ITriggerInjectionPort).GetMethod(nameof(ITriggerInjectionPort.InjectTriggerOff)), Is.Not.Null);
-            Assert.That(typeof(ITriggerInjectionPort).GetMethod(nameof(ITriggerInjectionPort.EndInjection)), Is.Not.Null);
-            Assert.That(typeof(IAnalogInjectionPort).GetMethod(nameof(IAnalogInjectionPort.BeginInjection)), Is.Not.Null);
+            Assert.That(typeof(IInjectionPort).GetMethod(nameof(IInjectionPort.EndInjection)), Is.Not.Null);
+            Assert.That(typeof(IInjectionPort).GetMethod(nameof(IInjectionPort.TryBeginInjection)), Is.Not.Null);
             Assert.That(typeof(IAnalogInjectionPort).GetMethod(nameof(IAnalogInjectionPort.InjectAnalogSample)), Is.Not.Null);
-            Assert.That(typeof(IAnalogInjectionPort).GetMethod(nameof(IAnalogInjectionPort.EndInjection)), Is.Not.Null);
         }
 
         [Test]

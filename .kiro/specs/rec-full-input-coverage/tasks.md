@@ -130,7 +130,7 @@
   - 完了条件: 上記テストと既存スケジューラテストが EditMode で緑
   - _Requirements: 4.8, 4.10_
 
-- [ ] 3.8 途中再生のベースライン畳み込みを値提供型と系1 へ拡張する
+- [x] 3.8 途中再生のベースライン畳み込みを値提供型と系1 へ拡張する
   - 対象: `com.hidano.facialcontrol.rec`（`Hidano.FacialControl.Rec.Domain` の RecTimelineSeek）
   - ベースライン構築にプロファイルを渡し、値提供型は id ごとに (有効性・mask・値) を kind 7 の flags に従って上書き（HasMask なら mask と値を置換、HasValues のみなら値を置換、IsValid は常に反映）、系1 はレイヤー排他意味論（LastWins は Clear して追加、Blend は同 id 除去後に追加、Deactivate は全レイヤーから除去、未知 id はスキップ）で畳み、レイヤー宣言順 × リスト順で平坦化する。トリガー / アナログの畳み込みは不変
   - テスト（rec `Tests/EditMode/RecTimelineSeekTests` 追記、`[SmallTest]`）: 値提供型の最後の状態畳み込み（HasMask / HasValues の組合せ）、系1 の LastWins / Blend 畳み込み（A → B（LastWins）→ B off = 空 のケースを含む）、オフセット以降のイベントが基準に入らないこと

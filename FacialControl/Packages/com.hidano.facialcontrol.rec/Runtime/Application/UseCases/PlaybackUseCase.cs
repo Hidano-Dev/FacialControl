@@ -94,8 +94,8 @@ namespace Hidano.FacialControl.Rec.Application.UseCases
 
             RecTimeline timeline = _loadResult.Timeline;
             RecBaselineState baseline = CreateFilteredBaseline(RecTimelineSeek.BuildBaselineAt(timeline, startOffsetSeconds));
-            _triggerPort.BeginInjection(baseline);
-            _analogPort.BeginInjection(baseline);
+            _triggerPort.TryBeginInjection(baseline);
+            _analogPort.TryBeginInjection(baseline);
             _scheduler.Load(timeline, startOffsetSeconds);
 
             if (_scheduler.IsCompleted)

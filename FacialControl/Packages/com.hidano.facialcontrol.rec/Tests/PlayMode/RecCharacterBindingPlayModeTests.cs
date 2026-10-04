@@ -501,7 +501,7 @@ namespace Hidano.FacialControl.Rec.Tests.PlayMode
             var injector = new RecAnalogInjector(registry);
             RecBaselineState baseline = CreateAnalogOnlyBaseline("input:orphan", 0.4f, -0.2f);
 
-            injector.BeginInjection(baseline);
+            Assert.That(injector.TryBeginInjection(baseline), Is.True);
             yield return null;
 
             Assert.That(registry.TryResolve("input:orphan", out IInputSource injectedSource), Is.True);
@@ -514,7 +514,7 @@ namespace Hidano.FacialControl.Rec.Tests.PlayMode
         }
 
         [UnityTest]
-        public IEnumerator AnalogInjector_BeginInjection_WhenAnotherInjectedSourceAlreadyOccupiesId_LogsWarningAndSkips()
+        public IEnumerator AnalogInjector_TryBeginInjection_WhenAnotherInjectedSourceAlreadyOccupiesId_LogsWarningAndSkips()
         {
             SetupHarness(out _, out _, out _, out FakeInputSourceRegistry registry, out _, out _);
 
@@ -528,7 +528,7 @@ namespace Hidano.FacialControl.Rec.Tests.PlayMode
                 LogType.Warning,
                 new Regex("analog.*'input:occupied'"));
 
-            injector.BeginInjection(baseline);
+            Assert.That(injector.TryBeginInjection(baseline), Is.True);
             yield return null;
 
             Assert.That(registry.TryResolve("input:occupied", out IInputSource resolvedSource), Is.True);
@@ -546,7 +546,7 @@ namespace Hidano.FacialControl.Rec.Tests.PlayMode
             var injectorA = new RecAnalogInjector(registry);
             RecBaselineState baseline = CreateAnalogOnlyBaseline("input:analog", 0.1f, -0.4f);
 
-            injectorA.BeginInjection(baseline);
+            Assert.That(injectorA.TryBeginInjection(baseline), Is.True);
             Assert.That(registry.TryResolve("input:analog", out IInputSource injectorASource), Is.True);
             Assert.That(injectorASource, Is.InstanceOf<IInjectedInputSource>());
 

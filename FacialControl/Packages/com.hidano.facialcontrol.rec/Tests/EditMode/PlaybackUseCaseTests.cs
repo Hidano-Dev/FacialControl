@@ -52,8 +52,8 @@ namespace Hidano.FacialControl.Rec.Tests.EditMode
 
             Assert.That(started, Is.True);
             Assert.That(useCase.State, Is.EqualTo(RecPlaybackState.Playing));
-            Assert.That(triggerPort.BeginInjectionCallCount, Is.EqualTo(1));
-            Assert.That(analogPort.BeginInjectionCallCount, Is.EqualTo(1));
+            Assert.That(triggerPort.TryBeginInjectionCallCount, Is.EqualTo(1));
+            Assert.That(analogPort.TryBeginInjectionCallCount, Is.EqualTo(1));
             Assert.That(triggerPort.Baseline.TryGetTriggerStack("input:trigger", out IReadOnlyList<string> expressionIds), Is.True);
             Assert.That(expressionIds, Is.EqualTo(new[] { "smile" }));
             Assert.That(analogPort.Baseline.TryGetAnalogAxes("input:gaze", out IReadOnlyList<float> axes), Is.True);
@@ -74,8 +74,8 @@ namespace Hidano.FacialControl.Rec.Tests.EditMode
             bool started = useCase.StartPlayback();
 
             Assert.That(started, Is.False);
-            Assert.That(triggerPort.BeginInjectionCallCount, Is.EqualTo(1));
-            Assert.That(analogPort.BeginInjectionCallCount, Is.EqualTo(1));
+            Assert.That(triggerPort.TryBeginInjectionCallCount, Is.EqualTo(1));
+            Assert.That(analogPort.TryBeginInjectionCallCount, Is.EqualTo(1));
         }
 
         [Test]
@@ -330,8 +330,8 @@ namespace Hidano.FacialControl.Rec.Tests.EditMode
 
             Assert.That(started, Is.False);
             Assert.That(useCase.State, Is.EqualTo(RecPlaybackState.Idle));
-            Assert.That(triggerPort.BeginInjectionCallCount, Is.EqualTo(0));
-            Assert.That(analogPort.BeginInjectionCallCount, Is.EqualTo(0));
+            Assert.That(triggerPort.TryBeginInjectionCallCount, Is.EqualTo(0));
+            Assert.That(analogPort.TryBeginInjectionCallCount, Is.EqualTo(0));
         }
 
         private static RecTimeline CreateSeekTimeline()
@@ -501,7 +501,7 @@ namespace Hidano.FacialControl.Rec.Tests.EditMode
                 _callOrder = callOrder;
             }
 
-            public int BeginInjectionCallCount { get; private set; }
+            public int TryBeginInjectionCallCount { get; private set; }
 
             public int EndInjectionCallCount { get; private set; }
 
@@ -511,11 +511,18 @@ namespace Hidano.FacialControl.Rec.Tests.EditMode
 
             public List<(string sourceId, string expressionId)> TriggerOffEvents { get; } = new List<(string sourceId, string expressionId)>();
 
-            public void BeginInjection(RecBaselineState baseline)
+            public bool CanBeginInjection(out string reason)
             {
-                BeginInjectionCallCount++;
+                reason = string.Empty;
+                return true;
+            }
+
+            public bool TryBeginInjection(RecBaselineState baseline)
+            {
+                TryBeginInjectionCallCount++;
                 Baseline = baseline;
                 _callOrder?.Add("trigger.begin");
+                return true;
             }
 
             public void InjectTriggerOn(string sourceId, string expressionId)
@@ -546,7 +553,7 @@ namespace Hidano.FacialControl.Rec.Tests.EditMode
                 _callOrder = callOrder;
             }
 
-            public int BeginInjectionCallCount { get; private set; }
+            public int TryBeginInjectionCallCount { get; private set; }
 
             public int EndInjectionCallCount { get; private set; }
 
@@ -554,11 +561,18 @@ namespace Hidano.FacialControl.Rec.Tests.EditMode
 
             public List<(string sourceId, float[] axes)> AnalogSamples { get; } = new List<(string sourceId, float[] axes)>();
 
-            public void BeginInjection(RecBaselineState baseline)
+            public bool CanBeginInjection(out string reason)
             {
-                BeginInjectionCallCount++;
+                reason = string.Empty;
+                return true;
+            }
+
+            public bool TryBeginInjection(RecBaselineState baseline)
+            {
+                TryBeginInjectionCallCount++;
                 Baseline = baseline;
                 _callOrder?.Add("analog.begin");
+                return true;
             }
 
             public void InjectAnalogSample(string sourceId, ReadOnlySpan<float> axes)
