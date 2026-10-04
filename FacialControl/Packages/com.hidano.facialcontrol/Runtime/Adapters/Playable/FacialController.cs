@@ -72,6 +72,8 @@ namespace Hidano.FacialControl.Adapters.Playable
         private IFacialInputObservationBus _inputObservationBus;
         private IInputSourceRegistry _inputSourceRegistry;
         private AnalogObservationSampler _analogObservationSampler;
+        private ValueProviderObservationSampler _valueProviderObservationSampler;
+        private bool _inputObservationHadObservers;
         private IReadOnlyList<GazeChannel> _gazeChannels = Array.Empty<GazeChannel>();
         private readonly List<string> _gazeChannelIds = new List<string>();
         private GazeSnapshot[] _gazeSnapshotBuffer = Array.Empty<GazeSnapshot>();
@@ -126,6 +128,11 @@ namespace Hidano.FacialControl.Adapters.Playable
         public IInputSourceRegistry InputSourceRegistry => _inputSourceRegistry;
 
         /// <summary>
+        /// 現在のプロファイルで解決された BlendShape の総数。未初期化時は 0。
+        /// </summary>
+        public int BlendShapeCount => _blendShapeNames?.Length ?? 0;
+
+        /// <summary>
         /// 統合キャラクター SO の参照。
         /// </summary>
         public FacialCharacterProfileSO CharacterSO
@@ -165,6 +172,21 @@ namespace Hidano.FacialControl.Adapters.Playable
         {
             if (!_isInitialized || _layerUseCase == null)
                 return;
+
+            bool hasObservers = _inputObservationBus != null && _inputObservationBus.HasObservers;
+            if (hasObservers != _inputObservationHadObservers)
+            {
+                _inputObservationHadObservers = hasObservers;
+                if (hasObservers)
+                {
+                    _valueProviderObservationSampler?.Reset();
+                    _layerUseCase.SetSourceValueObserver(_valueProviderObservationSampler);
+                }
+                else
+                {
+                    _layerUseCase.SetSourceValueObserver(null);
+                }
+            }
 
             _analogObservationSampler?.Sample();
 
@@ -331,6 +353,8 @@ namespace Hidano.FacialControl.Adapters.Playable
             _inputObservationBus = null;
             _inputSourceRegistry = null;
             _analogObservationSampler = null;
+            _valueProviderObservationSampler = null;
+            _inputObservationHadObservers = false;
             _gazeChannels = gazeChannels ?? Array.Empty<GazeChannel>();
             _gazeChannelIds.Clear();
             for (int i = 0; i < _gazeChannels.Count; i++)
@@ -888,10 +912,12 @@ namespace Hidano.FacialControl.Adapters.Playable
             if (_inputSourceRegistry == null || _inputObservationBus == null)
             {
                 _analogObservationSampler = null;
+                _valueProviderObservationSampler = null;
                 return;
             }
 
             _analogObservationSampler = new AnalogObservationSampler(_inputSourceRegistry, _inputObservationBus);
+            _valueProviderObservationSampler = new ValueProviderObservationSampler(_inputObservationBus);
 
             WireTriggerObserversForRegisteredSources();
             WireTriggerObserversForResolvedSources(additionalSources);
@@ -1449,6 +1475,8 @@ namespace Hidano.FacialControl.Adapters.Playable
 
             ClearObservedTriggerSources();
             _analogObservationSampler = null;
+            _valueProviderObservationSampler = null;
+            _inputObservationHadObservers = false;
 
             // child scope を build していた場合は最初に Dispose し、binding.Dispose を完了させる。
             // host 群の Dispose を完了させてから既存 cleanup を行う。

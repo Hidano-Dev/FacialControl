@@ -1,6 +1,7 @@
 using System;
 using System.Collections;
 using System.Collections.Generic;
+using Hidano.FacialControl.Domain.Adapters;
 using Hidano.FacialControl.Domain.Interfaces;
 using Hidano.FacialControl.Domain.Models;
 using Hidano.FacialControl.Domain.Services;
@@ -32,6 +33,7 @@ namespace Hidano.FacialControl.Application.UseCases
         private LayerInputSourceRegistry _registry;
         private LayerInputSourceWeightBuffer _weightBuffer;
         private LayerInputSourceAggregator _aggregator;
+        private ILayerSourceValueObserver _sourceValueObserver;
         private LayerExpressionSource[] _layerSources;
         private int[] _layerPriorities;
         private float[] _layerInterWeights;
@@ -438,6 +440,16 @@ namespace Hidano.FacialControl.Application.UseCases
         }
 
         /// <summary>
+        /// Sets the optional observer for values consumed by the layer aggregator.
+        /// The setting is retained when the profile rebuilds the aggregator pipeline.
+        /// </summary>
+        public void SetSourceValueObserver(ILayerSourceValueObserver observer)
+        {
+            _sourceValueObserver = observer;
+            _aggregator?.SetSourceValueObserver(observer);
+        }
+
+        /// <summary>
         /// 内部の Registry / WeightBuffer が保持する NativeArray を解放する。
         /// 呼出後に <see cref="UpdateWeights"/> / <see cref="SetProfile"/> を呼ぶと
         /// 再構築は行われず、<see cref="GetBlendedOutput"/> は直近の出力コピーを返し続ける。
@@ -534,6 +546,7 @@ namespace Hidano.FacialControl.Application.UseCases
                 _weightBuffer.SetWeight(aw.layerIdx, aw.sourceIdx, aw.weight);
             }
             _aggregator = new LayerInputSourceAggregator(_registry, _weightBuffer, bsCount);
+            _aggregator.SetSourceValueObserver(_sourceValueObserver);
         }
 
         /// <summary>
