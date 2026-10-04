@@ -42,3 +42,22 @@
   - Retry: 1 回目（上記をフィードバックとして `/kiro:spec-requirements` を merge モードで再実行）。結果: 既存 ID 維持で Req 1.1/1.2/2.1/2.3/2.4/3.1/3.4/3.7/4.1/4.5/7.1/7.6/8.8/10.3/10.4 を書き換え、Req 1.6/3.8 を追加、Boundary Context（In scope: Track binding 自動設定 / Out of scope: .fcrec 拡張 / Adjacent: Director 解決規則）を更新。TBD/要確認マーカーなし（Grep 再確認）
   - 再判定: エスカレーション項目はすべて代行判定で解消し、要件は steering（JSON ファースト / クリーンアーキテクチャ / Unity 依存を Adapters に封じ込め）と矛盾しない → 通過（ESCALATED として記録。approval-policy「実装開始の特例」により spec-run 開始前に確認 1 回が必要だが、ユーザー不在のため委任に基づき進行ログへの記録で代替する）
 - Branch/PR: n/a
+
+## Phase 3: 設計 — 2026-10-05T17:30:00+09:00
+
+- Command: `/kiro:spec-design timeline-playback-ux -y`
+- Result: design.md（約 800 行）を生成、research.md §12 に Research Log / Design Decisions D1〜D13 を追記。主要決定: Option B（責務分割）+ Option C の段階順 / sink id は名前優先・index フォールバック（D1）/ `:state` sink はレイヤー入力源へ接続せず `_layer2Provider` と REC 観測へ登録、Req 8.8 は mask 長統一で修正（D2）/ Analog は registry Replace 乗っ取り（D3）/ `ChannelSubId` は REC の source id を保持し takeover 先にする（D4）/ Bake 参照は Track 側 `IFacialTimelineBakeHolder`（D5）/ Profile ソースは `LoadProfile()` に統一（D6）/ Director 解決順と Track binding 自動設定（D7）/ 変更検知 3 経路 + 300 ms デバウンス（D8）/ Edit 合成はオフライン `LayerUseCase`（D9）/ Edit の 1 回 = 診断エポック（D10）/ Req 8.8 再現テスト（D11）/ e2e fixture と Small・Medium 配置（D12）/ Source Overrides 撤去（D13）
+- Reviewer 1 回目: `/kiro:validate-design timeline-playback-ux` — **codex**（read-only、CODEX_EXIT=0。Bash の heredoc 経路は worktree ガードで拒否されたため、同一プロンプトをファイル経由で PowerShell から codex exec に渡した）→ **NO-GO**、Critical 3 件: (1) Runtime と Edit Preview の Profile ソース一致が未保証、(2) 旧 Profile の `:state` 宣言が D2 の非接続方針を迂回、(3) 複数 Bake 競合時に「最初を採用」で非決定的
+- Gate B: 1 回目 REJECTED（差し戻し）
+  - Rationale: 3 件とも設計ドキュメントの修正で解消できる内容（approval-policy Gate B の差し戻し条件）
+  - Retry: 1 回目（merge 再実行）。(1) `TimelineProfileSource.Resolve` = `LoadProfile()` そのまま、Play は `FacialController.CurrentProfile`（既存 public）、Bake に `ProfileContentHashHex` を保存し `ProfileMismatch` 診断、(2) 旧 `:state` 宣言は非互換とし `LegacyStateDeclaration` Error + Inspector の削除ボタン、(3) Locator は全 Facial トラックの参照一致を要求し Conflict / 部分欠落 / LegacyExport は Play Failed・Edit 自動再ベイクで自己修復
+- Reviewer 2 回目: **codex**（CODEX_EXIT=0）→ **NO-GO**。前回 3 件は解消（Strengths に記載）。**新規** Critical 3 件: (1) Analog 消費契約が未完了（直接参照型消費者に届かないまま backlog）、(2) Profile ソース統一が Play 開始順序に依存（ExitingEditMode の profile.json 先行書き出しの副作用）、(3) Editor 変更監視の所有権・解除条件が未定義
+- Gate B: 2 回目 REJECTED（差し戻し、上限）
+  - Rationale: approval-policy「validate-design が 2 回連続 NO-GO」はエスカレーション条件だが、ユーザー不在のため親セッションの指示（「NO-GO は最大 2 回 merge 再実行、それでも NO-GO なら指摘を設計に反映して続行」）に従い、2 回目の差し戻しを実施
+  - Retry: 2 回目（merge 再実行）。(1) Analog は方式 (2): core の `AnalogExpressionInputSource` / `AnalogBlendShapeInputSource` に `AttachRegistry` を追加し、inputsystem の `BuildAnalogExpressionSink` 末尾 1 行で接続（weight 経路は不変）、(2) profile.json 先行書き出しを撤回し `ProfileMismatch` を Warning + 再生継続に再分類、(3) `TimelineEditorServices`（`[InitializeOnLoad]`）に購読を一元化し `beforeAssemblyReload` / `quitting` で解除、未保存 Timeline はスキップ
+- Reviewer 3 回目: **codex**（CODEX_EXIT=0）→ **NO-GO**。前回 3 件は解消。**新規** Critical 3 件: (1) Profile 同期が `playModeStateChanged` の購読順序に依存、(2) Analog の実 InputSystem 経路が e2e 検証から外れている（Fake binding のみ）、(3) 新規 Domain コードに Unity.Timeline 型を持ち込む設計が steering と衝突
+- Gate B: 3 回目 ESCALATED（代行）→ 指摘を設計に反映して続行
+  - Rationale: 差し戻し上限（2 回）に到達。codex は毎回「前回指摘は解消」としたうえで新規 3 件を挙げており、設計の骨格（Receiver ファサード / 診断モデル / e2e）は 3 回とも Strengths。残る 3 件は設計文書の具体化で対応できる内容で、要件や steering の変更を要しない。ユーザー不在のため親セッションの指示どおり「指摘を設計に反映して続行」を選択し、再レビューは行わない（レビュー結果は PR 本文で人間に提示する）
+  - Escalation: 反映内容 — (1) core `FacialCharacterProfileAutoExporter` に冪等な `ExportIfEnabled` と `Exported` イベントを追加し、DirtyWatcher の ExitingEditMode 処理が先に呼んで直列化（AutoExport 有効 SO のみ。既存 AutoExport と同じ副作用に限定）、(2) core に公開契約 `IRegistryAttachableAnalogConsumer` を定義し、inputsystem パッケージ側テストで実 `InputSystemAdapterBinding` + registry Replace の追従・復元を固定、timeline e2e は core の実消費者を使う Fake binding で固定（パッケージ依存を増やさない）、(3) 新規 Domain コードは Unity.Timeline 型を持たず、`TimelineAssetScanner`（Adapters）が DTO を返す。既存 Domain の Unity.Timeline 参照（HashCalculator / StateEventCollector / Reconstructor）は既存例外として明記し移動しない
+  - Retry: 3 回目（反映のみ、再レビューなし）
+- Branch/PR: n/a

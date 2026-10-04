@@ -2,7 +2,7 @@
 
 - 対象 Unity プロジェクト: `FacialControl/`（Unity 6000.3.19f1）
 - 主変更パッケージ: `FacialControl/Packages/com.hidano.facialcontrol.timeline`（Runtime / Editor / Tests）
-- 限定変更パッケージ: `FacialControl/Packages/com.hidano.facialcontrol`（core。FacialController のレイヤー接続 API、LayerUseCase の接続済み判定、Layer2ActiveExpressionProvider の増減 API、InvalidIdValidator の動的 id 許容、Domain マーカー interface 1 つ、`AnalogExpressionInputSource` / `AnalogBlendShapeInputSource` の registry 再解決 API）
+- 限定変更パッケージ: `FacialControl/Packages/com.hidano.facialcontrol`（core。FacialController のレイヤー接続 API、LayerUseCase の接続済み判定、Layer2ActiveExpressionProvider の増減 API、InvalidIdValidator の動的 id 許容、Domain マーカー interface 1 つ、Domain 公開契約 `IRegistryAttachableAnalogConsumer` と `AnalogExpressionInputSource` / `AnalogBlendShapeInputSource` によるその実装（registry 再解決。D3 改訂 3）、Editor `FacialCharacterProfileAutoExporter` の冪等入口 `ExportIfEnabled(so)` と完了イベント `Exported`（D6 改訂 3））
 - 最小変更パッケージ: `FacialControl/Packages/com.hidano.facialcontrol.inputsystem`（`InputSystemAdapterBinding.BuildAnalogExpressionSink` の末尾に registry 再解決の接続呼び出し 1 行のみ。weight 経路 / Overlay 経路には触れない。D3 改訂）
 - 入力: `requirements.md`（承認扱い）、`research.md` §2〜§11（Gap 分析と Gate A 判定）
 - パス表記: 本文のファイルパスは Unity プロジェクト `FacialControl/` からの相対
@@ -21,8 +21,9 @@
 - Clip を動かした直後に Edit プレビューと次の Play 再生が新しいタイミングになる（受け入れ条件 2）
 - 手順欠落時に Console または Receiver Inspector に欠落項目と直し方が出る。診断は Runtime 側の状態値として保持し、テストはログ文言ではなく状態値で検証する（受け入れ条件 3、Req 11.4）
 - REC Export の出力をそのまま使う PlayMode end-to-end テストで上記を固定する（受け入れ条件 4）
-- Edit プレビューと Play 再生が同一の Profile スナップショットと同一の Bake を読んでいることをハッシュと参照整合で検証し、食い違いは無言で続けない。Bake 参照の不整合は Edit は自動再ベイク、Play は停止 + 直し方の明示。Profile スナップショットの不一致（`ProfileMismatch`）は Edit は stale 表示 + 自動再ベイク、Play は Warning + 再生継続（Bake の値をそのまま使い、Edit 復帰時の無言再ベイクで解消）に落とす。ユーザーの Profile ファイル（profile.json）を Timeline 側が書き換えることはしない（Req 1.5 / 4.1 / 4.6 / 7.5）
-- Analog チャネルは Play で実際の BlendShape まで届く。core の Analog 消費者（`AnalogExpressionInputSource` / `AnalogBlendShapeInputSource`）が registry の Replace を追従するよう再解決を追加し、InputSystem 経由で構成した analog expression にも Timeline の値が反映される（Req 3.4 / 3.5 / 11.1）
+- Edit プレビューと Play 再生が同一の Profile スナップショットと同一の Bake を読んでいることをハッシュと参照整合で検証し、食い違いは無言で続けない。Bake 参照の不整合は Edit は自動再ベイク、Play は停止 + 直し方の明示。Profile スナップショットの不一致（`ProfileMismatch`）は Edit は stale 表示 + 自動再ベイク、Play は Warning + 再生継続（Bake の値をそのまま使い、Edit 復帰時の無言再ベイクで解消）に落とす。Play 移行前の Profile 同期は、Timeline 側が core AutoExporter の冪等入口 `FacialCharacterProfileAutoExporter.ExportIfEnabled(so)` を **Bake 照合の直前に直列に呼ぶ**ことで `playModeStateChanged` の購読順序に依存させない（D6 改訂 3）。Timeline 側が独自に profile.json を書くことはなく、書き込みが起きるのは AutoExport が有効（`CharacterAssetName` 非空）で内容が変わった場合のみ = 既存 AutoExport と同じ副作用に限定する（Req 1.5 / 4.1 / 4.6 / 7.1 / 7.5 / 11.5）
+- Analog チャネルは Play で実際の BlendShape まで届く。core に公開契約 `IRegistryAttachableAnalogConsumer`（`AttachRegistry` / `DetachRegistry`）を定義し、core の Analog 消費者（`AnalogExpressionInputSource` / `AnalogBlendShapeInputSource`）がこれを実装して registry の Replace を追従する。InputSystem 経由で構成した analog expression にも Timeline の値が反映されることを、(a) core 契約の Small テスト + (b) inputsystem パッケージ内の実 `InputSystemAdapterBinding` を通す Replace 追従テスト + (c) timeline の e2e（同形の Fake binding）の 3 段で証明する（Req 3.4 / 3.5 / 11.1 / 11.2。D3 改訂 3）
+- 新規コードは timeline Domain に `Unity.Timeline` 型を持ち込まない。TimelineAsset の走査は Adapters の `TimelineAssetScanner` が Unity 非依存の DTO（`TimelineTrackDescriptor`）に写し、Domain の導出 / id 規約 / 診断は DTO と文字列だけを受ける（steering「Domain は Unity 型を使わない」との整合。既存の Domain → `Unity.Timeline` 参照 2 ファイルは既存例外として明記し本仕様では移動しない。Req 1.6 / 2.3 / 7.6。D14）
 - 毎フレーム処理のヒープ確保ゼロを維持する（セッション開始時の確保は許容）
 
 ### Non-Goals
@@ -30,8 +31,9 @@
 - レイヤー weight / 入力源 weight のランタイム変更の REC 対応（並走 spec `rec-weight-coverage`。core の `LayerUseCase` weight API、`FacialController.SetLayerWeight` / `SetInputSourceWeight`、rec パッケージ、`InputSystemAdapterBinding` の `ApplyOverlayLayerWeights` / `BuildOverlaySources` / `OverlayBindingRuntime` には触れない）
 - `.fcrec` フォーマットの拡張（gaze 広告情報の追加等）
 - 系1 / 系2 の active 取得統合そのもの（backlog M-25）。本仕様は後付け系2 を `_layer2Provider` へ反映する最小限の API 追加に留める
-- core 外の第三者が実装した Analog 消費者（`IAnalogInputSource` を構築時参照で保持する独自クラス）への到達。本仕様で再解決対応するのは core の 2 消費者（`AnalogExpressionInputSource` / `AnalogBlendShapeInputSource`）と、それを構築する `InputSystemAdapterBinding` の analog expression 経路のみ（D3 改訂）
-- `FacialCharacterProfileAutoExporter` / `FacialCharacterProfileExporter`（profile.json の書き出し契機）の変更。Timeline 側は profile.json を読むだけで書かない（D6 改訂 2）
+- core 外の第三者が実装した Analog 消費者（`IAnalogInputSource` を構築時参照で保持する独自クラス）への到達。本仕様で再解決対応するのは core の 2 消費者（`AnalogExpressionInputSource` / `AnalogBlendShapeInputSource`）と、それを構築する `InputSystemAdapterBinding` の analog expression 経路のみ。第三者は `IRegistryAttachableAnalogConsumer` を実装すれば同じ契約に乗れる（D3 改訂 3）
+- `FacialCharacterProfileExporter`（profile.json の内容・パス規約・サンプリング）の変更。`FacialCharacterProfileAutoExporter` には冪等入口 `ExportIfEnabled(so)` と `Exported` イベントを **追加するだけ** で、既存の書き出し契機（`ExitingEditMode` の `ExportAll` / ビルド前）と書き出し内容は変えない。Timeline 側が独自に profile.json を生成・書き込みすることはしない（D6 改訂 3）
+- 既存 Domain 配下で `Unity.Timeline` 型を参照している `FacialTimelineHashCalculator` / `TimelineStateEventCollector` を Adapters へ移動すること（既存例外。backlog 候補として記録。本仕様では既存ファイルの変更のみ行う。D14）
 - 新しいトラック / Clip 種別、ランタイム UI
 
 ## Boundary Commitments
@@ -43,14 +45,16 @@
 - Timeline 側の id 規約: sink id（`TimelineSinkIdConvention`）、`ChannelSubId` の形式（REC の source id `slug:sub` をそのまま保持）、Bake 参照の置き場（Track 側 `IFacialTimelineBakeHolder`）
 - Timeline Editor: Receiver Inspector（UI Toolkit）、Clip 編集の変更検知と自動再ベイク、Edit プレビューの合成（`TimelinePreviewCompositor`）、REC Export ウィンドウと Exporter の出力契約（TimelineAsset 1 つで完結）
 - Timeline Editor の Unity イベント購読の所有権: `TimelineEditorServices`（`[InitializeOnLoad]`）が `ObjectChangeEvents.changesPublished` / `Undo.undoRedoPerformed` / `EditorApplication.update`（dirty 待機中のみ）/ `EditorApplication.playModeStateChanged` / `AssemblyReloadEvents.beforeAssemblyReload` / `EditorApplication.quitting` の購読を一元管理し、`TimelineEditChangeWatcher` と `TimelineBakeDirtyWatcher` へ配送する。Receiver Inspector の購読は Inspector インスタンスが所有する（D7 / D8 改訂）
-- core に追加する public 契約の定義と安定化: `FacialController.TryBindLayerInputSource` 系 5 メソッド、`LayerUseCase.IsLateInputSourceBound`、`Layer2ActiveExpressionProvider.AddSource / RemoveSource`、`IAdapterBindingDynamicInputs`、`InvalidIdValidator` の動的 prefix 許容、`FacialController.CollectBlendShapeNames` の public static 化、`AnalogExpressionInputSource.AttachRegistry` / `AnalogBlendShapeInputSource.AttachRegistry`（registry 購読による analog source の再解決。REC の `RecAnalogInjector` も同じ Replace 経路なので追加作業なしで同じ到達範囲になる）
+- core に追加する public 契約の定義と安定化: `FacialController.TryBindLayerInputSource` 系 5 メソッド、`LayerUseCase.IsLateInputSourceBound`、`Layer2ActiveExpressionProvider.AddSource / RemoveSource`、`IAdapterBindingDynamicInputs`、`InvalidIdValidator` の動的 prefix 許容、`FacialController.CollectBlendShapeNames` の public static 化、Domain 公開契約 `IRegistryAttachableAnalogConsumer`（`AttachRegistry(IInputSourceRegistry, AdapterSlug)` / `DetachRegistry()`）とその core 実装 `AnalogExpressionInputSource` / `AnalogBlendShapeInputSource`（registry 購読による analog source の再解決。REC の `RecAnalogInjector` も同じ Replace 経路なので追加作業なしで同じ到達範囲になる）、core Editor `FacialCharacterProfileAutoExporter.ExportIfEnabled(FacialCharacterProfileSO)` / `static event Action<FacialCharacterProfileSO> Exported`（Play 移行前の Profile 同期を購読順序に依存せず直列化する冪等入口。既存の `ExitingEditMode` 購読は内部でこの入口を呼ぶ形に整理し挙動不変。D6 改訂 3）
+- Timeline 側の Unity.Timeline 走査境界: `TimelineAssetScanner`（Adapters）が TimelineAsset を Unity 非依存 DTO `TimelineTrackDescriptor` に写し、Domain の `TimelineChannelDeriver` / `TimelineSinkIdConvention` / `FacialTimelineDiagnostics` / `TimelineOnceWarningGate` は DTO と文字列だけを受ける純粋関数として Small テスト可能に保つ（D14）
 
 ### Out of Boundary
 
 - 既存 binding（OSC / InputSystem / LipSync / iFacialMocap）の接続挙動。`ResolveLayerInputSourcesFromRegistry` / `SubscribeDeclaredLayerInputSources` / `HandleLayerInputSourceRebound` は変更しない
 - `InputSystemAdapterBinding` のうち `BuildAnalogExpressionSink` の末尾（構築済み `_analogExpressionSink` に `AttachRegistry(ctx.InputSourceRegistry, slug)` を 1 回呼ぶ）以外: `BuildAnalogSources` / `TryRegisterAnalogSource`（登録 id と `AnalogInputSourceWrapper` の構造）/ `BuildOverlaySources` / `ApplyOverlayLayerWeights` / `OnLateTick` の weight 経路は並走 spec `rec-weight-coverage` の領域であり変更しない
 - REC 記録・再生（rec パッケージ）の挙動。Timeline の sink が registry へ Replace されると REC の `AnalogObservationSampler` がそれを観測するが、これは既存契約の結果であり本仕様で変更しない。`RecAnalogInjector` の Replace が core 消費者へ届くようになるのは core 側再解決の副次効果で、rec のコードは触らない
-- profile.json の書き出し（`FacialCharacterProfileAutoExporter` / `FacialCharacterProfileExporter`）の契機と内容。Timeline 側は `FacialCharacterProfileSO.LoadProfile()` の戻り値を読むだけで、Play 突入時にも JSON を書かない
+- profile.json の内容・パス規約（`FacialCharacterProfileExporter`）と AutoExporter の既存契機（`ExitingEditMode` の `ExportAll` / ビルド前 `IPreprocessBuildWithReport`）。Timeline 側は `ExportIfEnabled(so)` を呼ぶだけで、JSON の生成・既存ファイルとの比較・書き込み・`Exported` の発火は AutoExporter が行う。Timeline が独自に JSON を書く経路は持たない
+- 既存 Domain の `Unity.Timeline` 参照（`FacialTimelineHashCalculator` / `TimelineStateEventCollector`）の Adapters への移動。既存例外として明記し、backlog 候補とする（`TimelineEventStateReconstructor` は Unity 非依存であることを確認済み）
 - `LayerInputSourceAggregator` の長さ不一致防御（Req 8.8 は timeline 側の mask 長統一で満たす。core 側防御は backlog 候補として記録）
 - Profile SO Inspector の一般的な binding 一覧 UI（`AdapterBindingsListView`）。Timeline binding 用 PropertyDrawer は timeline Editor 側に置き、core 側は既存の Drawer 検出機構をそのまま使う
 - Timeline ウィンドウの描画・検証表示（`FacialTimelineValidator` / TrackEditor の errorText）は Profile ソース統一（Req 4.5）以外は変更しない
@@ -58,19 +62,21 @@
 ### Allowed Dependencies
 
 - timeline Runtime asmdef → core `Hidano.FacialControl.Domain` / `Application` / `Adapters`、`Unity.Timeline`（既存）
-- timeline Editor asmdef → 上記 + `Hidano.FacialControl.Editor`（新規参照。PropertyDrawer の `IAdapterBindingHeaderSummaryProvider` と Routing ロジック型のため）+ `Hidano.FacialControl.Rec.*`（既存）+ `Unity.Timeline.Editor`（既存）
+- timeline Editor asmdef → 上記 + `Hidano.FacialControl.Editor`（新規参照。PropertyDrawer の `IAdapterBindingHeaderSummaryProvider`、Routing ロジック型、`FacialCharacterProfileAutoExporter.ExportIfEnabled` / `Exported` のため）+ `Hidano.FacialControl.Rec.*`（既存）+ `Unity.Timeline.Editor`（既存）
 - timeline Tests.Shared asmdef → timeline Runtime + `Hidano.FacialControl.Domain` / `Application` / `Adapters`（新規参照。Fake binding と Fake analog source のため）+ `Hidano.FacialControl.Rec.Domain` / `Rec.Adapters`（新規参照。`.fcrec` fixture 生成ヘルパー共有のため）
-- timeline Tests.PlayMode asmdef → 上記 + `Hidano.FacialControl.Application` + `Hidano.FacialControl.Rec.*`（新規参照）。`Hidano.FacialControl.InputSystem` は参照しない（timeline の `package.json` が inputsystem に依存していないため、テスト asmdef から参照すると inputsystem 未導入環境でコンパイルが壊れる。Analog の消費確認は core の `AnalogExpressionInputSource` を Tests/Shared の Fake binding で構成して行う）
-- 依存方向の禁止事項: core → timeline を参照しない。timeline Runtime → timeline Editor を参照しない（既存 `FacialTimelineEditorPreviewBridge` の delegate 橋渡しを維持）。Domain 配下は UnityEngine 型を増やさない（本パッケージ Domain は既に `Unity.Timeline` 型を扱うため、TimelineAsset を受ける純粋関数は Domain/Services に置く）。timeline → inputsystem を参照しない
+- timeline Tests.PlayMode asmdef → 上記 + `Hidano.FacialControl.Application` + `Hidano.FacialControl.Rec.*`（新規参照）。`Hidano.FacialControl.InputSystem` は参照しない（timeline の `package.json` が inputsystem に依存していないため、テスト asmdef から参照すると inputsystem 未導入環境でコンパイルが壊れる。Analog の消費確認は core の `AnalogExpressionInputSource` を Tests/Shared の Fake binding で構成して行い、実 `InputSystemAdapterBinding` 経路は inputsystem パッケージ自身の PlayMode テストで固定する。D3 改訂 3）
+- 依存方向の禁止事項: core → timeline を参照しない。timeline Runtime → timeline Editor を参照しない（既存 `FacialTimelineEditorPreviewBridge` の delegate 橋渡しを維持）。timeline → inputsystem を参照しない
+- **timeline Runtime Domain → `Unity.Timeline` / `UnityEngine` 型の参照は既存例外のみ、新規追加禁止**（D14）。timeline Runtime は単一 asmdef（`Hidano.FacialControl.Timeline`）で Domain / Adapters はフォルダ分けのためコンパイラは強制しない。本仕様では (1) 既存例外 = `Runtime/Domain/Services/FacialTimelineHashCalculator.cs`（`TimelineAsset` / `TrackAsset` を走査）と `Runtime/Domain/Services/TimelineStateEventCollector.cs`（`TrackAsset` を走査）の 2 ファイルに限定し、変更は既存ファイル内（ハッシュ対象の拡張）に留める。(2) 新規 Domain ファイル（`TimelineTrackDescriptor` / `TimelineLayerDescriptor` / `TimelineChannelDescriptor` / `TimelineDerivation` / `TimelineChannelDeriver` / `TimelineSinkIdConvention` / 診断モデル / `TimelineOnceWarningGate`）は `using UnityEngine.*` を持たない。(3) `TimelineAsset` / `TrackAsset` / `FacialExpressionTrack` / `FacialValueTrack` / `FacialTimelineBakeAsset` / `PlayableDirector` を受ける処理は `Runtime/Adapters/`（`TimelineAssetScanner` / `FacialTimelineBakeLocator` / `TimelineTrackBindingResolver` / `TimelineDiagnosticsEvaluator` / Connector / Takeover / Receiver）に置く。コードレビューの確認項目にし、`TimelineChannelDeriverTests` 等の Small テストが TimelineAsset を生成せず DTO だけで書けることを担保の証拠とする
 
 ### Revalidation Triggers
 
 - `FacialController` の新 API 署名や前提条件（`IsInitialized` 必須、レイヤー名解決規則）が変わったとき → `TimelineLayerConnector` と e2e テストを再検証
 - `TimelineSinkIdConvention` の規則変更（名前優先 / index フォールバック）→ 旧 Profile の値 sink 宣言との重複判定（Req 3.3）、旧 `:state` 宣言の検出規則、Routing エディタの許容規則（Req 2.5）を再検証
 - `IFacialTimelineBakeHolder` の置き場（Track 側）を変えるとき → Exporter / DirtyWatcher / Locator の一致要求 / 旧形式判定（Req 10.7）を同時に更新
-- `FacialCharacterProfileSO.LoadProfile()` の優先順位（JSON 優先）が変わるとき → `TimelineProfileSource` は `LoadProfile()` を呼ぶだけなので追従するが、`ProfileContentHash` の照合テストと「AutoExport との順序に依存しない」DirtyWatcher テストを再検証
-- `FacialCharacterProfileAutoExporter` が完了通知イベントを持つようになったとき → `TimelineEditorServices` の `ExitingEditMode` 処理をそのイベント購読に切り替えられる（現状は無いため `LoadProfile()` 現在値でのハッシュ照合のみ。D6 改訂 2）
-- `IInputSourceRegistry.Subscribe` の通知契約（Register / Replace で新 source、Unregister で null、通知中の変更は拒否）が変わるとき → `AnalogExpressionInputSource.AttachRegistry` の再解決と `TimelineChannelTakeover` の復元を再検証
+- `FacialCharacterProfileSO.LoadProfile()` の優先順位（JSON 優先）が変わるとき → `TimelineProfileSource` は `LoadProfile()` を呼ぶだけなので追従するが、`ProfileContentHash` の照合テストと「購読順を入れ替えても結果が同じ」DirtyWatcher テストを再検証
+- `FacialCharacterProfileAutoExporter.ExportIfEnabled` の冪等契約（有効判定 = `CharacterAssetName` 非空 / 内容が同一なら書かない / 書いたときだけ true と `Exported`）や `ExportProfileJson` の有効判定が変わるとき → `TimelineBakeDirtyWatcher.ProcessOpenSceneTimelinesNow` の直列化（`ExportIfEnabled` → `InvalidateCache` → `Resolve` → 照合）と `TimelineEditorServices` の `Exported` 購読（`MarkDirty(ProfileChanged)`）を再検証（D6 改訂 3）
+- `IInputSourceRegistry.Subscribe` の通知契約（Register / Replace で新 source、Unregister で null、通知中の変更は拒否、Unsubscribe 無し）が変わるとき → `IRegistryAttachableAnalogConsumer` の実装（`AttachRegistry` の再解決、`DetachRegistry` の世代ガード）と `TimelineChannelTakeover` の復元を再検証
+- timeline Runtime Domain に `Unity.Timeline` / `UnityEngine` 型を参照する新規ファイルを追加しようとするとき → D14 違反。`TimelineAssetScanner` の DTO に項目を足して Adapters 側で吸収する。既存例外 2 ファイル以外への追加は禁止（Allowed Dependencies 参照）
 - `rec-weight-coverage` が `InputSystemAdapterBinding.OnStart` の構築順や `BuildAnalogExpressionSink` を触るとき → `AttachRegistry` の呼び出し位置（`_analogExpressionSink` 構築直後）と inputsystem PlayMode の再解決テストを再検証
 - `FacialProfile` / `FacialCharacterProfileSO.GazeChannels` にフィールドが増えるとき → `ComputeProfileContentHashHex` の対象に含めるかを判定し、含めるなら既存 Bake が一度 `ProfileMismatch` になる（Edit の自動再ベイクで解消）ことを CHANGELOG に記載
 - `rec-weight-coverage` が `LayerUseCase.BindLateInputSource` の weight 列の扱いを変えるとき → `UnbindLayerInputSource` の復元順序を再検証
@@ -91,7 +97,8 @@ research.md §2 に棚卸し済み。設計に直接影響する事実のみ再�
 - `IAdapterBindingDefaultLayerInputs` は `AdapterBindingsListView`（binding 追加時の inputSources 自動追加）と `AutoWireService` が参照しており、Timeline binding が実装すると副作用が出る
 - `scripts/check-test-sizes.ps1` は Small で `AddComponent<FacialTimelineReceiver>` / `AssetDatabase` / `EditorApplication` / `[UnityTest]` を禁止している
 - Analog 消費経路（実コード確認済み）: `InputSystemAdapterBinding.BuildAnalogExpressionSink` は `_analogSources`（生の `InputActionAnalogSource`）を `sourceId → IAnalogInputSource` 辞書にして `AnalogExpressionInputSource` に渡す。registry には `AnalogInputSourceWrapper`（inputsystem の private nested 型）を `{slug}:{actionName}` で別途 Register している。したがって消費者は wrapper も registry も知らず、registry の Replace は消費者に届かない。`AnalogBlendShapeInputSource` を構築する production コードは存在しない（core のテストのみ）。`InputSourceRegistry.Subscribe(id, handler)` は Register / Replace で新 source、Unregister で null を通知し、Unsubscribe API は無い（購読は registry と同寿命）
-- Profile JSON の書き出し: `FacialCharacterProfileAutoExporter` は `[InitializeOnLoad]` 静的コンストラクタで `playModeStateChanged` を購読し `ExitingEditMode` に `ExportAll` を呼ぶ。完了通知イベントは無い。`TimelineBakeDirtyWatcher` も自身の静的コンストラクタで同イベントを購読しており、両者の呼び出し順は未定義
+- Profile JSON の書き出し（実コード確認済み）: `FacialCharacterProfileAutoExporter`（`Editor/AutoExport/`）は `[InitializeOnLoad]` 静的コンストラクタで `playModeStateChanged` を購読し `ExitingEditMode` に `ExportAll("playmode")` を呼ぶ。`ExportAll` は `AssetDatabase.FindAssets("t:FacialCharacterProfileSO")` の全 SO について `AssetDatabase.SaveAssetIfDirty(so)` → `FacialCharacterProfileExporter.SampleAnimationClipsIntoCachedSnapshots(so, sampler)` → `ExportProfileJson(so)` を順に呼ぶ。`ExportProfileJson` は `so.CharacterAssetName` が空白なら Warning + false（= AutoExport が「無効」な SO はこれだけ）、それ以外は JSON を `File.WriteAllText` で **常に** 書く（既存ファイルとの比較は無い）。完了通知イベントは無い。`TimelineBakeDirtyWatcher` も自身の静的コンストラクタで同イベントを購読しており、両者の呼び出し順は未定義 → 本仕様で AutoExporter に冪等入口 `ExportIfEnabled(so)` と `Exported` イベントを追加し、Timeline 側が直列に呼ぶ（D6 改訂 3）
+- timeline Runtime の層構成（実コード確認済み）: 単一 asmdef `Hidano.FacialControl.Timeline`（参照: core Domain / Application / Adapters、`Unity.Timeline`）で Domain / Adapters はフォルダ分け。`Runtime/Domain/Services/` の `FacialTimelineHashCalculator`（`using UnityEngine; using UnityEngine.Timeline;`、`TimelineAsset` を走査）と `TimelineStateEventCollector`（`using UnityEngine.Timeline;`、`TrackAsset` を走査）が Unity 型を参照している。`TimelineEventStateReconstructor` は Unity 非依存。steering（tech.md / structure.md）は「Domain は Unity 型を使わない契約」としており、この 2 ファイルは既存例外として扱う（D14）
 - Editor 購読の所有: `TimelineBakeDirtyWatcher`（`playModeStateChanged` / `FacialTimelineReceiver.BakeIssueDetected`）と `FacialTimelineEditorPreview`（bridge delegate）がそれぞれ `[InitializeOnLoad]` で自己登録しており、解除は行っていない
 
 ### Architecture Pattern & Boundary Map
@@ -105,18 +112,24 @@ graph TB
         LUC[LayerUseCase]
         L2P[Layer2ActiveExpressionProvider]
         REG[InputSourceRegistry child scope]
-        AEX[AnalogExpressionInputSource registry rebind]
+        AEX[AnalogExpressionInputSource implements IRegistryAttachableAnalogConsumer]
     end
 
-    subgraph TimelineRuntimeDomain[timeline Runtime Domain]
+    subgraph CoreEditor[core Editor]
+        AEXP[FacialCharacterProfileAutoExporter ExportIfEnabled and Exported]
+    end
+
+    subgraph TimelineRuntimeDomain[timeline Runtime Domain no Unity types in new files]
         SID[TimelineSinkIdConvention]
+        DTO[TimelineTrackDescriptor DTO]
         DER[TimelineChannelDeriver]
         DIAG[FacialTimelineDiagnostics]
         GATE[TimelineOnceWarningGate]
-        PHASH[FacialTimelineHashCalculator ProfileContentHash]
+        PHASH[FacialTimelineHashCalculator ProfileContentHash existing exception]
     end
 
     subgraph TimelineRuntimeAdapters[timeline Runtime Adapters]
+        SCAN[TimelineAssetScanner]
         RCV[FacialTimelineReceiver facade]
         BIND[TimelineAdapterBinding flag only]
         CON[TimelineLayerConnector]
@@ -142,8 +155,14 @@ graph TB
 
     BIND --> RCV
     MIX --> RCV
+    RCV --> SCAN
+    SCAN --> TRK
+    SCAN --> DTO
+    DTO --> DER
     RCV --> DER
     RCV --> LOC
+    DIRTY --> AEXP
+    AEXP --> SVC
     RCV --> PHASH
     COMP --> PHASH
     DIRTY --> PHASH
@@ -180,18 +199,19 @@ graph TB
 
 **Architecture Integration**
 
-- Selected pattern: 既存の Receiver を「ファサード」に留め、導出 / 解決 / 接続 / 乗っ取り / 診断を Unity 非依存寄りの小さなサービスへ分割する。導出・id 規約・診断モデルは Domain に置き EditMode（Small 可能なものは Small）で単体テストする
+- Selected pattern: 既存の Receiver を「ファサード」に留め、導出 / 解決 / 接続 / 乗っ取り / 診断を Unity 非依存寄りの小さなサービスへ分割する。`Unity.Timeline` の走査は Adapters の `TimelineAssetScanner` が 1 箇所で行い Unity 非依存 DTO（`TimelineTrackDescriptor`）に写す。導出・id 規約・診断モデルは DTO と文字列だけを受ける Domain の純粋関数として置き、EditMode Small で TimelineAsset を生成せずに単体テストする（D14）
+- Profile 同期の直列化: Play 移行前は Timeline 側（`TimelineBakeDirtyWatcher.ProcessOpenSceneTimelinesNow`）が core AutoExporter の冪等入口 `ExportIfEnabled(so)` を先に呼んでから Bake を照合する。`playModeStateChanged` の購読順序に依存せず、JSON の生成・書き込みの所有者は AutoExporter のまま（D6 改訂 3）
 - Domain / feature boundaries: core は「接続 / 解放 / 判定」の口だけを提供し、何を接続するかは timeline が決める。timeline Editor は Runtime の診断状態を読むだけで、判定ロジックを持たない
 - Existing patterns preserved: Gaze 乗っ取り（`registry.Replace` + `IInjectedInputSource` 占有規則 + 参照同一性で復元）、`_legacyGazeConfigs` 方式の legacy フィールド、`MissingBakeWarnings` 方式の 1 回警告、`AdapterBindingsListView` の Drawer 検出、UI Toolkit Editor
 - New components rationale: 下表「確定した設計判断」参照
-- Steering compliance: クリーンアーキテクチャ（Unity 依存は Adapters / Editor）、asmdef 依存方向、Unity 標準ログのみ、UI Toolkit、毎フレーム GC ゼロ、`{Target}Tests.cs` への追記
+- Steering compliance: クリーンアーキテクチャ（Unity 依存は Adapters / Editor。timeline Domain の新規ファイルに Unity 型を持ち込まない。既存例外 2 ファイルは明記して据え置き）、asmdef 依存方向、Unity 標準ログのみ、UI Toolkit、毎フレーム GC ゼロ、`{Target}Tests.cs` への追記
 
 ### 段階順（tasks の依存指針。research.md §6 Option C）
 
 | 段 | 含めるもの | 完了基準 |
 |---|---|---|
-| 第 1 段 | core API（D2）/ core Analog 消費者の registry 再解決（`AttachRegistry`、D3 改訂）と `InputSystemAdapterBinding.BuildAnalogExpressionSink` の接続 1 行 / Req 8.8 修正と再現テスト / `TimelineSinkIdConvention`（旧 `:state` 宣言の判定を含む）/ `TimelineChannelDeriver` / `FacialTimelineHashCalculator` の `ProfileContentHash` 分離と Bake の `ProfileContentHashHex`（D6）/ `FacialTimelineBakeLocator`（全トラック一致要求）+ Track 側 bake holder / `TimelineTrackBindingResolver` / `TimelineLayerConnector`（`LegacyStateDeclaration` 検出）/ `TimelineChannelTakeover`（Analog + Gaze）/ 診断モデルと `TimelineDiagnosticsEvaluator` / Receiver ファサード化（Bake 参照検証で Failed、`ProfileMismatch` は Warning 継続）と Mixer の isPlaying 分岐 / binding 格下げ（legacy フィールド）/ `TimelineProfileSource` / Exporter の bake 参照書き込み / Tests/Shared の Fake analog binding / e2e PlayMode テスト（Analog → `AnalogExpressionInputSource` → BlendShape を含む） | 受け入れ条件 (1)(3)(4) が e2e と診断テストで緑 |
-| 第 2 段 | `TimelineEditorServices`（Editor 購読の一元管理、D8 改訂）/ `FacialTimelineReceiverInspector`（旧 `:state` 宣言の削除ボタンを含む）/ `LegacyTimelineDeclarationCleaner` / `TimelineAdapterBindingDrawer` / `TimelineEditChangeWatcher`（Profile 変更・参照不整合・Profile 不一致を dirty 契機に含む。未保存 Timeline はスキップ）/ `TimelineBakeDirtyWatcher` のダイアログ撤去と `RebakeNow` / `BakeUpdated` / Undo・SetDirty / `ExitingEditMode` の `LoadProfile()` 現在値による鮮度照合（JSON は書かない） | 受け入れ条件 (2) のうち「次の Play 再生」と Inspector 表示 |
+| 第 1 段 | core API（D2）/ core 公開契約 `IRegistryAttachableAnalogConsumer` と Analog 消費者の registry 再解決（`AttachRegistry` / `DetachRegistry`、D3 改訂 3）と `InputSystemAdapterBinding.BuildAnalogExpressionSink` の接続 1 行 + inputsystem PlayMode の Replace 追従テスト / Req 8.8 修正と再現テスト / `TimelineAssetScanner` と DTO `TimelineTrackDescriptor`（D14）/ `TimelineSinkIdConvention`（旧 `:state` 宣言の判定を含む）/ `TimelineChannelDeriver`（DTO 入力）/ `FacialTimelineHashCalculator` の `ProfileContentHash` 分離と Bake の `ProfileContentHashHex`（D6）/ `FacialTimelineBakeLocator`（全トラック一致要求）+ Track 側 bake holder / `TimelineTrackBindingResolver` / `TimelineLayerConnector`（`LegacyStateDeclaration` 検出）/ `TimelineChannelTakeover`（Analog + Gaze）/ 診断モデルと `TimelineDiagnosticsEvaluator` / Receiver ファサード化（Bake 参照検証で Failed、`ProfileMismatch` は Warning 継続）と Mixer の isPlaying 分岐 / binding 格下げ（legacy フィールド）/ `TimelineProfileSource` / Exporter の bake 参照書き込み / Tests/Shared の Fake analog binding / e2e PlayMode テスト（Analog → `AnalogExpressionInputSource` → BlendShape を含む） | 受け入れ条件 (1)(3)(4) が e2e と診断テストで緑 |
+| 第 2 段 | `TimelineEditorServices`（Editor 購読の一元管理、D8 改訂）/ `FacialTimelineReceiverInspector`（旧 `:state` 宣言の削除ボタンを含む）/ `LegacyTimelineDeclarationCleaner` / `TimelineAdapterBindingDrawer` / `TimelineEditChangeWatcher`（Profile 変更・参照不整合・Profile 不一致を dirty 契機に含む。未保存 Timeline はスキップ）/ `TimelineBakeDirtyWatcher` のダイアログ撤去と `RebakeNow` / `BakeUpdated` / Undo・SetDirty / core `FacialCharacterProfileAutoExporter.ExportIfEnabled` + `Exported` の追加と `ExitingEditMode` の直列化（`ExportIfEnabled(so)` → `InvalidateCache` → `Resolve` → 鮮度照合 → 再ベイク。D6 改訂 3）/ `TimelineEditorServices` の `Exported` 購読 | 受け入れ条件 (2) のうち「次の Play 再生」と Inspector 表示、Req 1.5 / 4.5 / 11.5 の「購読順非依存」テスト |
 | 第 3 段 | `TimelinePreviewCompositor`（Edit/Play 一致。`ProfileMismatch` は描画を続けつつ stale を報告し自動再ベイク）/ Gaze プレビューの id 解決 / REC Export ウィンドウ整理と Exporter 署名変更 / README・Documentation~ 更新（`:state` 宣言の削除必須を明記） | 受け入れ条件 (2) の「Edit プレビュー」と Req 7 / 10 の全テスト緑 |
 
 ### 確定した設計判断（requirements.md が「設計が判定し根拠を文書化する」とした項目）
@@ -202,16 +222,17 @@ graph TB
 |---|---|---|---|
 | D1 | 2.3 | レイヤー導出は `timeline.GetOutputTracks()` の root `FacialExpressionTrack` のみ。子トラック（`{layer} Lane n`）は `TimelineStateEventCollector` が既に親レイヤー名へ畳むため導出対象外。チャネル導出は root `FacialValueTrack` の `ChannelSubId` / `ChannelKind` / クリップ `Axes.Length` の最大値。sink id は **名前優先・index フォールバック**: レイヤー名が `[a-zA-Z0-9_.-]` のみで `:` を含まず `timeline:{name}:state` が 64 文字以内なら `timeline:{name}`、それ以外は `timeline:layer{index}`（index は Profile のレイヤー index）。フォールバック時は診断 `LayerSinkIdFallback`（Info）に表示 | ASCII 名では既存 README / 旧 Profile 宣言 / 既存テストの id と互換を保ち（Req 3.3 の重複判定が成立する）、非 ASCII 名でも `InputSourceId.Parse` が例外にならず衝突しない。サニタイズ名は「感情」「表情」が同じ空文字に潰れるため不採用 |
 | D2 | 3.1 / 3.3 / 3.8 / 8.8 | `timeline:{layer}` 値 sink は `FacialController.TryBindLayerInputSource(layer, id, sink, weight: 1f)` でレイヤー入力源へ接続。`timeline:{layer}:state` sink は **レイヤー入力源に接続しない**。`FacialController.TryRegisterLayerStateSource(layer, id, sink)` で `_layer2Provider`（overlay suppress の active provider）と REC 観測（`UpdateObservedTriggerSource`）へ登録する。値 sink は registry にも `Register(slug, sub)` する（旧 Profile に値 sink の宣言 `timeline:{layer}` があれば既存の購読経路で declared weight のまま後付けされ、connector は `IsLayerInputSourceBound` が true のとき自前接続をスキップし `LayerConnectionSkippedDeclared`（Info）= Req 3.3）。**旧 `timeline:{layer}:state` 宣言は互換維持しない**: connector はセッション開始時に (a) `profile.LayerInputSources` を静的走査し、`TimelineSinkIdConvention.IsLegacyStateDeclaration(id, slug)`（slug prefix + `:state` 終端。名前形 / index フォールバック形の両方）に一致する宣言があれば何も登録せずに、(b) (a) を通過しても値 sink の `Register` 後に `IsLayerInputSourceBound(layer, stateId)` が true なら登録済みのものを Disconnect して、診断 `LegacyStateDeclaration`（Error、Subject = レイヤー名 + 宣言 id）を記録し `SessionState = Failed` で再生を停止、Console に 1 回「Layer.inputSources から `timeline:{layer}:state` を削除してください（Receiver Inspector の『旧 timeline 宣言を削除』で除去できます）」を出す。Receiver Inspector は Edit で Profile SO の `Layers[].inputSources` を `LegacyTimelineDeclarationCleaner.Scan` で走査して同じ診断を Play 前に表示し、「旧 timeline 宣言を削除」ボタン（`Undo.RecordObject(so)` + `EditorUtility.SetDirty`、`{slug}:*:state` のみ削除。値 sink の `timeline:{layer}` 宣言は weight 指定の意図があり得るため残し Info 表示）を提供する。Req 8.8 は `TimelineExpressionStateSink` の `ContributeMask` 長を `ctx.BlendShapeNames.Count`（全 false）に揃えて修正し、先に `TimelineExpressionStateSinkTests` で `ArgumentException` を再現する。この修正は **多層防御として維持**する（検出をすり抜けて旧宣言経路で接続された瞬間に例外で全出力が止まる事故を防ぐ） | state sink は値を持たず（`BlendShapeCount=0`）レイヤー接続は `layerWeightSum` を汚すだけで BlendShape に寄与しない。実用途は active provider と観測なので接続先を分ける。旧 `:state` 宣言を許容すると、state sink を registry に Register した時点で既存購読経路がそれをレイヤーへ接続し、connector のスキップ判定が「非接続方針」を迂回してしまう（validate-design 1 回目 Critical 2）。宣言の削除をユーザーに求めるコストより、無言で方針が崩れる方が高くつくため非互換とする。Aggregator 側防御は core の許容範囲外として backlog へ |
-| D3（改訂 2） | 3.4 / 3.5 / 11.1 | Analog チャネルは Gaze と同じ **registry Replace 乗っ取り**。takeover 先 id は `ChannelSubId`（= REC の source id）そのまま。`TimelineAnalogInputSource` を `IInjectedInputSource` 化し占有規則を共有する。**Replace が実際の表情まで届く契約を本仕様で完結させる**（方式 (2)）: core の `AnalogExpressionInputSource` / `AnalogBlendShapeInputSource` に `AttachRegistry(IInputSourceRegistry registry, AdapterSlug slug)` を追加し、各 binding の `{slug}:{SourceId}` を `registry.Subscribe` して通知のたびに解決済み binding の `Source` を差し替える（新 source が `IAnalogInputSource` でなければ無視、null（Unregister）なら構築時の source に戻す）。`InputSystemAdapterBinding.BuildAnalogExpressionSink` は `_analogExpressionSink` 構築直後に `AttachRegistry(ctx.InputSourceRegistry, slug)` を 1 回呼ぶ（この 1 行以外 inputsystem は変更しない。`BuildAnalogSources` / `BuildOverlaySources` / `ApplyOverlayLayerWeights` / 登録 id / wrapper 構造は不変）。差し替えは Replace 時（セッション開始 / 終了）のみ発生し毎フレームの確保は無い。診断 `AnalogTakeoverAttached`（Info）は「registry 購読型の消費者に反映」と表示し、注記は不要になる。解決不可（source 未登録 / 他注入者占有）は `AnalogSourceNotFound` / `AnalogOccupied` を Console に 1 回出し他チャネルを継続 | (1) core のみでの解決は不可能: registry に登録されているのは inputsystem の private nested `AnalogInputSourceWrapper` だが、消費者は wrapper ではなく生の `InputActionAnalogSource` を保持しているため、registry 側で wrapper の内側を差し替えても消費者には届かない。消費者は registry / slug を受け取っていないので自力購読もできない。(2) は消費者側の再解決を core に置き、inputsystem 側は構築済み sink へ registry を渡す 1 行で済む。(3)「registry 購読型消費者に限定」は InputSystem の analog expression（最も一般的な Analog 消費者）に Timeline の値が届かず Req 11.1 / 11.2 の「連続値が再現される」を満たせないため不採用。REC の `RecAnalogInjector` も同じ Replace 方式なので、本変更で REC 再生の Analog も core 消費者へ届くようになる（rec 側の変更なし） |
+| D3（改訂 3） | 3.4 / 3.5 / 11.1 / 11.2 | Analog チャネルは Gaze と同じ **registry Replace 乗っ取り**。takeover 先 id は `ChannelSubId`（= REC の source id）そのまま。`TimelineAnalogInputSource` を `IInjectedInputSource` 化し占有規則を共有する。**Replace が実際の表情まで届く契約を本仕様で完結させる**（方式 (2)）: core Domain に公開契約 `IRegistryAttachableAnalogConsumer { void AttachRegistry(IInputSourceRegistry registry, AdapterSlug slug); void DetachRegistry(); bool IsRegistryAttached { get; } }` を定義し、`AnalogExpressionInputSource` / `AnalogBlendShapeInputSource` がこれを実装する（改訂 2 の `AttachRegistry` を interface に昇格。改訂 3）。実装は各 binding の `{slug}:{SourceId}` を `registry.Subscribe` して通知のたびに解決済み binding の `Source` を差し替える（新 source が `IAnalogInputSource` でなければ無視、null（Unregister）なら構築時の source に戻す）。`InputSystemAdapterBinding.BuildAnalogExpressionSink` は `_analogExpressionSink` 構築直後に `AttachRegistry(ctx.InputSourceRegistry, slug)` を 1 回呼ぶ（この 1 行以外 inputsystem は変更しない。`BuildAnalogSources` / `BuildOverlaySources` / `ApplyOverlayLayerWeights` / 登録 id / wrapper 構造は不変）。差し替えは Replace 時（セッション開始 / 終了）のみ発生し毎フレームの確保は無い。診断 `AnalogTakeoverAttached`（Info）は「registry 購読型の消費者に反映」と表示し、注記は不要になる。解決不可（source 未登録 / 他注入者占有）は `AnalogSourceNotFound` / `AnalogOccupied` を Console に 1 回出し他チャネルを継続。**実 InputSystem 経路の証明は 3 段で固定し、パッケージ依存は増やさない**（改訂 3）: (a) core Small `AnalogExpressionInputSourceTests` / `AnalogBlendShapeInputSourceTests` で契約（Replace 追従 / null で復元 / 冪等 / Detach）、(b) inputsystem `Tests/PlayMode/Integration/InputSystemAdapterBindingIntegrationTests.cs`（既存）で実 `InputSystemAdapterBinding.OnStart` → `registry.Replace("{slug}:{actionName}", stubAnalog)` 後に `registry.TryResolve("{slug}:analog-expression")` で得た `AnalogExpressionInputSource` の `TryWriteValues` が stub の値に追従し、`Unregister`（または Replace 元へ戻す）で構築時 source に復元されること（timeline 非依存。REC の `RecAnalogInjector` も同じ Replace 経路なので REC 側の到達も同時に証明される）、(c) timeline e2e は `FakeAnalogAdapterBinding`（core の実 `AnalogExpressionInputSource` を `IRegistryAttachableAnalogConsumer` として `AttachRegistry`）で Timeline Analog クリップ → BlendShape を固定。(a)+(b)+(c) の組で「実 InputSystem 経路」を証明する。timeline のテスト asmdef は inputsystem を参照しない（Allowed Dependencies 不変） | (1) core のみでの解決は不可能: registry に登録されているのは inputsystem の private nested `AnalogInputSourceWrapper` だが、消費者は wrapper ではなく生の `InputActionAnalogSource` を保持しているため、registry 側で wrapper の内側を差し替えても消費者には届かない。消費者は registry / slug を受け取っていないので自力購読もできない。(2) は消費者側の再解決を core に置き、inputsystem 側は構築済み sink へ registry を渡す 1 行で済む。(3)「registry 購読型消費者に限定」は InputSystem の analog expression（最も一般的な Analog 消費者）に Timeline の値が届かず Req 11.1 / 11.2 の「連続値が再現される」を満たせないため不採用。REC の `RecAnalogInjector` も同じ Replace 方式なので、本変更で REC 再生の Analog も core 消費者へ届くようになる（rec 側の変更なし） |
 | D4 | 3.7 / 10.4 | `ChannelSubId` は REC の source id（`slug:sub`、例 `osc:gaze` / `osc:gaze.left`）を **そのまま保持**。Gaze takeover 先 = `ChannelSubId` そのもの。`GazeSourceIdConvention.TryParse` は側（Shared/Left/Right）とチャネル id の分類・診断表示にだけ使い、解析不能でも registry に存在すれば takeover する（`useDistinctLeftRight` の明示 source id を許容）。`IsValidChannelId` は core で変更せず、binding 側のチャネル id 検証は channelDefinitions 撤去に伴い消える。`TimelineAdapterBinding` は `IGazeSourceProvider` を実装しない（乗っ取りは「提供」ではない） | Export が既に書いている id を正とすれば takeover 先の導出が一意になり、Profile の `providerSlug` / active slug 列挙に依存する曖昧さ（research.md C4）が消える |
 | D5 | 4.1 / 4.2 / 4.4 / 4.7 / 6.3 / 10.7 | Bake 参照は **Track 側**。`FacialExpressionTrack` / `FacialValueTrack` が `IFacialTimelineBakeHolder`（`[SerializeField, HideInInspector] FacialTimelineBakeAsset bake`）を実装し、Exporter と DirtyWatcher が再ベイク後に全 Facial トラック（root + 子）へ同じサブアセット参照を書く（`BakeReferenceWriter`）。Runtime は `FacialTimelineBakeLocator.Locate(timeline, overrideBake)` が `GetOutputTracks()` + 子の全 Facial トラックを走査し、**全 holder が同一の非 null 参照を指すときだけ `Found`** を返す。異なる参照の混在、または一部トラックのみ参照あり（部分欠落）は `Conflict`、全トラック参照なしは `LegacyExport`（Req 10.7）、Facial トラック自体が無ければ `Missing`。`Conflict` / `LegacyExport` の扱い: Play は `SessionState = Failed`（Error、Console 1 回。直し方: Editor で Timeline を開いて保存 / 再 Export / Receiver Inspector の「今再ベイク」）、Edit は `TimelineEditorServices.ChangeWatcher.MarkDirty(timeline, BakeReferenceInconsistent)` → 自動再ベイク → `BakeReferenceWriter.Apply` が全トラックへ同一参照を書いて自己修復する（`RebakeNow` はハッシュ一致で Bake 内容を焼き直さない場合でも参照の修復は必ず行う）。`overrideBake`（`Receiver.BakeAsset` の手動上書き）が指定されていれば Locator の検証結果に関わらず `OverrideUsed` として上書きを採用するが、トラック参照（`Found` の参照、または `Conflict` 時に見つかった非 null 参照のいずれか）と不一致なら `BakeOverrideDiffers`（Warning）を併記する。Bake サブアセットには `HideFlags.HideInHierarchy` を付け Project ウィンドウから隠す（`AssetDatabase.LoadAllAssetsAtPath` は隠しサブアセットも返すため既存の `FindBakeAsset` は動く。実装時に Unity 上で確認） | Marker 方式は markerTrack の生成と Timeline ウィンドウでの可視化が必要、専用 TrackAsset は行として見える。Track フィールドは Editor API なしで Runtime から辿れ、トラック順の変更に強い。「最初の非 null を採用」は走査順に依存して結果が非決定的になる（validate-design 1 回目 Critical 3）。全トラック一致を要求すれば結果は一意で、Edit は自動再ベイクで自己修復し、Play は再ベイク要求で止まるため古い Bake を無言で再生しない |
-| D6 | 1.5 / 4.5 / 4.6 / 7.1 / 7.5 | Profile ソースは **単一化 + ハッシュ検証**。(1) Editor 系（Bake / IsStale / Validator / Exporter / Preview compositor / Edit 診断）は `TimelineProfileSource.Resolve(so)` に一元化し、その中身は `FacialCharacterProfileSO.LoadProfile()`（StreamingAssets の profile.json 優先、無ければ SO）を**そのまま呼ぶ**（優先順位を再実装しない）。キャッシュキーは SO instanceID + profile.json の `Exists` / `LastWriteTimeUtc` + `EditorUtility.IsDirty(so)`。(2) Play 中の Receiver / Connector / Evaluator は **`FacialController.CurrentProfile`（controller が Initialize で読んだ値。既存 public プロパティ、core 追加不要）をそのまま使い、再読込しない**。(3) `FacialTimelineHashCalculator` の Profile 部分を `ComputeProfileContentHashHex(profile, gazeChannels)`（`SchemaVersion` / `Layers` / `LayerInputSources` / `Expressions` / `Slots` / `DefaultOverlays` / `BaseExpression` + SO の `GazeChannels`）として分離し、`SourceHashHex` はこの値を含めて計算する。Bake は `ProfileContentHashHex`（新規フィールド、additive）を保存し既存 `ProfileAssetGuid` も維持する。(4) 照合: Play はセッション開始時に `ComputeProfileContentHashHex(controller.CurrentProfile, controller.CharacterSO.GazeChannels)` と Bake の値を比較、Edit は Compositor / Evaluator が `ComputeProfileContentHashHex(TimelineProfileSource.Resolve(so), so.GazeChannels)` と比較。不一致（空文字も含む）は診断 `ProfileMismatch`（**Warning、継続**。改訂 2）: Play は `SessionState = Active` のまま Bake の値をそのまま再生し、Console に 1 回 Warning（直し方: Edit に戻ると自動で再ベイクされる / 今すぐ直すなら Receiver Inspector の「今再ベイク」）。Inspector には要対応として表示する。Edit は Compositor が描画を止めずに Inspector へ stale を表示し、`TimelineEditorServices.ChangeWatcher.MarkDirty(timeline, ProfileMismatch)` で自動再ベイクする（再ベイク後に解消）。Play 中に検出した `ProfileMismatch` は `EnteredEditMode` の無言再ベイク（D8）で解消する。Profile 一致で `SourceHashHex` のみ不一致なら従来どおり `BakeStale`（Warning、継続。Req 4.6）。`ProfileAssetGuid` の不一致は Edit 側で「別の Profile SO から焼かれた Bake」として `ProfileMismatch` の Detail に併記する（Runtime は GUID を取れないため内容ハッシュのみで判定）。(5) 更新時点（改訂 2）: Profile SO の変更（`ObjectChangeEvents.ChangeAssetObjectProperties` の対象が `FacialCharacterProfileSO` またはその派生）を `MarkDirty(ProfileChanged)` の契機に加える。profile.json の変化はポーリングせず、`TimelineProfileSource` のキャッシュキー（`LastWriteTimeUtc`）が評価時点（Inspector 評価 / Compositor の描画 / `OnWillSaveAssets` / `ExitingEditMode`）で検出し、ハッシュ不一致なら `ProfileMismatch` 経由で `MarkDirty` に合流する（dirty が無い間の `EditorApplication.update` 購読を無くすため。D8 改訂）。**Play 突入時に Timeline 側が profile.json を書くことはしない**: `ExitingEditMode` では `TimelineEditorServices` が `ChangeWatcher.FlushNow()` で保留中の再ベイクを流した後、`TimelineBakeDirtyWatcher.ProcessOpenSceneTimelinesNow()` がシーン上の Director ごとに `TimelineProfileSource.InvalidateCache(so)` → `Resolve(so)`（= `LoadProfile()` の現在値）でハッシュ照合し、不一致なら再ベイクする。`FacialCharacterProfileAutoExporter` の `ExportAll` がこの前後どちらで走っても、(a) 先に走れば Bake は最新 JSON で焼かれて一致、(b) 後に走れば Play の controller が新しい JSON を読み `ProfileMismatch`（Warning、継続）になり Edit 復帰時の無言再ベイクで解消する。どちらでも Play は止まらず、Profile ファイルの所有者（AutoExporter）以外が JSON を書く副作用は発生しない | Bake ハッシュに Profile が入るため、JSON と SO が食い違えば Runtime 側で常に HashMismatch になる。「LoadProfile を再実装しない / Play は controller が保持する値を使う」ことでソース選択の分岐自体を無くし、残る食い違い（JSON 書き出しの遅延、別 Profile から焼いた Bake）は内容ハッシュで検出する（validate-design 1 回目 Critical 1）。JSON ファースト方針（steering）とも一致。初版改訂 1 の「ExitingEditMode で profile.json を先行書き出す」は AutoExporter との購読順を Timeline 側が吸収する代わりにユーザーの Profile ファイルを Timeline が書き換える副作用を持ち、しかも AutoExporter に完了イベントが無いため順序を保証できなかった（validate-design 2 回目 Critical 2）。Profile の不一致は「Edit プレビューと Play の結果が一致しない可能性がある」ことを示すが、再生する Bake 自体は一意に決まっているため停止ではなく Warning + 継続が妥当（Bake 参照の不整合とは異なる）。既存 Bake は `ProfileContentHashHex` が空のため一度 `ProfileMismatch`（Warning）になり、Edit 評価か `ExitingEditMode` の再ベイクで埋まる |
+| D6（改訂 3） | 1.5 / 4.1 / 4.5 / 4.6 / 7.1 / 7.5 / 11.5 | Profile ソースは **単一化 + ハッシュ検証 + Play 移行前の直列同期**。(1) Editor 系（Bake / IsStale / Validator / Exporter / Preview compositor / Edit 診断）は `TimelineProfileSource.Resolve(so)` に一元化し、その中身は `FacialCharacterProfileSO.LoadProfile()`（StreamingAssets の profile.json 優先、無ければ SO）を**そのまま呼ぶ**（優先順位を再実装しない）。キャッシュキーは SO instanceID + profile.json の `Exists` / `LastWriteTimeUtc` + `EditorUtility.IsDirty(so)`。(2) Play 中の Receiver / Connector / Evaluator は **`FacialController.CurrentProfile`（controller が Initialize で読んだ値。既存 public プロパティ、core 追加不要）をそのまま使い、再読込しない**。(3) `FacialTimelineHashCalculator` の Profile 部分を `ComputeProfileContentHashHex(profile, gazeChannels)`（`SchemaVersion` / `Layers` / `LayerInputSources` / `Expressions` / `Slots` / `DefaultOverlays` / `BaseExpression` + SO の `GazeChannels`）として分離し、`SourceHashHex` はこの値を含めて計算する。Bake は `ProfileContentHashHex`（新規フィールド、additive）を保存し既存 `ProfileAssetGuid` も維持する。(4) 照合: Play はセッション開始時に `ComputeProfileContentHashHex(controller.CurrentProfile, controller.CharacterSO.GazeChannels)` と Bake の値を比較、Edit は Compositor / Evaluator が `ComputeProfileContentHashHex(TimelineProfileSource.Resolve(so), so.GazeChannels)` と比較。不一致（空文字も含む）は診断 `ProfileMismatch`（**Warning、継続**。改訂 2）: Play は `SessionState = Active` のまま Bake の値をそのまま再生し、Console に 1 回 Warning（直し方: Edit に戻ると自動で再ベイクされる / 今すぐ直すなら Receiver Inspector の「今再ベイク」）。Inspector には要対応として表示する。Edit は Compositor が描画を止めずに Inspector へ stale を表示し、`TimelineEditorServices.ChangeWatcher.MarkDirty(timeline, ProfileMismatch)` で自動再ベイクする（再ベイク後に解消）。Play 中に検出した `ProfileMismatch` は `EnteredEditMode` の無言再ベイク（D8）で解消する。Profile 一致で `SourceHashHex` のみ不一致なら従来どおり `BakeStale`（Warning、継続。Req 4.6）。`ProfileAssetGuid` の不一致は Edit 側で「別の Profile SO から焼かれた Bake」として `ProfileMismatch` の Detail に併記する（Runtime は GUID を取れないため内容ハッシュのみで判定）。(5) 更新時点（改訂 2）: Profile SO の変更（`ObjectChangeEvents.ChangeAssetObjectProperties` の対象が `FacialCharacterProfileSO` またはその派生）を `MarkDirty(ProfileChanged)` の契機に加える。profile.json の変化はポーリングせず、`TimelineProfileSource` のキャッシュキー（`LastWriteTimeUtc`）が評価時点（Inspector 評価 / Compositor の描画 / `OnWillSaveAssets` / `ExitingEditMode`）で検出し、ハッシュ不一致なら `ProfileMismatch` 経由で `MarkDirty` に合流する（dirty が無い間の `EditorApplication.update` 購読を無くすため。D8 改訂）。**Play 移行前の Profile 同期は購読順序に依存せず直列化する（改訂 3）**: core の `FacialCharacterProfileAutoExporter` に冪等な public 入口 `static bool ExportIfEnabled(FacialCharacterProfileSO so)`（有効な SO = `CharacterAssetName` 非空、すなわち既存 `ExportProfileJson` がスキップしない SO に対してのみ、`SaveAssetIfDirty` → `SampleAnimationClipsIntoCachedSnapshots` → JSON 生成 → 既存 profile.json と文字列比較 → **異なるときだけ** `File.WriteAllText`。書いたら true）と完了イベント `static event Action<FacialCharacterProfileSO> Exported`（書いたときだけ発火）を追加し、既存の `ExportAll` は内部で SO ごとに `ExportIfEnabled` を呼ぶ形に整理する（契機・内容は不変。同一内容のときに書き込みを省くため `LastWriteTimeUtc` が変わらなくなる点だけが差分）。`ExitingEditMode` では `TimelineEditorServices` が `ChangeWatcher.FlushNow()` で保留中の再ベイクを流した後、`TimelineBakeDirtyWatcher.ProcessOpenSceneTimelinesNow()` がシーン上の Director ごとに解決した Profile SO について **まず `FacialCharacterProfileAutoExporter.ExportIfEnabled(so)` を呼び**、その後 `TimelineProfileSource.InvalidateCache(so)` → `Resolve(so)`（= `LoadProfile()` の現在値）→ `ProfileContentHash` 照合 → 不一致なら `RebakeNow`。これにより AutoExporter の `ExportAll` が前後どちらで走っても Bake は常に最新 JSON（= Play の controller が読む内容）で焼かれ、通常経路では `ProfileMatched` になる（AutoExport 無効の SO は JSON が変わらないので何もしない。ユーザーファイルを書くのは AutoExport が有効で内容が変わった場合のみ = 既存 AutoExport と同じ副作用に限定）。Edit 中の `Exported` イベントは `TimelineEditorServices` が購読し、その SO を `TrackProfile` している Timeline に `ChangeWatcher.MarkDirty(timeline, ProfileChanged)` を発行する契機に加える。`ProfileMismatch` の Play 時 Warning + 継続は、上記直列化を通らなかった経路（スクリプトからの Play 開始、Player ビルド、Bake 焼き直し失敗）向けの最終防御として維持する | Bake ハッシュに Profile が入るため、JSON と SO が食い違えば Runtime 側で常に HashMismatch になる。「LoadProfile を再実装しない / Play は controller が保持する値を使う」ことでソース選択の分岐自体を無くし、残る食い違い（JSON 書き出しの遅延、別 Profile から焼いた Bake）は内容ハッシュで検出する（validate-design 1 回目 Critical 1）。JSON ファースト方針（steering）とも一致。初版改訂 1 の「ExitingEditMode で profile.json を先行書き出す」は AutoExporter との購読順を Timeline 側が吸収する代わりにユーザーの Profile ファイルを Timeline が書き換える副作用を持ち、しかも AutoExporter に完了イベントが無いため順序を保証できなかった（validate-design 2 回目 Critical 2）。改訂 2 の「照合のみ・順序非依存」は AutoExport が後順になると Play が `ProfileMismatch` になる経路を残しており、Edit プレビューと Play の一致（Req 7.1 / 11.5）が購読順に左右された（validate-design 3 回目 Critical 1）。改訂 3 は JSON の所有者（AutoExporter）に冪等入口を持たせ、Timeline 側はそれを呼ぶだけにすることで「Timeline が JSON を書かない」と「順序に依存しない」を同時に満たす。Profile の不一致は「Edit プレビューと Play の結果が一致しない可能性がある」ことを示すが、再生する Bake 自体は一意に決まっているため停止ではなく Warning + 継続が妥当（Bake 参照の不整合とは異なる）。既存 Bake は `ProfileContentHashHex` が空のため一度 `ProfileMismatch`（Warning）になり、Edit 評価か `ExitingEditMode` の再ベイクで埋まる |
 | D7 | 5.1〜5.6 / 1.6 | Director 解決順: (1) Receiver の `director` SerializeField（任意上書き）→ (2) 同 GameObject の `PlayableDirector` → (3) 親階層 → (4) シーン走査（`FindObjectsByType<PlayableDirector>(Include, None)`）で `playableAsset` が Facial トラックを持つ TimelineAsset の Director のうち、いずれかの Facial トラックの generic binding が自分（または自分の GameObject）を指すもの。(4) で候補が 2 つ以上なら `DirectorAmbiguous`（Error。上書きフィールドの設定を案内）。走査はセッション開始時と Inspector 評価時のみ。Play 中は Mixer が `playable.GetGraph().GetResolver()` から得た Director を正とし、別 Director が同じ Receiver で `BeginPlaybackSession` を呼んだら `SessionConflict`（1 Receiver 1 セッション）。Track binding の自動設定（Req 1.6）は `TimelineTrackBindingResolver.EnsureBindings` が「binding 未設定の Facial トラック」にだけ自分を設定し、他オブジェクトが設定済みなら `TrackBindingForeign` を記録して触らない。Play モードは Receiver の `OnEnable` で実行し、Director のグラフが既に有効なら `RebuildGraph()`。Edit モードは Inspector 評価時に `Undo.RecordObject(director)` + `SetDirty` 付きで実行する。診断は Runtime 側 `FacialTimelineDiagnostics`（enum コード + 件名 + 重大度、`Revision` と `Changed` イベント）に集約し、Inspector は読むだけ。Inspector 更新トリガは `Undo.undoRedoPerformed` / `EditorApplication.hierarchyChanged` / `ObjectChangeEvents.changesPublished`（Director・Profile SO・Receiver に関する変更のみ）/ `TimelineEditorServices.ChangeWatcher.BakeUpdated` / `FacialTimelineDiagnostics.Changed`（Play 中）/ `playModeStateChanged`。**購読の所有権（改訂 2）**: これらの購読は Inspector インスタンスが所有し、`CreateInspectorGUI` で登録、root 要素の `DetachFromPanelEvent` と `OnDisable` で解除する（片方が先に来ても二重解除は no-op）。`TimelineEditorServices` の購読と重複しない（Services は再ベイク配送、Inspector は表示更新のみ）。Edit 評価で `BakeReferenceConflict` / `BakeLegacyExport` / `ProfileMismatch` / `UnsavedTimeline` を検出したときは `TimelineEditorServices.ChangeWatcher.MarkDirty` を呼ぶだけで、Inspector 自身はデバウンスや再ベイクを持たない。再描画は `schedule.Execute(...).ExecuteLater(100)` で合流させる | Mixer は binding 済みトラックしか Receiver を呼ばないため、自動 binding はグラフ構築前（OnEnable / Inspector 評価）に済ませる必要がある。Director の `playableAsset` 変更を直接通知する API は無いため ObjectChangeEvents と再描画時再評価で拾う。Inspector が破棄されても購読が残ると破棄済み `SerializedObject` を掴んで NRE を出す（既存 Editor 拡張で実例あり）ため、購読は Inspector の寿命に閉じる |
 | D8（改訂 2） | 6.1〜6.7 / 9.1 / 11.7 | 変更検知は 3 経路の組み合わせ: (a) `ClipEditor.OnClipChanged` / `TrackEditor.OnTrackChanged` / `OnCreate`（既存 `FacialExpressionClipEditor` / `FacialExpressionTrackEditor` / `FacialValueClipEditor` に override 追加、`FacialValueTrackEditor` を新設。Timeline ウィンドウでの移動・トリム・追加を即時に拾う）、(b) `Undo.undoRedoPerformed`（Undo/Redo と削除）、(c) `ObjectChangeEvents.changesPublished` の `ChangeAssetObjectProperties` / `DestroyAssetObject` で対象が Facial トラック・Clip・TimelineAsset のもの（Inspector からの `ExpressionId` / `ChannelKind` 編集、スクリプト編集）。すべて `TimelineEditorServices.ChangeWatcher.MarkDirty(timeline, reason)` に合流し、**デバウンス 300 ms**（`EditorApplication.update` + `EditorApplication.timeSinceStartup`）後にハッシュ比較 → 不一致なら `TimelineBakeDirtyWatcher.RebakeNow(timeline)`。実行中に再度 MarkDirty されたら完了後に 1 回だけ再実行（Req 6.5）。再ベイク完了で `BakeUpdated` を発火し `TimelineEditor.Refresh(RefreshReason.ContentsModified | RefreshReason.SceneNeedsUpdate)` を呼ぶ（Req 6.2）。**購読の所有権と解除条件**: Unity イベントの購読者は `TimelineEditorServices`（`[InitializeOnLoad]` static）だけ。冪等な `EnsureInitialized()`（初期化済みフラグで二重購読を防ぐ）で `ObjectChangeEvents.changesPublished` / `Undo.undoRedoPerformed` / `EditorApplication.playModeStateChanged` を購読し、`EditorApplication.update` は **dirty な Timeline が 1 つ以上ある間だけ**購読する（最後の pending が消えた時点で解除。待機中の空 tick を無くす）。`AssemblyReloadEvents.beforeAssemblyReload` と `EditorApplication.quitting` で `Shutdown()`（全購読解除 + pending 破棄）し、ドメインリロード後は `[InitializeOnLoad]` が `EnsureInitialized()` を呼び直す。TrackEditor / ClipEditor は Editor インスタンスから `TimelineEditorServices.ChangeWatcher.MarkDirty` を呼ぶだけで購読を持たない。`TimelineBakeDirtyWatcher` の静的コンストラクタにある `playModeStateChanged` / `BakeIssueDetected` 購読は撤去し、Services からの呼び出し（`ProcessOpenSceneTimelinesNow` / `TryRepairPendingSessionIssuesNow`）に置き換える。**未保存 Timeline**: `AssetDatabase.GetAssetPath(timeline)` が空（インメモリの TimelineAsset）はサブアセットを保存できないため再ベイク対象外。`MarkDirty` は `MarkDirtyResult.UnsavedTimeline` を返して何も予約せず、Edit の Evaluator が診断 `UnsavedTimeline`（Info、「TimelineAsset を保存すると自動ベイクが有効になります」）を記録する。`EnteredEditMode` のダイアログと `RepairRunResult.HasDialog` は撤去し、Play 中に検出した HashMismatch / `ProfileMismatch` の修復は Edit 復帰時に無言で実行して Console に Info を 1 行出す。失敗時は Console に理由を出し前回 Bake を保持（既存 `created` のみ破棄ロジック）。Undo / SetDirty: Director の binding と `Receiver.BakeAsset` などシーン側オブジェクトの変更は `Undo.RecordObject` + `EditorUtility.SetDirty`。Bake サブアセットと Track の bake 参照は内部キャッシュなので Undo スタックに載せず `SetDirty` のみ | Timeline のドラッグは OnClipChanged をマウス移動ごとに発火するため即時再ベイクは不可。300 ms は入力間隔（約 16 ms）より十分長く、ユーザーが「待ち」と感じる閾値より短い。Bake を Undo に載せると Undo でキャッシュだけ巻き戻り鮮度判定と矛盾する。購読の所有者が分散すると、ドメインリロード後の二重購読（同じ変更で再ベイクが 2 回走る）や、解除されない `EditorApplication.update` が Editor 全体に空 tick を残す（validate-design 2 回目 Critical 3）。所有者を 1 つにして解除条件を明示すれば、テストで「購読数 1 / 解除後 0 / 連打で再ベイク 1 回」を固定できる |
 | D9 | 7.1 / 7.4 / 7.6 | Edit プレビューは Editor 側に **オフラインの `LayerUseCase` + `ExpressionUseCase`** を持つ `TimelinePreviewCompositor` で合成する。Profile は `TimelineProfileSource.Resolve`、ホスト BlendShape 名は `FacialController.CollectBlendShapeNames(controller.SkinnedMeshRenderers)`（public static 化）、入力源は Play と同じ `TimelineBakedValueSink`（Bake から名前取得）+ `TimelineExpressionStateSink`（`TimelineEventStateReconstructor.JumpTo(t)` で状態復元）を `TryBindLayerInputSource` と同じ weight 1 で `BindLateInputSource` した構成。時刻 t ごとに sink へ Bake 値を書き `UpdateWeights(0f)` → `GetBlendedOutput()` → `SkinnedMeshRendererBlendShapeWriter` で描く。これにより `LayerBlender` の優先度 / レイヤー weight / overlay / override mask / base expression の規則を Editor で再実装しない。Gaze プレビューは `ValueChannelBake.Sub`（REC source id）→ `GazeSourceIdConvention.TryParse` のチャネル id、または `GazeChannel.sourceIdLeft / Right` との完全一致で解決（index 結合を廃止）。**一致の定義**: 同一 TimelineAsset・同一 Profile スナップショット（Edit は `TimelineProfileSource.Resolve(so)`、Play は `controller.CurrentProfile`。両者の `ProfileContentHash` が Bake の `ProfileContentHashHex` に一致していることを一致保証の前提条件とする。不一致でも Compositor は Bake の値で描画を続け、`ProfileCheck` に `ProfileMismatch` を報告して Inspector 表示と `MarkDirty(ProfileMismatch)` の自動再ベイクを起動する（改訂 2。Play 側も同じ Bake を Warning 継続で再生するため、不一致中も Edit / Play は同じ Bake を読んでいる））・同一 Bake（`FacialTimelineBakeLocator` が `Found` を返す参照。Edit / Play とも同じ Locator を使う）・同一ホストメッシュ・Timeline 以外の live 入力なし・レイヤー weight 既定（1）・Base Expression 既定。比較時刻は 0、各 Clip の start / end の ±1 サンプル（1/60 s）、各 Clip の中点、Timeline の duration。許容誤差は BlendShape 正規化値で 1e-4（renderer の 0〜100 スケールでは 0.01。既存 `TimelineLiveEquivalenceIntegrationTests.LinearTolerance` と同値）、Gaze は目ボーン `localRotation` の各成分で 1e-3 | `LayerUseCase` は Application 層で Domain `LayerBlender` を内包する。Timeline のみの入力では遷移を持つ入力源が値を出さないため、dt=0 での評価が Play の LateUpdate 結果と一致する。遷移中の時刻は Bake 時に `BakeSimulationHarness` が同じ Aggregator で焼いているため Edit / Play が同じカーブを読む |
 | D10 | 8.7 | Play: `BeginPlaybackSession` から `ReleaseAll` までを 1 セッションとし、(Receiver instanceID, 診断コード, 件名) につき 1 回。Edit: 同じキーで **診断エポック**につき 1 回。エポックは (a) `BakeUpdated`、(b) Director の `playableAsset` / binding 変更、(c) ドメインリロード、(d) Play → Edit 復帰でリセット。`TimelineOnceWarningGate`（Domain）が `TryPass(ownerId, code, subject)` / `ResetEpoch()` を提供し、Inspector の表示はゲートに依らず常に現在値を出す | Edit にはセッションが無いため「入力が変わるまで 1 回」を明示する。Bake 更新や配線変更で状況が変われば同じ警告でも再掲する価値がある |
 | D11 | 8.8 | 再現テスト: `TimelineExpressionStateSinkTests`（Small。`LayerInputSourceRegistry` + `LayerInputSourceWeightBuffer` + `LayerInputSourceAggregator` に state sink を sourceIdx 0 として直差し → `TriggerOn("smile")` → `Aggregate(0f, span)` が例外を投げないこと、`ContributeMask.Length == blendShapeCount` であること）。修正: `TimelineExpressionStateSink` のコンストラクタに `IReadOnlyList<string> blendShapeNames` を受け、基底へ `blendShapeCount: blendShapeNames.Count` を渡す（値出力は `TryWriteValues` が従来通り何も書かない構造を維持するため、`ContributeMask` は全 false の専用 BitArray を返す） | 修正前に赤を確認する TDD 順序を tasks に固定する。Aggregator 側の防御は core 変更範囲外（backlog） |
 | D12 | 11.1〜11.8 | e2e は PlayMode Medium `TimelinePlaybackEndToEndTests`（新規クラス → 新規ファイル可）。fixture は Tests/Shared の `TimelineE2EFixture`（.fcrec 生成 → `RecToTimelineExporter.TryExportTimelineAsset` → アセット化した Profile SO + BlendShape 付きメッシュ + 明示目ボーン → FacialController / Receiver / Director 配置）。Director は `timeUpdateMode = Manual`、`time` 設定 → `Evaluate()` → `yield return null`（LateUpdate 後）で `SkinnedMeshRenderer.GetBlendShapeWeight` を検証。Analog は Tests/Shared の `FakeAnalogAdapterBinding`（slug `osc`。`FakeAnalogInputSource` を `osc:lt` に Register し、core の `AnalogExpressionInputSource`（binding: `lt` → Expression `squint`）を構築して `AttachRegistry` を呼び `osc:analog-expression` で Register。InputSystem の `BuildAnalogExpressionSink` と同じ構成）を Profile SO の AdapterBindings に加え、レイヤー `inputSources` に `osc:analog-expression` を宣言した状態で、registry の `osc:lt` が `TimelineAnalogInputSource` に置換され → `AnalogExpressionInputSource` が追従 → `squint` の BlendShape が Analog クリップ値 × Expression 値になることを `SkinnedMeshRenderer.GetBlendShapeWeight` で確認する（Req 11.1 の「連続値」）。セッション終了で `osc:lt` が Fake に戻り BlendShape が 0 に戻ることも確認。Gaze は目ボーン回転。配置: 導出 / id 規約 / 診断モデル / Bake 解決 / Locator は EditMode Small（`ScriptableObject.CreateInstance` のみ）、Receiver・Director・AssetDatabase を使うものは EditMode Medium、Director 再生・LateUpdate が要るものは PlayMode Medium | `check-test-sizes.ps1` が Small で `AddComponent<FacialTimelineReceiver>` / `AssetDatabase` / `[UnityTest]` を禁止している。Exporter（Editor asmdef）は PlayMode テスト asmdef から参照可能（既存） |
+| D14 | 1.6 / 2.3 / 7.6 | **新規コードは timeline Domain に `Unity.Timeline` 型を持ち込まない**。`TimelineAsset` の走査（`GetOutputTracks` / `GetChildTracks` / Clip 列挙 / bake holder 読取）は Adapters の `TimelineAssetScanner.Scan(TimelineAsset)` に集約し、Unity 非依存の DTO `TimelineTrackDescriptor { TrackIndex, Kind, Name, ChannelSubId, ChannelKind, MaxAxisCount, HasBakeReference, BakeInstanceId, IsChild, ParentIndex }` の列と、同じ index で並ぶ `TrackAsset` 列（Adapters 専用）を返す。`TimelineChannelDeriver.Derive(IReadOnlyList<TimelineTrackDescriptor>, FacialProfile)` / `TimelineSinkIdConvention` / `FacialTimelineDiagnostics` / `TimelineOnceWarningGate` は DTO と文字列だけを受ける純粋関数として Domain に残す（Small テストで TimelineAsset を生成しない）。`TimelineLayerDescriptor` / `TimelineChannelDescriptor` は Track 参照を持たず `TrackIndex` で Scanner の結果を逆引きする。`FacialTimelineBakeLocator` / `TimelineTrackBindingResolver` / `TimelineDiagnosticsEvaluator`（`TimelineStaticEvaluationContext` を含む）は Adapters（Bake は `UnityEngine.Object`、Director は `PlayableDirector`）。既存 Domain の `FacialTimelineHashCalculator` / `TimelineStateEventCollector` は **既存例外として明記**し本仕様では移動しない（既存ファイル内の変更のみ。backlog 候補）。steering への追記は本 spec の範囲外（完了報告で候補として挙げる） | steering（tech.md / structure.md）は「Domain は Unity 型を使わない契約」であり、改訂 2 の「本パッケージ Domain は既に `Unity.Timeline` を扱うため Domain/Services に置く」は既存違反を前例として新規違反を正当化していた（validate-design 3 回目 Critical 3）。走査を Adapters の 1 箇所に閉じれば、導出・規約・診断は TimelineAsset 無しで Small テストでき、`Unity.Timeline` の API 変更の影響範囲も Scanner に限定される。既存例外 2 ファイルの移動は Mixer / Bake / Validator の呼び出し元が広く本仕様の目的外なので明記して据え置く |
 
 ### Technology Stack
 
@@ -230,9 +251,10 @@ graph TB
 ```
 Runtime/
 ├── Domain/
-│   ├── Models/
-│   │   ├── TimelineLayerDescriptor.cs        # 導出したレイヤー（名前・Profile index・root トラック）
-│   │   ├── TimelineChannelDescriptor.cs      # 導出したチャネル（ChannelSubId・Kind・軸数・トラック）
+│   ├── Models/                               # すべて Unity 非依存（using UnityEngine.* 禁止。D14）
+│   │   ├── TimelineTrackDescriptor.cs        # Scanner が返す DTO（TrackIndex・Kind・Name・ChannelSubId・ChannelKind・MaxAxisCount・HasBakeReference・BakeInstanceId・IsChild・ParentIndex）
+│   │   ├── TimelineLayerDescriptor.cs        # 導出したレイヤー（名前・Profile index・TrackIndex）
+│   │   ├── TimelineChannelDescriptor.cs      # 導出したチャネル（ChannelSubId・Kind・軸数・TrackIndex）
 │   │   └── TimelineDerivation.cs             # 導出結果の集合（未一致トラック名を含む）
 │   ├── Diagnostics/
 │   │   ├── TimelineDiagnosticCode.cs         # 診断コード enum（テストはこの値で検証）
@@ -241,9 +263,12 @@ Runtime/
 │   │   └── TimelineOnceWarningGate.cs        # 1 セッション・1 エポック 1 回の警告ゲート
 │   └── Services/
 │       ├── TimelineSinkIdConvention.cs       # sink id 規約（名前優先 / index フォールバック、旧 :state 宣言の判定）
-│       ├── TimelineChannelDeriver.cs         # TimelineAsset + Profile → TimelineDerivation（純粋関数）
-│       └── FacialTimelineHashCalculator.cs   # 既存。ProfileContentHash を分離（Modified Files 参照）
+│       ├── TimelineChannelDeriver.cs         # TimelineTrackDescriptor 列 + Profile → TimelineDerivation（純粋関数。TimelineAsset を受けない）
+│       ├── FacialTimelineHashCalculator.cs   # 既存。ProfileContentHash を分離（Modified Files 参照）。Unity.Timeline 参照は既存例外（D14）
+│       └── TimelineStateEventCollector.cs    # 既存・無変更。Unity.Timeline 参照は既存例外（D14。backlog 候補）
 ├── Adapters/
+│   ├── Timeline/
+│   │   └── TimelineAssetScanner.cs           # TimelineAsset → TimelineTrackDescriptor 列 + TrackAsset 列（Unity.Timeline 走査の唯一の置き場）
 │   ├── Assets/
 │   │   ├── IFacialTimelineBakeHolder.cs      # Track 側 bake 参照の契約
 │   │   └── FacialTimelineBakeLocator.cs      # 全 Facial トラックの参照一致を検証して Bake を解決し状態を返す
@@ -254,6 +279,7 @@ Runtime/
 │   │   ├── TimelineTrackBindingResolver.cs   # Director 解決規則と Track binding の自動設定
 │   │   └── ITrackBindingWriter.cs            # SetGenericBinding の書込口（Runtime 直書き / Editor は Undo 付き）
 │   └── Diagnostics/
+│       ├── TimelineStaticEvaluationContext.cs # Evaluator の入力（Director / Timeline / Controller / Bake 等の Unity 型を含むため Adapters）
 │       └── TimelineDiagnosticsEvaluator.cs   # 静的診断（Edit / Play 開始前）の評価
 Editor/
 ├── Inspector/
@@ -291,7 +317,7 @@ timeline Runtime:
 - `Runtime/Adapters/Assets/FacialTimelineBakeAsset.cs` — `ProfileContentHashHex`（string、additive）を追加。既存フィールドは不変
 
 timeline Editor:
-- `Editor/TimelineBakeDirtyWatcher.cs` — `[InitializeOnLoad]` と静的コンストラクタの `playModeStateChanged` / `BakeIssueDetected` 購読を撤去（購読は `TimelineEditorServices` へ移動。`OnWillSaveAssets` の `AssetModificationProcessor` 経路は Unity が呼ぶため残す）。`DisplayDialog` / `HandleEnteredEditModeNow` のダイアログ分岐 / `RepairRunResult.HasDialog` 撤去。`RebakeNow(TimelineAsset, out string failureReason)` を public 化、`UpdateLoadedReceiverReferences` を Undo + SetDirty 付きに変更、`IsStale` 判定を `TimelineProfileSource` 経由に変更、再ベイク後（ハッシュ一致で焼き直さない場合も）に `BakeReferenceWriter.Apply` と `HideFlags` 設定。`ProcessOpenSceneTimelinesNow`（`ExitingEditMode`）は `TimelineProfileSource.InvalidateCache(so)` → `Resolve(so)` の現在値で鮮度照合し不一致なら再ベイクする。profile.json は書かない
+- `Editor/TimelineBakeDirtyWatcher.cs` — `[InitializeOnLoad]` と静的コンストラクタの `playModeStateChanged` / `BakeIssueDetected` 購読を撤去（購読は `TimelineEditorServices` へ移動。`OnWillSaveAssets` の `AssetModificationProcessor` 経路は Unity が呼ぶため残す）。`DisplayDialog` / `HandleEnteredEditModeNow` のダイアログ分岐 / `RepairRunResult.HasDialog` 撤去。`RebakeNow(TimelineAsset, out string failureReason)` を public 化、`UpdateLoadedReceiverReferences` を Undo + SetDirty 付きに変更、`IsStale` 判定を `TimelineProfileSource` 経由に変更、再ベイク後（ハッシュ一致で焼き直さない場合も）に `BakeReferenceWriter.Apply` と `HideFlags` 設定。`ProcessOpenSceneTimelinesNow`（`ExitingEditMode`）は解決した Profile SO ごとに **`FacialCharacterProfileAutoExporter.ExportIfEnabled(so)` → `TimelineProfileSource.InvalidateCache(so)` → `Resolve(so)`** の順で現在値を得て鮮度照合し不一致なら再ベイクする（D6 改訂 3）。Timeline 側が独自に profile.json を書く経路は無い
 - `Editor/TimelineBakeService.cs` — SO overload を `TimelineProfileSource.Resolve(profileAsset)` 経由に変更。Bake に `ProfileContentHashHex` を書き込み、`IsStale` は `ProfileContentHashHex` → `SourceHashHex` の順に比較して不一致種別（Profile / Timeline）を返す
 - `Editor/FacialTimelineEditorPreview.cs` — `ApplyBlendShapes` の単純加算を `TimelinePreviewCompositor` 呼び出しに置換、`ApplyGaze` をチャネル id 解決へ変更、Bake を `FacialTimelineBakeLocator` で解決、controller null を 1 回警告（無言 return 廃止）
 - `Editor/FacialTimelinePreviewGazeTargets.cs` — index 述語を「チャネル id → Bake」の辞書解決に変更
@@ -308,12 +334,16 @@ core（`Packages/com.hidano.facialcontrol/`）:
 - `Runtime/Application/UseCases/LayerUseCase.cs` — `IsLateInputSourceBound(int layerIdx, string id)` 追加
 - `Runtime/Application/UseCases/Layer2ActiveExpressionProvider.cs` — `AddSource` / `RemoveSource` 追加（`SetSources` は維持）
 - `Runtime/Domain/Adapters/IAdapterBindingDynamicInputs.cs` — 新規マーカー interface
-- `Runtime/Adapters/InputSources/AnalogExpressionInputSource.cs` / `AnalogBlendShapeInputSource.cs` — `AttachRegistry(IInputSourceRegistry registry, AdapterSlug slug)` を追加。構築時に解決した各 binding の `Source` を `registry.Subscribe("{slug}:{SourceId}", ...)` の通知で差し替え可能にする（`ResolvedBinding.Source` を差し替え可能なフィールドにする。構築時 source は `OriginalSource` として保持し、null 通知で戻す）。コンストラクタ署名・`TryWriteValues` の挙動・`ContributeMask` は不変
+- `Runtime/Domain/Adapters/IRegistryAttachableAnalogConsumer.cs` — 新規公開契約（`IInputSourceRegistry` と同じ `Domain/Adapters/` に置く。参照は Domain の `IInputSourceRegistry` / `AdapterSlug` のみ）
+- `Runtime/Adapters/InputSources/AnalogExpressionInputSource.cs` / `AnalogBlendShapeInputSource.cs` — `IRegistryAttachableAnalogConsumer` を実装（`AttachRegistry(IInputSourceRegistry registry, AdapterSlug slug)` / `DetachRegistry()` / `IsRegistryAttached`）。構築時に解決した各 binding の `Source` を `registry.Subscribe("{slug}:{SourceId}", ...)` の通知で差し替え可能にする（`ResolvedBinding.Source` を差し替え可能なフィールドにする。構築時 source は `OriginalSource` として保持し、null 通知と `DetachRegistry` で戻す）。コンストラクタ署名・`TryWriteValues` の挙動・`ContributeMask` は不変
+- `Editor/AutoExport/FacialCharacterProfileAutoExporter.cs` — `public static bool ExportIfEnabled(FacialCharacterProfileSO so)` と `public static event Action<FacialCharacterProfileSO> Exported` を追加。既存 `ExportAll(trigger)` のループ本体（`SaveAssetIfDirty` → `SampleAnimationClipsIntoCachedSnapshots` → `ExportProfileJson`）を `ExportIfEnabled` に移し、`ExportAll` は SO 列挙 + `ExportIfEnabled` 呼び出し + 件数集計 + 例外時 Warning のみにする。JSON の生成は既存 `FacialCharacterProfileExporter.BuildProfileSnapshotDto` / `SystemTextJsonParser.SerializeProfileSnapshot` をそのまま使い、既存ファイルと文字列が一致すれば書かない（`FacialCharacterProfileExporter.ExportProfileJson` 自体は変更しない。`ExportIfEnabled` が比較を行い、異なるときだけ `ExportProfileJson(so)` を呼ぶ）。`[InitializeOnLoad]` と `ExitingEditMode` 購読、`FacialCharacterProfileBuildExporter` は不変
 - `Editor/Windows/Routing/Logic/InvalidIdValidator.cs` — `profile.AdapterBindings` のうち `IAdapterBindingDynamicInputs` を実装する binding の `{Slug}:` prefix に一致する id を有効扱い（呼び出し側の変更なし）
+- `Tests/EditMode/Editor/AutoExport/FacialCharacterProfileAutoExporterTests.cs`（既存 Medium）— `ExportIfEnabled` の冪等性（同内容 2 回目は false・`LastWriteTimeUtc` 不変・`Exported` 不発火、内容変更後は true・発火 1 回、`CharacterAssetName` 空は false・ファイル無し）を追記
 
 inputsystem（`Packages/com.hidano.facialcontrol.inputsystem/`、最小変更）:
-- `Runtime/Adapters/AdapterBindings/InputSystemAdapterBinding.cs` — `BuildAnalogExpressionSink` で `_analogExpressionSink` を構築し registry に Register した直後に `_analogExpressionSink.AttachRegistry(ctx.InputSourceRegistry, slug)` を 1 回呼ぶ。他のメソッド（`BuildAnalogSources` / `TryRegisterAnalogSource` / `BuildOverlaySources` / `ApplyOverlayLayerWeights` / `OnLateTick`）と `AnalogInputSourceWrapper` は変更しない
-- `Tests/PlayMode/Integration/InputSystemAdapterBindingIntegrationTests.cs` — 「`{slug}:{action}` を registry で Replace すると `AnalogExpressionInputSource` の出力が新 source の値に追従し、元に戻すと復元される」を追記
+- `Runtime/Adapters/AdapterBindings/InputSystemAdapterBinding.cs` — `BuildAnalogExpressionSink` で `_analogExpressionSink` を構築し `ctx.InputSourceRegistry.Register(slug, AnalogExpressionInputSource.ReservedId, _analogExpressionSink)` した直後に `_analogExpressionSink.AttachRegistry(ctx.InputSourceRegistry, slug)` を 1 回呼ぶ。他のメソッド（`BuildAnalogSources` / `TryRegisterAnalogSource` / `BuildOverlaySources` / `ApplyOverlayLayerWeights` / `OnLateTick` / `Dispose`）と `AnalogInputSourceWrapper` は変更しない（`DetachRegistry` は呼ばない: 消費者と registry は同じ child scope で破棄されるため）
+- `Tests/PlayMode/Integration/InputSystemAdapterBindingIntegrationTests.cs`（既存 Medium）— 実 `InputSystemAdapterBinding` を `BindingMode.Analog` の action 1 本（Gamepad スティック binding）で `OnStart` し、`registry.TryResolve("{slug}:analog-expression")` で得た `AnalogExpressionInputSource` について「`registry.Replace(slug, actionName, stubAnalog)` 後に `TryWriteValues` の出力が stub の値 × Expression 値に追従する」「`registry.Unregister(slug, actionName)` で構築時 source の値に戻る」「Replace 元の wrapper へ `Replace` し直しても構築時と同じ値を出す」を追記。既存 SetUp の実 `InputSourceRegistry` を使う（既存 `FakeInputSourceRegistry.Subscribe` は no-op のため通知テストには使わない）
+- `Tests/PlayMode/Integration/StubAnalogInputSource.cs` — 新規テストヘルパー（`IInputSource` + `IAnalogInputSource`。外から値を設定できる。timeline Tests/Shared の `FakeAnalogInputSource` とは別 asmdef・別名）
 
 ## System Flows
 
@@ -337,7 +367,7 @@ sequenceDiagram
     R->>R: Locate bake all facial tracks must share one reference else Failed
     R->>FC: CurrentProfile and CharacterSO GazeChannels
     R->>R: Compare ProfileContentHash with bake else Warning ProfileMismatch and continue
-    R->>R: Derive layers channels then EvaluateStatic diagnostics and log once
+    R->>R: TimelineAssetScanner Scan to descriptors then Derive layers channels then EvaluateStatic diagnostics and log once
     R->>C: Connect derivation profile names bake
     C->>C: Scan LayerInputSources for legacy state declaration else Failed
     C->>FC: Register value sinks then IsLayerInputSourceBound
@@ -373,6 +403,7 @@ sequenceDiagram
     participant W as TimelineEditChangeWatcher
     participant DW as TimelineBakeDirtyWatcher
     participant PS as TimelineProfileSource
+    participant AX as FacialCharacterProfileAutoExporter
     participant BW as BakeReferenceWriter
     participant P as FacialTimelineEditorPreview
     participant I as ReceiverInspector
@@ -380,6 +411,8 @@ sequenceDiagram
     U->>CE: drag trim add delete or undo
     CE->>W: MarkDirty timeline ClipEdit via TimelineEditorServices ChangeWatcher
     SVC->>W: MarkDirty from Undo undoRedoPerformed and ObjectChangeEvents on facial tracks clips and Profile SO
+    AX->>SVC: Exported so when profile json was actually written
+    SVC->>W: MarkDirty ProfileChanged for timelines tracking that so
     Note over W: unsaved timeline with empty asset path returns UnsavedTimeline and is not queued
     I->>W: MarkDirty BakeReferenceInconsistent or ProfileMismatch found by static evaluation
     P->>W: MarkDirty ProfileMismatch found by compositor
@@ -402,7 +435,8 @@ Flow-level decisions:
 - `EditorApplication.isCompiling` / `isPlayingOrWillChangePlaymode` の間は実行を保留し、復帰後の最初の update で評価する
 - `MarkDirty` の契機は `TimelineDirtyReason` で区別する: `ClipEdit` / `UndoRedo` / `ObjectChange`（Facial トラック・Clip・TimelineAsset）/ `ProfileChanged`（Profile SO の変更、profile.json の更新）/ `BakeReferenceInconsistent`（Locator が `Conflict` / `LegacyExport`）/ `ProfileMismatch`（Compositor / Evaluator の照合不一致）。理由は Console の Info と `BakeUpdated` の引数に含めるだけで処理は共通
 - `RebakeNow` はハッシュ一致で Bake 内容を焼き直さない場合でも `BakeReferenceWriter.Apply` を必ず実行する。参照が 1 つでも変わったときは `BakeUpdated` を発火する（`Conflict` の自己修復で次の Play が新しい参照を読むため）
-- 保存時（`OnWillSaveAssets`）と `ExitingEditMode` の既存経路は無言の安全網として残し、通常は Watcher が先に処理するためハッシュ一致で no-op になる。`ExitingEditMode` は `TimelineEditorServices` が受け、`ChangeWatcher.FlushNow()` → `TimelineBakeDirtyWatcher.ProcessOpenSceneTimelinesNow()` の順で呼ぶ。後者は `TimelineProfileSource.InvalidateCache(so)` 後の `Resolve(so)`（= `LoadProfile()` の現在値）で照合し、profile.json は書かない（D6 改訂 2）。`FacialCharacterProfileAutoExporter.ExportAll` との順序に依存せず、後から JSON が変わった場合は Play 側が `ProfileMismatch`（Warning、継続）を出し、Edit 復帰時の無言再ベイクで解消する
+- 保存時（`OnWillSaveAssets`）と `ExitingEditMode` の既存経路は無言の安全網として残し、通常は Watcher が先に処理するためハッシュ一致で no-op になる。`ExitingEditMode` は `TimelineEditorServices` が受け、`ChangeWatcher.FlushNow()` → `TimelineBakeDirtyWatcher.ProcessOpenSceneTimelinesNow()` の順で呼ぶ。後者は Profile SO ごとに **`FacialCharacterProfileAutoExporter.ExportIfEnabled(so)` → `TimelineProfileSource.InvalidateCache(so)` → `Resolve(so)`（= `LoadProfile()` の現在値）→ 照合 → 必要なら `RebakeNow`** の直列で処理する（D6 改訂 3）。`FacialCharacterProfileAutoExporter` の既存 `ExitingEditMode` 購読（`ExportAll`）が先に走っていれば `ExportIfEnabled` は同内容で no-op、後に走っても同内容で no-op になり、Bake は常に Play の controller が読む JSON と同じスナップショットで焼かれる。`ExportIfEnabled` が true を返して `Exported` が発火しても、`ExitingEditMode` 中は `MarkDirty` が `Ignored`（`isPlayingOrWillChangePlaymode`）になり、直列処理側が直接照合するため二重再ベイクは起きない
+- Edit 中（Play 遷移外）の `Exported` は `TimelineEditorServices` が受け、`ChangeWatcher.TrackProfile` で当該 SO を登録している Timeline に `MarkDirty(ProfileChanged)` を発行する（Inspector の自動保存や手動 Export で profile.json が変わった直後に再ベイクされる）
 - `MarkDirty` は `AssetDatabase.GetAssetPath(timeline)` が空の Timeline（未保存・インメモリ）を予約しない。サブアセットを保存できないため再ベイクの対象外で、Edit の Evaluator が `UnsavedTimeline`（Info）を表示する
 - `EditorApplication.update` の購読は pending が 1 つ以上ある間だけ（`TimelineEditorServices.RequestTick()` / `ReleaseTick()`）。待機中の Editor に空 tick を残さない
 
@@ -432,10 +466,10 @@ stateDiagram-v2
 | 1.2 | 追加の手入力を要求しない | Binding（flag only）, Deriver, Locator, TrackBindingResolver, Exporter | `TimelineBindingContext`, `IFacialTimelineBakeHolder` | 同上 |
 | 1.3 | Gaze を同じ手順・診断で扱う | Takeover, Diagnostics | `TimelineChannelTakeover.Attach` | 同上 |
 | 1.4 | 毎フレーム GC ゼロ | Receiver（セッションプール）, Mixer | — | §Performance |
-| 1.5 | Profile は録画時のまま。Play は controller が読んだ Profile をそのまま使い、Bake との一致をハッシュで検証 | Binding, Deriver, Receiver, FacialTimelineHashCalculator | `TimelineAdapterBinding.Enabled`, `FacialController.CurrentProfile`, `ComputeProfileContentHashHex`, `ProfileMismatch` | Play セッション開始, D6 |
+| 1.5 | Profile は録画時のまま。Play は controller が読んだ Profile をそのまま使い、Bake との一致をハッシュで検証。Play 移行前は `ExportIfEnabled(so)` → 照合 の直列化で購読順序に依存しない | Binding, Deriver, Receiver, FacialTimelineHashCalculator, TimelineBakeDirtyWatcher（`ProcessOpenSceneTimelinesNow`）, core FacialCharacterProfileAutoExporter | `TimelineAdapterBinding.Enabled`, `FacialController.CurrentProfile`, `ComputeProfileContentHashHex`, `ExportIfEnabled`, `ProfileMismatch` | Play セッション開始, Edit フロー, D6 |
 | 1.6 | Facial トラックの binding 自動設定 | TrackBindingResolver, Receiver.OnEnable, Inspector | `EnsureBindings`, `ITrackBindingWriter` | Play セッション開始 |
 | 2.1 / 2.2 | Slug + Enabled のみ、PropertyDrawer | Binding, TimelineAdapterBindingDrawer | `IAdapterBindingHeaderSummaryProvider` | — |
-| 2.3 | TimelineAsset からの導出規則 | Deriver, SinkIdConvention | `TimelineChannelDeriver.Derive` | D1 |
+| 2.3 | TimelineAsset からの導出規則（走査は Adapters の Scanner、導出は Domain の純粋関数） | TimelineAssetScanner, Deriver, SinkIdConvention | `TimelineAssetScanner.Scan`, `TimelineChannelDeriver.Derive(IReadOnlyList<TimelineTrackDescriptor>, FacialProfile)` | D1, D14 |
 | 2.4 | 旧フィールドの legacy 保持と 1 回警告 | Binding | `HasLegacyFields` | §Migration |
 | 2.5 | `timeline:` id を不正扱いしない | core InvalidIdValidator, `IAdapterBindingDynamicInputs` | `InvalidIdValidator.Validate` | — |
 | 2.6 | 無効フラグで何もしない + 診断表示 | Binding, Evaluator | `BindingDisabled` | — |
@@ -443,14 +477,14 @@ stateDiagram-v2
 | 3.1 | 値 sink の自動接続、state sink の登録先 | Connector, core FacialController API | `TryBindLayerInputSource`, `TryRegisterLayerStateSource` | D2 |
 | 3.2 | セッション終了で解放・復元 | Connector, Takeover, Receiver, Mixer | `Disconnect`, `Release`, `ReleaseAll` | Play セッション開始（終了部） |
 | 3.3 | 既存の値 sink 宣言を優先しスキップを診断。旧 `:state` 宣言は非互換として検出・停止し、Inspector から削除できる | Connector, SinkIdConvention, Inspector, LegacyTimelineDeclarationCleaner | `IsLayerInputSourceBound`, `LayerConnectionSkippedDeclared`, `IsLegacyStateDeclaration`, `LegacyStateDeclaration`, `RemoveStateDeclarations` | Play セッション開始, D2 |
-| 3.4 / 3.5 | Analog 消費先（registry Replace → core 消費者の再解決で実際の BlendShape に届く）と解決不可の明示 | Takeover, core AnalogExpressionInputSource / AnalogBlendShapeInputSource（`AttachRegistry`）, InputSystemAdapterBinding（接続 1 行）, Diagnostics | `AttachRegistry`, `AnalogTakeoverAttached` / `AnalogSourceNotFound` / `AnalogOccupied` | Play セッション開始, D3 |
+| 3.4 / 3.5 | Analog 消費先（registry Replace → `IRegistryAttachableAnalogConsumer` 実装の再解決で実際の BlendShape に届く）と解決不可の明示。実 InputSystem 経路は (a) core Small + (b) inputsystem PlayMode + (c) timeline e2e の 3 段で証明 | Takeover, core `IRegistryAttachableAnalogConsumer` / AnalogExpressionInputSource / AnalogBlendShapeInputSource, InputSystemAdapterBinding（接続 1 行）, Diagnostics | `AttachRegistry` / `DetachRegistry`, `AnalogTakeoverAttached` / `AnalogSourceNotFound` / `AnalogOccupied` | Play セッション開始, D3 |
 | 3.6 / 3.7 | Gaze 乗っ取りと takeover 先の導出 | Takeover | `ChannelSubId` 直使用 | D4 |
 | 3.8 | core の接続 / 解放 / 判定 API と `_layer2Provider` 反映 | FacialController, LayerUseCase, Layer2ActiveExpressionProvider | 下記 API | D2 |
 | 4.1 / 4.7 | Bake の Runtime 解決（全 Facial トラックの参照一致を要求）と Export 時の参照埋め込み | Locator, Bake holder, Exporter, BakeReferenceWriter | `FacialTimelineBakeLocator.Locate`, `BakeLocateStatus.Found / Conflict` | Play セッション開始, D5 |
 | 4.2 | BakeAsset は任意上書き。トラック参照と異なれば Warning | Receiver, Locator | `BakeLocateStatus.OverrideUsed`, `BakeOverrideDiffers` | D5 |
 | 4.3 | Value sink の名前を Bake から確定 | Connector | `TimelineBakedValueSink` 構築をセッション時に移動 | — |
 | 4.4 | 内部キャッシュ化 | DirtyWatcher, Exporter（HideFlags） | — | D5 |
-| 4.5 | Bake と Runtime の Profile ソース統一（Edit は `LoadProfile()` をそのまま呼ぶ、Play は controller の値、両者をハッシュで照合。Timeline 側は profile.json を書かず AutoExport の順序に依存しない） | TimelineProfileSource, FacialTimelineHashCalculator, TimelineBakeService, TimelineBakeDirtyWatcher（`ProcessOpenSceneTimelinesNow`） | `Resolve`, `ComputeProfileContentHashHex`, `ProfileContentHashHex` | D6 |
+| 4.5 | Bake と Runtime の Profile ソース統一（Edit は `LoadProfile()` をそのまま呼ぶ、Play は controller の値、両者をハッシュで照合。Play 移行前は AutoExporter の冪等入口 `ExportIfEnabled(so)` を先に呼んでから照合するため購読順序に依存せず、Timeline 側が独自に profile.json を書くことはない） | TimelineProfileSource, FacialTimelineHashCalculator, TimelineBakeService, TimelineBakeDirtyWatcher（`ProcessOpenSceneTimelinesNow`）, core FacialCharacterProfileAutoExporter | `Resolve`, `ComputeProfileContentHashHex`, `ProfileContentHashHex`, `ExportIfEnabled`, `Exported` | D6 |
 | 4.6 | 鮮度不一致の診断。Timeline 構造の不一致（`BakeStale`）も Profile スナップショットの不一致（`ProfileMismatch`）も Warning で継続し、Console に 1 回明示 | Receiver, Diagnostics, TimelineBakeService.IsStale | `BakeStale`（Warning、継続）, `ProfileMismatch`（Warning、継続） | D6 |
 | 5.1〜5.5 | Receiver 集約と Inspector 診断 | Receiver, Diagnostics, Evaluator, Inspector | `FacialTimelineDiagnostics`, `EvaluateStaticDiagnostics` | D7 |
 | 5.6 | UI Toolkit | Inspector | `CreateInspectorGUI` | — |
@@ -476,7 +510,7 @@ stateDiagram-v2
 | 10.4 | id 形式統一 | Deriver, Takeover | `ChannelSubId` 保持 | D4 |
 | 10.5 / 10.6 | 出力は TimelineAsset 1 つ、残り手順の表示 | Exporter, ExportWindow | 新署名 | — |
 | 10.7 | 旧形式の診断。Play は Failed で再 Export / 再ベイクを案内、Edit は自動再ベイクで新形式へ移行 | Locator, Diagnostics, Watcher | `BakeLegacyExport`, `MarkDirty(BakeReferenceInconsistent)` | D5 |
-| 11.1〜11.3 | e2e（Analog クリップ → `AnalogExpressionInputSource`（Fake binding で InputSystem と同形に構成）→ BlendShape 変化、トラック参照をずらして Failed → `RebakeNow` で復旧するケースを含む） | TimelinePlaybackEndToEndTests, TimelineE2EFixture, FakeAnalogAdapterBinding | `AttachRegistry` | D3, D12 |
+| 11.1〜11.3 | e2e（Analog クリップ → `AnalogExpressionInputSource`（Fake binding で InputSystem と同形に構成）→ BlendShape 変化、トラック参照をずらして Failed → `RebakeNow` で復旧するケースを含む）。実 InputSystem 経路は inputsystem パッケージの `InputSystemAdapterBindingIntegrationTests`（Replace 追従）と core 契約テストで補完する 3 段構成 | TimelinePlaybackEndToEndTests, TimelineE2EFixture, FakeAnalogAdapterBinding, inputsystem InputSystemAdapterBindingIntegrationTests | `IRegistryAttachableAnalogConsumer.AttachRegistry` | D3, D12 |
 | 11.4 | 診断状態値で検証（旧 `:state` 宣言 / Bake 参照不整合 / Profile 不一致（Warning）/ 未保存 Timeline を含む） | TimelineDiagnosticsEvaluator tests, Receiver tests, Connector tests | `TimelineDiagnosticCode` | — |
 | 11.5 | Edit/Play 一致テスト（同一スナップショットで一致。JSON と SO を食い違わせた fixture では Edit は stale 表示 + 再ベイクで解消、Play は Warning + 継続で `Active`） | TimelinePreviewCompositorTests, TimelineProfileSourceTests, FacialTimelineReceiverTests | `ProfileCheck`, `Diagnostics.Contains(ProfileMismatch)`, `SessionState` | D6, D9 |
 | 11.6〜11.8 | サイズ属性・ファイル配置・EditMode 優先。Editor 購読の冪等性・解除は `TimelineEditorServicesTests` で固定 | §Testing Strategy, TimelineEditorServices | — | D8 |
@@ -489,10 +523,12 @@ D13（Req 10.1 / 10.2 の判定）: Source Overrides（Auto / Analog / Gaze）�
 |---|---|---|---|---|---|
 | FacialController 追加 API | core Adapters | 宣言の無い入力源の接続 / 解放 / 判定、系2 の active provider 登録 | 3.1, 3.3, 3.8 | LayerUseCase (P0), Layer2ActiveExpressionProvider (P0) | Service |
 | IAdapterBindingDynamicInputs / InvalidIdValidator | core Domain / Editor | 動的 id を持つ binding の prefix 許容 | 2.5 | SourcePortEnumerator (P2) | Service |
-| AnalogExpressionInputSource / AnalogBlendShapeInputSource（改） | core Adapters | registry 購読による analog source の再解決（Replace 追従） | 3.4, 3.5, 11.1 | IInputSourceRegistry.Subscribe (P0) | Service |
-| InputSystemAdapterBinding（最小変更） | inputsystem Adapters | 構築済み `AnalogExpressionInputSource` に registry を渡す 1 行 | 3.4 | AnalogExpressionInputSource.AttachRegistry (P0) | — |
+| IRegistryAttachableAnalogConsumer / AnalogExpressionInputSource / AnalogBlendShapeInputSource（改） | core Domain 契約 + core Adapters 実装 | registry 購読による analog source の再解決（Replace 追従）の公開契約と実装 | 3.4, 3.5, 11.1, 11.2 | IInputSourceRegistry.Subscribe (P0) | Service |
+| InputSystemAdapterBinding（最小変更） | inputsystem Adapters | 構築済み `AnalogExpressionInputSource` に registry を渡す 1 行。実経路の Replace 追従は inputsystem PlayMode テストで固定 | 3.4, 11.1, 11.2 | IRegistryAttachableAnalogConsumer.AttachRegistry (P0) | — |
+| FacialCharacterProfileAutoExporter（改） | core Editor | profile.json の冪等な書き出し入口 `ExportIfEnabled(so)` と完了イベント `Exported`。Play 移行前の Profile 同期を Timeline 側から直列に呼べるようにする | 1.5, 4.5, 7.1, 11.5 | FacialCharacterProfileExporter (P0), AssetDatabase (P1) | Service, Event |
 | TimelineSinkIdConvention | timeline Domain | sink id 規約 | 2.3 | InputSourceId (P0) | Service |
-| TimelineChannelDeriver | timeline Domain | TimelineAsset + Profile → 導出結果 | 2.3, 8.2 | Unity.Timeline (P0) | Service |
+| TimelineAssetScanner | timeline Adapters | TimelineAsset を Unity 非依存 DTO `TimelineTrackDescriptor` 列に写す（`Unity.Timeline` 走査の唯一の置き場） | 2.3, 4.1, 8.2 | Unity.Timeline (P0), Tracks (P0) | Service |
+| TimelineChannelDeriver | timeline Domain | `TimelineTrackDescriptor` 列 + Profile → 導出結果（純粋関数） | 2.3, 8.2 | TimelineTrackDescriptor (P0), TimelineSinkIdConvention (P1) | Service |
 | FacialTimelineHashCalculator（改） | timeline Domain | Profile スナップショットの内容ハッシュ（`ProfileContentHash`）の分離と Source ハッシュへの包含 | 1.5, 4.5, 4.6, 7.1, 7.5 | FacialProfile (P0), GazeChannel (P1) | Service |
 | FacialTimelineDiagnostics / Evaluator / Gate | timeline Domain + Adapters | 診断状態モデルと静的評価、1 回警告 | 2.6, 2.7, 5.x, 8.x, 10.7 | — | State, Event |
 | FacialTimelineBakeLocator / IFacialTimelineBakeHolder | timeline Adapters | Bake の Runtime 解決 | 4.1, 4.2, 10.7 | Tracks (P0) | Service |
@@ -505,7 +541,7 @@ D13（Req 10.1 / 10.2 の判定）: Source Overrides（Auto / Analog / Gaze）�
 | TimelineProfileSource | timeline Editor | Profile ソース統一 | 4.5, 7.5 | FacialCharacterProfileSO (P0) | Service |
 | TimelineEditorServices | timeline Editor | Unity イベント購読の唯一の所有者。ChangeWatcher の生成、DirtyWatcher への配送、tick の要求 / 解放、Shutdown | 6.1, 6.5, 6.7, 9.1, 11.7 | TimelineEditChangeWatcher (P0), TimelineBakeDirtyWatcher (P0), EditorApplication / ObjectChangeEvents / Undo / AssemblyReloadEvents (P0) | Service, Event |
 | TimelineEditChangeWatcher | timeline Editor | 変更検知の合流・デバウンス・BakeUpdated（インスタンス。Services が所有） | 6.x | DirtyWatcher (P0), Timeline Editor API (P0), TimelineEditorServices (P0) | Event, Batch |
-| TimelineBakeDirtyWatcher（改） | timeline Editor | 再ベイク実行・参照書込・Undo。`ExitingEditMode` の鮮度照合（JSON は書かない） | 4.5, 6.4, 6.6, 9.1 | TimelineBakeService (P0), TimelineProfileSource (P0) | Batch |
+| TimelineBakeDirtyWatcher（改） | timeline Editor | 再ベイク実行・参照書込・Undo。`ExitingEditMode` の直列同期（`ExportIfEnabled` → `InvalidateCache` → `Resolve` → 照合 → 再ベイク） | 1.5, 4.5, 6.4, 6.6, 9.1 | TimelineBakeService (P0), TimelineProfileSource (P0), FacialCharacterProfileAutoExporter.ExportIfEnabled (P0) | Batch |
 | TimelinePreviewCompositor | timeline Editor | Edit 合成（オフライン LayerUseCase） | 7.1, 7.4, 7.6 | LayerUseCase (P0), SkinnedMeshRendererBlendShapeWriter (P0) | Service |
 | FacialTimelineReceiverInspector / TimelineAdapterBindingDrawer | timeline Editor | UI Toolkit 表示、旧 `:state` 宣言の削除操作 | 2.2, 3.3, 5.x | Diagnostics (P0), LegacyTimelineDeclarationCleaner (P1) | — |
 | LegacyTimelineDeclarationCleaner | timeline Editor | Profile SO の旧 `timeline:*:state` 宣言の走査と Undo 付き削除 | 3.3 | FacialCharacterProfileSO (P0), TimelineSinkIdConvention (P0) | Service |
@@ -560,12 +596,12 @@ public interface IAdapterBindingDynamicInputs { } // マーカー: {Slug}:* の 
 - Validation: core EditMode テスト `FacialControllerTests`（既存 `{Target}Tests.cs`）に Bind → Aggregate 反映、Unbind → 復元、未初期化で false、`IsLayerInputSourceBound` の真偽を追加（Medium。FacialController は AddComponent 禁止 API）。`InvalidIdValidatorTests` に prefix 許容を追加（Small）
 - Risks: `Cleanup` 後に Receiver が古い sink の Unbind を呼ぶと false で終わる（警告なし）。Receiver 側は `SessionState` と `controller.IsInitialized` を見て再接続する
 
-#### AnalogExpressionInputSource / AnalogBlendShapeInputSource（改。registry 再解決）
+#### IRegistryAttachableAnalogConsumer / AnalogExpressionInputSource / AnalogBlendShapeInputSource（改。registry 再解決）
 
 | Field | Detail |
 |---|---|
-| Intent | 構築時に直接参照で解決した `IAnalogInputSource` を、registry の Register / Replace / Unregister 通知に追従して差し替える。Timeline / REC の Replace 乗っ取りが実際の BlendShape 出力に届く契約を core 側で閉じる |
-| Requirements | 3.4, 3.5, 11.1 |
+| Intent | 構築時に直接参照で解決した `IAnalogInputSource` を、registry の Register / Replace / Unregister 通知に追従して差し替える。契約を Domain の公開 interface `IRegistryAttachableAnalogConsumer` として定義し、Timeline / REC の Replace 乗っ取りが実際の BlendShape 出力に届くことを core 側で閉じる。第三者の Analog 消費者も同 interface を実装すれば同じ到達範囲になる |
+| Requirements | 3.4, 3.5, 11.1, 11.2 |
 
 **Responsibilities & Constraints**
 - 消費者が「どの source id を読むか」は構築時の binding 定義（`SourceId`）のまま。再解決は「その id の registry エントリが差し替わったら読む先を変える」だけで、binding の追加・削除・値変換は行わない
@@ -582,21 +618,72 @@ public interface IAdapterBindingDynamicInputs { } // マーカー: {Slug}:* の 
 
 ##### Service Interface
 ```csharp
-// Hidano.FacialControl.Adapters.InputSources（追加分。両クラス共通の形）
-public void AttachRegistry(IInputSourceRegistry registry, AdapterSlug slug);
-// 構築時に解決した binding ごとに registry.Subscribe($"{slug.Value}:{binding.SourceId}", handler) を 1 回登録する。
-// handler: 通知 source が IAnalogInputSource なら ResolvedBinding.Source をそれに差し替える。
-//          null（Unregister）なら構築時の OriginalSource に戻す。IAnalogInputSource でない非 null は無視（警告なし）。
-public bool IsRegistryAttached { get; }
+// Hidano.FacialControl.Domain.Adapters（新規。IInputSourceRegistry と同じフォルダ）
+public interface IRegistryAttachableAnalogConsumer
+{
+    /// 構築時に解決した binding ごとに registry.Subscribe($"{slug.Value}:{binding.SourceId}", handler) を 1 回登録する。
+    /// handler: 通知 source が IAnalogInputSource なら解決済み Source をそれに差し替える。
+    ///          null（Unregister）なら構築時の OriginalSource に戻す。IAnalogInputSource でない非 null は無視（警告なし）。
+    void AttachRegistry(IInputSourceRegistry registry, AdapterSlug slug);
+
+    /// 全 binding の Source を OriginalSource に戻し、以後の通知を無視する（IInputSourceRegistry に Unsubscribe が無いため、
+    /// 登録済み handler は世代番号で no-op 化する）。IsRegistryAttached は false になる。
+    void DetachRegistry();
+
+    bool IsRegistryAttached { get; }
+}
+
+// Hidano.FacialControl.Adapters.InputSources: AnalogExpressionInputSource / AnalogBlendShapeInputSource が実装
+public sealed class AnalogExpressionInputSource : ValueProviderInputSourceBase, IRegistryAttachableAnalogConsumer { /* 既存メンバは不変 */ }
+public sealed class AnalogBlendShapeInputSource : ValueProviderInputSourceBase, IRegistryAttachableAnalogConsumer { /* 既存メンバは不変 */ }
 ```
 - Preconditions: `registry != null`、`slug` が有効。構築時に解決できなかった binding（source 未登録で skip されたもの）は対象外（構築時警告どおり無効のまま。本仕様では「構築後に現れた source を拾う」ことはしない）
-- Postconditions: `AttachRegistry` は冪等（2 回目以降は no-op、`IsRegistryAttached == true`）。通知後の `TryWriteValues` は新 source の `IsValid` / `AxisCount` / `TryRead*` を読む。`ContributeMask` は構築時のまま（Expression / BlendShape の対象集合は変わらない）
-- Invariants: コンストラクタ署名・既存の挙動（`AttachRegistry` を呼ばない場合）は不変。再解決で `AxisCount` が binding の `SourceAxis` 未満になった source は既存の `rb.SourceAxis >= source.AxisCount` 判定で skip される
+- Postconditions（Attach）: 冪等（同じ registry への 2 回目以降は no-op、`IsRegistryAttached == true`。別 registry を渡された場合は `DetachRegistry` 相当を行ってから新 registry に Subscribe）。通知後の `TryWriteValues` は新 source の `IsValid` / `AxisCount` / `TryRead*` を読む。`ContributeMask` は構築時のまま（Expression / BlendShape の対象集合は変わらない）。（Detach）: 全 `Source == OriginalSource`、`IsRegistryAttached == false`、以後の通知で `Source` が変わらない。Attach していない状態の Detach は no-op
+- Invariants: コンストラクタ署名・既存の挙動（`AttachRegistry` を呼ばない場合）は不変。再解決で `AxisCount` が binding の `SourceAxis` 未満になった source は既存の `rb.SourceAxis >= source.AxisCount` 判定で skip される。interface は Domain の型（`IInputSourceRegistry` / `AdapterSlug`）だけを参照する
 
 **Implementation Notes**
-- Integration: `ResolvedBinding` を `Source`（可変）+ `OriginalSource`（不変）を持つ形にする。`AttachRegistry` 内の Subscribe handler はクロージャで binding index を捕まえる（確保は Attach 時の 1 回）。`InputSystemAdapterBinding.BuildAnalogExpressionSink` は `ctx.InputSourceRegistry.Register(slug, ReservedId, _analogExpressionSink)` の直後に `_analogExpressionSink.AttachRegistry(ctx.InputSourceRegistry, slug)` を呼ぶ（この 1 行のみ）。`AnalogBlendShapeInputSource` は production の構築経路が無いが、同じ契約を持たせて将来の binding 実装が同形で使えるようにする
-- Validation: core EditMode Small `AnalogExpressionInputSourceTests`（`{Target}Tests.cs`。既存ファイルが無いため新規作成）/ 既存 `AnalogBlendShapeInputSourceTests` に追記: Fake registry で `AttachRegistry` → `Replace` 後に `TryWriteValues` が新 source の値を書く、`Unregister`（null）で元の source に戻る、`IAnalogInputSource` でない source の Replace は無視、`AttachRegistry` の 2 回呼びで購読が増えない、Attach 前は従来どおり。inputsystem PlayMode `InputSystemAdapterBindingIntegrationTests` に「`{slug}:{action}` を Replace すると analog expression の出力が追従し、戻すと復元」を追記
-- Risks: 購読が registry と同寿命のため、registry を使い回して消費者だけ作り直す構成（現状の core には無い）では古い handler が残る。`FacialController.Cleanup` は registry ごと破棄するため影響しない。Revalidation Triggers に `Subscribe` 契約の変更を登録済み
+- Integration: `ResolvedBinding` を `Source`（可変）+ `OriginalSource`（不変）を持つ形にする。`AttachRegistry` 内の Subscribe handler はクロージャで binding index と世代番号を捕まえる（確保は Attach 時の 1 回。`DetachRegistry` は世代番号を進めて旧 handler を no-op 化する）。`InputSystemAdapterBinding.BuildAnalogExpressionSink` は `ctx.InputSourceRegistry.Register(slug, AnalogExpressionInputSource.ReservedId, _analogExpressionSink)` の直後に `_analogExpressionSink.AttachRegistry(ctx.InputSourceRegistry, slug)` を呼ぶ（この 1 行のみ。`Dispose` で `DetachRegistry` は呼ばない: 消費者と registry は同じ child scope で破棄される）。timeline Tests/Shared の `FakeAnalogAdapterBinding` は `IRegistryAttachableAnalogConsumer` 経由で Attach し、`Dispose` で `DetachRegistry` を呼ぶ。`AnalogBlendShapeInputSource` は production の構築経路が無いが、同じ契約を持たせて将来の binding 実装が同形で使えるようにする
+- Validation（3 段構成の (a)(b)。(c) は e2e）: **(a) core** EditMode Small `AnalogExpressionInputSourceTests`（`{Target}Tests.cs`。既存ファイルが無いため新規作成）/ 既存 `AnalogBlendShapeInputSourceTests` に追記: Fake registry で `AttachRegistry` → `Replace` 後に `TryWriteValues` が新 source の値を書く、`Unregister`（null）で元の source に戻る、`IAnalogInputSource` でない source の Replace は無視、`AttachRegistry` の 2 回呼びで購読が増えない、`DetachRegistry` 後は Replace 通知を無視し `Source == OriginalSource`、Attach 前は従来どおり、`typeof(IRegistryAttachableAnalogConsumer).IsAssignableFrom` が両クラスで true。**(b) inputsystem** PlayMode Medium `InputSystemAdapterBindingIntegrationTests`（既存）に: `BindingMode.Analog` の action 1 本（`<Gamepad>/leftStick/x` 等）で実 binding を `OnStart`（既存 SetUp の実 `InputSourceRegistry`）→ `registry.TryResolve("{slug}:analog-expression")` を `AnalogExpressionInputSource` にキャスト → `registry.Replace(slug, actionName, stubAnalog)`（stub 値 0.5）→ `TryWriteValues` の対象 BlendShape が 0.5 × Expression 値 → `registry.Unregister(slug, actionName)` → 構築時 source（スティック無入力 = 0）の値に戻る、別ケースで Replace 元の wrapper へ `Replace` し直しても構築時と同じ値。Overlay 経路のテストは変更しない
+- Risks: 購読が registry と同寿命のため、registry を使い回して消費者だけ作り直す構成（現状の core には無い）では古い handler が残る（`DetachRegistry` で no-op 化できる）。`FacialController.Cleanup` は registry ごと破棄するため影響しない。Revalidation Triggers に `Subscribe` 契約の変更を登録済み
+
+#### FacialCharacterProfileAutoExporter（改。冪等入口と完了イベント）
+
+| Field | Detail |
+|---|---|
+| Intent | profile.json の書き出しを「SO 1 つ・冪等・結果を返す」入口として公開し、Play 移行前に Timeline 側が直列に呼べるようにする。既存の契機（`ExitingEditMode` の `ExportAll` / ビルド前）と内容は変えない |
+| Requirements | 1.5, 4.5, 7.1, 11.5 |
+
+**Responsibilities & Constraints**
+- JSON の所有者は引き続き core（`FacialCharacterProfileExporter` の DTO / シリアライザ / パス規約を使う）。Timeline 側は呼ぶだけ
+- 「有効な SO」= 既存 `ExportProfileJson` がスキップしない SO（`so != null` かつ `CharacterAssetName` 非空白かつ `GetStreamingAssetsProfilePath` 非空）。別のフラグは追加しない
+- 書き込みは生成 JSON と既存ファイルの文字列が異なるときだけ（ファイル無しは「異なる」）。同一内容では `File.WriteAllText` を省き `LastWriteTimeUtc` を変えない
+
+**Dependencies**
+- Inbound: `ExportAll`（既存契機）、timeline `TimelineBakeDirtyWatcher.ProcessOpenSceneTimelinesNow`（P0）
+- Outbound: `FacialCharacterProfileExporter.SampleAnimationClipsIntoCachedSnapshots` / `BuildProfileSnapshotDto` / `ExportProfileJson`（P0）、`AssetDatabase.SaveAssetIfDirty`（P1）
+- Event consumers: timeline `TimelineEditorServices`（`Exported` → `MarkDirty(ProfileChanged)`）
+
+**Contracts**: Service [x] / Event [x]
+
+##### Service Interface
+```csharp
+// Hidano.FacialControl.Editor.AutoExport.FacialCharacterProfileAutoExporter（追加分）
+public static bool ExportIfEnabled(FacialCharacterProfileSO so);
+// 無効（null / CharacterAssetName 空白）→ false、何もしない（既存どおり Warning は ExportProfileJson 側の文言を維持せず、ExportIfEnabled では出さない）。
+// 有効 → AssetDatabase.SaveAssetIfDirty(so) → SampleAnimationClipsIntoCachedSnapshots(so, sampler) → JSON 生成 →
+//        既存 profile.json と比較 → 異なるときだけ ExportProfileJson(so) → true + Exported(so)。同一なら false。
+
+public static event Action<FacialCharacterProfileSO> Exported;   // ExportIfEnabled が true を返した直後、同期発火（1 回）
+public static int ExportAll(string trigger);                      // 既存。ループ本体を ExportIfEnabled に委譲（戻り値 = true の件数）
+```
+- Preconditions: メインスレッド、Edit モード（`ExitingEditMode` を含む）
+- Postconditions: 戻り値 true ⇔ profile.json が書き換わった ⇔ `Exported` が 1 回発火。false のときファイルの `LastWriteTimeUtc` は不変。`ExportAll` の件数・ログ・例外時の継続（Warning + skip）は従来どおり
+- Idempotency: 同じ SO 内容で連続して呼ぶと 2 回目以降は false。`ExportAll` → `ExportIfEnabled` の順でも逆順でも 2 回目は no-op
+
+**Implementation Notes**
+- Integration: `ExportAll` の `try` ブロック内を `if (ExportIfEnabled(so)) exported++;` に置き換える。`ExportIfEnabled` の例外は呼び出し側（`ExportAll` / DirtyWatcher）が Warning にして継続する。`SaveAssetIfDirty` は既存 `ExportAll` が同じ時点で行っている副作用（未保存編集の確定）であり、`ExportIfEnabled` に移しても契機・対象は変わらない
+- Validation: core `FacialCharacterProfileAutoExporterTests`（既存 Medium）に追記: 初回 true + `Exported` 1 回 + ファイル生成、同内容 2 回目 false + 不発火 + `LastWriteTimeUtc` 不変、SO の Expression を変えて true + 発火、`CharacterAssetName` 空（未保存 `CreateInstance` の SO）で false + ファイル無し + 不発火、`ExportAll` の戻り値が `ExportIfEnabled` の true 件数と一致
+- Risks: `Exported` の購読者が例外を投げると `ExportAll` の後続 SO に影響する → 発火は `try / catch` で囲み購読者例外を `LogException` にして継続する
 
 ### timeline Runtime Domain
 
@@ -604,7 +691,7 @@ public bool IsRegistryAttached { get; }
 
 | Field | Detail |
 |---|---|
-| Intent | TimelineAsset と Profile からレイヤー / チャネルを導出し、レイヤーごとの sink id を規約どおりに合成する純粋関数 |
+| Intent | Scanner が写した `TimelineTrackDescriptor` 列と Profile からレイヤー / チャネルを導出し、レイヤーごとの sink id を規約どおりに合成する純粋関数。Unity 型を受けない（D14） |
 | Requirements | 2.3, 8.2, 10.4 |
 
 **Contracts**: Service [x]
@@ -620,11 +707,27 @@ public static class TimelineSinkIdConvention
     public static bool IsLegacyStateDeclaration(string declaredId, AdapterSlug slug);   // "{slug}:" で始まり ":state" で終わる宣言（名前形 / index フォールバック形の双方）
 }
 
+public enum TimelineTrackKind { Expression, Value }
+
+public readonly struct TimelineTrackDescriptor          // Scanner が返す DTO。Unity 型を含まない
+{
+    public int TrackIndex { get; }                      // Scanner 結果内の index（Adapters が TrackAsset へ逆引きする鍵）
+    public TimelineTrackKind Kind { get; }
+    public string Name { get; }                         // TrackAsset.name
+    public string ChannelSubId { get; }                 // Value のみ。REC の source id をそのまま保持
+    public FacialValueChannelKind ChannelKind { get; }  // Value のみ（timeline Tracks の enum。Unity 非依存）
+    public int MaxAxisCount { get; }                    // Value のみ。クリップ Axes.Length の最大値（0 なら無効）
+    public bool HasBakeReference { get; }               // IFacialTimelineBakeHolder.Bake != null
+    public int BakeInstanceId { get; }                  // 参照の同一性比較用（null は 0）
+    public bool IsChild { get; }                        // GetChildTracks 由来（{layer} Lane n）
+    public int ParentIndex { get; }                     // IsChild のとき親の TrackIndex、root は -1
+}
+
 public readonly struct TimelineLayerDescriptor
 {
-    public string LayerName { get; }        // root FacialExpressionTrack.name
+    public string LayerName { get; }        // root Expression トラックの Name
     public int LayerIndex { get; }          // Profile のレイヤー index。未一致は -1
-    public FacialExpressionTrack RootTrack { get; }
+    public int TrackIndex { get; }          // 対応する TimelineTrackDescriptor.TrackIndex
     public bool IsMatched => LayerIndex >= 0;
 }
 
@@ -632,8 +735,8 @@ public readonly struct TimelineChannelDescriptor
 {
     public string ChannelSubId { get; }     // REC の source id をそのまま保持
     public FacialValueChannelKind Kind { get; }
-    public int AxisCount { get; }           // クリップ Axes.Length の最大値（0 なら無効）
-    public FacialValueTrack Track { get; }
+    public int AxisCount { get; }           // MaxAxisCount（0 なら無効）
+    public int TrackIndex { get; }          // 対応する TimelineTrackDescriptor.TrackIndex
 }
 
 public sealed class TimelineDerivation
@@ -647,15 +750,16 @@ public sealed class TimelineDerivation
 
 public static class TimelineChannelDeriver
 {
-    public static TimelineDerivation Derive(TimelineAsset timeline, FacialProfile profile);
+    public static TimelineDerivation Derive(IReadOnlyList<TimelineTrackDescriptor> tracks, FacialProfile profile);
 }
 ```
-- Preconditions: `timeline != null`。`profile` は `default` 可（レイヤー一致なしとして扱い全トラックを Unmatched にする。Edit 診断で Profile 未解決の場合に使う）
-- Postconditions: 子トラックは `Layers` に現れない。`Layers` の順序は root トラック順。確保はすべて呼び出し時（セッション開始 / 診断評価）に閉じる。`IsLegacyStateDeclaration` は `InputSourceId.TryParse` に失敗する文字列には false を返す
-- Invariants: 同じ入力に対して決定的。`Derive` は Unity オブジェクトを生成・変更しない
+- Preconditions: `tracks != null`（空なら `HasFacialTracks == false`）。`profile` は `default` 可（レイヤー一致なしとして扱い全トラックを Unmatched にする。Edit 診断で Profile 未解決の場合に使う）
+- Postconditions: `IsChild == true` のトラックは `Layers` に現れない。`Layers` の順序は root トラック順（`TrackIndex` 昇順）。`Channels` は root の `Value` トラックのみ。確保はすべて呼び出し時（セッション開始 / 診断評価）に閉じる。`IsLegacyStateDeclaration` は `InputSourceId.TryParse` に失敗する文字列には false を返す
+- Invariants: 同じ入力に対して決定的。`Derive` は Unity オブジェクトに触れない（`using UnityEngine.*` を持たない。D14）
 
 **Implementation Notes**
-- Validation: `TimelineChannelDeriverTests` / `TimelineSinkIdConventionTests`（Small。`ScriptableObject.CreateInstance<TimelineAsset>` と `CreateTrack` のみ。`IsLegacyStateDeclaration` は名前形 / index 形 / 値 sink 宣言（false）/ 他 slug（false）を検証）
+- Integration: 呼び出し側（Receiver / Evaluator / Compositor）は `TimelineAssetScanner.Scan(timeline)` の `Tracks` を渡し、`TrackIndex` で同結果の `TrackAssets` へ逆引きする
+- Validation: `TimelineChannelDeriverTests` / `TimelineSinkIdConventionTests`（Small。**DTO 列を手組みし TimelineAsset を生成しない**。root のみ対象 / `IsChild` を含めない / 未一致トラック名 / `ChannelSubId` 重複 / 軸数最大 / 空列。`IsLegacyStateDeclaration` は名前形 / index 形 / 値 sink 宣言（false）/ 他 slug（false）を検証）
 - Risks: 非 ASCII レイヤー名の index フォールバックは Profile のレイヤー順に依存する。Profile でレイヤーを並べ替えると id が変わるが、sink id はセッション内部識別子であり永続化しないため影響は診断表示のみ
 
 #### FacialTimelineHashCalculator（改）
@@ -679,7 +783,7 @@ public static class FacialTimelineHashCalculator
 ```
 - Preconditions: `profile` は `default` 不可（呼び出し側が `HasProfile` を保証）。`gazeChannels` は空可
 - Postconditions: `ProfileContentHash` は `SchemaVersion` / `Layers`（Name / Priority / ExclusionMode、順序込み）/ `LayerInputSources`（id と weight、レイヤー順）/ `Expressions`（既存どおり id 順ソート）/ `Slots` / `DefaultOverlays` / `BaseExpression` / `GazeChannels`（id / sourceIdLeft / sourceIdRight / 目ボーンパス、順序込み）を FNV-1a 64 で畳む。`ComputeHash` は Timeline 構造 + `ProfileContentHash` + `sampleRate`。同じ入力に対して決定的
-- Invariants: Runtime asmdef（Domain）に置き Editor API を使わない。`GazeChannel` は core Adapters の `[Serializable]` 型であるため、本パッケージ Domain が既に `Unity.Timeline` 型を扱っている前提に倣い Services に置く
+- Invariants: Runtime asmdef に置き Editor API を使わない。本クラスは **既存例外**（`TimelineAsset` / `TrackAsset` を走査する既存 Domain ファイル。D14）であり、本仕様の変更は既存ファイル内でのハッシュ対象拡張と `ProfileContentHash` の分離に留める。`GazeChannel`（core Adapters の `[Serializable]` 型）を受ける overload もこの既存例外ファイル内に置く。Adapters への移動は backlog 候補として記録し、新規 Domain ファイルには Unity 型を持ち込まない
 
 **Implementation Notes**
 - Integration: `TimelineBakeService.Bake` は `ProfileContentHashHex` と `SourceHashHex` の両方を Bake に書く。`IsStale(timeline, so)` は `ProfileContentHashHex` → `SourceHashHex` の順に比較し `BakeStaleReason { None, ProfileChanged, TimelineChanged }` を返す。Receiver / Evaluator / Compositor は同じ順で比較し `ProfileMismatch` / `BakeStale` を割り当てる
@@ -776,6 +880,39 @@ public readonly struct TimelineStaticEvaluationContext
 - Risks: 診断件数が増えると Inspector が長くなる。Area ごとに Foldout、`Ok` は 1 行に畳む
 
 ### timeline Runtime Adapters
+
+#### TimelineAssetScanner
+
+| Field | Detail |
+|---|---|
+| Intent | `Unity.Timeline` の走査（`GetOutputTracks` / `GetChildTracks` / Clip 列挙 / bake holder 読取）を 1 箇所に閉じ、Domain が受ける Unity 非依存 DTO と、Adapters が逆引きする `TrackAsset` 列を同じ index で返す |
+| Requirements | 2.3, 4.1, 8.2 |
+
+**Contracts**: Service [x]
+
+##### Service Interface
+```csharp
+public readonly struct TimelineScanResult
+{
+    public IReadOnlyList<TimelineTrackDescriptor> Tracks { get; }   // Domain へ渡す DTO 列
+    public IReadOnlyList<TrackAsset> TrackAssets { get; }           // Adapters 専用。Tracks[i] に対応する実トラック
+    public bool HasFacialTracks => Tracks.Count > 0;
+}
+
+public static class TimelineAssetScanner
+{
+    public static TimelineScanResult Scan(TimelineAsset timeline);  // null → 空の結果
+    public static TimelineScanResult Empty { get; }
+}
+```
+- Preconditions: `timeline` は null 可（空結果）
+- Postconditions: `GetOutputTracks()` の順に root の `FacialExpressionTrack` / `FacialValueTrack` を列挙し、各 root の直後に `GetChildTracks()` の Facial トラックを `IsChild = true` / `ParentIndex = root の index` で並べる。Facial 以外のトラックは含めない。`MaxAxisCount` は `FacialValueTrack` の全 `FacialValueClip` の `Axes.Length` 最大値。`HasBakeReference` / `BakeInstanceId` は `IFacialTimelineBakeHolder.Bake` から読む。確保は呼び出し時に閉じる（セッション開始 / 診断評価時のみ呼ぶ）
+- Invariants: アセットを変更しない。同じ入力に決定的。`TimelineAssetScanner` 以外の新規コードは `TimelineAsset.GetOutputTracks` / `TrackAsset.GetChildTracks` を直接呼ばない（既存例外 `FacialTimelineHashCalculator` / `TimelineStateEventCollector` / Mixer / Bake 系は対象外）
+
+**Implementation Notes**
+- Integration: Receiver の `BeginPlaybackSession` と Evaluator / Compositor は `Scan` → `TimelineChannelDeriver.Derive(result.Tracks, profile)`。`FacialTimelineBakeLocator.Locate` も内部で `Scan` を使い `TrackAssets` の holder を比較する（Locator の公開署名は `Locate(TimelineAsset, FacialTimelineBakeAsset)` のまま）。`TimelineTrackBindingResolver.EnsureBindings` も `TrackAssets` を走査対象にする
+- Validation: `TimelineAssetScannerTests`（EditMode Small。`ScriptableObject.CreateInstance<TimelineAsset>` + `CreateTrack` のみ。root / 子の順序と `ParentIndex`、Facial 以外の除外、`MaxAxisCount`、bake holder の有無と `BakeInstanceId`、null 入力）
+- Risks: `Unity.Timeline` の API 変更（`GetChildTracks` の挙動等）の影響は本クラスと既存例外 2 ファイルに限定される
 
 #### FacialTimelineBakeLocator / IFacialTimelineBakeHolder
 
@@ -1071,7 +1208,7 @@ public static class TimelineProfileSource
 | Requirements | 6.1, 6.5, 6.7, 9.1, 11.7 |
 
 **Responsibilities & Constraints**
-- 購読対象: `ObjectChangeEvents.changesPublished`、`Undo.undoRedoPerformed`、`EditorApplication.playModeStateChanged`、`AssemblyReloadEvents.beforeAssemblyReload`、`EditorApplication.quitting`。`EditorApplication.update` は `ChangeWatcher` が pending を持つ間だけ（`RequestTick` / `ReleaseTick` の参照カウント）
+- 購読対象（固定 6）: `ObjectChangeEvents.changesPublished`、`Undo.undoRedoPerformed`、`EditorApplication.playModeStateChanged`、`AssemblyReloadEvents.beforeAssemblyReload`、`EditorApplication.quitting`、`FacialCharacterProfileAutoExporter.Exported`（D6 改訂 3）。`EditorApplication.update` は `ChangeWatcher` が pending を持つ間だけ（`RequestTick` / `ReleaseTick` の参照カウント）
 - 購読しないもの: TrackEditor / ClipEditor コールバック（Editor インスタンスが `ChangeWatcher.MarkDirty` を直接呼ぶ）、Receiver Inspector の表示更新（Inspector が自分で購読・解除）、`AssetModificationProcessor.OnWillSaveAssets`（Unity が静的メソッドを呼ぶ既存経路）、`FacialTimelineEditorPreviewBridge` の delegate 登録（既存 `FacialTimelineEditorPreview` のまま）
 - `TimelineBakeDirtyWatcher` は購読を持たない静的サービスになる（`ProcessOpenSceneTimelinesNow` / `TryRepairPendingSessionIssuesNow` / `RebakeNow` は Services または Watcher から呼ばれる）
 
@@ -1090,7 +1227,7 @@ public static class TimelineEditorServices
     public static bool IsInitialized { get; }
     public static int ActiveSubscriptionCount { get; }                // テスト用: 現在登録している Unity イベント購読の数（update を含む）
 
-    public static void EnsureInitialized();   // 冪等。初期化済みなら no-op。ChangeWatcher 生成 + 固定 5 購読
+    public static void EnsureInitialized();   // 冪等。初期化済みなら no-op。ChangeWatcher 生成 + 固定 6 購読（Unity イベント 5 + AutoExporter.Exported）
     public static void Shutdown();            // 全購読解除（update 含む）+ ChangeWatcher.Dispose（pending 破棄）。beforeAssemblyReload / quitting から呼ぶ。テストからも呼べる
 
     internal static void RequestTick();       // ChangeWatcher: 最初の pending で update を購読
@@ -1099,12 +1236,12 @@ public static class TimelineEditorServices
 ```
 - Preconditions: メインスレッド。`Shutdown` 後に `EnsureInitialized` を呼ぶと再初期化（ドメインリロード相当）
 - Postconditions（EnsureInitialized）: 固定購読が各 1 件、`ChangeWatcher` が新規インスタンス。2 回目以降は何も変わらない（`ActiveSubscriptionCount` 不変）。（Shutdown）: `ActiveSubscriptionCount == 0`、`ChangeWatcher.IsPending(any) == false`、以降の Unity イベントで再ベイクが走らない
-- 配送規則: `changesPublished` → 対象型の判定（`EditorUtility.InstanceIDToObject`）→ `ChangeWatcher.MarkDirty(timeline, ObjectChange | ProfileChanged)`。`undoRedoPerformed` → 開いている Timeline（`TimelineEditor.inspectedAsset`）と追跡中 Timeline を `UndoRedo` で MarkDirty。`playModeStateChanged`: `ExitingEditMode` → `ChangeWatcher.FlushNow()` → `TimelineBakeDirtyWatcher.ProcessOpenSceneTimelinesNow()`、`EnteredEditMode` → `TimelineBakeDirtyWatcher.TryRepairPendingSessionIssuesNow()`（無言、Info 1 行）+ `TimelineOnceWarningGate` のエポックリセット、`ExitingPlayMode` → pending 破棄（Play 中の MarkDirty は捨てる）
+- 配送規則: `changesPublished` → 対象型の判定（`EditorUtility.InstanceIDToObject`）→ `ChangeWatcher.MarkDirty(timeline, ObjectChange | ProfileChanged)`。`undoRedoPerformed` → 開いている Timeline（`TimelineEditor.inspectedAsset`）と追跡中 Timeline を `UndoRedo` で MarkDirty。`FacialCharacterProfileAutoExporter.Exported(so)` → `ChangeWatcher.TrackProfile` の逆引きで当該 SO を使う Timeline を `ProfileChanged` で MarkDirty（`isPlayingOrWillChangePlaymode` 中は `Ignored` になり、`ExitingEditMode` の直列処理が代わりに照合する）。`playModeStateChanged`: `ExitingEditMode` → `ChangeWatcher.FlushNow()` → `TimelineBakeDirtyWatcher.ProcessOpenSceneTimelinesNow()`（内部で SO ごとに `ExportIfEnabled` → 照合 → 再ベイク）、`EnteredEditMode` → `TimelineBakeDirtyWatcher.TryRepairPendingSessionIssuesNow()`（無言、Info 1 行）+ `TimelineOnceWarningGate` のエポックリセット、`ExitingPlayMode` → pending 破棄（Play 中の MarkDirty は捨てる）
 - Invariants: Unity イベントの購読者は本クラスのみ（timeline Editor asmdef 内の他クラスが `EditorApplication.update` / `ObjectChangeEvents` / `Undo.undoRedoPerformed` / `playModeStateChanged` を購読しないことをコードレビューの確認項目にする。Inspector の購読は `CreateInspectorGUI` / `DetachFromPanelEvent` に閉じた例外）
 
 **Implementation Notes**
 - Integration: `[InitializeOnLoad]` 静的コンストラクタは `EnsureInitialized()` を呼ぶだけ。`Shutdown` は `beforeAssemblyReload` / `quitting` 両方から呼ばれても二重解除が no-op になるようフラグで守る
-- Validation: `TimelineEditorServicesTests`（EditMode Medium、新規クラス）: `EnsureInitialized` を 2 回呼んでも `ActiveSubscriptionCount` が不変、`Shutdown` で 0 になり `MarkDirty` 後の `FlushNow` でも再ベイクが走らない、`Shutdown` → `EnsureInitialized`（ドメインリロード相当）後に 1 回の変更で再ベイクが 1 回だけ、未保存 Timeline（`CreateInstance` のみ）は `MarkDirty` が `UnsavedTimeline` を返し pending にならない、`MarkDirty` を 10 回連打して `FlushNow` → `RebakeNow` 呼び出しが 1 回（`TimelineBakeDirtyWatcher` の再ベイク口を Fake に差し替えられる `IRebakeExecutor` を Watcher に注入）、pending が無い間は update 購読が無い（`ActiveSubscriptionCount` が固定 5 のまま）
+- Validation: `TimelineEditorServicesTests`（EditMode Medium、新規クラス）: `EnsureInitialized` を 2 回呼んでも `ActiveSubscriptionCount` が不変、`Shutdown` で 0 になり `MarkDirty` 後の `FlushNow` でも再ベイクが走らない、`Shutdown` → `EnsureInitialized`（ドメインリロード相当）後に 1 回の変更で再ベイクが 1 回だけ、未保存 Timeline（`CreateInstance` のみ）は `MarkDirty` が `UnsavedTimeline` を返し pending にならない、`MarkDirty` を 10 回連打して `FlushNow` → `RebakeNow` 呼び出しが 1 回（`TimelineBakeDirtyWatcher` の再ベイク口を Fake に差し替えられる `IRebakeExecutor` を Watcher に注入）、pending が無い間は update 購読が無い（`ActiveSubscriptionCount` が固定 6 のまま）、`FacialCharacterProfileAutoExporter.ExportIfEnabled(so)` で実際に JSON が書かれると `TrackProfile` 済み Timeline が `IsPending` になる（Edit 中）
 - Risks: `TimelineEditor.inspectedAsset` は Timeline ウィンドウが閉じていると null。Undo の対象 Timeline を取れない場合は追跡中（`TrackProfile` 済み）の全 Timeline を MarkDirty し、ハッシュ一致で no-op に落とす
 
 #### TimelineEditChangeWatcher
@@ -1153,7 +1290,7 @@ public static class TimelineBakeDirtyWatcher                       // [Initializ
 public enum RebakeOutcome { NoChange, ReferencesRepaired, Rebaked, Failed }
 ```
 - 変更点: `[InitializeOnLoad]` / `playModeStateChanged` / `FacialTimelineReceiver.BakeIssueDetected` の購読を撤去（Play 中の HashMismatch / `ProfileMismatch` は Receiver の `Diagnostics` を `TryRepairPendingSessionIssuesNow` が Edit 復帰時に走査する）。`DisplayDialog` / `HandleEnteredEditModeNow` のダイアログ分岐 / `RepairRunResult.HasDialog` 撤去。`UpdateLoadedReceiverReferences` は `Undo.RecordObject(receiver)` + `SetDirty`。再ベイク後（ハッシュ一致で焼き直さない場合も）に `BakeReferenceWriter.Apply` と `HideFlags`。鮮度判定は `TimelineProfileSource.Resolve` の Profile で `TimelineBakeService.IsStale`（`ProfileContentHashHex` → `SourceHashHex` の順）
-- `ProcessOpenSceneTimelinesNow`（`ExitingEditMode`、改訂 2）: シーン上の Director から解決した各 (Timeline, Profile SO) について `TimelineProfileSource.InvalidateCache(so)` → `Resolve(so)`（= `so.LoadProfile()` の現在値。JSON があれば JSON、無ければ SO）でハッシュ照合し、`IsStale` または Locator が `Conflict` / `LegacyExport` なら `RebakeNow`。**profile.json は読むだけで書かない**。`FacialCharacterProfileAutoExporter.ExportAll` との `playModeStateChanged` 購読順に依存しない: 先に AutoExport が走れば最新 JSON で焼かれて Play と一致、後に走れば Play 側が `ProfileMismatch`（Warning、Bake の値で継続）を出し `EnteredEditMode` の `TryRepairPendingSessionIssuesNow` が無言で再ベイクする
+- `ProcessOpenSceneTimelinesNow`（`ExitingEditMode`、改訂 3）: シーン上の Director から解決した各 (Timeline, Profile SO) について、SO ごとに 1 回 **`FacialCharacterProfileAutoExporter.ExportIfEnabled(so)`**（同一 SO を複数 Timeline が使う場合も 1 回。例外は Warning にして継続）→ `TimelineProfileSource.InvalidateCache(so)` → `Resolve(so)`（= `so.LoadProfile()` の現在値。JSON があれば JSON、無ければ SO）でハッシュ照合し、`IsStale` または Locator が `Conflict` / `LegacyExport` なら `RebakeNow`。JSON の生成・比較・書き込みは AutoExporter が行い、Timeline 側は呼ぶだけ。`FacialCharacterProfileAutoExporter` の既存 `ExitingEditMode` 購読（`ExportAll`）との購読順に依存しない: 先に `ExportAll` が走れば `ExportIfEnabled` は同内容で no-op、後に走っても `ExportAll` 側が同内容で no-op になり、どちらの順でも Bake は Play の controller が読む JSON と同じスナップショットで焼かれ `ProfileMatched` になる。`ProfileMismatch` の Warning 継続はこの直列化を通らない経路（スクリプトからの Play 開始、Player ビルド、再ベイク失敗）の最終防御として維持し、`EnteredEditMode` の `TryRepairPendingSessionIssuesNow` が無言で再ベイクする
 - `BakeUpdated` は `ReferencesRepaired` / `Rebaked` で発火（Watcher 側）。`RebakeNow` の `IRebakeExecutor` 既定実装はこの静的メソッドを呼ぶ薄いアダプタ
 
 #### TimelinePreviewCompositor
@@ -1310,14 +1447,16 @@ public static IReadOnlyList<ChannelDetection> DetectChannels(RecBinaryFormat.Rea
 | 対象 | ファイル | モード / サイズ | 主な検証 |
 |---|---|---|---|
 | TimelineSinkIdConvention | `Tests/EditMode/TimelineSinkIdConventionTests.cs`（新） | EditMode Small | ASCII 名は名前、非 ASCII / `:` / 長名は index フォールバック、`:state` 合成、64 文字境界 |
-| TimelineChannelDeriver | `Tests/EditMode/TimelineChannelDeriverTests.cs`（新） | EditMode Small | root のみ対象、Lane 子トラックを含めない、未一致トラック名、ChannelSubId 重複、軸数最大 |
+| TimelineAssetScanner | `Tests/EditMode/TimelineAssetScannerTests.cs`（新） | EditMode Small | `CreateInstance<TimelineAsset>` + `CreateTrack` で root / 子（`IsChild` / `ParentIndex`）の順序、Facial 以外の除外、`MaxAxisCount`、bake holder の有無と `BakeInstanceId`、null 入力で空結果 |
+| TimelineChannelDeriver | `Tests/EditMode/TimelineChannelDeriverTests.cs`（新） | EditMode Small | **DTO 列を手組み（TimelineAsset 生成なし。D14 の担保）**。root のみ対象、`IsChild` を含めない、未一致トラック名、ChannelSubId 重複、軸数最大、空列 |
 | TimelineExpressionStateSink（Req 8.8） | `Tests/EditMode/TimelineExpressionStateSinkTests.cs`（既存） | EditMode Small | Registry + Aggregator 直差しで TriggerOn 後の Aggregate が例外を投げない（修正前に赤を確認）、mask 長一致、値を書かない |
 | FacialTimelineBakeLocator | `Tests/EditMode/FacialTimelineBakeLocatorTests.cs`（新） | EditMode Small | Found（全トラック一致）/ Missing / LegacyExport（全 null）/ Conflict（異なる参照の混在）/ Conflict（部分欠落）/ OverrideUsed（一致: `OverrideDiffers == false`）/ OverrideUsed（不一致・部分欠落: `OverrideDiffers == true`）/ トラック順を入れ替えても同じ結果 |
 | FacialTimelineHashCalculator | `Tests/EditMode/FacialTimelineHashCalculatorTests.cs`（既存） | EditMode Small | `ProfileContentHash` が Layers / LayerInputSources / GazeChannels / Expressions の変更で変わる、Expressions の順序に依存しない、Timeline のみの変更で不変、`ComputeHash` が ProfileContentHash を含む |
 | TimelineOnceWarningGate / FacialTimelineDiagnostics | `Tests/EditMode/TimelineOnceWarningGateTests.cs` / `FacialTimelineDiagnosticsTests.cs`（新） | EditMode Small | 1 回通過、ResetEpoch、Area 置換で Revision 増加、Overall |
 | TimelineChannelTakeover | `Tests/EditMode/TimelineChannelTakeoverTests.cs`（新） | EditMode Small | Fake registry で Replace / 占有スキップ / 参照同一性復元、ChannelSubId をそのまま使う、`AttachRegistry` 済み `AnalogExpressionInputSource` を置いた registry で Attach → `TryWriteValues` がクリップ値、Release → 元の値 |
-| AnalogExpressionInputSource / AnalogBlendShapeInputSource（Req 3.4） | core `Tests/EditMode/Adapters/InputSources/AnalogExpressionInputSourceTests.cs`（`{Target}Tests.cs`、既存ファイル無しのため新規）/ `AnalogBlendShapeInputSourceTests.cs`（既存に追記） | EditMode Small | Fake registry で `AttachRegistry` → `Replace` 後に新 source の値を書く、`Unregister`（null）で構築時 source に戻る、`IAnalogInputSource` でない Replace は無視、`AttachRegistry` の冪等性（購読数不変）、Attach 前は従来どおり、`ContributeMask` 不変 |
-| InputSystemAdapterBinding（接続 1 行） | inputsystem `Tests/PlayMode/Integration/InputSystemAdapterBindingIntegrationTests.cs`（既存に追記） | PlayMode Medium | `OnStart` 後に `{slug}:{action}` を Fake analog source で `Replace` すると analog expression の `TryWriteValues` が追従し、元に戻すと復元。Overlay 経路のテストは変更しない |
+| IRegistryAttachableAnalogConsumer / AnalogExpressionInputSource / AnalogBlendShapeInputSource（Req 3.4。3 段構成 (a)） | core `Tests/EditMode/Adapters/InputSources/AnalogExpressionInputSourceTests.cs`（`{Target}Tests.cs`、既存ファイル無しのため新規）/ `AnalogBlendShapeInputSourceTests.cs`（既存に追記） | EditMode Small | 両クラスが interface を実装、Fake registry で `AttachRegistry` → `Replace` 後に新 source の値を書く、`Unregister`（null）で構築時 source に戻る、`IAnalogInputSource` でない Replace は無視、`AttachRegistry` の冪等性（購読数不変）、`DetachRegistry` 後は通知を無視し `Source == OriginalSource`、Attach 前は従来どおり、`ContributeMask` 不変 |
+| InputSystemAdapterBinding（接続 1 行。3 段構成 (b)） | inputsystem `Tests/PlayMode/Integration/InputSystemAdapterBindingIntegrationTests.cs`（既存に追記）+ `StubAnalogInputSource.cs`（新規ヘルパー） | PlayMode Medium | 実 binding を `BindingMode.Analog` の action 1 本で `OnStart`（既存 SetUp の実 `InputSourceRegistry`）→ `registry.TryResolve("{slug}:analog-expression")` を `AnalogExpressionInputSource` にキャスト → `registry.Replace(slug, actionName, stub)` で `TryWriteValues` が stub 値 × Expression 値に追従 → `Unregister(slug, actionName)` で構築時 source の値に復元、別ケースで Replace 元 wrapper へ `Replace` し直しても構築時と同じ値。timeline 非依存（REC の `RecAnalogInjector` と同じ Replace 経路の到達証明を兼ねる）。Overlay 経路のテストは変更しない |
+| FacialCharacterProfileAutoExporter（Req 1.5 / 4.5） | core `Tests/EditMode/Editor/AutoExport/FacialCharacterProfileAutoExporterTests.cs`（既存に追記） | EditMode Medium | `ExportIfEnabled` の冪等性: 初回 true + `Exported` 1 回 + ファイル生成、同内容 2 回目 false + 不発火 + `LastWriteTimeUtc` 不変、内容変更後 true + 発火、`CharacterAssetName` 空で false + ファイル無し、`ExportAll` の戻り値 = true 件数、`ExportAll` → `ExportIfEnabled` / 逆順のどちらでも 2 回目は no-op |
 | TimelineLayerConnector | `Tests/EditMode/TimelineLayerConnectorTests.cs`（新） | EditMode Medium | FacialController 初期化後に Connect → Aggregate 反映、値 sink の既存宣言ありでスキップ Info、**旧 `:state` 宣言ありで `ConnectOutcome.LegacyStateDeclaration` + `Diagnostics.Contains(LegacyStateDeclaration)` + registry / レイヤー構成が不変**、index フォールバック形の `:state` 宣言でも検出、state sink が registry に Register されない、Disconnect で slot / weight 復元、state sink が `_layer2Provider` に乗る（overlay suppress 経由で観測） |
 | TimelineTrackBindingResolver | `Tests/EditMode/TimelineTrackBindingResolverTests.cs`（新） | EditMode Medium | 解決順 4 段、Ambiguous、未設定のみ設定、他者設定を上書きしない |
 | TimelineDiagnosticsEvaluator（Req 11.4） | `Tests/EditMode/TimelineDiagnosticsEvaluatorTests.cs`（新） | EditMode Medium | binding 無効 / Receiver 未配置 / Bake 解決不可（LegacyExport・Conflict）/ トラック名不一致 / Receiver 別 GameObject / 旧 `:state` 宣言 / Profile 不一致（`ExpectedProfileContentHashHex` を書き換えた Bake。Severity が Warning）/ 未保存 Timeline（`UnsavedTimeline` Info）の各ケースで `Contains(code)`、Edit 側で Conflict / ProfileMismatch が `ChangeWatcher.IsPending` を true にし、UnsavedTimeline は false のまま |
@@ -1327,7 +1466,7 @@ public static IReadOnlyList<ChannelDetection> DetectChannels(RecBinaryFormat.Rea
 | InvalidIdValidator | core `Tests/EditMode/Editor/Windows/Routing/Logic/InvalidIdValidatorTests.cs`（既存） | EditMode Small | `IAdapterBindingDynamicInputs` の prefix 許容 |
 | TimelineProfileSource | `Tests/EditMode/TimelineProfileSourceTests.cs`（新） | EditMode Medium | JSON 有無で `so.LoadProfile()` と同じ結果（`ProfileContentHash` が一致）、JSON 更新（LastWriteTimeUtc 変化）でキャッシュが無効化される、`InvalidateCache` |
 | LegacyTimelineDeclarationCleaner | `Tests/EditMode/LegacyTimelineDeclarationCleanerTests.cs`（新） | EditMode Medium | `Scan` が state / 値 sink 宣言を区別、`RemoveStateDeclarations` が `:state` のみ削除し値 sink 宣言と weight を残す、`Undo.PerformUndo` で復元、他 slug の `:state` は対象外 |
-| TimelineBakeDirtyWatcher | `Tests/EditMode/TimelineBakeDirtyWatcherTests.cs`（既存） | EditMode Medium | `DisplaysDialog` テストを撤去し「Edit 復帰時に無言で修復・Info ログ」に置換、RebakeNow が全 holder に参照を書く、ハッシュ一致でも参照不一致なら `ReferencesRepaired`、Receiver 参照更新が Undo 可能、**`ProcessOpenSceneTimelinesNow` は profile.json を書かない**（実行前後で `LastWriteTimeUtc` 不変）、**AutoExport との順序に依存しない**: JSON を古くした fixture で (a) `FacialCharacterProfileAutoExporter.ExportAll` → `ProcessOpenSceneTimelinesNow` の順では Bake の `ProfileContentHashHex` が新 JSON のハッシュに一致、(b) 逆順では Bake は旧 JSON のハッシュで焼かれ、`ExportAll` 後の `LoadProfile()` との照合が `ProfileMismatch` になる（Receiver テストでこの状態が Warning + `Active` であることを固定）、どちらの順でも例外・Failed・JSON 書き込みが無い |
+| TimelineBakeDirtyWatcher | `Tests/EditMode/TimelineBakeDirtyWatcherTests.cs`（既存） | EditMode Medium | `DisplaysDialog` テストを撤去し「Edit 復帰時に無言で修復・Info ログ」に置換、RebakeNow が全 holder に参照を書く、ハッシュ一致でも参照不一致なら `ReferencesRepaired`、Receiver 参照更新が Undo 可能、**Profile 同期の直列化（D6 改訂 3）**: AutoExport 有効な Profile SO（アセット化済み）を変更（Expression 追加）→ `ProcessOpenSceneTimelinesNow` 実行後に profile.json の内容ハッシュと Bake の `ProfileContentHashHex` が一致し、同 fixture の Receiver `BeginPlaybackSession` が `ProfileMatched` を出す、**購読順を入れ替えても結果が同じ**: (a) `FacialCharacterProfileAutoExporter.ExportAll("test")` → `ProcessOpenSceneTimelinesNow`、(b) `ProcessOpenSceneTimelinesNow` → `ExportAll("test")` の両順で Bake の `ProfileContentHashHex` / profile.json 内容 / `LastWriteTimeUtc`（2 回目は不変）が同一で、`Exported` の発火が合計 1 回、例外・Failed なし、**JSON 書き込みの範囲**: AutoExport 無効の SO（`CharacterAssetName` 空）では profile.json が生成されず照合は SO フォールバックで通る、内容未変更の SO では `LastWriteTimeUtc` 不変 |
 | TimelineEditChangeWatcher | `Tests/EditMode/TimelineEditChangeWatcherTests.cs`（新） | EditMode Medium | Fake `IRebakeExecutor` + Fake clock で: MarkDirty → Tick（デバウンス経過）で再ベイク 1 回、ハッシュ一致で no-op、連続 MarkDirty で 1 回、再ベイク中の MarkDirty で完了後 1 回、失敗時に `RebakeFailed` + 前回 Bake 保持、`ProfileChanged`（SO 変更）で再ベイク、`BakeReferenceInconsistent` でハッシュ一致でも参照修復と `BakeUpdated`、未保存 Timeline で `UnsavedTimeline` を返し `PendingCount` 不変、`PendingCount` 0 → 1 で `RequestTick`、1 → 0 で `ReleaseTick`、`Dispose` で pending 破棄 |
 | TimelineEditorServices（Req 6.1 / 6.5 / 9.1 / 11.7） | `Tests/EditMode/TimelineEditorServicesTests.cs`（新） | EditMode Medium | `EnsureInitialized` を 2 回呼んでも `ActiveSubscriptionCount` 不変、`Shutdown` で 0 になり以後の Undo / ObjectChange で再ベイクが走らない、`Shutdown` → `EnsureInitialized`（ドメインリロード相当）後に 1 回の変更で再ベイクが 1 回だけ（重複購読なし）、未保存 Timeline のスキップ、`MarkDirty` 10 連打 → `FlushNow` で再ベイク 1 回、pending が無い間は update 購読が無い（固定購読数のまま）、`ExitingEditMode` 相当の呼び出しで `FlushNow` → `ProcessOpenSceneTimelinesNow` の順に呼ばれる |
 | RecToTimelineExporter / Window | `Tests/EditMode/RecToTimelineExporterTests.cs` / `RecToTimelineExportWorkflowTests.cs`（既存） | EditMode Medium | 新署名、bake 参照が全トラックに入る、`DetectChannels` の理由（Explicit / Convention / ProviderDeclaration / NonTwoAxis / Default）、Director / Receiver 非依存。Window は生成・破棄 smoke のみ |
@@ -1337,6 +1476,10 @@ public static IReadOnlyList<ChannelDetection> DetectChannels(RecBinaryFormat.Rea
 | 既存 PlayMode 3 件 | `TimelineLiveEquivalenceIntegrationTests` / `TimelineDegradationIntegrationTests` / `TimelineGcZeroGateTests` | PlayMode Medium | `MutableTargetLayerNames` reflection を撤去し `TimelineChannelDeriver` + Connector を直接組む fixture へ移行。GC ゲートはセッション開始後の ProcessFrame で確保 0 を維持 |
 
 e2e fixture（`Tests/Shared/TimelineE2EFixture.cs`、`RecFixtureWriter.cs`、`FakeAnalogInputSource.cs`、`FakeAnalogAdapterBinding.cs`）: BlendShape 3 個以上のメッシュ（`AddBlendShapeFrame`。smile 用 / squint 用 / 未使用）+ 明示目ボーン（`GazeChannel.leftEyeBonePath / rightEyeBonePath`）、Profile SO（layers: emotion / overlay、expressions: smile / squint、GazeChannels 既定、`AdapterBindings = [TimelineAdapterBinding, FakeAnalogAdapterBinding(slug: osc)]`、emotion レイヤーの `inputSources` に `osc:analog-expression`）を `Assets/<guid>/` に保存、`.fcrec` は `RecBinaryFormat.Serialize(RecTimeline)` で trigger（smile）/ analog（`osc:lt` 1 軸）/ gaze（`osc:gaze` 2 軸）を書く。Export は新署名。FacialController は非アクティブ GameObject に `CharacterSO` と `SkinnedMeshRenderers` を設定後に `SetActive(true)`（`OnEnable` 自動初期化）。`FakeAnalogAdapterBinding.OnStart` は `FakeAnalogInputSource`（`osc:lt`、値 0）を Register し、`AnalogExpressionInputSource`（binding `lt` → `squint`、scale 1）を構築して `osc:analog-expression` に Register → `AttachRegistry(registry, slug)`（InputSystem の構成と同形。inputsystem パッケージは参照しない）。Analog の消費確認はこの経路で `squint` の BlendShape 値を読む。生成物は TearDown で削除。
+
+**Analog 実経路の証明（3 段構成。D3 改訂 3）**: (a) core Small（`IRegistryAttachableAnalogConsumer` 契約）+ (b) inputsystem PlayMode（実 `InputSystemAdapterBinding` → registry Replace → `AnalogExpressionInputSource` 追従。timeline 非依存）+ (c) timeline e2e（`FakeAnalogAdapterBinding` が core の実 `AnalogExpressionInputSource` を同形で構成し Timeline Analog クリップ → BlendShape）。timeline のテスト asmdef は inputsystem を参照しない（Allowed Dependencies 不変）。(b) は REC の `RecAnalogInjector` と同じ Replace 経路を使うため REC 側の到達も同時に証明される。
+
+**Domain 純度の担保（D14）**: `TimelineChannelDeriverTests` / `TimelineSinkIdConventionTests` / 診断モデル / Gate のテストは TimelineAsset を生成せず DTO と文字列だけで書く。`Unity.Timeline` を生成するのは `TimelineAssetScannerTests` / `FacialTimelineBakeLocatorTests` / `FacialTimelineHashCalculatorTests`（既存例外）以降の Adapters / Medium テストに限る。
 
 既存テストへの影響は research.md §9 のとおり。`LogAssert.Expect(Regex)` による文言一致は診断状態値アサートへ置き換える（test-policy D 区分）。
 
@@ -1374,7 +1517,9 @@ flowchart TB
 - 旧 `timeline:{layer}:state` 宣言: **削除が必須**。Play は `LegacyStateDeclaration`（Error）で停止し、Receiver Inspector の「旧 timeline 宣言を削除」で除去する。README / Documentation~ / CHANGELOG に「`:state` 宣言は削除が必須、値 sink 宣言は任意」と明記する
 - 旧 TimelineAsset: `LegacyExport` 診断。Edit で開けば変更検知（Inspector 評価 / プレビュー / 保存 / Play 突入）のいずれかで自動再ベイクされ参照が補完されて新形式へ移行する。Edit を経ずに Play した場合は `Failed` で止まり、直し方（Editor で開いて保存 / 再 Export）を案内する
 - 既存 Bake（`ProfileContentHashHex` 空、`SourceHashHex` の計算式変更）: 最初の Edit 評価 / Play 突入時の再ベイクで更新される。Edit を経ずに Play すると `ProfileMismatch`（Warning）で Bake の値のまま再生され、Edit 復帰時に無言で再ベイクされる
-- InputSystem の analog expression を使う既存 Profile: 設定変更なし。`BuildAnalogExpressionSink` が `AttachRegistry` を呼ぶようになるだけで、Timeline / REC の Replace を使わない限り挙動は変わらない
+- InputSystem の analog expression を使う既存 Profile: 設定変更なし。`BuildAnalogExpressionSink` が `IRegistryAttachableAnalogConsumer.AttachRegistry` を呼ぶようになるだけで、Timeline / REC の Replace を使わない限り挙動は変わらない
+- AutoExport の既存ユーザー: `ExportAll` の契機・内容は不変。同一内容のとき profile.json を書き直さなくなるため `LastWriteTimeUtc` が Play ごとに更新されなくなる（外部ツールがタイムスタンプで変更検知している場合のみ影響。CHANGELOG に記載）。`ExportIfEnabled` / `Exported` は additive な public API
+- Domain 層: 新規コードは `Unity.Timeline` を参照しない。既存例外 `FacialTimelineHashCalculator` / `TimelineStateEventCollector` の Adapters への移動は backlog に登録（公開署名の変更を伴うため preview 内の別 PR）
 - Exporter 署名変更（`director` / `receiver` 撤去）、`FacialTimelineReceiver.Configure` 撤去、`:state` 宣言の非互換化、Bake の `ProfileContentHashHex` 追加、`TimelineEditChangeWatcher` のインスタンス化（`TimelineEditorServices.ChangeWatcher` 経由）は preview 段階の破壊的変更として CHANGELOG に記載
 - ロールバック: 第 1 段完了時点で旧 Profile（値 sink 宣言のみ）・旧 TimelineAsset（Edit で一度開いたもの）がそのまま動くことと、`:state` 宣言ありの旧 Profile が `LegacyStateDeclaration` で止まることを e2e で確認してから第 2・3 段へ進む
 
