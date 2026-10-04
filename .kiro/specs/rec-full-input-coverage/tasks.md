@@ -90,7 +90,7 @@
   - _Requirements: 5.1, 5.2, 8.6_
   - _Boundary: RecBaselineState, RecIdTable_
 
-- [ ] 3.3 タイムラインモデルを可変長ペイロード（float + mask バイト列）対応にし、シンク契約に mask を通す
+- [x] 3.3 タイムラインモデルを可変長ペイロード（float + mask バイト列）対応にし、シンク契約に mask を通す
   - 対象: `com.hidano.facialcontrol.rec`（`Hidano.FacialControl.Rec.Domain` の RecTimeline と IRecEventSink。実装側 RecStreamWriter / RecordingUseCase はシグネチャ追随のみ、本実装は 4.5 / 4.6）
   - イベント別の float ペイロードを汎用化し mask バイト列を併置、0-alloc で span を返す。検証: kind 7 の HasValues なら payload 長 = 値数、HasMask なら mask 長 = mask バイト数、系1 kind の入力源 / 表情 index が id 表内
   - イベントシンク契約の追記メソッドに mask バイト列 span を追加する

@@ -159,5 +159,64 @@ namespace Hidano.FacialControl.Rec.Tests.EditMode
                 }
             }
         }
+
+        [Test]
+        public void TryDequeue_ReturnsFloatAndBytePayloadsInFifoOrder()
+        {
+            var queue = new RecEventChunkQueue(segmentCapacity: 2, initialSegments: 1,
+                floatCapacityPerSegment: 4, byteCapacityPerSegment: 4);
+            RecEvent first = RecEvent.CreateValueProviderSample(0.1d, 0,
+                RecValueProviderFlags.IsValid | RecValueProviderFlags.HasMask | RecValueProviderFlags.HasValues,
+                valueCount: 2, maskByteCount: 2);
+            RecEvent second = RecEvent.CreateValueProviderSample(0.2d, 1,
+                RecValueProviderFlags.HasMask, valueCount: 0, maskByteCount: 1);
+
+            queue.Enqueue(in first, stackalloc float[] { 0.25f, -0.5f }, stackalloc byte[] { 0x05, 0x80 });
+            queue.Enqueue(in second, ReadOnlySpan<float>.Empty, stackalloc byte[] { 0x02 });
+
+            Assert.That(queue.TryDequeue(out RecEvent actualFirst, out ReadOnlySpan<float> firstFloats,
+                out ReadOnlySpan<byte> firstBytes, out _), Is.True);
+            Assert.That(actualFirst, Is.EqualTo(first));
+            Assert.That(firstFloats.ToArray(), Is.EqualTo(new[] { 0.25f, -0.5f }));
+            Assert.That(firstBytes.ToArray(), Is.EqualTo(new byte[] { 0x05, 0x80 }));
+
+            Assert.That(queue.TryDequeue(out RecEvent actualSecond, out ReadOnlySpan<float> secondFloats,
+                out ReadOnlySpan<byte> secondBytes, out _), Is.True);
+            Assert.That(actualSecond, Is.EqualTo(second));
+            Assert.That(secondFloats.Length, Is.Zero);
+            Assert.That(secondBytes.ToArray(), Is.EqualTo(new byte[] { 0x02 }));
+        }
+
+        [Test]
+        public void Enqueue_WhenSingleRecordExceedsSegmentPayloadCapacity_UsesDedicatedSegment()
+        {
+            var queue = new RecEventChunkQueue(segmentCapacity: 4, initialSegments: 1,
+                floatCapacityPerSegment: 2, byteCapacityPerSegment: 1);
+            RecEvent evt = RecEvent.CreateValueProviderSample(0.1d, 0,
+                RecValueProviderFlags.HasMask | RecValueProviderFlags.HasValues,
+                valueCount: 3, maskByteCount: 2);
+
+            queue.Enqueue(in evt, stackalloc float[] { 1f, 2f, 3f }, stackalloc byte[] { 0x01, 0x04 });
+            Assert.That(queue.GrowthCount, Is.EqualTo(1));
+            Assert.That(queue.TryDequeue(out RecEvent actual, out ReadOnlySpan<float> floats,
+                out ReadOnlySpan<byte> bytes, out _), Is.True);
+            Assert.That(actual, Is.EqualTo(evt));
+            Assert.That(floats.ToArray(), Is.EqualTo(new[] { 1f, 2f, 3f }));
+            Assert.That(bytes.ToArray(), Is.EqualTo(new byte[] { 0x01, 0x04 }));
+        }
+
+        [Test]
+        public void Enqueue_WhenPayloadsFitConfiguredCapacity_DoesNotGrow()
+        {
+            var queue = new RecEventChunkQueue(segmentCapacity: 2, initialSegments: 1,
+                floatCapacityPerSegment: 4, byteCapacityPerSegment: 4);
+            RecEvent evt = RecEvent.CreateValueProviderSample(0.1d, 0,
+                RecValueProviderFlags.HasMask | RecValueProviderFlags.HasValues,
+                valueCount: 2, maskByteCount: 2);
+
+            queue.Enqueue(in evt, stackalloc float[] { 1f, 2f }, stackalloc byte[] { 0x01, 0x02 });
+
+            Assert.That(queue.GrowthCount, Is.Zero);
+        }
     }
 }
