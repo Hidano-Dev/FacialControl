@@ -50,7 +50,7 @@
   - Small テストで「重複名の JSON / SO から構築した profile の Layers 名が一意で Warning が出る」「直接構築した重複名 profile では `LayerNamesAreUnique` が false、一意なら true」が緑になる
   - _Requirements: 2.6, 4.1, 4.5_
 
-- [ ] 2.5 FacialController に gate 公開と観測者着脱を配線する
+- [x] 2.5 FacialController に gate 公開と観測者着脱を配線する
   - 初期化済みのとき weight ゲートを公開するプロパティを追加し、LateUpdate の観測者有無のエッジ検出で LayerUseCase の weight 観測者（観測バス）を着脱する
   - 既存の `SetLayerWeight` / `SetInputSourceWeight` / `BeginInputSourceWeightBatch` は変更しない
   - 既存の `FacialControllerGcZeroGateTests` が緑のまま（観測者ゼロで通知ループが走らない）、EditMode テストで初期化前は gate が null・初期化後に非 null であることが緑になる
