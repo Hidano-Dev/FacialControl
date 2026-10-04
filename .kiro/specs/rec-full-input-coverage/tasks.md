@@ -246,7 +246,7 @@
   - _Boundary: RecInputSourceCoverageCatalog_
   - _Depends: 4.2, 5.3, 6_
 
-- [ ] 7.3 網羅性ゲートテスト（型の分類漏れ + アセンブリの双方向包含）を実装する
+- [x] 7.3 網羅性ゲートテスト（型の分類漏れ + アセンブリの双方向包含）を実装する
   - 対象: `com.hidano.facialcontrol.rec`（rec Tests EditMode asmdef。拡張 asmdef への参照は追加しない）
   - 検証ロジックを入力（アセンブリ名集合・型集合・カタログ）を引数に取る internal static の純関数へ分離し、負例テストで人工データを注入できるようにする
   - 検査: 期待 ⊆ ロード済み（未ロード名を列挙して失敗）、ロード済み ⊆ 期待（未宣言名を列挙して失敗）、期待アセンブリの重複、通過後に非 abstract・非 interface・非ジェネリック定義の `IInputSource` 実装と `IInputSource` 非実装の `IAnalogInputSource` 実装（private nested 含む）を列挙し、未分類 / 二重 / 陳腐化 / 除外で理由空 / Observed でカテゴリ None / Excluded で区分 None / Observed で区分非 None を型名・アセンブリ名付きで失敗。メッセージに修正先（カタログ）を含める
