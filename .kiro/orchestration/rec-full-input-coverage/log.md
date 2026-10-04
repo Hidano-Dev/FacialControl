@@ -115,3 +115,10 @@
   - Rationale: approval-policy Gate D「FAIL / TIMEOUT のタスクがある」「validate-impl が NO-GO」に該当。Orchestrator は修正ループに入らない
   - Escalation: 選択肢「原因を修正して再検証 / 現状で受け入れて PR 化 / 中断して報告」を提示（回答は下記に追記）
 - Branch/PR: `feature/hid-35-rec-full-input-coverage`（未 push）。HEAD は spec-run の最終コミット + 本ログ/tasks.md 補正コミット  - Answer: **「現状で受け入れて PR 化」**（2026-10-04T23:10:00Z）。赤 17 件を残したまま push / PR 作成へ進み、PR 本文に NO-GO の内訳・往復不良の原因・再現テスト名を明記する。修正は PR レビュー後の別コミットに委ねる
+## Phase 6: PR 作成 — 2026-10-04T23:20:00Z
+
+- Gate E: AUTO-PROCEED
+  - Rationale: Gate D でユーザーが「現状で受け入れて PR 化」を選択済み / 作業ブランチ `feature/hid-35-rec-full-input-coverage`（デフォルトブランチではない）/ `git status` clean（spec-run 外の変更なし）/ push 先は origin（Hidano-Dev/FacialControl）
+- Command: `git push -u origin feature/hid-35-rec-full-input-coverage` → `gh pr create --base main`（PR テンプレートなし）
+- Result: **PR #46** https://github.com/Hidano-Dev/FacialControl/pull/46 — タイトル "feat(rec): extend REC recording/blocking coverage to all input sources (HID-35)"。本文にスコープ / NO-GO の内訳と赤 17 件の原因・再現テスト名 / spec-run 結果テーブル / validate-impl 要約 / 残課題 / HID-80 分離を明記
+- 以降: PR レビューとマージ判断は人間が行う（Orchestrator はマージしない）。Linear HID-35 はブランチ名から自動紐付け
