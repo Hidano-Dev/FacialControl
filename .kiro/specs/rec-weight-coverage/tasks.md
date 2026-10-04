@@ -24,7 +24,7 @@
   - _Requirements: 5.3, 5.5, 10.9_
 
 - [ ] 2. コア: LayerUseCase の weight 面と FacialController 配線
-- [ ] 2.1 LayerUseCase に消費点の weight 観測を実装する
+- [x] 2.1 LayerUseCase に消費点の weight 観測を実装する
   - 観測者を後付け設定できるようにし、設定時に前回通知値を現在値へ同期（通知なし）する。毎フレームの重み更新で、Aggregate 直後にレイヤー weight と各 (layer, source) スロットの weight を前回通知値とビット比較し、変化したものだけ観測者へ通知する（レイヤー昇順 → スロット昇順、1 対象につき高々 1 回）
   - スロットのキーは sourceIdx 0 が予約 id `@expression`、sourceIdx ≥ 1 がレイヤー入力源 registry のスロット id（宣言 id）。レイヤーはレイヤー名。文字列は既存参照を渡し、毎フレームの確保を行わない
   - 前回通知値の配列は構築時に事前確保し `NaN` を未観測の番兵とする。観測者が未設定なら比較ループを実行しない
