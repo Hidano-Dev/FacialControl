@@ -332,7 +332,11 @@ namespace Hidano.FacialControl.Application.UseCases
         {
             if (_liveWeightsSuspended) return false;
             _liveWeightsSuspended = true;
-            return _weightBuffer == null || _weightBuffer.SuspendLiveWrites();
+            if (_weightBuffer == null || _weightBuffer.SuspendLiveWrites())
+                return true;
+
+            _liveWeightsSuspended = false;
+            return false;
         }
 
         public bool ResumeLiveWeights()
@@ -498,7 +502,10 @@ namespace Hidano.FacialControl.Application.UseCases
                     return;
                 }
 
-                SetStructuralSlotWeight(layerIdx, existingIdx, weight, applyWeight: !_liveWeightsSuspended);
+                if (_liveWeightsSuspended)
+                    SetDeclaredSlotWeight(layerIdx, existingIdx, weight);
+                else
+                    SetStructuralSlotWeight(layerIdx, existingIdx, weight, applyWeight: true);
                 MarkLayerHasAdditionalSources(layerIdx);
                 return;
             }
@@ -620,6 +627,11 @@ namespace Hidano.FacialControl.Application.UseCases
             if (_weightBuffer == null) return;
             if (applyWeight) _weightBuffer.SetWeight(layerIdx, sourceIdx, weight);
             else _weightBuffer.SetWeightBypassingLiveGate(layerIdx, sourceIdx, weight);
+            SetDeclaredSlotWeight(layerIdx, sourceIdx, weight);
+        }
+
+        private void SetDeclaredSlotWeight(int layerIdx, int sourceIdx, float weight)
+        {
             if (_declaredSlotWeights != null && _registry != null)
                 _declaredSlotWeights[layerIdx * _registry.MaxSourcesPerLayer + sourceIdx] = Clamp01(weight);
         }
