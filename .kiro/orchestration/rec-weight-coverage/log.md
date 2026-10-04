@@ -51,3 +51,21 @@
 - Gate B: 2 回目 REJECTED（差し戻し。上限 2 回目）
   - Rationale: approval-policy「validate-design が 2 回連続 NO-GO」はエスカレーション必須条件だが、ユーザー不在の委任実行（本ログ冒頭の運用）のため Orchestrator が代行し、2 件とも設計ドキュメントで解消できるため差し戻し 2 回目（上限）として反映する。(1) 同期プロトコル節（状態遷移図 + 操作 × スレッド × 状態の表）を追加し、bulk commit と resize も in-flight フェンスに参加（遮断前に開いた bulk の遮断後 commit は破棄、resize 中のライブ書込は破棄 = 従来の未定義動作を確定化）、競合テスト (b)(c) を追加。(2) レビューの第 3 案「重複時に REC を明示的に無効化」を採用: `IWeightInjectionGate.LayerNamesAreUnique` を追加し、`RecWeightInjector.CanBeginInjection` と `RecCharacterBinding.StartRecording` が false のとき開始を拒否（読込境界の読み捨て + Warning は維持）
   - Retry: 2 回目（上記を design.md / research.md（Decision 1 件追加・1 件再改訂）/ tasks 草案に反映 → validate-design 3 回目。3 回目も NO-GO の場合は directive どおり指摘を設計に反映して Phase 4 へ進み、その旨を記録する）
+- Reviewer 3 回目: **codex** → **NO-GO**。前回までの 2 件（同期プロトコル / レイヤー名重複）は解消（Strengths に消費点観測と `WeightBaseline` 必須化）。**新規** Critical 3 件: (1) `ILayerWeightObserver`（`*Changed`）と `IFacialInputObserver`（`*Sample`）の名称混在、既存 observer 実装への互換方針が不明、(2) `PlaybackUseCase` の既存 4 / 2 ポートコンストラクタの扱いが未定義（weight 欠落の抜け道になり得る）、(3) レイヤー weight（`LayerUseCase` のフラグ）と入力源 weight（buffer のフェンス）を 1 つの線形化点で止める契約が無い
+- Gate B: 3 回目 **ESCALATED（代行）→ 指摘を設計に反映して続行**
+  - Rationale: approval-policy「差し戻しは各ゲート最大 2 回。超えたらエスカレーション」に該当。ユーザー不在の委任実行のため、directive（「それでも NO-GO なら『指摘を設計に反映して続行』を選び理由を log に残す」）に従い代行する。3 件とも設計書内の表記・明記不足で、構造変更を伴わない: (1) 両契約のメソッド名を `OnLayerWeightSample` / `OnInputSourceWeightSample` に統一（bus は同名転送）、default 実装は設けず全実装同時更新を明記、(2) 4 / 2 ポートコンストラクタは `NullWeightInjectionPort` 委譲の source 互換として残し、本番配線が 5 ポートであることをテストで固定する旨を明記、(3) `SuspendLiveWeights` を「レイヤー側フラグ → buffer フェンス」の順と定め buffer フェンスの戻りを共通線形化点と明記（レイヤー weight はメインスレッド専用の既存契約）、レイヤー + スロット同時のテストを追加
+  - Escalation: none（代行。完了報告で「設計の最終 3 件は codex による再検証を受けていない」と明示する）
+  - 残課題: 4 回目レビュー未実施
+- Branch/PR: n/a
+
+## Phase 4: タスク分解 — 2026-10-04T22:30:00Z
+
+- Command: `/kiro:spec-tasks rec-weight-coverage -y`（サブエージェント不可のため Orchestrator が kiro-spec-tasks の手順で tasks.md を生成。設計レビューの各改訂に合わせて更新済み）
+- Result: 主タスク 5 / サブタスク 21（1 基盤: 観測契約・バッファゲート・競合テスト / 2 コア: LayerUseCase 観測・ゲート・late-bind 契約・レイヤー名重複・FacialController 配線 / 3 rec Domain: モデル・`.fcrec`・畳み込み・5 ポート / 4 rec Application・Adapters: 記録・注入・配線・分類正本 / 5 統合: timeline 追随・PlayMode 受け入れ・inputsystem overlay 受け入れ・文書・全体回帰）。`(P)` は 3.1 / 4.4 / 5.1 に付与（`_Boundary:_` / `_Depends:_` 併記）
+- Reviewer: セルフチェック（approval-policy Gate C）。`_Requirements:_` 行を抽出し要件 74 件（Req 1.1〜11.7）すべてがいずれかのタスクに出現することを機械的に確認（未マップなし・不明 ID なし）。コンテナのみの空セクションなし。データ削除・デプロイ・外部送信のタスクなし。Boundary 外のタスクなし（読込境界 2 箇所と inputsystem Tests asmdef は設計の Allowed Dependencies / This Spec Owns に記載済み）。task-graph sanity（自己実施）: 1.3 の LayerUseCase 経由競合テストは 2.2 依存を明記、4.4 は 2.2 / 2.3 / 2.5 依存、5.1 は 3.2 依存
+- Gate C: AUTO-APPROVED
+  - Rationale: Gate C の AUTO-APPROVE 3 条件（全要件マップ・実行可能粒度・破壊的タスクなし）を満たす。spec.json を `approvals.design.approved: true` / `approvals.tasks.generated: true, approved: true` / `ready_for_implementation: true` / `phase: implementation` に更新
+  - Escalation: none
+  - Retry: none
+- 実装開始の特例: Gate A（委任）/ Gate B（3 回目を代行エスカレーション）があるため本来は実装前確認 1 回が必要だが、ユーザー不在の委任実行（directive）のため確認なしで Phase 5 へ進む（その旨を完了報告に明記）
+- Branch/PR: `feature/hid-80-rec-weight-coverage`（既に作業中。spec 文書と本ログをコミット済み）

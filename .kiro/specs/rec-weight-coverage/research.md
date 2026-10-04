@@ -830,6 +830,13 @@ HID-80 の本質的なギャップは、weight の値そのものではなく、
 - **Trade-offs**: core Adapters の読込経路 2 箇所に小さな変更が入る（Req 9.1 の「面の追加に限定」に対する明示的例外。レビューで指摘された識別契約の穴を塞ぐため）。重複プロファイルでは REC が使えない（Warning で理由を示す）
 - **Follow-up**: `SystemTextJsonParserTests` / `FacialCharacterProfileConverterTests.Parse_DuplicateLayerNames_KeepsFirstAndWarns`、`LayerUseCaseTests.LayerNamesAreUnique_*`、`RecWeightInjectorTests.CanBeginInjection_DuplicateLayerNames_ReturnsFalseWithReason`、`RecCharacterBindingTests.StartRecording_DuplicateLayerNames_WarnsAndReturnsFalse`
 
+### Decision（設計レビュー 3 回目の指摘で確定）: 観測契約は同名転送、互換コンストラクタは Null weight ポート、線形化点は buffer フェンスの戻り
+- **Context**: codex 設計レビュー 3 回目 Critical 3 件: (1) `ILayerWeightObserver`（`*Changed`）と `IFacialInputObserver`（`*Sample`）の名称混在と既存 observer 実装の互換方針が不明、(2) `PlaybackUseCase` の既存 4 / 2 ポートコンストラクタの扱いが未定義、(3) レイヤー weight（`LayerUseCase` のフラグ）と入力源 weight（buffer のフェンス）を 1 つの線形化点で止める契約が無い
+- **Selected Approach**: (1) 両契約のメソッド名を `OnLayerWeightSample` / `OnInputSourceWeightSample` に統一し、bus は同名転送（`ITriggerEventObserver` → `IFacialInputObserver` と同形）。default 実装は設けず全実装を同時更新（Runtime 実装 2 つ + Fake）。(2) 既存 4 / 2 ポートコンストラクタは残し、内部 `NullWeightInjectionPort` へ委譲する source 互換として明記。weight 対応再生は 5 ポート構成のみで、`RecCharacterBinding` が 5 ポートを使うことをテストで固定。(3) `SuspendLiveWeights()` を「レイヤー側フラグ → buffer フェンス」の順と定め、buffer フェンスの戻りを共通の線形化点にする。レイヤー weight のライブ書込はメインスレッド専用（既存契約の明文化）なので同一スレッドの逐次順で閉じ、別の coordinator / lock は不要
+- **Rationale**: (1) は設計書内の表記ゆれで、実装分岐を生まないよう 1 組に統一。(2) は初版から Null ポート委譲を記していたが、コンストラクタの残し方と「抜け道にならない」根拠（本番配線のテスト固定）を明記。(3) 2 つのフラグを 1 つの lock に束ねるのは hot path に lock を入れることになる。レイヤー weight がメインスレッド専用である以上、線形化点は buffer フェンスの戻りで十分
+- **Follow-up**: `LayerUseCaseTests.SuspendLiveWeights_ThenLayerAndSourceLiveWrites_NeitherReachesNextAggregate`、`LayerInputSourceWeightBufferConcurrencyTests`（d）、`PlaybackUseCaseTests.FourPortConstructor_UsesNullWeightPort`
+- **Gate B の扱い**: 3 回連続 NO-GO（approval-policy の差し戻し上限超過）。ユーザー不在の委任実行のため、directive に従い上記を設計へ反映して Phase 4 へ進む（4 回目のレビューは実施しない。orchestration log に記録）
+
 ### Decision: 基準に無い対象の確定値は「宣言値へのリセット」
 - **Context**: Req 4.5（ライブの残存 weight を引き継がない）
 - **Alternatives Considered**: 1. 0 2. 現在値維持 3. 宣言値（レイヤー 1.0、スロットは宣言 weight、sourceIdx 0 は 1.0）

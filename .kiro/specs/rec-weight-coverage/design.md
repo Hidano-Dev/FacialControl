@@ -56,7 +56,8 @@
 ### Revalidation Triggers
 
 - `IFacialInputObserver` / `IFacialInputObservationBus` / `IRecEventVisitor` / `RecBaselineState` コンストラクタ / `PlaybackUseCase` コンストラクタの形状変更（本 spec でいずれも拡張する。利用者: `RecordingUseCase`、各 Fake、timeline Editor `BakeSimulationHarness.RecordingObserver` は `IFacialInputObserver` を実装しないため無影響）
-- `IWeightInjectionGate` の形状（Suspend / Resume / Reset / Baseline / Inject / Collect）と `WeightSlotIds.ExpressionSlotId`（`@expression`）
+- `IWeightInjectionGate` の形状（Suspend / Resume / Reset / Baseline / Inject / Collect / `LayerNamesAreUnique`）と `WeightSlotIds.ExpressionSlotId`（`@expression`）、`ILayerWeightObserver` と `IFacialInputObserver` の weight 2 メソッドが同名であること（bus の同名転送）
+- `LayerUseCase.SuspendLiveWeights` の線形化点（レイヤー側フラグ → buffer フェンスの順、buffer フェンスの戻りが線形化点）。レイヤー weight を任意スレッドから書けるよう変更する場合はレイヤー側にもフェンスが必要
 - `LayerInputSourceWeightBuffer.SetWeight` の任意スレッド契約と `SuspendLiveWrites` の in-flight フェンス（単純フラグへの退行は Req 5.3 を崩す）
 - `LayerUseCase.BindLateInputSource` の遮断中契約（遮断中は既存スロット置換で宣言 weight を再適用しない）。遮断中にも再適用する実装に戻すと Req 6.3 が崩れる
 - `LayerInputSourceRegistry.GetSlotId` が Replace 前後で不変であること（PR #46 で確立）、プロファイル読込境界がレイヤー名重複を読み捨てること（`SystemTextJsonParser` / `FacialCharacterProfileConverter`）。読込境界を増やす場合（新しいプロファイル供給源）は同じ重複解決を入れる
@@ -256,8 +257,8 @@ sequenceDiagram
     LUC->>Agg: Aggregate
     Agg->>WB: SwapIfDirty
     LUC->>LUC: layerInterWeights と GetWeight を前回通知値とビット比較
-    LUC->>Bus: OnLayerWeightChanged OnInputSourceWeightChanged 変化時のみ
-    Bus->>Rec: OnLayerWeightSample OnInputSourceWeightSample
+    LUC->>Bus: OnLayerWeightSample OnInputSourceWeightSample 変化時のみ
+    Bus->>Rec: OnLayerWeightSample OnInputSourceWeightSample 同名転送
     Rec->>Rec: IdDefine Layer と kind 12 13 を追記
 ```
 
@@ -347,6 +348,8 @@ stateDiagram-v2
 | REC ライフサイクル（`TryBeginInjection` / `Inject*` / `EndInjection`） | メインのみ（`RecCharacterBinding.Update`） | Suspend 経由 | — | — | — |
 
 - **原則**: ワーカースレッドから到達し得るのは「ライブ書込」（`SetWeight` / `CommitBulk`）だけで、両者は同じ in-flight カウンタに参加する。状態を変える操作（Suspend / Resume / resize / 構造書込 / Swap）はすべてメインスレッドで直列に行われるため、相互の競合は存在せず、唯一の競合はワーカーのライブ書込 × メインの状態遷移で、それをフェンスが閉じる
+- **レイヤー weight と入力源 weight の線形化点**: `LayerUseCase.SuspendLiveWeights()` は「レイヤー側フラグ → buffer の `SuspendLiveWrites`（フェンス）」の順で両系統を止め、`SuspendLiveWrites` の戻りを共通の線形化点とする（「LayerUseCase → 遮断と線形化点」）。レイヤー weight のライブ書込はメインスレッド専用のため同一スレッドの逐次順で、入力源 weight はフェンスで、それぞれ「線形化点以後のライブ書込は反映されない」が成立する。`RecWeightInjector.TryBeginInjection` はこの戻りの後にのみ `ResetWeightsToDeclared` / `TrySetBaseline*` を呼ぶ
+- **検証（追加）**: `LayerUseCaseTests.SuspendLiveWeights_ThenLayerAndSourceLiveWrites_NeitherReachesNextAggregate`（同一テスト内でレイヤー weight とスロット weight の両方をライブ書込し、どちらも基準値のまま）と `LayerInputSourceWeightBufferConcurrencyTests`（d）: ワーカーがスロット weight を連打する中で `LayerUseCase.SuspendLiveWeights` → 基準設定（レイヤー + スロット）→ `UpdateWeights` → 両系統が基準値、を反復
 - **resize**: 既存コードは「`SetWeight` / `GetWeight` との同時実行は想定しない」としていたが、本 spec で resize も Resizing フラグ + in-flight 0 待ちの同じフェンスで保護し、resize 中に到達したライブ書込は破棄する（未定義動作から確定的な破棄へ。late-bind は低頻度で窓は数マイクロ秒）。Suspended 中の resize は Suspended を維持する
 - **検証**: `LayerInputSourceWeightBufferConcurrencyTests`（Medium）で (a) 単発ライブ書込連打 × Suspend → 基準設定 → Swap → 読取が基準値、(b) bulk commit 連打 × Suspend で同じ、(c) ライブ書込連打 × resize で例外・配列破壊なし・既存 weight が保持される、を反復検証する
 
@@ -358,8 +361,8 @@ stateDiagram-v2
 | 1.2 | 拡張側呼出元の列挙 | 同表（`InputSystemAdapterBinding.ApplyOverlayLayerWeights` → `FacialController.SetLayerWeight`） | — | 記録フロー |
 | 1.3 | 明示的除外の根拠 | 同表の理由列（InjectionPath / StructuralWrite / Initialization） | `RecWeightWritePathExclusionReason` | — |
 | 1.4 | 対象経路の 5 点成立 | 全コンポーネント | — | 両フロー |
-| 2.1 | レイヤー weight 観測面 | `LayerUseCase`（消費点比較）、`FacialInputObservationBus` | `ILayerWeightObserver.OnLayerWeightChanged`、`IFacialInputObserver.OnLayerWeightSample` | 記録フロー |
-| 2.2 | 入力源 weight 観測面 | 同上 | `OnInputSourceWeightChanged` / `OnInputSourceWeightSample` | 記録フロー |
+| 2.1 | レイヤー weight 観測面 | `LayerUseCase`（消費点比較）、`FacialInputObservationBus` | `ILayerWeightObserver.OnLayerWeightSample` → `IFacialInputObserver.OnLayerWeightSample`（同名転送） | 記録フロー |
+| 2.2 | 入力源 weight 観測面 | 同上 | `ILayerWeightObserver.OnInputSourceWeightSample` → `IFacialInputObserver.OnInputSourceWeightSample` | 記録フロー |
 | 2.3 | clamp 後の実効値・呼出元非依存 | `LayerUseCase`（`_layerInterWeights` / `GetWeight` を読む） | — | 記録フロー |
 | 2.4 | 消費粒度・フレーム内畳み込み | `LayerUseCase.UpdateWeights`（`Aggregate` 直後に 1 回） | — | 記録フロー |
 | 2.5 | 同値非通知 | `LayerUseCase`（前回通知値配列、ビット比較） | — | 記録フロー |
@@ -446,9 +449,10 @@ stateDiagram-v2
 | Requirements | 2.1, 2.2, 3.1, 3.2 |
 
 **Responsibilities & Constraints**
-- `ILayerWeightObserver`（core Domain Interfaces）は `LayerUseCase` が変化検出後に呼ぶ観測契約。`IFacialInputObservationBus` がこれを継承し、`IFacialInputObserver` の 2 メソッドへ配信する（`IExpressionActivationObserver` と同じ配線）
+- `ILayerWeightObserver`（core Domain Interfaces）は `LayerUseCase` が変化検出後に呼ぶ観測契約。`IFacialInputObservationBus` がこれを継承し、**同名の** `IFacialInputObserver` の 2 メソッドへ配信する（`ITriggerEventObserver.OnTriggerOn` → `IFacialInputObserver.OnTriggerOn` と同じ「同名転送」の配線。メソッド名は producer 側・consumer 側とも `OnLayerWeightSample` / `OnInputSourceWeightSample` の 1 組に統一し、`*Changed` 等の別名は設けない）
 - コールバックはメインスレッド（`LateUpdate` の `UpdateWeights` 内）で同期発火。文字列は profile / registry が保持する参照をそのまま渡す（毎フレーム alloc なし）
 - `FacialInputObservationBus` は `HasObservers` 早期 return、`_publishDepth` による遅延適用、例外隔離を既存メソッドと同じ形で実装する
+- **既存実装への互換方針**: `IFacialInputObserver` / `IFacialInputObservationBus` に default 実装（default interface method / adapter 基底）は設けず、**全実装を同時更新**する（Runtime 実装は `RecordingUseCase` と `FacialInputObservationBus` の 2 つ、残りは各パッケージのテスト Fake）。rec-full-input-coverage で VP / 系1 を足したときと同じ方針（preview 段階の破壊的変更）
 
 **Contracts**: Event [x]
 
@@ -456,11 +460,11 @@ stateDiagram-v2
 ```csharp
 namespace Hidano.FacialControl.Domain.Interfaces
 {
-    /// <summary>消費点で確定した weight の変化を観測する契約。LayerUseCase が変化時のみ呼ぶ。</summary>
+    /// <summary>消費点で確定した weight の変化を観測する契約。LayerUseCase が変化時のみ呼ぶ（producer 側）。</summary>
     public interface ILayerWeightObserver
     {
-        void OnLayerWeightChanged(string layerName, float weight);
-        void OnInputSourceWeightChanged(string layerName, string slotId, float weight);
+        void OnLayerWeightSample(string layerName, float weight);
+        void OnInputSourceWeightSample(string layerName, string slotId, float weight);
     }
 }
 
@@ -468,7 +472,7 @@ namespace Hidano.FacialControl.Domain.Adapters
 {
     public interface IFacialInputObserver
     {
-        // 既存 6 メソッドに加えて
+        // 既存 6 メソッドに加えて（consumer 側。bus が ILayerWeightObserver の同名メソッドをそのまま転送する）
         void OnLayerWeightSample(string layerName, float weight);
         void OnInputSourceWeightSample(string layerName, string slotId, float weight);
     }
@@ -479,8 +483,13 @@ namespace Hidano.FacialControl.Domain.Adapters
     }
 }
 ```
-- Published events: `OnLayerWeightSample(layerName, weight)` / `OnInputSourceWeightSample(layerName, slotId, weight)`。`weight` は clamp 後の実効値
-- Ordering / delivery: 同一フレーム内はレイヤー昇順 → 各レイヤーのスロット昇順。変化したものだけ、1 対象につき高々 1 回
+
+| 発火元 | producer 契約（core → bus） | consumer 契約（bus → 観測者） | 引数 | タイミング |
+|--------|---------------------------|-----------------------------|------|-----------|
+| `LayerUseCase.UpdateWeights`（`Aggregate` 直後、変化時のみ） | `ILayerWeightObserver.OnLayerWeightSample` | `IFacialInputObserver.OnLayerWeightSample` | `layerName`、clamp 後の実効 weight | 同一フレーム内、レイヤー昇順 |
+| 同上 | `ILayerWeightObserver.OnInputSourceWeightSample` | `IFacialInputObserver.OnInputSourceWeightSample` | `layerName`、`slotId`（sourceIdx 0 は `@expression`）、clamp 後の実効 weight | 同一フレーム内、レイヤー昇順 → スロット昇順 |
+
+- Ordering / delivery: 変化したものだけ、1 対象につきフレームあたり高々 1 回。基準確立（`ResetWeightsToDeclared` / `TrySetBaseline*`）は発火しない。注入（`TryInject*`）は次フレームの消費点で発火する
 
 #### IWeightInjectionGate / WeightSlotIds / LayerWeightEntry / InputSourceWeightEntry
 
@@ -574,8 +583,8 @@ namespace Hidano.FacialControl.Domain.Models
 | Requirements | 2.1–2.7, 4.5, 4.6, 5.2, 6.1, 6.3, 6.7, 9.1, 9.2, 9.5 |
 
 **Responsibilities & Constraints**
-- **観測**: `SetWeightObserver(ILayerWeightObserver observer)`。非 null を設定した時点で前回通知値を現在値に同期（通知なし）。`UpdateWeights` は `_aggregator.Aggregate(...)` の直後、observer が非 null のときだけ `NotifyWeightChanges()` を実行する: 各レイヤー `l` について `_layerInterWeights[l]` を `_lastNotifiedLayerWeights[l]` とビット比較し、不一致なら更新して `OnLayerWeightChanged(layerName, w)`。各スロット `(l, s)`（`s < _registry.GetSourceCountForLayer(l)`、`GetSource` 非 null）について `_weightBuffer.GetWeight(l, s)` を `_lastNotifiedSlotWeights[l * max + s]` と比較し、不一致なら `OnInputSourceWeightChanged(layerName, SlotKey(l, s), w)`。`SlotKey(0)` は `WeightSlotIds.ExpressionSlotId`、`s ≥ 1` は `_registry.GetSlotId(l, s)`。配列は `BuildAggregatorPipeline` で事前確保し `float.NaN` で初期化、`BindLateInputSource` の容量拡張時に再確保（非毎フレーム）
-- **遮断**: `SetLayerWeight` は `_liveWeightsSuspended` なら no-op（`_layerWeights` 辞書も更新しない）。`SuspendLiveWeights()` は `_liveWeightsSuspended = true` → `_weightBuffer.SuspendLiveWrites()`。`ResumeLiveWeights()` は逆
+- **観測**: `SetWeightObserver(ILayerWeightObserver observer)`。非 null を設定した時点で前回通知値を現在値に同期（通知なし）。`UpdateWeights` は `_aggregator.Aggregate(...)` の直後、observer が非 null のときだけ `NotifyWeightChanges()` を実行する: 各レイヤー `l` について `_layerInterWeights[l]` を `_lastNotifiedLayerWeights[l]` とビット比較し、不一致なら更新して `OnLayerWeightSample(layerName, w)`。各スロット `(l, s)`（`s < _registry.GetSourceCountForLayer(l)`、`GetSource` 非 null）について `_weightBuffer.GetWeight(l, s)` を `_lastNotifiedSlotWeights[l * max + s]` と比較し、不一致なら `OnInputSourceWeightSample(layerName, SlotKey(l, s), w)`。`SlotKey(0)` は `WeightSlotIds.ExpressionSlotId`、`s ≥ 1` は `_registry.GetSlotId(l, s)`。配列は `BuildAggregatorPipeline` で事前確保し `float.NaN` で初期化、`BindLateInputSource` の容量拡張時に再確保（非毎フレーム）
+- **遮断と線形化点**: `SetLayerWeight` は `_liveWeightsSuspended` なら no-op（`_layerWeights` 辞書も更新しない）。`SuspendLiveWeights()` は (1) `_liveWeightsSuspended = true`、(2) `_weightBuffer.SuspendLiveWrites()`（in-flight フェンス）の順に行い、**(2) の戻りが両系統に共通の線形化点**になる: レイヤー weight のライブ書込はメインスレッド専用（既存契約の明文化）なので同一スレッドの逐次順により (1) 以後の `SetLayerWeight` は必ずフラグを見る。入力源 weight のライブ書込は任意スレッドだが、(2) の戻り時点で進行中の書込は完了済みで、以後はフラグで拒否される。したがって `SuspendLiveWeights()` が返った後に基準を書けば、どちらの系統のライブ書込にも上書きされない（Req 5.5）。`ResumeLiveWeights()` は逆順（buffer → フラグ）。レイヤー weight を任意スレッドから書く契約は設けない（`_layerInterWeights` / `_layerWeights` は非スレッドセーフ）
 - **基準**: `ResetWeightsToDeclared()` は全 `l` に `_layerInterWeights[l] = 1f`、全スロットに `SetWeightBypassingLiveGate(l, s, _declaredSlotWeights[l * max + s])`（s = 0 は 1f）、前回通知値も同じ値に更新。`TrySetBaseline*` は対象解決 → bypass 書込 → 前回通知値更新
 - **注入**: `TryInject*` は対象解決 → `_layerInterWeights[l] = clamp(w)` / `SetWeightBypassingLiveGate` → 前回通知値は更新しない
 - **収集**: `Collect*` は `_layerInterWeights` と `GetWeight(l, s)`（read 側）を列挙
@@ -732,7 +741,7 @@ namespace Hidano.FacialControl.Rec.Domain.Interfaces
 | Requirements | 5.5–5.7, 6.2, 6.4, 6.5 |
 
 **Responsibilities & Constraints**
-- 5 ポートコンストラクタ `PlaybackUseCase(IWeightInjectionPort weightPort, ITriggerInjectionPort, IExpressionInjectionPort, IAnalogInjectionPort, IValueProviderInjectionPort)` を正とする。既存 4 ポート / 2 ポートコンストラクタは `NullWeightInjectionPort` へ委譲する互換（テスト用。本番配線は 5 ポート）
+- 5 ポートコンストラクタ `PlaybackUseCase(IWeightInjectionPort weightPort, ITriggerInjectionPort, IExpressionInjectionPort, IAnalogInjectionPort, IValueProviderInjectionPort)` を正とする。**既存の 4 ポートコンストラクタと 2 ポートコンストラクタは残し、内部の `NullWeightInjectionPort`（private sealed、`CanBeginInjection` は常に true、`TryBeginInjection` は true、Inject / End は no-op。既存 `NullExpressionInjectionPort` と同形）へ委譲する source 互換**として扱う。XML doc に「weight 遮断・注入を行わない互換コンストラクタ。本番配線（`RecCharacterBinding`）は 5 ポートを使う」と明記する。weight 対応の再生を得られるのは 5 ポート構成だけで、これを `RecCharacterBindingTests.EnsurePlaybackSession_ConstructsWeightInjector`（reflection で `_weightInjector` 非 null）と `PlaybackUseCaseTests.FourPortConstructor_UsesNullWeightPort`（4 ポート構成では weight の Visit が no-op）で固定する。既存の `PlaybackUseCaseFourPortTests` / `RecGcZeroGateTests` の Fake は変更不要（委譲で動く）
 - 確立順配列 `establishOrder = { weight, trigger, expression, analog, valueProvider }`（名前 `"weight"`, `"trigger"`, `"expression"`, `"analog"`, `"valueProvider"`）と解放順配列 `releaseOrder = { trigger, expression, analog, valueProvider, weight }` を持つ。preflight は確立順で全件 → 確立順に `TryBeginInjection` → 失敗時は確立済みを逆順 `EndInjection`。`StopPlayback` と `Completed` からの再開時の全解放は解放順で `EndInjection`。それ以外の手順・不変条件は rec-full-input-coverage「再生開始のトランザクション」と同一
 - `VisitLayerWeightSample(layerName, weight)` → `_weightPort.InjectLayerWeight`、`VisitInputSourceWeightSample(layerName, slotId, weight)` → `_weightPort.InjectInputSourceWeight`
 - `CreateFilteredBaseline` は weight エントリを無加工で引き継ぐ（expressionId と無関係）

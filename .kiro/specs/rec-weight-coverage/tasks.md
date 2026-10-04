@@ -19,7 +19,7 @@
   - _Requirements: 5.1, 5.3, 5.4, 6.1, 9.2_
 
 - [ ] 1.3 入力源 weight ゲートの競合テストを追加する
-  - ワーカースレッド複数本がライブ書込を連打する中で、メインスレッドが遮断 → 迂回書込で基準値を設定 → swap → 読取、を多数回反復し、読取値が常に基準値であることを検証する Medium（EditMode）テストを追加する（スレッドを使うため Small にしない。理由をコメントに書く）。同じ形で「バルク commit 連打 × 遮断」「単発ライブ書込連打 × resize（例外・配列破壊なし・既存スロット weight 保持）」も検証する
+  - ワーカースレッド複数本がライブ書込を連打する中で、メインスレッドが遮断 → 迂回書込で基準値を設定 → swap → 読取、を多数回反復し、読取値が常に基準値であることを検証する Medium（EditMode）テストを追加する（スレッドを使うため Small にしない。理由をコメントに書く）。同じ形で「バルク commit 連打 × 遮断」「単発ライブ書込連打 × resize（例外・配列破壊なし・既存スロット weight 保持）」も検証する。LayerUseCase 経由（ワーカーがスロット weight を連打する中で gate の遮断 → レイヤー・スロット両方の基準設定 → 重み更新 → 両系統が基準値）の反復検証は 2.2 の後に追加する（`_Depends: 2.2_`）
   - テストが安定して緑であり、`pwsh ./scripts/check-test-sizes.ps1` が通る
   - _Requirements: 5.3, 5.5, 10.9_
 
@@ -35,7 +35,8 @@
   - `IWeightInjectionGate` を実装する: 遮断（レイヤー weight のメインスレッドフラグ + 入力源 weight バッファの遮断、冪等）、宣言値へのリセット（全レイヤー 1、全スロットは宣言 weight、sourceIdx 0 は 1。通知なし）、基準設定（遮断迂回・通知なし = 前回通知値も更新）、注入（遮断迂回・前回通知値は更新せず次フレームで変化として通知）、収集（全レイヤー / 全スロットの実効値）
   - ライブの `SetLayerWeight` は遮断中に no-op（辞書も更新しない）。スロットの宣言 weight を保持する配列を構築時に埋める
   - 未知のレイヤー名 / スロット id に対する基準・注入は false を返し状態を変えない
-  - Small テストで「遮断中の SetLayerWeight は no-op」「注入は遮断中でも反映され次フレームに通知（再生中の再記録に注入が残る）」「基準設定とリセットは通知しない」「未知スロットは false」「収集が全スロットを安定キーで返す」が緑になる
+  - 遮断は「レイヤー側フラグ → 入力源 weight バッファの遮断（フェンス）」の順で行い、バッファ遮断の戻りを両系統共通の線形化点とする（レイヤー weight のライブ書込はメインスレッド専用）。解除は逆順
+  - Small テストで「遮断中の SetLayerWeight は no-op」「遮断後にレイヤー weight とスロット weight の両方をライブ書込しても次の重み更新でどちらも基準値のまま」「注入は遮断中でも反映され次フレームに通知（再生中の再記録に注入が残る）」「基準設定とリセットは通知しない」「未知スロットは false」「収集が全スロットを安定キーで返す」が緑になる
   - _Requirements: 3.5, 4.5, 4.6, 5.1, 5.2, 5.6, 6.1, 6.6, 9.1, 9.7_
 
 - [ ] 2.3 後付けバインドと解除の遮断中挙動を実装する
@@ -80,7 +81,8 @@
 - [ ] 3.4 weight 注入ポート契約と 5 ポートの再生ユースケースを実装する
   - 共通ライフサイクル契約を継承する weight 注入ポート契約（レイヤー weight / 入力源 weight の注入メソッド）を追加する
   - 再生ユースケースに 5 ポートコンストラクタを追加し、確立順（weight → trigger → expression → analog → valueProvider）と解放順（trigger → expression → analog → valueProvider → weight）の 2 配列で preflight・確立・ロールバック・解放を回す。ロールバックは確立済みの逆順。`Completed` からの再開時の全解放も解放順。既存 4 ポート / 2 ポートコンストラクタは Null weight ポートへ委譲する。weight イベントの訪問で weight ポートへ注入し、欠落 expressionId のフィルタは weight 基準を無加工で引き継ぐ
-  - 既存の `PlaybackUseCaseTests` / `PlaybackUseCaseFourPortTests` が緑のまま、Fake 5 ポートの Small テストで「確立順が W→T→E→A→V」「解放順が T→E→A→V→W」「Completed からの再開で weight が最後に解放されてから再確立」「weight preflight 不合格でどのポートも確立しない」「2 番目以降の確立失敗で weight ポートが逆順解放される」「4 ポートコンストラクタが Null weight ポートを使う」が緑になる
+  - 既存 4 ポート / 2 ポートコンストラクタは残し、weight 遮断・注入を行わない互換（Null weight ポート委譲）であることを XML doc に明記する
+  - 既存の `PlaybackUseCaseTests` / `PlaybackUseCaseFourPortTests` が緑のまま、Fake 5 ポートの Small テストで「確立順が W→T→E→A→V」「解放順が T→E→A→V→W」「Completed からの再開で weight が最後に解放されてから再確立」「weight preflight 不合格でどのポートも確立しない」「2 番目以降の確立失敗で weight ポートが逆順解放される」「4 ポートコンストラクタでは weight の訪問が no-op（Null weight ポート）」が緑になる
   - _Requirements: 5.5, 5.7, 5.8, 6.2, 6.3, 6.4, 6.5_
 
 - [ ] 4. rec Application / Adapters: 記録・注入・配線・分類
