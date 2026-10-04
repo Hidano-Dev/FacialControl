@@ -1,5 +1,7 @@
 using System;
+using System.Collections;
 using Hidano.FacialControl.Domain.Adapters;
+using Hidano.FacialControl.Domain.Interfaces;
 using Hidano.FacialControl.Rec.Domain.Interfaces;
 using Hidano.FacialControl.Rec.Domain.Models;
 using Hidano.FacialControl.Rec.Domain.Services;
@@ -23,6 +25,8 @@ namespace Hidano.FacialControl.Rec.Application.UseCases
         private double _lastClockSeconds;
         private bool _invalidClockWarned;
         private bool _disposed;
+        private byte[] _maskScratch = Array.Empty<byte>();
+        private float[] _valueScratch = Array.Empty<float>();
 
         /// <param name="startOffsetSeconds">
         /// 記録タイムスタンプと録画長に加算する開始オフセット（秒、有限かつ 0 以上）。
@@ -62,7 +66,17 @@ namespace Hidano.FacialControl.Rec.Application.UseCases
 
         public void StartRecording(RecBaselineState baseline)
         {
+            StartRecording(baseline, 0);
+        }
+
+        public void StartRecording(RecBaselineState baseline, int blendShapeCountHint)
+        {
             ThrowIfDisposed();
+
+            if (blendShapeCountHint < 0)
+            {
+                throw new ArgumentOutOfRangeException(nameof(blendShapeCountHint));
+            }
 
             if (IsRecording)
             {
@@ -72,6 +86,7 @@ namespace Hidano.FacialControl.Rec.Application.UseCases
 
             baseline ??= RecBaselineState.Empty;
             _idTable = CreateSeededIdTable(baseline);
+            EnsureScratchCapacity(blendShapeCountHint, (blendShapeCountHint + 7) / 8);
             _eventCount = 0;
             _clock.Reset();
             _lastClockSeconds = 0d;
@@ -169,14 +184,86 @@ namespace Hidano.FacialControl.Rec.Application.UseCases
 
         public void OnValueProviderSample(string sourceId, in ValueProviderSample sample)
         {
+            if (!IsRecording || string.IsNullOrWhiteSpace(sourceId))
+            {
+                return;
+            }
+
+            RecValueProviderFlags flags = sample.IsValid ? RecValueProviderFlags.IsValid : RecValueProviderFlags.None;
+            if (sample.MaskChanged)
+            {
+                flags |= RecValueProviderFlags.HasMask;
+            }
+
+            if (sample.ValuesChanged)
+            {
+                flags |= RecValueProviderFlags.HasValues;
+            }
+
+            int maskByteCount = (sample.ContributeMask.Length + 7) / 8;
+            int valueCount = 0;
+            if (sample.ValuesChanged)
+            {
+                for (int i = 0; i < sample.ContributeMask.Length; i++)
+                {
+                    if (sample.ContributeMask[i])
+                    {
+                        valueCount++;
+                    }
+                }
+            }
+
+            EnsureScratchCapacity(sample.ContributeMask.Length, maskByteCount, valueCount);
+            if ((flags & RecValueProviderFlags.HasMask) != 0)
+            {
+                Array.Clear(_maskScratch, 0, maskByteCount);
+                for (int i = 0; i < sample.ContributeMask.Length; i++)
+                {
+                    if (sample.ContributeMask[i])
+                    {
+                        _maskScratch[i >> 3] |= (byte)(1 << (i & 7));
+                    }
+                }
+            }
+
+            if ((flags & RecValueProviderFlags.HasValues) != 0)
+            {
+                int packedIndex = 0;
+                for (int i = 0; i < sample.ContributeMask.Length; i++)
+                {
+                    if (sample.ContributeMask[i])
+                    {
+                        _valueScratch[packedIndex++] = sample.Values[i];
+                    }
+                }
+            }
+
+            ushort sourceIndex = EnsureSourceIdDefined(sourceId);
+            RecEvent evt = RecEvent.CreateValueProviderSample(
+                SampleClock(), sourceIndex, flags, checked((ushort)valueCount), checked((ushort)maskByteCount));
+            AppendEvent(evt,
+                (flags & RecValueProviderFlags.HasValues) != 0 ? new ReadOnlySpan<float>(_valueScratch, 0, valueCount) : ReadOnlySpan<float>.Empty,
+                (flags & RecValueProviderFlags.HasMask) != 0 ? new ReadOnlySpan<byte>(_maskScratch, 0, maskByteCount) : ReadOnlySpan<byte>.Empty);
         }
 
         public void OnExpressionActivated(string sourceId, string expressionId)
         {
+            if (!IsRecording || !TryResolveTriggerIds(sourceId, expressionId, out ushort sourceIndex, out ushort expressionIndex))
+            {
+                return;
+            }
+
+            AppendEvent(RecEvent.CreateExpressionActivate(SampleClock(), sourceIndex, expressionIndex), ReadOnlySpan<float>.Empty, ReadOnlySpan<byte>.Empty);
         }
 
         public void OnExpressionDeactivated(string sourceId, string expressionId)
         {
+            if (!IsRecording || !TryResolveTriggerIds(sourceId, expressionId, out ushort sourceIndex, out ushort expressionIndex))
+            {
+                return;
+            }
+
+            AppendEvent(RecEvent.CreateExpressionDeactivate(SampleClock(), sourceIndex, expressionIndex), ReadOnlySpan<float>.Empty, ReadOnlySpan<byte>.Empty);
         }
 
         public void Dispose()
@@ -316,7 +403,31 @@ namespace Hidano.FacialControl.Rec.Application.UseCases
                 idTable.GetOrAddSourceId(baseline.AnalogEntries[i].SourceId);
             }
 
+            for (int i = 0; i < baseline.ValueProviderEntries.Count; i++)
+            {
+                idTable.GetOrAddSourceId(baseline.ValueProviderEntries[i].SourceId);
+            }
+
+            idTable.GetOrAddSourceId(ExpressionActivationSource.ReservedId);
+            for (int i = 0; i < baseline.ExpressionEntries.Count; i++)
+            {
+                idTable.GetOrAddExpressionId(baseline.ExpressionEntries[i]);
+            }
+
             return idTable;
+        }
+
+        private void EnsureScratchCapacity(int blendShapeCount, int maskByteCount, int valueCount = 0)
+        {
+            if (_valueScratch.Length < blendShapeCount || _valueScratch.Length < valueCount)
+            {
+                Array.Resize(ref _valueScratch, Math.Max(blendShapeCount, valueCount));
+            }
+
+            if (_maskScratch.Length < maskByteCount)
+            {
+                Array.Resize(ref _maskScratch, maskByteCount);
+            }
         }
 
         private void ThrowIfDisposed()

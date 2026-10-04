@@ -216,7 +216,7 @@ namespace Hidano.FacialControl.Rec.Adapters.Playable
                 RecordingClock ?? new RecStopwatchClock(),
                 _streamWriter,
                 ResolveStartOffsetSeconds());
-            _recordingUseCase.StartRecording(baseline);
+            _recordingUseCase.StartRecording(baseline, controller.BlendShapeCount);
             return true;
         }
 

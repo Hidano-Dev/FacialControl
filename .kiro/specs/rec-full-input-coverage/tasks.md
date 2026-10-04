@@ -155,7 +155,7 @@
   - 完了条件: 上記テストが EditMode で緑
   - _Requirements: 3.1, 3.2, 3.3, 3.4, 3.5, 3.8, 5.5, 8.5, 8.8_
 
-- [ ] 4.3 (P) 系1 の注入ポート実装を追加する
+- [x] 4.3 (P) 系1 の注入ポート実装を追加する
   - 対象: `com.hidano.facialcontrol.rec`（`Hidano.FacialControl.Rec.Adapters`、Playback 配下）
   - 事前検査は遮断面デリゲートが非 null を返すこと（副作用なし・design.md の reason 文言）。確立は解放 → 遮断面解決（null なら false・副作用なし）→ 保持 → Suspend → 基準の表情 id 列（無ければ空）で遷移なし基準確立 → true。注入は保持した遮断面へ委譲し、未知 id の false は id 単位 warn-once。解放は Resume のみ（アクティブ集合は維持、冪等）。「遮断面未解決なら warn-once + no-op」は採用しない
   - テスト（rec `Tests/EditMode/RecExpressionInjectorTests` 新設、`[SmallTest]`、Fake 遮断面）: `CanBeginInjection_GateUnresolved_ReturnsFalseWithReason`、`TryBeginInjection_GateUnresolved_ReturnsFalseWithoutSuspending`、`TryBeginInjection_GateResolved_SuspendsThenResetsAndReturnsTrue`、Resume 後に集合が維持されること、未知 id の注入が 1 回だけ警告されること
@@ -164,7 +164,7 @@
   - _Boundary: RecExpressionInjector_
   - _Depends: 4.1, 2.1_
 
-- [ ] 4.4 再生ユースケースを 4 ポートの all-or-nothing 確立へ拡張する
+- [x] 4.4 再生ユースケースを 4 ポートの all-or-nothing 確立へ拡張する
   - 対象: `com.hidano.facialcontrol.rec`（`Hidano.FacialControl.Rec.Application` の PlaybackUseCase）
   - コンストラクタで 4 ポート（trigger / expression / analog / valueProvider。null は `ArgumentNullException`）を受け、確立順の配列として保持し、事前検査・確立・ロールバック・解放を同一ループで行う
   - 再生開始: 既存ガード → 全ポートの事前検査を短絡せず全件評価し 1 件でも不合格なら `LogError` 1 回（失敗ポート名と reason を連結）+ false・状態とポート不変 → Completed からの再開は全ポートを T→E→A→V で解放して Idle 経由 → T→E→A→V で確立し i 番目が false なら確立済みを逆順解放・scheduler Reset・Idle・`LogError` 1 回 + false → 成功で scheduler Load → Playing / Completed。停止は Idle 以外で T→E→A→V に解放（唯一の解放点、Completed では解放しない）
