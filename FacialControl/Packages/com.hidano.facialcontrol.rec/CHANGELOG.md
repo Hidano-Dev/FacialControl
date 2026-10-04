@@ -6,6 +6,10 @@
 
 ### Added
 
+- REC の記録・遮断・注入対象を FacialControl で動く全入力源に拡張した（HID-35）。値提供型入力源（OSC / iFacialMocap / uLipSync 音素オーバーレイ / Timeline ベイク値 / Overlay）は mask 順の疎な値を差分形式（`RecValueProviderFlags` の IsValid / HasMask / HasValues）で記録し、再生中は `RecPlaybackValueProviderSource` に置換する。系1（`FacialController.Activate/Deactivate` 直呼び）は予約 source `@expression` で記録し、再生中は `IExpressionActivationGate` 経由で遮断・注入する。基準状態（`RecBaselineState`）に値提供型と系1のエントリを追加した（4 引数コンストラクタ。2 引数版は「値提供型 / 系1の基準なし」として互換維持）
+- `.fcrec` に record kind 7〜11（`ValueProviderSample` / `BaselineValueProvider` / `ExpressionActivate` / `ExpressionDeactivate` / `BaselineExpression`）を追加し、ヘッダの `flags` bit0（`RecHeaderFlags.FullInputBaseline`）を必須化した。formatVersion は 1 のまま（v1 は未リリースのため在置き変更）。bit0 の無い旧 dev ファイルは `TryRead` が拒否する
+- 網羅性ゲート: `RecInputSourceCoverageCatalog` が全 `IInputSource` 実装を「観測対象 13 / 明示的除外 7」に分類し、`RecInputSourceCoverageCatalogTests` / `RecInputSourceExclusionContractTests`（Small）で漏れを検出する
+
 - `RecCharacterBinding.StartPlayback(double startOffsetSeconds)` / `PlaybackUseCase.StartPlayback(double)` — 録画の途中から再生する。開始位置より前のイベントを畳み込んで状態を再構築する（トリガーは最終的な on/off、アナログは各入力源の最後の値）。遷移途中だった表情は遷移の進行度までは再現せず、その時点の目標状態から始まる
 - `RecTimelineSeek.BuildBaselineAt` と `RecPlaybackScheduler.Load(RecTimeline, double)` / `GetStartEventIndex` / `IsValidStartOffset` — 上記の Domain 側の実装
 - `RecCharacterBinding.LastRecordingName` — 直近の録画で実際に保存したテイク名（連番付与後）
@@ -19,6 +23,9 @@
 
 ### Changed
 
+- **破壊的（preview）**: 注入ポートを共通ライフサイクル `IInjectionPort { CanBeginInjection(out reason); TryBeginInjection(baseline); EndInjection() }` に統一し、`ITriggerInjectionPort` / `IAnalogInjectionPort` の `void BeginInjection` を廃止した。`PlaybackUseCase` は 4 ポート（trigger → expression → analog → valueProvider）を all-or-nothing で確立し、途中失敗は逆順に解放して Idle に戻る（2 ポートのコンストラクタは互換のため残す）。`IRecEventSink.AppendEvent` に `maskBytes` 引数、`IRecEventVisitor` に `VisitValueProviderSample` / `VisitExpressionActivate` / `VisitExpressionDeactivate` を追加した。`ILayerSourceValueObserver.OnSourceValuesObserved` に `IInputSource source` 引数を追加した（core）
+- osc 受信 binding の heartbeat は registry の `Replace` ではなく `OscInputSource.UpdateMapping` による in-place 更新になった（再生中の注入ソースを追い出さないため）
+- 既知の制限: ランタイムのレイヤー weight / 入力源 weight 変更は記録・遮断の対象外（HID-80）
 - `RecCharacterBinding.LoadRecording` は読み込みに失敗すると、前に読み込んだテイクを破棄するようにした（従来は失敗後の `StartPlayback` が前のテイクを再生していた）。録画中に名前を省略して呼んだ場合は、録画を止めて確定したテイクを読み込むようにした（従来は確定前の 1 つ前のテイクを読むことがあった）
 - 同名の録画がすでにある場合は上書きせず、`{名前}-2`, `{名前}-3`… と連番を付けて保存するようにした。実際に保存した名前とパスは `LastRecordingName` / `LastRecordingPath` と Inspector の Path 表示に反映される
 - `RecStreamWriter` は出力先の予約（連番付与）と `FileMode.CreateNew` でのオープンをライタースレッドで行い、既存ファイルを決して上書きしない（呼び出し元をストレージ I/O 待ちでブロックしない）。実際に開いたパスは `OutputFilePath`、開けなかったことは `HasOutputFailed` で分かる。同じパスへ同時に録画を始めた場合も連番を取り直して両方のテイクを残す。`RecCharacterBinding.StartRecording` はファイルを開く前に true を返し、オープン失敗には気づいた時点（Update または StopRecording）で録画を止めて警告を出す（従来はオープン失敗が背景スレッドのログだけで、成功扱いのまま録画が失われていた。オープン後の書き込み失敗は従来どおりライタースレッドのログのみ）。`LastRecordingName` / `LastRecordingPath` はファイルを開いた後に反映され、録画中のテイクのパスは `CurrentRecordingPath` で分かる

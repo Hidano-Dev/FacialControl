@@ -137,8 +137,8 @@
   - 完了条件: 上記テストと既存 Seek テストが EditMode で緑
   - _Requirements: 6.8_
 
-- [ ] 4. rec Application / Adapters（注入ポート統一 → 新注入体 → 再生 / 記録ユースケース → 永続化 → キャラクターバインディング）
-- [ ] 4.1 (P) 注入ポート契約を共通ライフサイクル（副作用なし事前検査・bool 戻りの確立・冪等解放）に統一する
+- [x] 4. rec Application / Adapters（注入ポート統一 → 新注入体 → 再生 / 記録ユースケース → 永続化 → キャラクターバインディング）
+- [x] 4.1 (P) 注入ポート契約を共通ライフサイクル（副作用なし事前検査・bool 戻りの確立・冪等解放）に統一する
   - 対象: `com.hidano.facialcontrol.rec`（`Hidano.FacialControl.Rec.Domain` の Interfaces、`Hidano.FacialControl.Rec.Adapters` の既存 2 Injector）
   - 共通基底ポート契約（`CanBeginInjection(out reason)` / `TryBeginInjection(baseline)` / `EndInjection`）を新設し、既存トリガー / アナログポート契約の `void BeginInjection` を廃止して継承させる。値提供型ポート契約（状態注入）と系1 ポート契約（アクティブ化 / 非アクティブ化注入）も定義する
   - 既存 2 Injector を追随（トリガーは列挙デリゲートの有無、アナログは常に true を事前検査で返し、確立は従来本体のまま true を返す。挙動不変）。Replace 系注入の共通処理（複合 id 分解・Register / Replace / Unregister・占有検査・参照同一性復元・warn-once）を internal ヘルパーへ抽出しアナログ Injector が委譲する。再生ユースケースと Fake（PlaybackUseCaseTests / RecGcZeroGateTests 内）は新契約にコンパイル追随
@@ -296,8 +296,8 @@
   - _Requirements: 6.7, 8.2, 8.5, 9.8_
   - _Boundary: RecGcZeroGateTests, FacialControllerGcZeroGateTests_
 
-- [ ] 10. 既存 spec 文書とパッケージドキュメントの整合
-- [ ] 10.1 (P) 先行 spec の設計文書を本 spec の実態に合わせて修正する
+- [x] 10. 既存 spec 文書とパッケージドキュメントの整合
+- [x] 10.1 (P) 先行 spec の設計文書を本 spec の実態に合わせて修正する
   - 対象: `.kiro/specs/rec-recording-playback/design.md`、`.kiro/specs/rec-playback-input-exclusivity/design.md`
   - rec-recording-playback: Non-Goals の「リップシンク由来の操作イベントは他入力と同様に観測面経由で記録される」を値提供型観測面経由の消費値記録へ修正、「拡張パッケージ内部の直接参照消費者への注入到達は対象外」を Replace 遮断で対象内へ変更し残る未到達を HID-80 のみと付記、Out of Boundary の「系1 経路の記録は対象外」を本 spec で上書きされた旨へ修正、Revalidation Triggers / Physical Data Model から観測者契約の形状と kind 7〜11 を本 spec へ参照。上書き箇所にはすべて上書き元 spec 名（rec-full-input-coverage）を付記
   - rec-playback-input-exclusivity: Non-Goals の「osc パッケージの改修」「記録機能・`.fcrec` の変更」に上書きの付記、0 埋め seed は値提供型には適用せず無効で確立する旨を付記
@@ -320,7 +320,7 @@
   - _Requirements: 10.8_
   - _Boundary: timeline ドキュメント_
 
-- [ ] 11. 最終検証（テストサイズ静的チェック・全 EditMode・全 PlayMode）
+- [x] 11. 最終検証（テストサイズ静的チェック・全 EditMode・全 PlayMode）
   - 対象: `FacialControl/` 全体
   - `pwsh ./scripts/check-test-sizes.ps1` が通ること（新設 fixture のサイズ宣言、Small の禁止 API 不使用、Small asmdef の参照逸脱なし）
   - 全 EditMode テスト（サイズ問わず）と全 PlayMode テストを batchmode で実行し、結果 XML で failed = 0 を確認する。網羅性ゲート・除外契約テストが `Small` カテゴリに含まれ CI の `small-tests` ジョブで実行対象になること、core が rec を参照していないこと（asmdef）を確認する

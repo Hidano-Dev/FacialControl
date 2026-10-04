@@ -122,3 +122,13 @@
 - Command: `git push -u origin feature/hid-35-rec-full-input-coverage` → `gh pr create --base main`（PR テンプレートなし）
 - Result: **PR #46** https://github.com/Hidano-Dev/FacialControl/pull/46 — タイトル "feat(rec): extend REC recording/blocking coverage to all input sources (HID-35)"。本文にスコープ / NO-GO の内訳と赤 17 件の原因・再現テスト名 / spec-run 結果テーブル / validate-impl 要約 / 残課題 / HID-80 分離を明記
 - 以降: PR レビューとマージ判断は人間が行う（Orchestrator はマージしない）。Linear HID-35 はブランチ名から自動紐付け
+
+## Phase 7: PR レビュー対応（Codex P1 × 8） — 2026-10-05T00:30:00Z
+
+- Trigger: Codex PR レビュー（2cb365d8 に対して、P1 × 8）。ユーザー指示「対処して再度レビューを申請し、返信が来たら確認するよう監視。必須対応は P0 / P1 まで」
+- 指摘: (1) ライター側の予約 source ID 欠落 / (2) mask 省略時の mask count 非ゼロ / (3) 基準 VP 値が全長保存 / (4) ApplyState が省略成分を消去 / (5) 途中再生の VP 差分未マージ / (6) 途中再生の系1畳み込みに profile 未伝達 / (7) HasValues + ValueCount 0 のサイズ計算不足 / (8) 欠落 ID フィルタが VP・系1 基準を消去。全件コードで裏取りし妥当と判断（(1) は PR 本文の赤 17 件と同一経路）
+- 対応コミット: 6a5e570b。`RecIdTable.CreateSeeded`（Domain）新設、`RecBaselineCapture`（Adapters）抽出、`RecPlaybackValueProviderSource.ApplyState` 差分適用、`RecTimelineSeek` マージ、`PlaybackUseCase` の profile 保持 + 4 引数 `CreateFilteredBaseline`、`RecBinaryFormat.GetValueProviderRecordSize` の HasValues 基準化、各再現テスト追加。付随: PlayMode ハーネス `SetupHarness` に 4 ポート前提（ExpressionActivationGate / BlendShapeCount）を揃え、`TimelineBuildingRecEventSink` を実ライターと同じシードに。Windows ローカルのみの既存赤 3 件（連番テイクのパス区切り不一致、`RecSidecarPath.ResolveUniqueFilePath`）も修正
+- 検証（Windows ローカル batchmode、HEAD 6a5e570b）: 全 EditMode 2255（passed 2252 / failed 0 / skipped 3）、全 PlayMode 447（failed 0）。PR 作成時の赤 17 件（CI でも Small 1 / Medium PlayMode 16 と同内訳）は解消
+- Reviewer: `/kiro:validate-impl rec-full-input-coverage` — codex 経路は呼び出し A（ベースライン記録 Bash）が許可されず起動条件を満たさないため、コマンド定義どおり **Claude サブエージェント（validate-impl-agent）へフォールバック**。結果 **DECISION: GO**（rec EditMode 219/219・rec PlayMode 28/28 を新規実行、全体は親の結果を採用、TBD/secrets grep CLEAN、asmdef 境界・core→rec 依存方向・osc Replace 不在・4 ポート順序を確認）。Warning 6 件: tasks.md のチェック漏れ（4 / 4.1 / 10 / 10.1 / 11）/ 本ログ未更新 / PlayMode 受け入れの範囲不足（Req 9.3 / 9.5 / 9.10）/ CHANGELOG に破壊的 API 変更の記載なし / 設計の `RecRegistryInjection` 未抽出 / 陳腐化コメント
+- Warning の処理: tasks.md チェック補正・本ログ追記・CHANGELOG（Added / 破壊的 Changed）・陳腐化コメント修正を同コミットで実施。PlayMode 受け入れ補強と `RecRegistryInjection` 抽出は `docs/backlog.md` S-23 / S-24 へ登録
+- 次: push → PR 本文更新 → 8 スレッドへ対応内容を返信 → `@codex review` 再トリガー → レビュー待機（P0 / P1 のみ必須対応、`.kiro/orchestration/config.json` の `review.wait_minutes` = 60）

@@ -44,6 +44,16 @@
 
 ---
 
+### S-23: REC 全入力対応の PlayMode 受け入れテスト補強（Req 9.3 / 9.5 / 9.10）
+- **出典**: 2026-10-04 `rec-full-input-coverage`（PR #46）の validate-impl 再検証 Warning #3。
+- **背景**: 「再生中のライブ値提供型更新・ライブ Activate が `BlendedOutputSpan` に反映されない」「有効→無効→有効 + mask 変化」「途中再生の値提供型 / 系1 基準」は Small（`RecPlaybackValueProviderSourceTests` / `RecTimelineSeekTests` / `PlaybackUseCaseFourPortTests` / core `ExpressionUseCaseTests`）でロジック単位にのみ固定されており、実 `FacialController` 上の PlayMode 受け入れは `RecordingAndPlayback_ReplaysValueProviderAndExpressionStateFromFrameZero` 1 本に集約されていない。Codex レビューで往復不良が P1 × 8 見つかった経緯から、出力レベルでの受け入れを足す価値が高い。
+- **トリガ**: rec パッケージの次の PlayMode テスト改修時、または REC を実機で使い始める前。
+
+### S-24: REC 注入体の registry 操作ヘルパー（`RecRegistryInjection`）の抽出
+- **出典**: 2026-10-04 `rec-full-input-coverage`（PR #46）の validate-impl 再検証 Warning #5。
+- **背景**: design.md の `RecRegistryInjection`（Replace / Register / Unregister・参照同一性の復元ガード・warn-once）が未抽出で、`RecAnalogInjector` と `RecValueProviderInjector` に同等ロジックが重複している。挙動は同一でテストも緑だが、復元ガードの規則が 2 箇所に分かれる。
+- **トリガ**: 注入体を 1 つ追加するとき、または復元ガードの規則を変更するとき。
+
 ## 中期（preview.2 以降 / 別 spec 候補）
 
 ### M-1: 既知の機能延期（technical-spec.md 1.5 節と同期）

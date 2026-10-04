@@ -160,7 +160,7 @@ namespace Hidano.FacialControl.Rec.Adapters.Recording
                 return;
             }
 
-            // mask の永続化は 4.5/4.6 のバイナリ実装で行う。ここでは契約だけ追随する。
+            // payload（float）と mask（byte）はキューの別区画にコピーされ、ライタースレッドが RecBinaryFormat で書き出す。
             _queue.Enqueue(in evt, payload, maskBytes, idValue);
         }
 
