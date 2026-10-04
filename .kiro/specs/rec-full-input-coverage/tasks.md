@@ -56,7 +56,7 @@
   - _Boundary: ExpressionUseCase, IExpressionActivationGate_
   - _Depends: 1.2_
 
-- [ ] 2.2 レイヤーユースケースが基準確立世代の変化を検出して遷移なしでスナップする
+- [x] 2.2 レイヤーユースケースが基準確立世代の変化を検出して遷移なしでスナップする
   - 対象: `com.hidano.facialcontrol`（`Hidano.FacialControl.Application` の LayerUseCase と内部の系1 消費アダプタ）
   - `UpdateWeights` 冒頭で世代カウンタを int 比較し、変化したフレームだけ通常の表情更新（必ず遷移開始）を「スナップ」に置き換える（現在値 = 目標値、遷移完了、mask を現在値から再構築、既にアクティブ経験のあるレイヤーが空列なら 0 へスナップ）
   - 既存の表情更新ロジック本体は変更しない

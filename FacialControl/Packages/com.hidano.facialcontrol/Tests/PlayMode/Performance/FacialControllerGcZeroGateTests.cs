@@ -1,6 +1,7 @@
 using System;
 using System.Reflection;
 using Hidano.FacialControl.Adapters.Playable;
+using Hidano.FacialControl.Domain.Adapters;
 using Hidano.FacialControl.Domain.Models;
 using NUnit.Framework;
 using Unity.Profiling;
@@ -76,6 +77,27 @@ namespace Hidano.FacialControl.Tests.PlayMode.Performance
                 "warmup 後の steady-state weight-update call tree 全体で GC.Alloc は 0 であるべき");
         }
 
+        [Test]
+        public void Initialize_WiresExpressionObserverAndExposesActivationGate()
+        {
+            _controllerGameObject = CreateControllerHost();
+            var controller = _controllerGameObject.AddComponent<FacialController>();
+            var profile = CreateProfileWithExpression();
+            var observer = new ExpressionObservationSpy();
+
+            Assert.That(controller.ExpressionActivationGate, Is.Null,
+                "未初期化時の系1遮断面は null であるべき");
+
+            controller.InitializeWithProfile(profile);
+            controller.InputObservationBus.Subscribe(observer);
+            controller.Activate(profile.Expressions.Span[0]);
+
+            Assert.That(controller.ExpressionActivationGate, Is.Not.Null,
+                "初期化後は系1遮断面が公開されるべき");
+            Assert.That(observer.ActivatedSourceId, Is.EqualTo("@expression"));
+            Assert.That(observer.ActivatedExpressionId, Is.EqualTo("expr-happy"));
+        }
+
         private GameObject CreateControllerHost()
         {
             var root = new GameObject("FacialControllerGcZeroGateTestsHost");
@@ -121,6 +143,24 @@ namespace Hidano.FacialControl.Tests.PlayMode.Performance
             };
 
             return new FacialProfile("1.0.0", layers, expressions);
+        }
+
+        private sealed class ExpressionObservationSpy : IFacialInputObserver
+        {
+            public string ActivatedSourceId { get; private set; }
+            public string ActivatedExpressionId { get; private set; }
+
+            public void OnExpressionActivated(string sourceId, string expressionId)
+            {
+                ActivatedSourceId = sourceId;
+                ActivatedExpressionId = expressionId;
+            }
+
+            public void OnExpressionDeactivated(string sourceId, string expressionId) { }
+            public void OnTriggerOn(string sourceId, string expressionId) { }
+            public void OnTriggerOff(string sourceId, string expressionId) { }
+            public void OnAnalogSample(string sourceId, ReadOnlySpan<float> axes) { }
+            public void OnValueProviderSample(string sourceId, in ValueProviderSample sample) { }
         }
 
         private static Action<FacialController> CreateLateUpdateDelegate()

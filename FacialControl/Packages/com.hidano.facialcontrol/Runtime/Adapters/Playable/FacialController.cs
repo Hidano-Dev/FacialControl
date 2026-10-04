@@ -123,6 +123,12 @@ namespace Hidano.FacialControl.Adapters.Playable
         public IFacialInputObservationBus InputObservationBus => _inputObservationBus;
 
         /// <summary>
+        /// 系1（表情アクティベーション）の観測・遮断・注入面。未初期化時は null。
+        /// </summary>
+        public IExpressionActivationGate ExpressionActivationGate =>
+            _isInitialized ? _expressionUseCase : null;
+
+        /// <summary>
         /// 1 体ぶんの入力 source registry。未初期化時は null。
         /// </summary>
         public IInputSourceRegistry InputSourceRegistry => _inputSourceRegistry;
@@ -909,6 +915,8 @@ namespace Hidano.FacialControl.Adapters.Playable
             FacialProfile profile,
             IReadOnlyList<(int layerIdx, IInputSource source, float weight)> additionalSources)
         {
+            _expressionUseCase.SetActivationObserver(_inputObservationBus);
+
             if (_inputSourceRegistry == null || _inputObservationBus == null)
             {
                 _analogObservationSampler = null;
