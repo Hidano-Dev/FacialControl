@@ -305,7 +305,7 @@
   - _Requirements: 10.1, 10.2, 10.3_
   - _Boundary: 先行 spec design.md_
 
-- [ ] 10.2 (P) rec パッケージの README と Documentation~ を更新する
+- [x] 10.2 (P) rec パッケージの README と Documentation~ を更新する
   - 対象: `com.hidano.facialcontrol.rec` の `README.md` / `Documentation~/README.md`
   - 「記録される内容」を 4 系（トリガー / アナログ・gaze / 値提供型 / 系1）へ拡張し、明示的除外 7 型と理由の表を design.md「入力源分類表」と 1:1 で記載。既知制限に HID-80（レイヤー weight / 入力源 weight はライブのまま）、開始時スナップショット方式が値提供型・系1 にも適用されること、mask 外非ゼロの非再現、基準捕捉が Update 時点の読取であることを記載
   - 「ファイル形式」: formatVersion 1 据え置き、ヘッダ flags bit0 必須（writer は常に 1、reader は欠落を読込エラー）、本変更以前のファイルは design.md 記載のエラーで拒否され再収録が必要（互換・移行なし）。kind 表に 7〜11 と mask 順疎値の説明を追加。「再生中の入力遮断」に値提供型（無効 seed）と系1（Suspend + 基準確立）の項を追加
