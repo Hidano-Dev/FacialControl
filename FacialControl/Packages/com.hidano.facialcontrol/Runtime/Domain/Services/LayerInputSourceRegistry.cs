@@ -257,6 +257,47 @@ namespace Hidano.FacialControl.Domain.Services
         }
 
         /// <summary>
+        /// 低頻度ランタイム API: 登録済みスロット <paramref name="sourceIdx"/> の入力源を <paramref name="source"/> で
+        /// その場置換する。スロット位置と <see cref="GetSourceCountForLayer"/> は変わらないため、
+        /// 同じ (layer, source) 位置の weight をそのまま引き継げる（remove + add だと後続スロットが詰まって
+        /// weight 列とずれる）。
+        /// </summary>
+        /// <returns>置換できれば true。範囲外 layer / 未登録スロット / null source は警告 + false。</returns>
+        public bool TryReplaceSource(int layerIdx, int sourceIdx, IInputSource source)
+        {
+            if (_disposed)
+            {
+                Debug.LogWarning(
+                    "LayerInputSourceRegistry: TryReplaceSource は Dispose 済みの Registry では利用できません。");
+                return false;
+            }
+
+            if ((uint)layerIdx >= (uint)LayerCount)
+            {
+                Debug.LogWarning(
+                    $"LayerInputSourceRegistry: TryReplaceSource の layerIdx={layerIdx} が範囲外のためスキップします (LayerCount={LayerCount})。");
+                return false;
+            }
+
+            if ((uint)sourceIdx >= (uint)_sourceCounts[layerIdx])
+            {
+                Debug.LogWarning(
+                    $"LayerInputSourceRegistry: TryReplaceSource の sourceIdx={sourceIdx} は layerIdx={layerIdx} に登録されていません (count={_sourceCounts[layerIdx]})。");
+                return false;
+            }
+
+            if (source == null)
+            {
+                Debug.LogWarning(
+                    $"LayerInputSourceRegistry: TryReplaceSource の source が null のためスキップします (layerIdx={layerIdx}, sourceIdx={sourceIdx})。");
+                return false;
+            }
+
+            _sources[(layerIdx * MaxSourcesPerLayer) + sourceIdx] = source;
+            return true;
+        }
+
+        /// <summary>
         /// 低頻度ランタイム API: 指定レイヤーから id 一致の入力源を削除する (D-10)。
         /// </summary>
         /// <param name="layerIdx">レイヤーインデックス。<see cref="LayerCount"/> 未満。</param>

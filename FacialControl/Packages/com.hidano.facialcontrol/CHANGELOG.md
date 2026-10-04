@@ -23,6 +23,11 @@
 - 目線タブの目ボーン欄を「(任意)」表記にし、空欄時の案内を情報表示に変更。参照モデルが Humanoid の目ボーンを持たない場合だけ警告を出す
 - `FacialCharacterProfileSO` Inspector の Adapter Bindings タブ — 各 Adapter を折り畳める `Foldout` で包んだ。ヘッダーに表示名と slug を出し、ヘッダーの `−` ボタンから確認のうえその Adapter を削除できる（型が解決できない行の削除もこのボタンに集約）。開閉状態は Adapter ごとに SessionState へ保存し、Inspector の再選択・ドメインリロード・Adapter の追加 / 削除 / 並べ替えの後も同じ Adapter に保持する（Editor 再起動でリセット）。フッターに「すべて展開」「すべて折り畳む」ボタンを追加した
 
+### Fixed
+
+- `LayerUseCase.BindLateInputSource` で同 id の入力源を差し替えるとき、remove + append ではなく同じスロットでその場置換するようにした（`LayerInputSourceRegistry.TryReplaceSource`）。従来は後続スロットの source だけが詰まり weight 列が詰まらないため、他の入力源の weight が入れ替わって元に戻らなかった（OSC heartbeat の差し替えや REC の注入・復元で発生）。`UnbindLateInputSource` も除去後に weight 列を詰める
+- `ValueProviderObservationSampler` が publish する source ID を `IInputSourceRegistry` の登録キー（レイヤー宣言の id / binding slug）に解決するようにした。従来は入力源自身の `Id`（`OscInputSource` は常に `osc`）を使っていたため、`ifm` 等の slug で登録した OSC 系入力源の REC 記録が基準・注入側のキーと一致しなかった
+
 ### Removed
 
 破壊的変更（公開 API の削除）を含む。次のリリースでバージョンを上げる際はメジャー更新が必要。

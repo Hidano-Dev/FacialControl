@@ -318,21 +318,20 @@ namespace Hidano.FacialControl.Application.UseCases
                 return;
             }
 
-            int count = _registry.GetSourceCountForLayer(layerIdx);
-            bool exists = false;
-            for (int s = 0; s < count; s++)
+            int existingIdx = FindSourceSlot(layerIdx, source.Id);
+            if (existingIdx >= 0)
             {
-                var existing = _registry.GetSource(layerIdx, s);
-                if (existing != null && string.Equals(existing.Id, source.Id, System.StringComparison.Ordinal))
+                // 同 id は同じスロットへその場置換する。remove + append だと後続スロットの source だけが詰まり
+                // weight 列は詰まらないため、他 source の weight が入れ替わって元に戻らなくなる
+                // （例: [VP=.2, trigger=.8] → 置換後 [trigger=.2, VP=.2]）。
+                if (!_registry.TryReplaceSource(layerIdx, existingIdx, source))
                 {
-                    exists = true;
-                    break;
+                    return;
                 }
-            }
 
-            if (exists)
-            {
-                _registry.TryRemoveSource(layerIdx, Hidano.FacialControl.Domain.Models.InputSourceId.Parse(source.Id));
+                _weightBuffer?.SetWeight(layerIdx, existingIdx, weight);
+                MarkLayerHasAdditionalSources(layerIdx);
+                return;
             }
 
             // TryAddSource は末尾スロット（現在の source 数）へ置く。追加前に確定させる。
@@ -353,11 +352,32 @@ namespace Hidano.FacialControl.Application.UseCases
             // blend フィルタ（UpdateWeights）がこのレイヤーを含めるよう追加ソース有りフラグを立てる。
             // init 済み解決ソースは 457 行で立つが、購読経由の late-bind はこの経路で立てないと
             // (HasBeenActive || hasAdditional) が false のままレイヤーごと最終ブレンドから外れる。
+            MarkLayerHasAdditionalSources(layerIdx);
+        }
+
+        private void MarkLayerHasAdditionalSources(int layerIdx)
+        {
             if (_layerHasAdditionalSources != null
                 && (uint)layerIdx < (uint)_layerHasAdditionalSources.Length)
             {
                 _layerHasAdditionalSources[layerIdx] = true;
             }
+        }
+
+        /// <summary>指定レイヤーで id が一致する入力源のスロット index を返す。無ければ -1。</summary>
+        private int FindSourceSlot(int layerIdx, string id)
+        {
+            int count = _registry.GetSourceCountForLayer(layerIdx);
+            for (int s = 0; s < count; s++)
+            {
+                var existing = _registry.GetSource(layerIdx, s);
+                if (existing != null && string.Equals(existing.Id, id, System.StringComparison.Ordinal))
+                {
+                    return s;
+                }
+            }
+
+            return -1;
         }
 
         /// <summary>
@@ -382,9 +402,22 @@ namespace Hidano.FacialControl.Application.UseCases
                 return;
             }
 
+            int removedIdx = FindSourceSlot(layerIdx, id);
+            int countBefore = _registry.GetSourceCountForLayer(layerIdx);
             if (!_registry.TryRemoveSource(layerIdx, Hidano.FacialControl.Domain.Models.InputSourceId.Parse(id)))
             {
                 return;
+            }
+
+            // registry は後続スロットを詰める（compact）ので weight 列も同じだけ詰め、残る source の weight を保つ。
+            if (_weightBuffer != null && removedIdx >= 0)
+            {
+                for (int s = removedIdx; s < countBefore - 1; s++)
+                {
+                    _weightBuffer.SetWeight(layerIdx, s, _weightBuffer.GetWeight(layerIdx, s + 1));
+                }
+
+                _weightBuffer.SetWeight(layerIdx, countBefore - 1, 0f);
             }
 
             if (_layerHasAdditionalSources != null

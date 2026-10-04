@@ -687,7 +687,7 @@ namespace Hidano.FacialControl.Rec.Domain.Services
                 case RecEventKind.BaselineAnalog:
                     return TryReadBaselineAnalog(source, baselineAnalogRecords, ref parsedRecordCount, out recordBytes);
                 case RecEventKind.BaselineValueProvider:
-                    return TryReadBaselineValueProvider(source, baselineValueProviderRecords, ref parsedRecordCount, out recordBytes);
+                    return TryReadBaselineValueProvider(source, baselineValueProviderRecords, ref parsedRecordCount, out recordBytes, out error);
                 case RecEventKind.ExpressionActivate:
                 case RecEventKind.ExpressionDeactivate:
                     return TryReadTimedExpression(source, kind, events, analogAxesByEvent, maskBytesByEvent, ref parsedRecordCount, out recordBytes);
@@ -893,8 +893,26 @@ namespace Hidano.FacialControl.Rec.Domain.Services
         private static bool TryReadBaselineValueProvider(
             ReadOnlySpan<byte> source,
             List<(ushort sourceIndex, bool isValid, byte[] mask, float[] values)> records,
-            ref uint parsedRecordCount, out int recordBytes)
+            ref uint parsedRecordCount, out int recordBytes, out string error)
         {
+            recordBytes = 0;
+            error = null;
+
+            // kind 8 は mask と値を必ず持つ（CreateBaselineValueProvider が HasMask | HasValues を常に立てる）。
+            // 破損・外部生成レコードで flags が欠けていると、mask / 値を読み飛ばして「基準なし」として成功してしまうため、
+            // 末尾切れ（false のみ）ではなく明示的なエラーで拒否する。
+            if (source.Length >= 4)
+            {
+                const RecValueProviderFlags required = RecValueProviderFlags.HasMask | RecValueProviderFlags.HasValues;
+                const RecValueProviderFlags supported = required | RecValueProviderFlags.IsValid;
+                var rawFlags = (RecValueProviderFlags)source[3];
+                if ((rawFlags & required) != required || (rawFlags & ~supported) != 0)
+                {
+                    error = $"Baseline value-provider record flags 0x{(byte)rawFlags:X2} must set HasMask | HasValues and no unknown bits.";
+                    return false;
+                }
+            }
+
             var events = new List<RecEvent>(1);
             var payloads = new List<IReadOnlyList<float>>(1);
             var masks = new List<IReadOnlyList<byte>>(1);

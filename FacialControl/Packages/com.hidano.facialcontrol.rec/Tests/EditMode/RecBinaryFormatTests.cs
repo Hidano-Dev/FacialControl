@@ -138,6 +138,27 @@ namespace Hidano.FacialControl.Rec.Tests.EditMode
             Assert.That(error, Does.Contain("Duplicate value-provider source id 'vp'"));
         }
 
+        [TestCase(0x00)]
+        [TestCase(0x01)]
+        [TestCase(0x02)]
+        [TestCase(0x0F)]
+        public void TryRead_BaselineValueProviderWithInvalidFlags_ReturnsError(int rawFlags)
+        {
+            var baseline = new RecBaselineState(
+                null, null,
+                new[] { new RecBaselineState.ValueProviderEntry("vp", true, new byte[] { 0x01 }, new[] { 0.5f }) },
+                null);
+            var timeline = new RecTimeline(baseline, Array.Empty<RecEvent>(), new[] { "vp" }, Array.Empty<string>(), 0d);
+            byte[] bytes = RecBinaryFormat.Serialize(timeline, 123L);
+            int record = FindRecord(bytes, (byte)RecEventKind.BaselineValueProvider);
+            bytes[record + 3] = (byte)rawFlags;
+
+            bool success = RecBinaryFormat.TryRead(bytes, out _, out string error);
+
+            Assert.That(success, Is.False);
+            Assert.That(error, Does.Contain("Baseline value-provider record flags"));
+        }
+
         private static int FindRecord(byte[] bytes, byte kind)
         {
             for (int i = RecBinaryFormat.HeaderSize; i < bytes.Length; i++)

@@ -110,9 +110,63 @@ namespace Hidano.FacialControl.Tests.EditMode.Adapters.InputSources
             Assert.That(observer.Samples.Count, Is.EqualTo(1));
         }
 
+        [Test]
+        public void Sample_SourceRegisteredUnderDifferentKey_PublishesRegistryKey()
+        {
+            // OscInputSource は常に Id "osc" だが、binding は任意の slug（iFacialMocap なら "ifm" 等）で registry に登録する。
+            // REC の基準捕捉・注入は registry キーを使うので、観測イベントも registry キーで出す。
+            var bus = new FacialInputObservationBus();
+            var observer = new RecordingObserver();
+            bus.Subscribe(observer);
+            var registry = new InputSourceRegistry();
+            var source = new FakeValueProvider("osc", 1);
+            registry.Register(AdapterSlug.Parse("ifm"), source);
+            var sampler = new ValueProviderObservationSampler(bus, registry);
+
+            sampler.OnSourceValuesObserved(0, 1, source, InputSourceId.Parse("osc"), true, new float[] { 0.5f });
+
+            Assert.That(observer.Ids, Is.EqualTo(new[] { "ifm" }));
+        }
+
+        [Test]
+        public void Sample_SourceNotInRegistry_FallsBackToAggregatorId()
+        {
+            var bus = new FacialInputObservationBus();
+            var observer = new RecordingObserver();
+            bus.Subscribe(observer);
+            var registry = new InputSourceRegistry();
+            var sampler = new ValueProviderObservationSampler(bus, registry);
+
+            sampler.OnSourceValuesObserved(0, 1, new FakeValueProvider("osc", 1), InputSourceId.Parse("osc"), true, new float[] { 0.5f });
+
+            Assert.That(observer.Ids, Is.EqualTo(new[] { "osc" }));
+        }
+
+        [Test]
+        public void Sample_AfterRegistryReplace_ResolvesNewInstanceToSameKey()
+        {
+            var bus = new FacialInputObservationBus();
+            var observer = new RecordingObserver();
+            bus.Subscribe(observer);
+            var registry = new InputSourceRegistry();
+            var first = new FakeValueProvider("osc", 1);
+            var second = new FakeValueProvider("osc", 1);
+            registry.Register(AdapterSlug.Parse("ifm"), first);
+            var sampler = new ValueProviderObservationSampler(bus, registry);
+
+            sampler.OnSourceValuesObserved(0, 1, first, InputSourceId.Parse("osc"), true, new float[] { 0.5f });
+            registry.Replace(AdapterSlug.Parse("ifm"), second);
+            sampler.OnSourceValuesObserved(0, 1, second, InputSourceId.Parse("osc"), true, new float[] { 0.5f });
+
+            Assert.That(observer.Ids, Is.EqualTo(new[] { "ifm", "ifm" }));
+            Assert.That(observer.Samples[1].MaskChanged, Is.True, "別インスタンスは全量 publish される");
+        }
+
         private sealed class RecordingObserver : IFacialInputObserver
         {
             public List<ValueProviderSampleRecord> Samples { get; } = new List<ValueProviderSampleRecord>();
+
+            public List<string> Ids { get; } = new List<string>();
 
             public void OnTriggerOn(string sourceId, string expressionId) { }
             public void OnTriggerOff(string sourceId, string expressionId) { }
@@ -122,6 +176,7 @@ namespace Hidano.FacialControl.Tests.EditMode.Adapters.InputSources
 
             public void OnValueProviderSample(string sourceId, in ValueProviderSample sample)
             {
+                Ids.Add(sourceId);
                 Samples.Add(new ValueProviderSampleRecord(
                     sample.IsValid, sample.ValidityChanged, sample.ValuesChanged, sample.MaskChanged));
             }

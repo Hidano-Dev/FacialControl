@@ -62,6 +62,45 @@ namespace Hidano.FacialControl.Rec.Tests.EditMode
             Assert.That(resolved, Is.SameAs(live));
         }
 
+        [Test]
+        public void TryBeginInjection_LiveSourceIdDiffersFromRegistryKey_PlaybackSourceTakesLiveId()
+        {
+            // OscInputSource は Id "osc" のまま binding slug（例 "ifm"）で登録される。レイヤー側は source.Id で
+            // スロットを同定するため、注入体は registry キーではなく原本の Id を名乗らないと原本がレイヤーに残る。
+            var registry = new InputSourceRegistry();
+            var live = new FakeValueProvider("osc", 2);
+            registry.Register(AdapterSlug.Parse("ifm"), live);
+            var injector = new RecValueProviderInjector(registry, () => 2);
+
+            Assert.That(injector.TryBeginInjection(RecBaselineState.Empty), Is.True);
+            Assert.That(registry.TryResolve("ifm", out IInputSource resolved), Is.True);
+            Assert.That(resolved, Is.InstanceOf<RecPlaybackValueProviderSource>());
+            Assert.That(resolved.Id, Is.EqualTo("osc"));
+            Assert.That(((RecPlaybackValueProviderSource)resolved).ReplacedSource, Is.SameAs(live));
+
+            injector.EndInjection();
+            Assert.That(registry.TryResolve("ifm", out resolved), Is.True);
+            Assert.That(resolved, Is.SameAs(live));
+        }
+
+        [Test]
+        public void TryBeginInjection_BaselineSourceWithoutLiveEntry_PlaybackSourceTakesRegistryKey()
+        {
+            var registry = new InputSourceRegistry();
+            var injector = new RecValueProviderInjector(registry, () => 1);
+            var baseline = new RecBaselineState(
+                null, null,
+                new[] { new RecBaselineState.ValueProviderEntry("input:orphan", true, new byte[] { 0x01 }, new[] { 1f }) },
+                null);
+
+            Assert.That(injector.TryBeginInjection(baseline), Is.True);
+            Assert.That(registry.TryResolve("input:orphan", out IInputSource resolved), Is.True);
+            Assert.That(resolved.Id, Is.EqualTo("input:orphan"));
+
+            injector.EndInjection();
+            Assert.That(registry.TryResolve("input:orphan", out _), Is.False);
+        }
+
         private sealed class FakeValueProvider : ValueProviderInputSourceBase
         {
             public FakeValueProvider(string id, int count) : base(InputSourceId.Parse(id), count) { }
