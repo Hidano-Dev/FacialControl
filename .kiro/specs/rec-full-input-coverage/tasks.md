@@ -147,7 +147,7 @@
   - _Requirements: 3.6, 3.7, 3.8, 8.8_
   - _Boundary: IInjectionPort, RecTriggerInjector, RecAnalogInjector, RecRegistryInjection_
 
-- [ ] 4.2 値提供型の注入体と注入ポート実装を追加する
+- [x] 4.2 値提供型の注入体と注入ポート実装を追加する
   - 対象: `com.hidano.facialcontrol.rec`（`Hidano.FacialControl.Rec.Adapters`、Playback 配下）
   - 注入体: 値提供型基底を継承し注入ソースマーカーを実装。事前確保した mask（参照不変で in-place 更新）と dense 値バッファを持ち、状態適用（mask バイト長 = ceil(N/8)、値数 = popcount の検証、不一致は false）と `TryWriteValues`（無効なら false、有効なら mask の立った index のみ書く）を alloc ゼロで行う
   - 注入ポート: 事前検査は BlendShape 総数デリゲートが正の値を返すこと（副作用なし・design.md の reason 文言）。確立は解放 → 総数再解決（0 以下なら false・副作用なし）→ 基準の値提供型エントリを seed 付きで装着（mask 長不一致は warn-once + 無効 seed）→ registry の未装着・値提供型派生・非注入ソースを無効 seed で装着 → true。状態注入は装着済み id のみ。解放は共通ヘルパーで参照同一性ガード付き復元 / 除去（冪等）
