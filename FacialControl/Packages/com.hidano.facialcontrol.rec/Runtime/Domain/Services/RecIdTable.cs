@@ -12,12 +12,15 @@ namespace Hidano.FacialControl.Rec.Domain.Services
     {
         private readonly Dictionary<string, ushort> _sourceIndexes = new Dictionary<string, ushort>(StringComparer.Ordinal);
         private readonly Dictionary<string, ushort> _expressionIndexes = new Dictionary<string, ushort>(StringComparer.Ordinal);
+        private readonly Dictionary<string, ushort> _layerIndexes = new Dictionary<string, ushort>(StringComparer.Ordinal);
         private readonly List<string> _sourceIds = new List<string>();
         private readonly List<string> _expressionIds = new List<string>();
+        private readonly List<string> _layerIds = new List<string>();
 
         public IReadOnlyList<string> SourceIds => _sourceIds;
 
         public IReadOnlyList<string> ExpressionIds => _expressionIds;
+        public IReadOnlyList<string> LayerIds => _layerIds;
 
         /// <summary>
         /// 録画開始時の baseline から初期 ID テーブルを作る。記録側（<c>RecordingUseCase</c>）とライター側
@@ -32,6 +35,11 @@ namespace Hidano.FacialControl.Rec.Domain.Services
                 idTable.GetOrAddSourceId(ExpressionActivationSource.ReservedId);
                 return idTable;
             }
+
+            for (int i = 0; i < baseline.LayerWeightEntries.Count; i++)
+                idTable.GetOrAddLayerId(baseline.LayerWeightEntries[i].LayerName);
+            for (int i = 0; i < baseline.InputSourceWeightEntries.Count; i++)
+                idTable.GetOrAddLayerId(baseline.InputSourceWeightEntries[i].LayerName);
 
             for (int i = 0; i < baseline.TriggerEntries.Count; i++)
             {
@@ -72,6 +80,11 @@ namespace Hidano.FacialControl.Rec.Domain.Services
             return GetOrAddId(expressionId, _expressionIndexes, _expressionIds, nameof(expressionId));
         }
 
+        public ushort GetOrAddLayerId(string layerId)
+        {
+            return GetOrAddId(layerId, _layerIndexes, _layerIds, nameof(layerId));
+        }
+
         public void AddDefinedId(ushort idIndex, Hidano.FacialControl.Rec.Domain.Models.RecEvent.IdDefinitionKind idKind, string value)
         {
             if (idKind == Hidano.FacialControl.Rec.Domain.Models.RecEvent.IdDefinitionKind.Source)
@@ -107,6 +120,16 @@ namespace Hidano.FacialControl.Rec.Domain.Services
         public bool TryGetExpressionIndex(string expressionId, out ushort index)
         {
             return _expressionIndexes.TryGetValue(expressionId, out index);
+        }
+
+        public bool TryGetLayerId(ushort index, out string layerId)
+        {
+            return TryGetId(index, _layerIds, out layerId);
+        }
+
+        public bool TryGetLayerIndex(string layerId, out ushort index)
+        {
+            return _layerIndexes.TryGetValue(layerId, out index);
         }
 
         private static ushort GetOrAddId(

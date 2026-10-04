@@ -37,5 +37,23 @@ namespace Hidano.FacialControl.Rec.Tests.EditMode
             Assert.That(entry.Values.ToArray(), Is.EqualTo(new[] { 0.1f, 0.9f }));
             Assert.That(baseline.ExpressionEntries.ToArray(), Is.EqualTo(new[] { "smile", "angry" }));
         }
+
+        [Test]
+        public void WeightEntries_AreQueryableAndRejectDuplicateTargets()
+        {
+            var baseline = new RecBaselineState(
+                null, null, null, null,
+                new[] { new RecBaselineState.LayerWeightEntry("face", 0.75f) },
+                new[] { new RecBaselineState.InputSourceWeightEntry("face", "osc", 0.25f) });
+
+            Assert.That(baseline.TryGetLayerWeight("face", out RecBaselineState.LayerWeightEntry layer), Is.True);
+            Assert.That(layer.Weight, Is.EqualTo(0.75f));
+            Assert.That(baseline.TryGetInputSourceWeight("face", "osc", out RecBaselineState.InputSourceWeightEntry source), Is.True);
+            Assert.That(source.Weight, Is.EqualTo(0.25f));
+
+            Assert.Throws<ArgumentException>(() => new RecBaselineState(
+                null, null, null, null,
+                new[] { new RecBaselineState.LayerWeightEntry("face", 1f), new RecBaselineState.LayerWeightEntry("face", 0f) }, null));
+        }
     }
 }

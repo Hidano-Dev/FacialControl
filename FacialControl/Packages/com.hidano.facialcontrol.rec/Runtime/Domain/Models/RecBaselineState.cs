@@ -12,16 +12,20 @@ namespace Hidano.FacialControl.Rec.Domain.Models
         private static readonly AnalogEntry[] EmptyAnalogEntries = Array.Empty<AnalogEntry>();
         private static readonly ValueProviderEntry[] EmptyValueProviderEntries = Array.Empty<ValueProviderEntry>();
         private static readonly string[] EmptyExpressionEntries = Array.Empty<string>();
+        private static readonly LayerWeightEntry[] EmptyLayerWeightEntries = Array.Empty<LayerWeightEntry>();
+        private static readonly InputSourceWeightEntry[] EmptyInputSourceWeightEntries = Array.Empty<InputSourceWeightEntry>();
 
-        public static RecBaselineState Empty { get; } = new RecBaselineState(null, null, null, null);
+        public static RecBaselineState Empty { get; } = new RecBaselineState(null, null, null, null, null, null);
 
         private readonly TriggerEntry[] _triggerEntries;
         private readonly AnalogEntry[] _analogEntries;
         private readonly ValueProviderEntry[] _valueProviderEntries;
         private readonly string[] _expressionEntries;
+        private readonly LayerWeightEntry[] _layerWeightEntries;
+        private readonly InputSourceWeightEntry[] _inputSourceWeightEntries;
 
         public RecBaselineState(IEnumerable<TriggerEntry> triggerEntries, IEnumerable<AnalogEntry> analogEntries)
-            : this(triggerEntries, analogEntries, null, null)
+            : this(triggerEntries, analogEntries, null, null, null, null)
         {
         }
 
@@ -30,11 +34,24 @@ namespace Hidano.FacialControl.Rec.Domain.Models
             IEnumerable<AnalogEntry> analogEntries,
             IEnumerable<ValueProviderEntry> valueProviderEntries,
             IEnumerable<string> expressionEntries)
+            : this(triggerEntries, analogEntries, valueProviderEntries, expressionEntries, null, null)
+        {
+        }
+
+        public RecBaselineState(
+            IEnumerable<TriggerEntry> triggerEntries,
+            IEnumerable<AnalogEntry> analogEntries,
+            IEnumerable<ValueProviderEntry> valueProviderEntries,
+            IEnumerable<string> expressionEntries,
+            IEnumerable<LayerWeightEntry> layerWeightEntries,
+            IEnumerable<InputSourceWeightEntry> inputSourceWeightEntries)
         {
             _triggerEntries = CopyTriggers(triggerEntries);
             _analogEntries = CopyAnalogs(analogEntries);
             _valueProviderEntries = CopyValueProviders(valueProviderEntries);
             _expressionEntries = CopyStrings(expressionEntries, nameof(expressionEntries));
+            _layerWeightEntries = CopyLayerWeights(layerWeightEntries);
+            _inputSourceWeightEntries = CopyInputSourceWeights(inputSourceWeightEntries);
         }
 
         public IReadOnlyList<TriggerEntry> TriggerEntries => _triggerEntries;
@@ -44,6 +61,51 @@ namespace Hidano.FacialControl.Rec.Domain.Models
         public IReadOnlyList<ValueProviderEntry> ValueProviderEntries => _valueProviderEntries;
 
         public IReadOnlyList<string> ExpressionEntries => _expressionEntries;
+        public IReadOnlyList<LayerWeightEntry> LayerWeightEntries => _layerWeightEntries;
+        public IReadOnlyList<InputSourceWeightEntry> InputSourceWeightEntries => _inputSourceWeightEntries;
+
+        public bool TryGetLayerWeight(string layerName, out LayerWeightEntry entry)
+        {
+            for (int i = 0; layerName != null && i < _layerWeightEntries.Length; i++)
+            {
+                if (string.Equals(_layerWeightEntries[i].LayerName, layerName, StringComparison.Ordinal)) { entry = _layerWeightEntries[i]; return true; }
+            }
+            entry = default; return false;
+        }
+
+        public bool TryGetInputSourceWeight(string layerName, string slotId, out InputSourceWeightEntry entry)
+        {
+            for (int i = 0; layerName != null && slotId != null && i < _inputSourceWeightEntries.Length; i++)
+            {
+                if (string.Equals(_inputSourceWeightEntries[i].LayerName, layerName, StringComparison.Ordinal)
+                    && string.Equals(_inputSourceWeightEntries[i].SlotId, slotId, StringComparison.Ordinal)) { entry = _inputSourceWeightEntries[i]; return true; }
+            }
+            entry = default; return false;
+        }
+
+        public readonly struct LayerWeightEntry
+        {
+            public LayerWeightEntry(string layerName, float weight)
+            {
+                if (string.IsNullOrWhiteSpace(layerName)) throw new ArgumentException("Layer name is required.", nameof(layerName));
+                LayerName = layerName; Weight = weight;
+            }
+            public string LayerName { get; }
+            public float Weight { get; }
+        }
+
+        public readonly struct InputSourceWeightEntry
+        {
+            public InputSourceWeightEntry(string layerName, string slotId, float weight)
+            {
+                if (string.IsNullOrWhiteSpace(layerName)) throw new ArgumentException("Layer name is required.", nameof(layerName));
+                if (string.IsNullOrWhiteSpace(slotId)) throw new ArgumentException("Slot id is required.", nameof(slotId));
+                LayerName = layerName; SlotId = slotId; Weight = weight;
+            }
+            public string LayerName { get; }
+            public string SlotId { get; }
+            public float Weight { get; }
+        }
 
         public bool TryGetTriggerStack(string sourceId, out IReadOnlyList<string> expressionIds)
         {
@@ -222,6 +284,27 @@ namespace Hidano.FacialControl.Rec.Domain.Models
             }
 
             return list.Count == 0 ? EmptyValueProviderEntries : list.ToArray();
+        }
+
+        private static LayerWeightEntry[] CopyLayerWeights(IEnumerable<LayerWeightEntry> entries)
+        {
+            if (entries == null) return EmptyLayerWeightEntries;
+            var list = new List<LayerWeightEntry>(); var seen = new HashSet<string>(StringComparer.Ordinal);
+            foreach (LayerWeightEntry entry in entries) { if (!seen.Add(entry.LayerName)) throw new ArgumentException($"Duplicate layer weight '{entry.LayerName}'.", nameof(entries)); list.Add(entry); }
+            return list.Count == 0 ? EmptyLayerWeightEntries : list.ToArray();
+        }
+
+        private static InputSourceWeightEntry[] CopyInputSourceWeights(IEnumerable<InputSourceWeightEntry> entries)
+        {
+            if (entries == null) return EmptyInputSourceWeightEntries;
+            var list = new List<InputSourceWeightEntry>(); var seen = new HashSet<string>(StringComparer.Ordinal);
+            foreach (InputSourceWeightEntry entry in entries)
+            {
+                string key = entry.LayerName + "\u001f" + entry.SlotId;
+                if (!seen.Add(key)) throw new ArgumentException($"Duplicate input-source weight '{entry.LayerName}/{entry.SlotId}'.", nameof(entries));
+                list.Add(entry);
+            }
+            return list.Count == 0 ? EmptyInputSourceWeightEntries : list.ToArray();
         }
 
         private static string[] CopyStrings(IEnumerable<string> values, string paramName)

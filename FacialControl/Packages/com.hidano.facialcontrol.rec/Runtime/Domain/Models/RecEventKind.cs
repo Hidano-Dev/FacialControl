@@ -16,6 +16,10 @@ namespace Hidano.FacialControl.Rec.Domain.Models
         ExpressionActivate = 9,
         ExpressionDeactivate = 10,
         BaselineExpression = 11,
+        LayerWeightSample = 12,
+        InputSourceWeightSample = 13,
+        BaselineLayerWeight = 14,
+        BaselineInputSourceWeight = 15,
         Footer = 255,
     }
 }

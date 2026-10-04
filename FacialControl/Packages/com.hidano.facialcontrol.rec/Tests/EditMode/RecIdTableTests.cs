@@ -43,5 +43,21 @@ namespace Hidano.FacialControl.Rec.Tests.EditMode
             Assert.That(table.SourceIds, Is.EqualTo(new[] { "input:trigger", "input:gaze", "input:osc", "@expression" }));
             Assert.That(table.ExpressionIds, Is.EqualTo(new[] { "smile", "angry" }));
         }
+
+        [Test]
+        public void CreateSeeded_WeightBaseline_SeedsLayerIdsInBaselineOrder()
+        {
+            var baseline = new RecBaselineState(
+                null, null, null, null,
+                new[] { new RecBaselineState.LayerWeightEntry("face", 1f), new RecBaselineState.LayerWeightEntry("eyes", 1f) },
+                new[] { new RecBaselineState.InputSourceWeightEntry("face", "osc", 1f) });
+
+            RecIdTable table = RecIdTable.CreateSeeded(baseline);
+
+            Assert.That(table.LayerIds, Is.EqualTo(new[] { "face", "eyes" }));
+            Assert.That(table.GetOrAddLayerId("face"), Is.EqualTo(0));
+            Assert.That(table.TryGetLayerIndex("eyes", out ushort index), Is.True);
+            Assert.That(index, Is.EqualTo(1));
+        }
     }
 }
