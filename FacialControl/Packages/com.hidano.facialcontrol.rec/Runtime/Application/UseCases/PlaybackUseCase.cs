@@ -14,7 +14,9 @@ namespace Hidano.FacialControl.Rec.Application.UseCases
     public sealed class PlaybackUseCase : IRecEventVisitor
     {
         private readonly ITriggerInjectionPort _triggerPort;
+        private readonly IExpressionInjectionPort _expressionPort;
         private readonly IAnalogInjectionPort _analogPort;
+        private readonly IValueProviderInjectionPort _valueProviderPort;
         private readonly RecPlaybackScheduler _scheduler = new RecPlaybackScheduler();
 
         private RecLoadResult _loadResult;
@@ -22,11 +24,22 @@ namespace Hidano.FacialControl.Rec.Application.UseCases
 
         public PlaybackUseCase(
             ITriggerInjectionPort triggerPort,
-            IAnalogInjectionPort analogPort)
+            IExpressionInjectionPort expressionPort,
+            IAnalogInjectionPort analogPort,
+            IValueProviderInjectionPort valueProviderPort)
         {
             _triggerPort = triggerPort ?? throw new ArgumentNullException(nameof(triggerPort));
+            _expressionPort = expressionPort ?? throw new ArgumentNullException(nameof(expressionPort));
             _analogPort = analogPort ?? throw new ArgumentNullException(nameof(analogPort));
+            _valueProviderPort = valueProviderPort ?? throw new ArgumentNullException(nameof(valueProviderPort));
             State = RecPlaybackState.Idle;
+        }
+
+        // Kept for source compatibility with the pre-four-port API. The production
+        // binding uses the four-port constructor below.
+        public PlaybackUseCase(ITriggerInjectionPort triggerPort, IAnalogInjectionPort analogPort)
+            : this(triggerPort, NullExpressionInjectionPort.Instance, analogPort, NullValueProviderInjectionPort.Instance)
+        {
         }
 
         public RecPlaybackState State { get; private set; }
@@ -94,8 +107,54 @@ namespace Hidano.FacialControl.Rec.Application.UseCases
 
             RecTimeline timeline = _loadResult.Timeline;
             RecBaselineState baseline = CreateFilteredBaseline(RecTimelineSeek.BuildBaselineAt(timeline, startOffsetSeconds));
-            _triggerPort.TryBeginInjection(baseline);
-            _analogPort.TryBeginInjection(baseline);
+
+            IInjectionPort[] ports = { _triggerPort, _expressionPort, _analogPort, _valueProviderPort };
+            string[] portNames = { "trigger", "expression", "analog", "valueProvider" };
+            var failures = new List<string>(4);
+            for (int i = 0; i < ports.Length; i++)
+            {
+                if (!ports[i].CanBeginInjection(out string reason))
+                {
+                    failures.Add($"{portNames[i]}: {reason}");
+                }
+            }
+
+            if (failures.Count != 0)
+            {
+                Debug.LogError($"Playback start failed during injection preflight: {string.Join("; ", failures)}");
+                return false;
+            }
+
+            if (State == RecPlaybackState.Completed)
+            {
+                _triggerPort.EndInjection();
+                _expressionPort.EndInjection();
+                _analogPort.EndInjection();
+                _valueProviderPort.EndInjection();
+                _scheduler.Reset();
+                State = RecPlaybackState.Idle;
+            }
+
+            int begunCount = 0;
+            for (int i = 0; i < ports.Length; i++)
+            {
+                if (ports[i].TryBeginInjection(baseline))
+                {
+                    begunCount++;
+                    continue;
+                }
+
+                for (int rollback = begunCount - 1; rollback >= 0; rollback--)
+                {
+                    ports[rollback].EndInjection();
+                }
+
+                _scheduler.Reset();
+                State = RecPlaybackState.Idle;
+                Debug.LogError($"Playback start failed while establishing {portNames[i]} injection.");
+                return false;
+            }
+
             _scheduler.Load(timeline, startOffsetSeconds);
 
             if (_scheduler.IsCompleted)
@@ -134,7 +193,9 @@ namespace Hidano.FacialControl.Rec.Application.UseCases
             }
 
             _triggerPort.EndInjection();
+            _expressionPort.EndInjection();
             _analogPort.EndInjection();
+            _valueProviderPort.EndInjection();
             _scheduler.Reset();
             State = RecPlaybackState.Idle;
         }
@@ -166,17 +227,27 @@ namespace Hidano.FacialControl.Rec.Application.UseCases
 
         public void VisitValueProviderSample(string sourceId, bool isValid, ReadOnlySpan<byte> maskBytes, ReadOnlySpan<float> values)
         {
-            // Value-provider injection is added by the playback application task; retain the visitor contract here.
+            _valueProviderPort.InjectValueProviderState(sourceId, isValid, maskBytes, values);
         }
 
         public void VisitExpressionActivate(string sourceId, string expressionId)
         {
-            // Expression injection is added by the playback application task; retain the visitor contract here.
+            if (IsMissingExpressionId(expressionId))
+            {
+                return;
+            }
+
+            _expressionPort.InjectActivate(expressionId);
         }
 
         public void VisitExpressionDeactivate(string sourceId, string expressionId)
         {
-            // Expression injection is added by the playback application task; retain the visitor contract here.
+            if (IsMissingExpressionId(expressionId))
+            {
+                return;
+            }
+
+            _expressionPort.InjectDeactivate(expressionId);
         }
 
         private void LogMissingExpressionIdsOnce()
@@ -250,6 +321,25 @@ namespace Hidano.FacialControl.Rec.Application.UseCases
             }
 
             return copied;
+        }
+
+        private sealed class NullExpressionInjectionPort : IExpressionInjectionPort
+        {
+            public static readonly NullExpressionInjectionPort Instance = new NullExpressionInjectionPort();
+            public bool CanBeginInjection(out string reason) { reason = string.Empty; return true; }
+            public bool TryBeginInjection(RecBaselineState baseline) { return true; }
+            public void InjectActivate(string expressionId) { }
+            public void InjectDeactivate(string expressionId) { }
+            public void EndInjection() { }
+        }
+
+        private sealed class NullValueProviderInjectionPort : IValueProviderInjectionPort
+        {
+            public static readonly NullValueProviderInjectionPort Instance = new NullValueProviderInjectionPort();
+            public bool CanBeginInjection(out string reason) { reason = string.Empty; return true; }
+            public bool TryBeginInjection(RecBaselineState baseline) { return true; }
+            public void InjectValueProviderState(string sourceId, bool isValid, ReadOnlySpan<byte> maskBytes, ReadOnlySpan<float> values) { }
+            public void EndInjection() { }
         }
     }
 }
