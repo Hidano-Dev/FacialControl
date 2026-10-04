@@ -39,7 +39,7 @@
   - Small テストで「遮断中の SetLayerWeight は no-op」「遮断後にレイヤー weight とスロット weight の両方をライブ書込しても次の重み更新でどちらも基準値のまま」「注入は遮断中でも反映され次フレームに通知（再生中の再記録に注入が残る）」「基準設定とリセットは通知しない」「未知スロットは false」「収集が全スロットを安定キーで返す」が緑になる
   - _Requirements: 3.5, 4.5, 4.6, 5.1, 5.2, 5.6, 6.1, 6.6, 9.1, 9.7_
 
-- [ ] 2.3 後付けバインドと解除の遮断中挙動を実装する
+- [x] 2.3 後付けバインドと解除の遮断中挙動を実装する
   - 遮断中でないときの後付けバインドは従来どおり（既存スロットの置換で宣言 weight を再適用、新規スロットは初期 weight）。遮断中は既存スロットの置換で weight を書き換えない（宣言 weight は配列にだけ記録）。新規スロットの追加は遮断中でも初期 weight（宣言値）を遮断を迂回して書き、宣言 weight 配列と前回通知値配列（未観測）を拡張する。解除時の詰め直しも遮断を迂回し、当該レイヤーの前回通知値を未観測へ戻す
   - 既存テスト `BindLateInputSource_ReplacingExistingId_KeepsOtherSourceWeights` / `BindLateInputSource_AppliesDeclaredWeight_ScalesOutput` が緑のまま、新規 Small テストで「遮断中でない置換は宣言 weight を再適用する」「遮断中の置換は現在の weight を維持する」「遮断中の新規スロットは宣言 weight で参加する」「遮断中の解除で残るスロットの weight が詰め直され再通知される」が緑になる
   - _Requirements: 6.3, 6.7, 9.1_
