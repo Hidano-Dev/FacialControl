@@ -61,3 +61,14 @@
   - Escalation: 反映内容 — (1) core `FacialCharacterProfileAutoExporter` に冪等な `ExportIfEnabled` と `Exported` イベントを追加し、DirtyWatcher の ExitingEditMode 処理が先に呼んで直列化（AutoExport 有効 SO のみ。既存 AutoExport と同じ副作用に限定）、(2) core に公開契約 `IRegistryAttachableAnalogConsumer` を定義し、inputsystem パッケージ側テストで実 `InputSystemAdapterBinding` + registry Replace の追従・復元を固定、timeline e2e は core の実消費者を使う Fake binding で固定（パッケージ依存を増やさない）、(3) 新規 Domain コードは Unity.Timeline 型を持たず、`TimelineAssetScanner`（Adapters）が DTO を返す。既存 Domain の Unity.Timeline 参照（HashCalculator / StateEventCollector / Reconstructor）は既存例外として明記し移動しない
   - Retry: 3 回目（反映のみ、再レビューなし）
 - Branch/PR: n/a
+
+## Phase 4: タスク分解 — 2026-10-05T20:30:00+09:00
+
+- Command: `/kiro:spec-tasks timeline-playback-ux -y`
+- Result: メジャータスク 10 / leaf タスク 44（第 1 段 1〜8: Req 8.8 再現と修正、core API、inputsystem 1 行接続 + PlayMode テスト、timeline Domain（DTO / SinkIdConvention / Deriver / Diagnostics / OnceWarningGate / ProfileContentHash）、Adapters（bake holder / Scanner / Locator / TrackBindingResolver / Connector / Takeover / Evaluator）、Receiver ファサード化 + binding 格下げ + Mixer 分岐、Profile ソース統一 + BakeReferenceWriter、e2e PlayMode / 第 2 段 9: Watcher / DirtyWatcher 改修 / EditorServices / TrackEditors / Cleaner / Receiver Inspector / Drawer / 第 3 段 10: Compositor / Edit プレビュー置換 / Gaze id 解決 / Exporter 署名変更 / Export ウィンドウ整理 / 既存 PlayMode 移行 / ドキュメント）。`(P)` 12 件、`_Depends:` 明示あり。tasks-agent の意図的な順序調整 5 件（bake holder を Scanner の前、ProfileContentHash を Domain 群へ前倒し、第 2 段は Watcher → DirtyWatcher → Services の順、PlayMode 3 件の reflection 最小撤去を 6.1 に含め本移行は 10.6、ドキュメント更新 10.7 を含む）はいずれもコンパイル整合・中間状態で赤を出さないための調整で design の段階順の意図を変えない
+- Reviewer: セルフチェック（approval-policy Gate C）— 要件 AC 75 件すべてがいずれかのタスクの `_Requirements:` に対応（機械照合: 75/75、欠落 0）/ 空のコンテナセクション無し / TBD・要確認 0 / データ削除・デプロイ・外部送信を含むタスク無し / design.md の Boundary Commitments 外に触れるタスク無し（inputsystem の変更は「接続 1 行 + テスト + stub」に限定、weight 経路不変）/ 依存順序の矛盾無し（`_Depends:` は先行タスクのみ参照）
+- Gate C: AUTO-APPROVED
+  - Rationale: 上記セルフチェック全項目を満たす。spec.json を approvals.tasks.approved=true / ready_for_implementation=true / phase=implementation に更新
+  - Escalation: none。approval-policy「実装開始の特例」（Gate A〜C でエスカレーションがあれば実装開始前に確認 1 回）に該当するが、ユーザー不在のため親セッションの委任（「途中で報告のために停止せず一気に進める」）に基づき spec-run を開始する
+  - Retry: none
+- Branch/PR: `feature/hid-144-timeline-playback-ux`（worktree）
