@@ -13,9 +13,9 @@ namespace Hidano.FacialControl.Rec.Domain.Services
     public static class RecBinaryFormat
     {
         public const ushort CurrentFormatVersion = 1;
-        // flags は予約（常に 0）。読み込み側は値を検証しないため、将来ビットを割り当てても
-        // （例: 開始時刻の出自 = 壁時計 / 外部タイムコード）formatVersion を上げずに済む。
-        public const ushort DefaultFlags = 0;
+        // bit0 identifies the current full-input baseline record layout.
+        public const ushort RequiredHeaderFlags = (ushort)RecHeaderFlags.FullInputBaseline;
+        public const ushort DefaultFlags = RequiredHeaderFlags;
         public const int HeaderSize = 16;
         public const int FooterRecordSize = 13;
 
@@ -297,6 +297,12 @@ namespace Hidano.FacialControl.Rec.Domain.Services
                 formatVersion,
                 BinaryPrimitives.ReadUInt16LittleEndian(source.Slice(6, 2)),
                 BinaryPrimitives.ReadInt64LittleEndian(source.Slice(8, 8)));
+
+            if ((header.Flags & RequiredHeaderFlags) != RequiredHeaderFlags)
+            {
+                error = $"REC file header flags 0x{header.Flags:X4} lack the required FullInputBaseline bit 0x{RequiredHeaderFlags:X4}; re-record with the current version.";
+                return false;
+            }
 
             int offset = HeaderSize;
             bool hasFooter = false;

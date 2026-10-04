@@ -98,7 +98,7 @@
   - 完了条件: 上記テストが緑、全アセンブリがコンパイルできる
   - _Requirements: 6.1, 6.2_
 
-- [ ] 3.4 イベントチャンクキューに byte 区画と容量方針・単一レコード超過時の専用セグメントを追加する
+- [x] 3.4 イベントチャンクキューに byte 区画と容量方針・単一レコード超過時の専用セグメントを追加する
   - 対象: `com.hidano.facialcontrol.rec`（`Hidano.FacialControl.Rec.Domain` の RecEventChunkQueue）
   - コンストラクタに float 容量 / byte 容量を取り、Enqueue / TryDequeue が float と byte の両ペイロードを運ぶ。SPSC の公開点は既存の公開カウンタ 1 箇所に保ち、両ペイロードの書込を公開前に完了させる
   - 次セグメントでも収まらないレコードはそのレコード専用サイズのセグメントを確保して格納し（成長カウント加算）、例外を投げない
@@ -106,7 +106,7 @@
   - 完了条件: 上記テストと既存キューテストが EditMode で緑
   - _Requirements: 6.7, 8.5_
 
-- [ ] 3.5 バイナリ形式に kind 7〜11 の書込・読込と基準先行不変条件の拡張を実装する
+- [x] 3.5 バイナリ形式に kind 7〜11 の書込・読込と基準先行不変条件の拡張を実装する
   - 対象: `com.hidano.facialcontrol.rec`（`Hidano.FacialControl.Rec.Domain` の RecBinaryFormat）
   - kind 7（f64 t・u16 sourceIdx・u8 flags・条件付き mask / 値）、kind 8（常に mask + 値）、kind 9 / 10（f64 t・u16 sourceIdx・u16 expressionIdx）、kind 11（u16 sourceIdx・u16 expressionIdx、出現順 = アクティブ化順）を既存レイアウトの隣に追記型で実装。値は mask の立った index 昇順
   - 基準レコード（5 / 6 / 8 / 11）が最初の時刻付きレコード（2 / 3 / 4 / 7 / 9 / 10）より前であることを読込で検査。最大レコードサイズ算出を値数・mask バイト数込みに拡張。未知 kind は従来どおりエラー（スキップしない）
@@ -114,7 +114,7 @@
   - 完了条件: 上記テストと既存バイナリ形式テストが EditMode で緑
   - _Requirements: 5.3, 6.1, 6.2, 6.3, 6.6_
 
-- [ ] 3.6 ヘッダ必須ビットで旧構造ファイルを確定的に拒否し、同一入力源の基準重複を拒否する
+- [x] 3.6 ヘッダ必須ビットで旧構造ファイルを確定的に拒否し、同一入力源の基準重複を拒否する
   - 対象: `com.hidano.facialcontrol.rec`（`Hidano.FacialControl.Rec.Domain` の RecBinaryFormat）
   - 書込ヘッダの flags 既定値を必須ビット（FullInputBaseline）に変更し、読込では magic / formatVersion の直後・レコード走査の前に必須ビットの欠落を検査して design.md 記載のエラー文言で false を返す（予約 bit1〜15 は検証しない。formatVersion は 1 のまま）
   - 同一 sourceIdx の kind 8 が 2 件以上なら読込エラー（既存 kind 6 の後勝ち畳み込みは不変）

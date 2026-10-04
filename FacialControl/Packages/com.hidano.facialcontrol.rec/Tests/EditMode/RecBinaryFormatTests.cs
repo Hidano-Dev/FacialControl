@@ -1,4 +1,5 @@
 using System;
+using System.Buffers.Binary;
 using System.Collections.Generic;
 using System.Linq;
 using Hidano.FacialControl.Rec.Domain.Models;
@@ -72,6 +73,82 @@ namespace Hidano.FacialControl.Rec.Tests.EditMode
 
             Assert.That(success, Is.False);
             Assert.That(error, Does.Contain("Unsupported REC format version"));
+        }
+
+        [Test]
+        public void WriteHeader_Always_SetsFullInputBaselineFlag()
+        {
+            byte[] header = new byte[RecBinaryFormat.HeaderSize];
+
+            RecBinaryFormat.WriteHeader(header, 123L);
+
+            ushort flags = BitConverter.ToUInt16(header, 6);
+            Assert.That(flags & (ushort)RecHeaderFlags.FullInputBaseline,
+                Is.EqualTo((ushort)RecHeaderFlags.FullInputBaseline));
+        }
+
+        [Test]
+        public void TryRead_HeaderWithoutFullInputBaselineFlag_ReturnsError()
+        {
+            byte[] bytes = RecBinaryFormat.Serialize(CreateTimeline(), 123L);
+            bytes[6] = 0;
+            bytes[7] = 0;
+
+            bool success = RecBinaryFormat.TryRead(bytes, out _, out string error);
+
+            Assert.That(success, Is.False);
+            Assert.That(error, Does.Contain("lack the required FullInputBaseline bit"));
+        }
+
+        [Test]
+        public void TryRead_PreCoverageFileWithKinds1To6Only_ReturnsError()
+        {
+            byte[] bytes = RecBinaryFormat.Serialize(CreateTimeline(), 123L);
+            bytes[6] = 0;
+            bytes[7] = 0;
+
+            bool success = RecBinaryFormat.TryRead(bytes, out _, out string error);
+
+            Assert.That(success, Is.False);
+            Assert.That(error, Does.Contain("re-record with the current version"));
+        }
+
+        [Test]
+        public void TryRead_DuplicateBaselineValueProviderForSameSource_ReturnsError()
+        {
+            var baseline = new RecBaselineState(
+                null, null,
+                new[] { new RecBaselineState.ValueProviderEntry("vp", true, new byte[] { 0x01 }, new[] { 0.5f }) },
+                null);
+            var timeline = new RecTimeline(baseline, Array.Empty<RecEvent>(), new[] { "vp" }, Array.Empty<string>(), 0d);
+            byte[] bytes = RecBinaryFormat.Serialize(timeline, 123L);
+
+            int firstBaseline = FindRecord(bytes, (byte)RecEventKind.BaselineValueProvider);
+            int baselineSize = 1 + 2 + 1 + 2 + 1 + 2 + 4;
+            byte[] duplicated = new byte[bytes.Length + baselineSize];
+            Buffer.BlockCopy(bytes, 0, duplicated, 0, firstBaseline + baselineSize);
+            Buffer.BlockCopy(bytes, firstBaseline, duplicated, firstBaseline + baselineSize, baselineSize);
+            Buffer.BlockCopy(bytes, firstBaseline + baselineSize, duplicated, firstBaseline + baselineSize * 2,
+                bytes.Length - (firstBaseline + baselineSize));
+            BinaryPrimitives.WriteUInt32LittleEndian(duplicated.AsSpan(duplicated.Length - 4), 3);
+
+            bool success = RecBinaryFormat.TryRead(duplicated, out _, out string error);
+
+            Assert.That(success, Is.False);
+            Assert.That(error, Does.Contain("Duplicate value-provider source id 'vp'"));
+        }
+
+        private static int FindRecord(byte[] bytes, byte kind)
+        {
+            for (int i = RecBinaryFormat.HeaderSize; i < bytes.Length; i++)
+            {
+                if (bytes[i] == kind)
+                {
+                    return i;
+                }
+            }
+
+            throw new AssertionException($"Record kind {kind} was not found.");
         }
 
         [Test]
