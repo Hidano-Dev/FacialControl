@@ -95,6 +95,37 @@ namespace Hidano.FacialControl.Rec.Tests.EditMode
             Assert.That(timeline.GetAnalogAxes(1).ToArray(), Is.EqualTo(new[] { 0.5f, -0.25f }));
         }
 
+        [Test]
+        public void SerializeThenRead_ValueProviderAndExpressionKinds_RoundTrip()
+        {
+            var values = Enumerable.Range(0, 300).Select(i => BitConverter.Int32BitsToSingle(i ^ 0x3f800000)).ToArray();
+            var mask = Enumerable.Range(0, 38).Select(i => (byte)(i * 7)).ToArray();
+            var baseline = new RecBaselineState(
+                null, null,
+                new[] { new RecBaselineState.ValueProviderEntry("vp", true, mask, values) },
+                new[] { "smile" });
+            var events = new[]
+            {
+                RecEvent.CreateValueProviderSample(0.1d, 0, RecValueProviderFlags.HasMask, 0, 2),
+                RecEvent.CreateValueProviderSample(0.2d, 0, RecValueProviderFlags.HasValues, 2, 0),
+                RecEvent.CreateExpressionActivate(0.3d, 0, 0),
+                RecEvent.CreateExpressionDeactivate(0.4d, 0, 0),
+            };
+            var timeline = new RecTimeline(baseline, events, new[] { "vp" }, new[] { "smile" }, 0.4d,
+                new IReadOnlyList<float>[] { Array.Empty<float>(), new[] { 1f, -2f }, Array.Empty<float>(), Array.Empty<float>() },
+                new IReadOnlyList<byte>[] { new byte[] { 0x05, 0x90 }, Array.Empty<byte>(), Array.Empty<byte>(), Array.Empty<byte>() });
+
+            byte[] bytes = RecBinaryFormat.Serialize(timeline, 123L);
+            Assert.That(RecBinaryFormat.TryRead(bytes, out RecBinaryFormat.ReadResult result, out string error), Is.True, error);
+            Assert.That(result.Timeline.Baseline.ValueProviderEntries.Count, Is.EqualTo(1));
+            Assert.That(result.Timeline.Baseline.ValueProviderEntries[0].Values.ToArray(), Is.EqualTo(values));
+            Assert.That(result.Timeline.Baseline.ValueProviderEntries[0].MaskBytes.ToArray(), Is.EqualTo(mask));
+            Assert.That(result.Timeline.Baseline.ExpressionEntries.ToArray(), Is.EqualTo(new[] { "smile" }));
+            Assert.That(result.Timeline.Events.ToArray(), Is.EqualTo(events));
+            Assert.That(result.Timeline.GetMaskBytesSpan(0).ToArray(), Is.EqualTo(new byte[] { 0x05, 0x90 }));
+            Assert.That(result.Timeline.GetAnalogAxes(1).ToArray(), Is.EqualTo(new[] { 1f, -2f }));
+        }
+
         private static RecTimeline CreateTimeline()
         {
             var baseline = new RecBaselineState(

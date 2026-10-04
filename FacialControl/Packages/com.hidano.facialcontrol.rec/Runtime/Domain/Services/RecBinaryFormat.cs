@@ -70,6 +70,9 @@ namespace Hidano.FacialControl.Rec.Domain.Services
         }
 
         public static int GetMaxRecordSize(int maxIdUtf8ByteCount, int maxAxisCount)
+            => GetMaxRecordSize(maxIdUtf8ByteCount, maxAxisCount, 0, 0);
+
+        public static int GetMaxRecordSize(int maxIdUtf8ByteCount, int maxAxisCount, int maxValueCount, int maxMaskByteCount)
         {
             if (maxIdUtf8ByteCount < 0)
             {
@@ -81,9 +84,25 @@ namespace Hidano.FacialControl.Rec.Domain.Services
                 throw new ArgumentOutOfRangeException(nameof(maxAxisCount));
             }
 
+            if (maxValueCount < 0 || maxValueCount > ushort.MaxValue)
+            {
+                throw new ArgumentOutOfRangeException(nameof(maxValueCount));
+            }
+
+            if (maxMaskByteCount < 0 || maxMaskByteCount > ushort.MaxValue)
+            {
+                throw new ArgumentOutOfRangeException(nameof(maxMaskByteCount));
+            }
+
             int idDefineSize = 1 + 2 + 1 + 2 + maxIdUtf8ByteCount;
             int analogSize = 1 + 8 + 2 + 1 + (4 * maxAxisCount);
-            return Math.Max(idDefineSize, analogSize);
+            int valueProviderSize = GetValueProviderRecordSize(maxValueCount, maxMaskByteCount, true);
+            int baselineValueProviderSize = GetBaselineValueProviderRecordSize(maxValueCount, maxMaskByteCount);
+            int expressionSize = 1 + 8 + 2 + 2;
+            int baselineExpressionSize = 1 + 2 + 2;
+            return Math.Max(Math.Max(idDefineSize, analogSize),
+                Math.Max(Math.Max(valueProviderSize, baselineValueProviderSize),
+                    Math.Max(expressionSize, baselineExpressionSize)));
         }
 
         public static int GetSerializedSize(RecTimeline timeline)
@@ -114,6 +133,13 @@ namespace Hidano.FacialControl.Rec.Domain.Services
             {
                 size += 4 + (4 * entry.Axes.Count);
             }
+
+            foreach (RecBaselineState.ValueProviderEntry entry in timeline.Baseline.ValueProviderEntries)
+            {
+                size += GetBaselineValueProviderRecordSize(entry.Values.Count, entry.MaskBytes.Count);
+            }
+
+            size += timeline.Baseline.ExpressionEntries.Count * (1 + 2 + 2);
 
             for (int i = 0; i < timeline.Events.Count; i++)
             {
@@ -205,10 +231,37 @@ namespace Hidano.FacialControl.Rec.Domain.Services
                 recordCount++;
             }
 
+            for (int i = 0; i < timeline.Baseline.ValueProviderEntries.Count; i++)
+            {
+                RecBaselineState.ValueProviderEntry entry = timeline.Baseline.ValueProviderEntries[i];
+                if (!idTable.TryGetSourceIndex(entry.SourceId, out ushort sourceIndex))
+                {
+                    throw new InvalidOperationException("Unknown baseline value-provider source id.");
+                }
+
+                RecEvent evt = RecEvent.CreateBaselineValueProvider(sourceIndex, entry.IsValid,
+                    checked((ushort)entry.Values.Count), checked((ushort)entry.MaskBytes.Count));
+                offset += WriteRecord(destination.Slice(offset), evt, entry.Values.ToArray(), entry.MaskBytes.ToArray());
+                recordCount++;
+            }
+
+            for (int i = 0; i < timeline.Baseline.ExpressionEntries.Count; i++)
+            {
+                if (!idTable.TryGetExpressionIndex(timeline.Baseline.ExpressionEntries[i], out ushort expressionIndex))
+                {
+                    throw new InvalidOperationException("Unknown baseline expression id.");
+                }
+
+                offset += WriteRecord(destination.Slice(offset), RecEvent.CreateBaselineExpression(0, expressionIndex),
+                    ReadOnlySpan<float>.Empty, ReadOnlySpan<byte>.Empty);
+                recordCount++;
+            }
+
             for (int i = 0; i < timeline.Events.Count; i++)
             {
                 IReadOnlyList<float> axes = timeline.GetAnalogAxes(i);
-                offset += WriteNonIdRecord(destination.Slice(offset), timeline.Events[i], CopyAxesToTemp(axes));
+                offset += WriteNonIdRecord(destination.Slice(offset), timeline.Events[i], CopyAxesToTemp(axes),
+                    timeline.GetMaskBytesSpan(i));
                 recordCount++;
             }
 
@@ -255,13 +308,31 @@ namespace Hidano.FacialControl.Rec.Domain.Services
             var idTable = new RecIdTable();
             var baselineTriggerRecords = new List<(ushort sourceIndex, ushort expressionIndex)>();
             var baselineAnalogRecords = new List<(ushort sourceIndex, float[] axes)>();
+            var baselineValueProviderRecords = new List<(ushort sourceIndex, bool isValid, byte[] mask, float[] values)>();
+            var baselineExpressionRecords = new List<(ushort sourceIndex, ushort expressionIndex)>();
             var events = new List<RecEvent>();
             var analogAxesByEvent = new List<IReadOnlyList<float>>();
+            var maskBytesByEvent = new List<IReadOnlyList<byte>>();
+            bool timedRecordSeen = false;
 
             while (offset < source.Length)
             {
                 byte kindValue = source[offset];
                 RecEventKind kind = (RecEventKind)kindValue;
+
+                if (IsTimedKind(kind))
+                {
+                    timedRecordSeen = true;
+                }
+                else if (IsBaselineKind(kind))
+                {
+                    if (timedRecordSeen)
+                    {
+                        error = "REC baseline records must precede all timed records.";
+                        return false;
+                    }
+
+                }
 
                 if (!TryReadRecord(
                     source.Slice(offset),
@@ -269,8 +340,11 @@ namespace Hidano.FacialControl.Rec.Domain.Services
                     idTable,
                     baselineTriggerRecords,
                     baselineAnalogRecords,
+                    baselineValueProviderRecords,
+                    baselineExpressionRecords,
                     events,
                     analogAxesByEvent,
+                    maskBytesByEvent,
                     ref parsedRecordCount,
                     ref hasFooter,
                     ref durationSeconds,
@@ -309,7 +383,9 @@ namespace Hidano.FacialControl.Rec.Domain.Services
                 }
             }
 
-            if (!TryBuildTimeline(idTable, baselineTriggerRecords, baselineAnalogRecords, events, analogAxesByEvent, durationSeconds, out RecTimeline timeline, out error))
+            if (!TryBuildTimeline(idTable, baselineTriggerRecords, baselineAnalogRecords, baselineValueProviderRecords,
+                baselineExpressionRecords, events, analogAxesByEvent, maskBytesByEvent, durationSeconds,
+                out RecTimeline timeline, out error))
             {
                 return false;
             }
@@ -336,6 +412,10 @@ namespace Hidano.FacialControl.Rec.Domain.Services
         }
 
         public static int WriteRecord(Span<byte> destination, in RecEvent evt, ReadOnlySpan<float> axes, string idValue = null)
+            => WriteRecord(destination, evt, axes, ReadOnlySpan<byte>.Empty, idValue);
+
+        public static int WriteRecord(Span<byte> destination, in RecEvent evt, ReadOnlySpan<float> values,
+            ReadOnlySpan<byte> maskBytes, string idValue = null)
         {
             if (evt.Kind == RecEventKind.IdDefine)
             {
@@ -344,15 +424,15 @@ namespace Hidano.FacialControl.Rec.Domain.Services
                     throw new ArgumentException("IdDefine records require an id value.", nameof(idValue));
                 }
 
-                if (!axes.IsEmpty)
+                if (!values.IsEmpty || !maskBytes.IsEmpty)
                 {
-                    throw new ArgumentException("IdDefine records do not accept axis payloads.", nameof(axes));
+                    throw new ArgumentException("IdDefine records do not accept payloads.", nameof(values));
                 }
 
                 return WriteIdDefine(destination, evt.IdIndex, evt.DefinedIdKind, idValue);
             }
 
-            return WriteNonIdRecord(destination, evt, axes);
+            return WriteNonIdRecord(destination, evt, values, maskBytes);
         }
 
         private static int GetIdDefineRecordSize(string value)
@@ -373,6 +453,15 @@ namespace Hidano.FacialControl.Rec.Domain.Services
                     return 1 + 2 + 2;
                 case RecEventKind.BaselineAnalog:
                     return 1 + 2 + 1 + (4 * axesCount);
+                case RecEventKind.ValueProviderSample:
+                    return GetValueProviderRecordSize(evt.ValueCount, evt.MaskByteCount, (evt.Flags & RecValueProviderFlags.HasMask) != 0);
+                case RecEventKind.BaselineValueProvider:
+                    return GetBaselineValueProviderRecordSize(evt.ValueCount, evt.MaskByteCount);
+                case RecEventKind.ExpressionActivate:
+                case RecEventKind.ExpressionDeactivate:
+                    return 1 + 8 + 2 + 2;
+                case RecEventKind.BaselineExpression:
+                    return 1 + 2 + 2;
                 default:
                     throw new ArgumentOutOfRangeException(nameof(evt), $"Unsupported event kind {evt.Kind}.");
             }
@@ -395,9 +484,9 @@ namespace Hidano.FacialControl.Rec.Domain.Services
             return recordSize;
         }
 
-        private static int WriteNonIdRecord(Span<byte> destination, RecEvent evt, ReadOnlySpan<float> axes)
+        private static int WriteNonIdRecord(Span<byte> destination, RecEvent evt, ReadOnlySpan<float> values, ReadOnlySpan<byte> maskBytes)
         {
-            int recordSize = GetEventRecordSize(evt, axes.Length);
+            int recordSize = GetEventRecordSize(evt, values.Length);
             if (destination.Length < recordSize)
             {
                 throw new ArgumentException("Destination buffer is too small for the REC record.", nameof(destination));
@@ -411,7 +500,7 @@ namespace Hidano.FacialControl.Rec.Domain.Services
                     WriteTimedTrigger(destination.Slice(1), evt);
                     break;
                 case RecEventKind.AnalogSample:
-                    WriteTimedAnalog(destination.Slice(1), evt, axes);
+                    WriteTimedAnalog(destination.Slice(1), evt, values);
                     break;
                 case RecEventKind.BaselineTrigger:
                     BinaryPrimitives.WriteUInt16LittleEndian(destination.Slice(1, 2), evt.SourceIdIndex);
@@ -420,7 +509,21 @@ namespace Hidano.FacialControl.Rec.Domain.Services
                 case RecEventKind.BaselineAnalog:
                     BinaryPrimitives.WriteUInt16LittleEndian(destination.Slice(1, 2), evt.SourceIdIndex);
                     destination[3] = evt.AxisCount;
-                    WriteAxes(destination.Slice(4), axes);
+                    WriteAxes(destination.Slice(4), values);
+                    break;
+                case RecEventKind.ValueProviderSample:
+                    WriteValueProvider(destination.Slice(1), evt, values, maskBytes);
+                    break;
+                case RecEventKind.BaselineValueProvider:
+                    WriteBaselineValueProvider(destination.Slice(1), evt, values, maskBytes);
+                    break;
+                case RecEventKind.ExpressionActivate:
+                case RecEventKind.ExpressionDeactivate:
+                    WriteTimedExpression(destination.Slice(1), evt);
+                    break;
+                case RecEventKind.BaselineExpression:
+                    BinaryPrimitives.WriteUInt16LittleEndian(destination.Slice(1, 2), evt.SourceIdIndex);
+                    BinaryPrimitives.WriteUInt16LittleEndian(destination.Slice(3, 2), evt.ExpressionIdIndex);
                     break;
                 default:
                     throw new ArgumentOutOfRangeException(nameof(evt), $"Unsupported event kind {evt.Kind}.");
@@ -462,6 +565,69 @@ namespace Hidano.FacialControl.Rec.Domain.Services
             WriteAxes(destination.Slice(11), axes);
         }
 
+        private static void WriteTimedExpression(Span<byte> destination, RecEvent evt)
+        {
+            BinaryPrimitives.WriteInt64LittleEndian(destination.Slice(0, 8), BitConverter.DoubleToInt64Bits(evt.TimestampSeconds));
+            BinaryPrimitives.WriteUInt16LittleEndian(destination.Slice(8, 2), evt.SourceIdIndex);
+            BinaryPrimitives.WriteUInt16LittleEndian(destination.Slice(10, 2), evt.ExpressionIdIndex);
+        }
+
+        private static void WriteValueProvider(Span<byte> destination, RecEvent evt, ReadOnlySpan<float> values, ReadOnlySpan<byte> maskBytes)
+        {
+            if ((evt.Flags & RecValueProviderFlags.HasMask) != 0 && maskBytes.Length != evt.MaskByteCount)
+            {
+                throw new ArgumentException("Mask payload length must match the event mask byte count.", nameof(maskBytes));
+            }
+
+            if ((evt.Flags & RecValueProviderFlags.HasValues) != 0 && values.Length != evt.ValueCount)
+            {
+                throw new ArgumentException("Value payload length must match the event value count.", nameof(values));
+            }
+
+            BinaryPrimitives.WriteInt64LittleEndian(destination.Slice(0, 8), BitConverter.DoubleToInt64Bits(evt.TimestampSeconds));
+            BinaryPrimitives.WriteUInt16LittleEndian(destination.Slice(8, 2), evt.SourceIdIndex);
+            destination[10] = (byte)evt.Flags;
+            int offset = 11;
+            if ((evt.Flags & RecValueProviderFlags.HasMask) != 0)
+            {
+                BinaryPrimitives.WriteUInt16LittleEndian(destination.Slice(offset, 2), evt.MaskByteCount);
+                offset += 2;
+                maskBytes.CopyTo(destination.Slice(offset));
+                offset += maskBytes.Length;
+            }
+
+            if ((evt.Flags & RecValueProviderFlags.HasValues) != 0)
+            {
+                BinaryPrimitives.WriteUInt16LittleEndian(destination.Slice(offset, 2), evt.ValueCount);
+                offset += 2;
+                WriteAxes(destination.Slice(offset), values);
+            }
+        }
+
+        private static void WriteBaselineValueProvider(Span<byte> destination, RecEvent evt, ReadOnlySpan<float> values, ReadOnlySpan<byte> maskBytes)
+        {
+            BinaryPrimitives.WriteUInt16LittleEndian(destination.Slice(0, 2), evt.SourceIdIndex);
+            destination[2] = (byte)evt.Flags;
+            int offset = 3;
+            BinaryPrimitives.WriteUInt16LittleEndian(destination.Slice(offset, 2), evt.MaskByteCount);
+            offset += 2;
+            maskBytes.CopyTo(destination.Slice(offset));
+            offset += maskBytes.Length;
+            BinaryPrimitives.WriteUInt16LittleEndian(destination.Slice(offset, 2), evt.ValueCount);
+            offset += 2;
+            WriteAxes(destination.Slice(offset), values);
+        }
+
+        private static int GetValueProviderRecordSize(int valueCount, int maskByteCount, bool hasMask)
+        {
+            return 1 + 8 + 2 + 1 + (hasMask ? 2 + maskByteCount : 0) + (valueCount > 0 ? 2 + (valueCount * 4) : 0);
+        }
+
+        private static int GetBaselineValueProviderRecordSize(int valueCount, int maskByteCount)
+        {
+            return 1 + 2 + 1 + 2 + maskByteCount + 2 + (valueCount * 4);
+        }
+
         private static void WriteAxes(Span<byte> destination, ReadOnlySpan<float> axes)
         {
             for (int i = 0; i < axes.Length; i++)
@@ -476,8 +642,11 @@ namespace Hidano.FacialControl.Rec.Domain.Services
             RecIdTable idTable,
             List<(ushort sourceIndex, ushort expressionIndex)> baselineTriggerRecords,
             List<(ushort sourceIndex, float[] axes)> baselineAnalogRecords,
+            List<(ushort sourceIndex, bool isValid, byte[] mask, float[] values)> baselineValueProviderRecords,
+            List<(ushort sourceIndex, ushort expressionIndex)> baselineExpressionRecords,
             List<RecEvent> events,
             List<IReadOnlyList<float>> analogAxesByEvent,
+            List<IReadOnlyList<byte>> maskBytesByEvent,
             ref uint parsedRecordCount,
             ref bool hasFooter,
             ref double durationSeconds,
@@ -494,13 +663,22 @@ namespace Hidano.FacialControl.Rec.Domain.Services
                     return TryReadIdDefine(source, idTable, ref parsedRecordCount, out recordBytes, out error);
                 case RecEventKind.TriggerOn:
                 case RecEventKind.TriggerOff:
-                    return TryReadTimedTrigger(source, kind, events, analogAxesByEvent, ref parsedRecordCount, out recordBytes);
+                    return TryReadTimedTrigger(source, kind, events, analogAxesByEvent, maskBytesByEvent, ref parsedRecordCount, out recordBytes);
                 case RecEventKind.AnalogSample:
-                    return TryReadTimedAnalog(source, events, analogAxesByEvent, ref parsedRecordCount, out recordBytes);
+                    return TryReadTimedAnalog(source, events, analogAxesByEvent, maskBytesByEvent, ref parsedRecordCount, out recordBytes);
+                case RecEventKind.ValueProviderSample:
+                    return TryReadValueProvider(source, false, events, analogAxesByEvent, maskBytesByEvent, ref parsedRecordCount, out recordBytes);
                 case RecEventKind.BaselineTrigger:
                     return TryReadBaselineTrigger(source, baselineTriggerRecords, ref parsedRecordCount, out recordBytes);
                 case RecEventKind.BaselineAnalog:
                     return TryReadBaselineAnalog(source, baselineAnalogRecords, ref parsedRecordCount, out recordBytes);
+                case RecEventKind.BaselineValueProvider:
+                    return TryReadBaselineValueProvider(source, baselineValueProviderRecords, ref parsedRecordCount, out recordBytes);
+                case RecEventKind.ExpressionActivate:
+                case RecEventKind.ExpressionDeactivate:
+                    return TryReadTimedExpression(source, kind, events, analogAxesByEvent, maskBytesByEvent, ref parsedRecordCount, out recordBytes);
+                case RecEventKind.BaselineExpression:
+                    return TryReadBaselineExpression(source, baselineExpressionRecords, ref parsedRecordCount, out recordBytes);
                 case RecEventKind.Footer:
                     return TryReadFooter(source, ref hasFooter, ref durationSeconds, ref footerRecordCount, out recordBytes);
                 default:
@@ -553,6 +731,7 @@ namespace Hidano.FacialControl.Rec.Domain.Services
             RecEventKind kind,
             List<RecEvent> events,
             List<IReadOnlyList<float>> analogAxesByEvent,
+            List<IReadOnlyList<byte>> maskBytesByEvent,
             ref uint parsedRecordCount,
             out int recordBytes)
         {
@@ -569,6 +748,7 @@ namespace Hidano.FacialControl.Rec.Domain.Services
                 ? RecEvent.CreateTriggerOn(timestampSeconds, sourceIndex, expressionIndex)
                 : RecEvent.CreateTriggerOff(timestampSeconds, sourceIndex, expressionIndex));
             analogAxesByEvent.Add(Array.Empty<float>());
+            maskBytesByEvent.Add(Array.Empty<byte>());
             parsedRecordCount++;
             recordBytes = 13;
             return true;
@@ -578,6 +758,7 @@ namespace Hidano.FacialControl.Rec.Domain.Services
             ReadOnlySpan<byte> source,
             List<RecEvent> events,
             List<IReadOnlyList<float>> analogAxesByEvent,
+            List<IReadOnlyList<byte>> maskBytesByEvent,
             ref uint parsedRecordCount,
             out int recordBytes)
         {
@@ -599,6 +780,7 @@ namespace Hidano.FacialControl.Rec.Domain.Services
             float[] axes = ReadAxes(source.Slice(12, axisCount * 4), axisCount);
             events.Add(RecEvent.CreateAnalogSample(timestampSeconds, sourceIndex, axisCount));
             analogAxesByEvent.Add(axes);
+            maskBytesByEvent.Add(Array.Empty<byte>());
             parsedRecordCount++;
             recordBytes = payloadSize;
             return true;
@@ -622,6 +804,129 @@ namespace Hidano.FacialControl.Rec.Domain.Services
             parsedRecordCount++;
             recordBytes = 5;
             return true;
+        }
+
+        private static bool TryReadValueProvider(
+            ReadOnlySpan<byte> source, bool baseline,
+            List<RecEvent> events, List<IReadOnlyList<float>> payloads,
+            List<IReadOnlyList<byte>> masks, ref uint parsedRecordCount, out int recordBytes)
+        {
+            recordBytes = 0;
+            int minimum = baseline ? 1 + 2 + 1 : 1 + 8 + 2 + 1;
+            if (source.Length < minimum)
+            {
+                return false;
+            }
+
+            int offset = baseline ? 4 : 12;
+            ushort sourceIndex = baseline
+                ? BinaryPrimitives.ReadUInt16LittleEndian(source.Slice(1, 2))
+                : BinaryPrimitives.ReadUInt16LittleEndian(source.Slice(9, 2));
+            RecValueProviderFlags flags = (RecValueProviderFlags)source[baseline ? 3 : 11];
+            ushort maskCount = 0;
+            byte[] mask = Array.Empty<byte>();
+            if ((flags & RecValueProviderFlags.HasMask) != 0)
+            {
+                if (source.Length < offset + 2) return false;
+                maskCount = BinaryPrimitives.ReadUInt16LittleEndian(source.Slice(offset, 2));
+                offset += 2;
+                if (source.Length < offset + maskCount) return false;
+                mask = source.Slice(offset, maskCount).ToArray();
+                offset += maskCount;
+            }
+
+            ushort valueCount = 0;
+            float[] values = Array.Empty<float>();
+            if ((flags & RecValueProviderFlags.HasValues) != 0)
+            {
+                if (source.Length < offset + 2) return false;
+                valueCount = BinaryPrimitives.ReadUInt16LittleEndian(source.Slice(offset, 2));
+                offset += 2;
+                int valueBytes = checked(valueCount * 4);
+                if (source.Length < offset + valueBytes) return false;
+                values = ReadAxes(source.Slice(offset, valueBytes), valueCount);
+                offset += valueBytes;
+            }
+
+            RecEvent evt;
+            try
+            {
+                evt = baseline
+                    ? RecEvent.CreateBaselineValueProvider(sourceIndex, (flags & RecValueProviderFlags.IsValid) != 0, valueCount, maskCount)
+                    : RecEvent.CreateValueProviderSample(BitConverter.Int64BitsToDouble(BinaryPrimitives.ReadInt64LittleEndian(source.Slice(1, 8))),
+                        sourceIndex, flags, valueCount, maskCount);
+            }
+            catch (ArgumentException)
+            {
+                return false;
+            }
+
+            if (baseline)
+            {
+                recordBytes = offset;
+                parsedRecordCount++;
+                return true;
+            }
+
+            events.Add(evt);
+            payloads.Add(values);
+            masks.Add(mask);
+            parsedRecordCount++;
+            recordBytes = offset;
+            return true;
+        }
+
+        private static bool TryReadBaselineValueProvider(
+            ReadOnlySpan<byte> source,
+            List<(ushort sourceIndex, bool isValid, byte[] mask, float[] values)> records,
+            ref uint parsedRecordCount, out int recordBytes)
+        {
+            var events = new List<RecEvent>(1);
+            var payloads = new List<IReadOnlyList<float>>(1);
+            var masks = new List<IReadOnlyList<byte>>(1);
+            if (!TryReadValueProvider(source, true, events, payloads, masks, ref parsedRecordCount, out recordBytes))
+            {
+                return false;
+            }
+
+            ushort sourceIndex = BinaryPrimitives.ReadUInt16LittleEndian(source.Slice(1, 2));
+            RecValueProviderFlags flags = (RecValueProviderFlags)source[3];
+            ushort maskCount = (flags & RecValueProviderFlags.HasMask) != 0
+                ? BinaryPrimitives.ReadUInt16LittleEndian(source.Slice(4, 2)) : (ushort)0;
+            int valueOffset = 4 + (((flags & RecValueProviderFlags.HasMask) != 0) ? 2 + maskCount : 0);
+            ushort valueCount = (flags & RecValueProviderFlags.HasValues) != 0
+                ? BinaryPrimitives.ReadUInt16LittleEndian(source.Slice(valueOffset, 2)) : (ushort)0;
+            byte[] mask = (flags & RecValueProviderFlags.HasMask) != 0 ? source.Slice(6, maskCount).ToArray() : Array.Empty<byte>();
+            float[] values = (flags & RecValueProviderFlags.HasValues) != 0
+                ? ReadAxes(source.Slice(valueOffset + 2, valueCount * 4), valueCount) : Array.Empty<float>();
+            records.Add((sourceIndex, (flags & RecValueProviderFlags.IsValid) != 0, mask, values));
+            return true;
+        }
+
+        private static bool TryReadTimedExpression(ReadOnlySpan<byte> source, RecEventKind kind,
+            List<RecEvent> events, List<IReadOnlyList<float>> payloads, List<IReadOnlyList<byte>> masks,
+            ref uint parsedRecordCount, out int recordBytes)
+        {
+            recordBytes = 0;
+            if (source.Length < 13) return false;
+            double timestamp = BitConverter.Int64BitsToDouble(BinaryPrimitives.ReadInt64LittleEndian(source.Slice(1, 8)));
+            ushort sourceIndex = BinaryPrimitives.ReadUInt16LittleEndian(source.Slice(9, 2));
+            ushort expressionIndex = BinaryPrimitives.ReadUInt16LittleEndian(source.Slice(11, 2));
+            events.Add(kind == RecEventKind.ExpressionActivate
+                ? RecEvent.CreateExpressionActivate(timestamp, sourceIndex, expressionIndex)
+                : RecEvent.CreateExpressionDeactivate(timestamp, sourceIndex, expressionIndex));
+            payloads.Add(Array.Empty<float>()); masks.Add(Array.Empty<byte>());
+            parsedRecordCount++; recordBytes = 13; return true;
+        }
+
+        private static bool TryReadBaselineExpression(ReadOnlySpan<byte> source,
+            List<(ushort sourceIndex, ushort expressionIndex)> records, ref uint parsedRecordCount, out int recordBytes)
+        {
+            recordBytes = 0;
+            if (source.Length < 5) return false;
+            records.Add((BinaryPrimitives.ReadUInt16LittleEndian(source.Slice(1, 2)),
+                BinaryPrimitives.ReadUInt16LittleEndian(source.Slice(3, 2))));
+            parsedRecordCount++; recordBytes = 5; return true;
         }
 
         private static bool TryReadBaselineAnalog(
@@ -685,8 +990,11 @@ namespace Hidano.FacialControl.Rec.Domain.Services
             RecIdTable idTable,
             List<(ushort sourceIndex, ushort expressionIndex)> baselineTriggerRecords,
             List<(ushort sourceIndex, float[] axes)> baselineAnalogRecords,
+            List<(ushort sourceIndex, bool isValid, byte[] mask, float[] values)> baselineValueProviderRecords,
+            List<(ushort sourceIndex, ushort expressionIndex)> baselineExpressionRecords,
             List<RecEvent> events,
             List<IReadOnlyList<float>> analogAxesByEvent,
+            List<IReadOnlyList<byte>> maskBytesByEvent,
             double durationSeconds,
             out RecTimeline timeline,
             out string error)
@@ -701,14 +1009,16 @@ namespace Hidano.FacialControl.Rec.Domain.Services
             {
                 var triggerEntries = BuildBaselineTriggerEntries(idTable, baselineTriggerRecords);
                 var analogEntries = BuildBaselineAnalogEntries(idTable, baselineAnalogRecords);
-                var baseline = new RecBaselineState(triggerEntries, analogEntries);
+                var valueProviderEntries = BuildBaselineValueProviderEntries(idTable, baselineValueProviderRecords);
+                var expressionEntries = BuildBaselineExpressionEntries(idTable, baselineExpressionRecords);
+                var baseline = new RecBaselineState(triggerEntries, analogEntries, valueProviderEntries, expressionEntries);
                 timeline = new RecTimeline(
                     baseline,
                     events,
                     sourceIds,
                     expressionIds,
                     durationSeconds,
-                    analogAxesByEvent);
+                    analogAxesByEvent, maskBytesByEvent);
                 return true;
             }
             catch (Exception ex) when (ex is ArgumentException || ex is InvalidOperationException)
@@ -787,6 +1097,54 @@ namespace Hidano.FacialControl.Rec.Domain.Services
             }
 
             return entries;
+        }
+
+        private static IReadOnlyList<RecBaselineState.ValueProviderEntry> BuildBaselineValueProviderEntries(
+            RecIdTable idTable, List<(ushort sourceIndex, bool isValid, byte[] mask, float[] values)> records)
+        {
+            var entries = new List<RecBaselineState.ValueProviderEntry>(records.Count);
+            for (int i = 0; i < records.Count; i++)
+            {
+                if (!idTable.TryGetSourceId(records[i].sourceIndex, out string sourceId))
+                {
+                    throw new InvalidOperationException($"Baseline value-provider referenced undefined source index {records[i].sourceIndex}.");
+                }
+
+                entries.Add(new RecBaselineState.ValueProviderEntry(sourceId, records[i].isValid,
+                    records[i].mask, records[i].values));
+            }
+
+            return entries;
+        }
+
+        private static IReadOnlyList<string> BuildBaselineExpressionEntries(
+            RecIdTable idTable, List<(ushort sourceIndex, ushort expressionIndex)> records)
+        {
+            var entries = new List<string>(records.Count);
+            for (int i = 0; i < records.Count; i++)
+            {
+                if (!idTable.TryGetExpressionId(records[i].expressionIndex, out string expressionId))
+                {
+                    throw new InvalidOperationException($"Baseline expression referenced undefined expression index {records[i].expressionIndex}.");
+                }
+
+                entries.Add(expressionId);
+            }
+
+            return entries;
+        }
+
+        private static bool IsTimedKind(RecEventKind kind)
+        {
+            return kind == RecEventKind.TriggerOn || kind == RecEventKind.TriggerOff
+                || kind == RecEventKind.AnalogSample || kind == RecEventKind.ValueProviderSample
+                || kind == RecEventKind.ExpressionActivate || kind == RecEventKind.ExpressionDeactivate;
+        }
+
+        private static bool IsBaselineKind(RecEventKind kind)
+        {
+            return kind == RecEventKind.BaselineTrigger || kind == RecEventKind.BaselineAnalog
+                || kind == RecEventKind.BaselineValueProvider || kind == RecEventKind.BaselineExpression;
         }
 
         private static float[] CopyAxesToTemp(IReadOnlyList<float> axes)
