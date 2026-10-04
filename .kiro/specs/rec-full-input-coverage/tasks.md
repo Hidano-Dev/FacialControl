@@ -197,7 +197,7 @@
   - _Requirements: 3.7, 5.1, 5.2, 6.7, 8.6_
 
 - [ ] 5. osc 受信 binding の heartbeat in-place 更新（Req 8.4 の唯一の拡張パッケージ改修）
-- [ ] 5.1 (P) OSC 入力源にマッピング表と寄与集合の in-place 更新を追加する
+- [x] 5.1 (P) OSC 入力源にマッピング表と寄与集合の in-place 更新を追加する
   - 対象: `com.hidano.facialcontrol.osc`（`Hidano.FacialControl.Osc`、OscInputSource）
   - マッピング表（参照差し替え）と寄与 mask（参照不変でビット置換）を更新する API を追加。mask 長が BlendShape 総数と一致しない場合は `ArgumentException`。staleness 状態は維持。マッピング表が空のとき `TryWriteValues` は false
   - テスト（osc `Tests/EditMode/Adapters/InputSources/OscInputSourceTests` 追記、`[SmallTest]`）: `UpdateMapping_mask長一致_参照不変で寄与集合更新`、`TryWriteValues_空マッピング_false`、mask 長不一致で `ArgumentException`
@@ -205,7 +205,7 @@
   - _Requirements: 3.9_
   - _Boundary: OscInputSource_
 
-- [ ] 5.2 受信 binding の heartbeat 経路から registry 差し替えを廃止する
+- [x] 5.2 受信 binding の heartbeat 経路から registry 差し替えを廃止する
   - 対象: `com.hidano.facialcontrol.osc`（`Hidano.FacialControl.Osc`、OscReceiverAdapterBinding）
   - 開始時に初期マッピングが 0 件でも OSC 入力源を空マッピング（mask 全 false）で無条件に構築・Register する。heartbeat によるマッピング集合変化では新インスタンス生成と Replace を行わず、登録済みインスタンスの in-place 更新のみ行う（全マッピング消失時も空表 + 全 false で無効化）。mask 長不一致の `ArgumentException` は捕捉して LogError し旧マッピングを維持。iFacialMocap binding は無改修
   - テスト（osc `Tests/EditMode/Adapters/AdapterBindings/OscReceiverAdapterBindingTests` 追記、既存 `[MediumTest]`）: heartbeat でマッピング集合が変化しても registry が返すインスタンス参照が構築時と同一であること、テスト専用の注入ソースマーカー実装を Replace で装着した状態で heartbeat を与えても注入ソースが registry に残り、装着解除後に原本が復元されること、初期マッピング 0 件でも開始時に登録されること

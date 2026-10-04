@@ -365,7 +365,7 @@ namespace Hidano.FacialControl.Tests.EditMode.Adapters.AdapterBindings
         }
 
         [Test]
-        public void OnStart_EmptyMappings_StartsSocketWithoutRegisteringPrimaryInputSource()
+        public void OnStart_EmptyMappings_RegistersEmptyPrimaryInputSource()
         {
             var registry = new InputSourceRegistry();
             int port = AllocatePort();
@@ -387,9 +387,11 @@ namespace Hidano.FacialControl.Tests.EditMode.Adapters.AdapterBindings
                 Assert.That(binding.HelperHost.Port, Is.EqualTo(port));
                 Assert.That(binding.Buffer, Is.Not.Null);
                 Assert.That(binding.Buffer.Size, Is.EqualTo(0));
-                Assert.That(binding.InputSource, Is.Null);
-                Assert.That(binding.HeartbeatChecker, Is.Null);
-                Assert.That(registry.TryResolve("osc-empty", out _), Is.False);
+                Assert.That(binding.InputSource, Is.Not.Null);
+                Assert.That(binding.HeartbeatChecker, Is.Not.Null);
+                Assert.That(registry.TryResolve("osc-empty", out IInputSource source), Is.True);
+                Assert.That(source, Is.SameAs(binding.InputSource));
+                Assert.That(source.ContributeMask.Cast<bool>(), Is.All.False);
             }
             finally
             {

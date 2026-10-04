@@ -724,7 +724,6 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
             _runtimeManualEntries = _runtimeMappings != null && (_mappings == null || _mappings.Count == 0)
                 ? CreateManualEntriesFromRuntimeMappings(_runtimeMappings)
                 : _mappings;
-            bool hasBlendShapeMappings = runtimeMappings != null && runtimeMappings.Length > 0;
             bool hasGazeMappings = HasGazeMappings(_mappings);
 
             if (!AdapterSlug.TryParse(Slug, out var slug))
@@ -740,11 +739,8 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
 
             StartReceiverPhase(ctx, settings, slug, runtimeMappings, hasGazeMappings);
 
-            if (hasBlendShapeMappings)
-            {
-                StartBlendShapeMappingPhase(ctx, settings, runtimeMappings, out int[] mappingIndexToMeshIndex, out BitArray contributeMask);
-                RegisterOscInputSourcePhase(ctx, settings, slug, mappingIndexToMeshIndex, contributeMask);
-            }
+            StartBlendShapeMappingPhase(ctx, settings, runtimeMappings, out int[] mappingIndexToMeshIndex, out BitArray contributeMask);
+            RegisterOscInputSourcePhase(ctx, settings, slug, mappingIndexToMeshIndex, contributeMask);
 
             _started = true;
         }
@@ -2164,15 +2160,28 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
 
         private void PublishRuntimeMappings(RuntimeMappingResolver.ResolveResult result)
         {
-            _runtimeMappings = result.RuntimeMappings;
-            _mappingOrigins = result.Origins;
-            LogRuntimeMappingDiagnostics(_runtimeMappings, _mappingOrigins, _runtimeMeshBlendShapeNames);
-            BuildNormalLookup(_runtimeMappings);
-
             if (_buffer == null || _helperHost == null || _effectiveSettings == null)
             {
                 return;
             }
+
+            int[] mappingIndexToMeshIndex = BuildMappingIndexToMeshIndex(_runtimeMeshBlendShapeNames, result.RuntimeMappings);
+            BitArray contributeMask = CreateContributeMask(_runtimeMeshBlendShapeNames.Count, mappingIndexToMeshIndex);
+            try
+            {
+                _inputSource.UpdateMapping(mappingIndexToMeshIndex, contributeMask);
+            }
+            catch (ArgumentException exception)
+            {
+                Debug.LogError(
+                    $"[OscReceiverAdapterBinding] heartbeat mapping の適用に失敗したため、旧 mapping を維持します: {exception.Message}");
+                return;
+            }
+
+            _runtimeMappings = result.RuntimeMappings;
+            _mappingOrigins = result.Origins;
+            LogRuntimeMappingDiagnostics(_runtimeMappings, _mappingOrigins, _runtimeMeshBlendShapeNames);
+            BuildNormalLookup(_runtimeMappings);
 
             _buffer.Resize(_runtimeMappings.Length);
             _bundleAccumulator = new OscBundleAccumulator(_buffer, _effectiveSettings.BundleAccumulationTimeoutMs);
@@ -2181,26 +2190,10 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
                 _runtimeMappings,
                 _effectiveSettings.BundleMode == BundleInterpretationMode.AtomicSwap ? _bundleAccumulator : null);
 
-            if (_runtimeMappings.Length == 0)
-            {
-                _heartbeatChecker = null;
-                return;
-            }
-
-            int[] mappingIndexToMeshIndex = BuildMappingIndexToMeshIndex(_runtimeMeshBlendShapeNames, _runtimeMappings);
-            BitArray contributeMask = CreateContributeMask(_runtimeMeshBlendShapeNames.Count, mappingIndexToMeshIndex);
             _heartbeatChecker = new HeartbeatConsistencyChecker(
                 _runtimeMappings,
                 _effectiveSettings.ConsistencyCheckWarnLog);
             _heartbeatChecker.UpdateFromHeartbeat(_heartbeatProcessingScratch);
-            _inputSource = new OscInputSource(
-                _buffer,
-                _effectiveSettings.StalenessSeconds,
-                _timeProvider,
-                _effectiveSettings.FailSafeMode,
-                contributeMask,
-                mappingIndexToMeshIndex);
-            _runtimeRegistry.Replace(_runtimeSlug, _inputSource);
         }
 
         private static void LogRuntimeMappingDiagnostics(

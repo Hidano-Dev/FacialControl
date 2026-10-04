@@ -518,7 +518,7 @@ namespace Hidano.FacialControl.Tests.PlayMode.Performance
 
             Assert.That(_binding.IsStarted, Is.True);
             Assert.That(_binding.HelperHost, Is.Not.Null);
-            Assert.That(_binding.InputSource, Is.Null);
+            Assert.That(_binding.InputSource, Is.Not.Null);
         }
 
         private AdapterBuildContext CreateContext(

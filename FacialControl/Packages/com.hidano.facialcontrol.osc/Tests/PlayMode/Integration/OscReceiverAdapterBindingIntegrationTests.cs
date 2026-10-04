@@ -78,7 +78,7 @@ namespace Hidano.FacialControl.Tests.PlayMode.Integration
         // ---------------------------------------------------------------
 
         [UnityTest]
-        public IEnumerator OnStart_EmptyMappings_StartsSocketWithoutRegisteringPrimaryInputSource()
+        public IEnumerator OnStart_EmptyMappings_StartsSocketWithEmptyPrimaryInputSource()
         {
             const string slug = "osc-empty-socket";
             int port = AllocatePort();
@@ -102,8 +102,10 @@ namespace Hidano.FacialControl.Tests.PlayMode.Integration
             Assert.That(_binding.HelperHost.Receiver.IsRunning, Is.True);
             Assert.That(_binding.Buffer, Is.Not.Null);
             Assert.That(_binding.Buffer.Size, Is.EqualTo(0));
-            Assert.That(_binding.InputSource, Is.Null);
-            Assert.That(_registry.TryResolve(slug, out _), Is.False);
+            Assert.That(_binding.InputSource, Is.Not.Null);
+            Assert.That(_registry.TryResolve(slug, out IInputSource source), Is.True);
+            Assert.That(source, Is.SameAs(_binding.InputSource));
+            AssertMask(source.ContributeMask, false, false);
         }
 
         [Test]
@@ -124,7 +126,7 @@ namespace Hidano.FacialControl.Tests.PlayMode.Integration
             _bindingStarted = true;
 
             HandleHeartbeat("smile", "frown");
-            Assert.That(_binding.InputSource, Is.Null);
+            Assert.That(_binding.InputSource, Is.Not.Null);
 
             _binding.OnFixedTick(0.02f);
 
@@ -355,8 +357,9 @@ namespace Hidano.FacialControl.Tests.PlayMode.Integration
             _binding.OnStart(in ctx);
             _bindingStarted = true;
 
-            Assert.That(_binding.InputSource, Is.Null);
-            Assert.That(_registry.TryResolve(slug, out _), Is.False);
+            Assert.That(_binding.InputSource, Is.Not.Null);
+            Assert.That(_registry.TryResolve(slug, out IInputSource source), Is.True);
+            Assert.That(source, Is.SameAs(_binding.InputSource));
             Assert.That(_registry.TryResolve(slug + ":eye", out IInputSource inputSource), Is.True);
             Assert.That(inputSource, Is.InstanceOf<GazeVector2InputSource>());
             AssertMask(inputSource.ContributeMask);
@@ -727,8 +730,9 @@ namespace Hidano.FacialControl.Tests.PlayMode.Integration
             SendOscValue("/avatar/parameters/smile", 0.9f);
             _binding.OnFixedTick(0.02f);
 
-            Assert.That(_binding.InputSource, Is.Null);
-            Assert.That(_registry.TryResolve(Slug, out _), Is.False);
+            Assert.That(_binding.InputSource, Is.Not.Null);
+            Assert.That(_registry.TryResolve(Slug, out IInputSource source), Is.True);
+            Assert.That(source, Is.SameAs(_binding.InputSource));
             Assert.That(_renderer.GetBlendShapeWeight(0), Is.EqualTo(0f).Within(0.01f));
             LogAssert.NoUnexpectedReceived();
         }
@@ -847,7 +851,7 @@ namespace Hidano.FacialControl.Tests.PlayMode.Integration
         }
 
         [Test]
-        public void OnFixedTick_EmptyIntersection_LogsWarningOnceAndKeepsInputSourceUnregistered()
+        public void OnFixedTick_EmptyIntersection_LogsWarningOnceAndKeepsEmptyInputSourceRegistered()
         {
             StartBindingWithMesh("smile");
 
@@ -858,8 +862,9 @@ namespace Hidano.FacialControl.Tests.PlayMode.Integration
             _binding.OnFixedTick(0.02f);
 
             Assert.That(_binding.RuntimeMappings.Count, Is.EqualTo(0));
-            Assert.That(_binding.InputSource, Is.Null);
-            Assert.That(_registry.TryResolve(Slug, out _), Is.False);
+            Assert.That(_binding.InputSource, Is.Not.Null);
+            Assert.That(_registry.TryResolve(Slug, out IInputSource source), Is.True);
+            Assert.That(source, Is.SameAs(_binding.InputSource));
         }
 
         [Test]
