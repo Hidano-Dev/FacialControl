@@ -3,7 +3,7 @@
 対象 Unity プロジェクト: `FacialControl/`（パッケージ `com.hidano.facialcontrol` / `com.hidano.facialcontrol.rec` / `com.hidano.facialcontrol.inputsystem`（Tests のみ）/ `com.hidano.facialcontrol.timeline`（Editor の契約追随のみ））。テストは EditMode を優先し、MonoBehaviour ライフサイクル・フレーム進行・InputSystem・実 I/O を要するものだけ PlayMode に置く。全 fixture に `[SmallTest]` / `[MediumTest]` を付け `SizedTestFixture` を継承する。
 
 - [ ] 1. 基盤: core の weight 観測・遮断契約
-- [ ] 1.1 weight 観測契約とバス配信を追加する
+- [x] 1.1 weight 観測契約とバス配信を追加する
   - レイヤー weight / 入力源 weight の変化を通知する観測契約（`ILayerWeightObserver`）、遮断・基準確立・注入・収集の契約（`IWeightInjectionGate`、sourceIdx 0 の予約スロット id `@expression` を持つ `WeightSlotIds`）、基準収集用の値構造体（`LayerWeightEntry` / `InputSourceWeightEntry`）を core Domain に置く
   - 1 体スコープの入力観測者契約に weight の 2 メソッドを追加し、観測バス契約が weight 観測契約を継承するようにする。観測バスは既存メソッドと同じく観測者ゼロで早期 return・publish 中の購読変更を遅延適用・観測者の例外を隔離して配信する
   - リポジトリ内で入力観測者 / 観測バス契約を実装している Fake（rec Tests EditMode / PlayMode、core Tests、timeline Tests）をコンパイルが通るよう追随させる（挙動は追加メソッドの no-op 記録のみ）

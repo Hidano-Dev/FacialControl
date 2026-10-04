@@ -75,3 +75,4 @@
 - Command: `/kiro:spec-run rec-weight-coverage`（Bash 不可のため、コマンド定義と同じ手順を PowerShell ランナーで実行: タスクごとに `codex exec --dangerously-bypass-approvals-and-sandbox` をバックグラウンド起動（30 分タイムアウト）→ 出力末尾の OK / FAIL → `claude -p`（stdin プロンプト）で独立レビュー → Orchestrator が Unity batchmode でテスト再実行 → OK 記録。FAIL / REJECTED は退避してタスク開始時点へ戻し次へ。3 連続 FAIL で打ち切り）
 - 前提: worktree の Library は main からコピー済みで baseline Small EditMode 1876 件 passed（failed 0）。他 Unity プロセスは別プロジェクト。pre_head = 63b89b9f。leaf 21 タスク
 - 経過は下記に追記
+- 1.1（weight 観測契約とバス配信）: codex **OK**（293k tokens、コミット 1ea6632d。RED = 契約追加前のコンパイル失敗 CS1061）→ claude -p レビュー **APPROVED**（Suggestion: `IFacialInputObserver` が `ILayerWeightObserver` を継承する形は設計の直接宣言と構造が少し異なるが同形・実害なし / XML doc 不足 / FYI）→ Orchestrator 検証 全 EditMode 2279（passed 2276 / failed 0 / skipped 3）→ **OK**。注: codex の `git add -A` が本ログの未コミット編集（Phase 5 開始節）を同コミットに巻き込んだ。以後は codex 起動前にログをコミットする
