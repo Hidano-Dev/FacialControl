@@ -5,6 +5,7 @@ using System.IO;
 using System.Text.RegularExpressions;
 using System.Threading;
 using Hidano.FacialControl.Domain.Adapters;
+using Hidano.FacialControl.Domain.Models;
 using Hidano.FacialControl.Domain.Interfaces;
 using Hidano.FacialControl.Rec.Adapters.FileSystem;
 using Hidano.FacialControl.Rec.Adapters.Recording;
@@ -326,6 +327,34 @@ namespace Hidano.FacialControl.Rec.Tests.EditMode
             public void PublishValueProviderSample(string sourceId, in ValueProviderSample sample) { }
             public void OnExpressionActivated(string sourceId, string expressionId) { }
             public void OnExpressionDeactivated(string sourceId, string expressionId) { }
+            public void OnLayerWeightSample(string layerName, float weight) { }
+            public void OnInputSourceWeightSample(string layerName, string slotId, float weight) { }
+        }
+
+        [Test]
+        public void Open_WritesLayerDefinitionsAndWeightBaselinesBeforeRuntimeEvents()
+        {
+            string filePath = Path.Combine(_tempDirectory, "weight-baseline.fcrec");
+            var baseline = new RecBaselineState(
+                Array.Empty<RecBaselineState.TriggerEntry>(),
+                Array.Empty<RecBaselineState.AnalogEntry>(),
+                Array.Empty<RecBaselineState.ValueProviderEntry>(),
+                Array.Empty<string>(),
+                new[] { new LayerWeightEntry("face", 0.5f) },
+                new[] { new InputSourceWeightEntry("face", "input", 0.75f) });
+
+            using var writer = new RecStreamWriter(filePath);
+            writer.Open(baseline);
+            writer.AppendEvent(RecEvent.CreateLayerWeightSample(0.1d, 0), new[] { 0.25f });
+            writer.Complete(0.1d, 1);
+
+            Assert.That(RecFileReader.TryRead(filePath, out RecBinaryFormat.ReadResult result), Is.True);
+            Assert.That(result.Timeline.LayerIds, Is.EqualTo(new[] { "face" }));
+            Assert.That(result.Timeline.Baseline.TryGetLayerWeight("face", out float layerWeight), Is.True);
+            Assert.That(layerWeight, Is.EqualTo(0.5f));
+            Assert.That(result.Timeline.Baseline.TryGetInputSourceWeight("face", "input", out float sourceWeight), Is.True);
+            Assert.That(sourceWeight, Is.EqualTo(0.75f));
+            Assert.That(result.Timeline.Events[0].Kind, Is.EqualTo(RecEventKind.LayerWeightSample));
         }
 
         private sealed class BlockingStream : MemoryStream

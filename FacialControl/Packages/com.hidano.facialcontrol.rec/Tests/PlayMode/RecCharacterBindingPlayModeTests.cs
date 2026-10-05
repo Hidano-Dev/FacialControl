@@ -152,6 +152,119 @@ namespace Hidano.FacialControl.Rec.Tests.PlayMode
             Assert.That(restored, Is.SameAs(valueProvider));
         }
 
+        [Test]
+        public void StartRecording_DuplicateLayerNames_WarnsAndReturnsFalse()
+        {
+            SetupHarness(out FacialController controller, out RecCharacterBinding binding, out _, out _, out _, out _);
+            var duplicateProfile = new FacialProfile(
+                "1.0.0",
+                new[]
+                {
+                    new LayerDefinition("emotion", 0, ExclusionMode.LastWins),
+                    new LayerDefinition("emotion", 1, ExclusionMode.Blend),
+                },
+                new[] { new Expression("smile", "Smile", "emotion") });
+            var expressionUseCase = new ExpressionUseCase(duplicateProfile);
+            GetLayerUseCase(controller).Dispose();
+            var layerUseCase = new LayerUseCase(duplicateProfile, expressionUseCase, new[] { "Smile" });
+            SetControllerPrivateField(controller, "_layerUseCase", layerUseCase);
+            Assert.That(controller.WeightInjectionGate.LayerNamesAreUnique, Is.False);
+
+            LogAssert.Expect(LogType.Warning, new Regex("REC recording was ignored because the profile has duplicate layer names"));
+            Assert.That(binding.StartRecording("duplicate"), Is.False);
+
+            Assert.That(binding.IsRecording, Is.False);
+            LogAssert.NoUnexpectedReceived();
+        }
+
+        [UnityTest]
+        public IEnumerator StartPlayback_WeightGateUnresolved_FailsWithoutLeavingPartialInjection()
+        {
+            SetupHarness(out FacialController controller, out RecCharacterBinding binding, out FakeObservationBus bus,
+                out FakeInputSourceRegistry registry, out TestTriggerSource triggerSource, out FakeAnalogSource analogSource);
+            Assert.That(binding.StartRecording("gate-unresolved"), Is.True);
+            bus.PublishTriggerOn(triggerSource.Id, "smile");
+            bus.PublishAnalog(analogSource.Id, 0.25f, -0.5f);
+            binding.StopRecording();
+            Assert.That(binding.LoadRecording("gate-unresolved"), Is.True);
+
+            // weight gate（LayerUseCase）が解決できない状態。5 ポートの preflight で拒否され、どのポートも確立しない。
+            GetLayerUseCase(controller).Dispose();
+            SetControllerPrivateField(controller, "_layerUseCase", null);
+            Assert.That(controller.WeightInjectionGate, Is.Null);
+
+            LogAssert.Expect(LogType.Error, new Regex("weight injection requires an initialised FacialController"));
+            Assert.That(binding.StartPlayback(), Is.False);
+            yield return null;
+
+            Assert.That(binding.PlaybackState, Is.Not.EqualTo(RecPlaybackState.Playing));
+            Assert.That(registry.TryResolve(analogSource.Id, out IInputSource analogResolved), Is.True);
+            Assert.That(analogResolved, Is.SameAs(analogSource), "no port may remain established after a failed start");
+            Assert.That(registry.TryResolve(triggerSource.Id, out IInputSource triggerResolved), Is.True);
+            Assert.That(triggerResolved, Is.SameAs(triggerSource), "no port may remain established after a failed start");
+        }
+
+        [UnityTest]
+        public IEnumerator Playback_ValueProviderReplaceAndRestore_KeepsSlotWeights()
+        {
+            SetupFullCoverageHarness(
+                out FacialController controller,
+                out RecCharacterBinding binding,
+                out FakeObservationBus bus,
+                out FakeInputSourceRegistry registry,
+                out FakeValueProvider valueProvider,
+                out Expression expression);
+            LayerUseCase layerUseCase = GetLayerUseCase(controller);
+            controller.SetInputSourceWeight(0, 1, 0.35f);
+            layerUseCase.UpdateWeights(0f);
+            var before = new List<InputSourceWeightEntry>();
+            controller.WeightInjectionGate.CollectInputSourceWeights(before);
+            Assert.That(before.Exists(e => e.Weight == 0.35f), Is.True, "the value provider slot weight must be observable");
+
+            Assert.That(binding.StartRecording("vp-weights"), Is.True);
+            valueProvider.Publish(0.5f);
+            binding.StopRecording();
+            Assert.That(binding.LoadRecording("vp-weights"), Is.True);
+            Assert.That(binding.StartPlayback(), Is.True);
+            yield return null;
+
+            Assert.That(registry.TryResolve(valueProvider.Id, out IInputSource replaced), Is.True);
+            Assert.That(replaced, Is.Not.SameAs(valueProvider), "the value provider must be replaced during playback");
+            var during = new List<InputSourceWeightEntry>();
+            controller.WeightInjectionGate.CollectInputSourceWeights(during);
+            Assert.That(during, Is.EqualTo(before), "replacing the value provider must not change slot weights");
+
+            binding.StopPlayback();
+            yield return null;
+            Assert.That(registry.TryResolve(valueProvider.Id, out IInputSource restored), Is.True);
+            Assert.That(restored, Is.SameAs(valueProvider));
+            var after = new List<InputSourceWeightEntry>();
+            controller.WeightInjectionGate.CollectInputSourceWeights(after);
+            Assert.That(after, Is.EqualTo(before), "restoring the original value provider must not change slot weights");
+        }
+
+        [UnityTest]
+        public IEnumerator StartPlayback_BuildsFivePortSessionWithWeightInjector()
+        {
+            SetupHarness(out FacialController controller, out RecCharacterBinding binding, out FakeObservationBus bus,
+                out _, out TestTriggerSource triggerSource, out _);
+            Assert.That(binding.StartRecording("five-port"), Is.True);
+            bus.PublishTriggerOn(triggerSource.Id, "smile");
+            binding.StopRecording();
+            Assert.That(binding.LoadRecording("five-port"), Is.True);
+
+            Assert.That(binding.StartPlayback(), Is.True);
+            yield return null;
+
+            FieldInfo field = typeof(RecCharacterBinding).GetField("_weightInjector", BindingFlags.Instance | BindingFlags.NonPublic);
+            Assert.That(field, Is.Not.Null);
+            Assert.That(field.GetValue(binding), Is.InstanceOf<RecWeightInjector>());
+            Assert.That(controller.WeightInjectionGate.IsLiveWeightSuspended, Is.True);
+
+            binding.StopPlayback();
+            Assert.That(controller.WeightInjectionGate.IsLiveWeightSuspended, Is.False);
+        }
+
         [UnityTest]
         public IEnumerator StartPlayback_AfterControllerRegistryIsReplaced_InjectsIntoTheNewRegistry()
         {
@@ -691,11 +804,14 @@ namespace Hidano.FacialControl.Rec.Tests.PlayMode
             // の準備も要求するため、初期化済みコントローラと同じ面を揃える。
             var expressionUseCase = new ExpressionUseCase(profile);
             expressionUseCase.SetActivationObserver(bus);
+            // 5 ポート確立は weight gate（FacialController.WeightInjectionGate = LayerUseCase）の解決も要求する。
+            var layerUseCase = new LayerUseCase(profile, expressionUseCase, new[] { "Smile" });
 
             SetControllerPrivateField(controller, "_isInitialized", true);
             SetControllerPrivateField(controller, "_currentProfile", (FacialProfile?)profile);
             SetControllerPrivateField(controller, "_blendShapeNames", new[] { "Smile" });
             SetControllerPrivateField(controller, "_expressionUseCase", expressionUseCase);
+            SetControllerPrivateField(controller, "_layerUseCase", layerUseCase);
             SetControllerPrivateField(controller, "_inputObservationBus", bus);
             SetControllerPrivateField(controller, "_inputSourceRegistry", registry);
         }
@@ -859,6 +975,9 @@ namespace Hidano.FacialControl.Rec.Tests.PlayMode
             {
                 _observer?.OnExpressionDeactivated(sourceId, expressionId);
             }
+
+            public void OnLayerWeightSample(string layerName, float weight) { _observer?.OnLayerWeightSample(layerName, weight); }
+            public void OnInputSourceWeightSample(string layerName, string slotId, float weight) { _observer?.OnInputSourceWeightSample(layerName, slotId, weight); }
 
             public void PublishTriggerOn(string sourceId, string expressionId)
             {

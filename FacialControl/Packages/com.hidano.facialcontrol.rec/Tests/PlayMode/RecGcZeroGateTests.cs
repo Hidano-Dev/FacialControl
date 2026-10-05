@@ -107,6 +107,44 @@ namespace Hidano.FacialControl.Rec.Tests.PlayMode
         }
 
         [Test]
+        public void RecordingUseCase_WeightSteadyState_AfterWarmup_AllocatesZeroGC()
+        {
+            var observationBus = new FacialInputObservationBus();
+            var clock = new ManualRecClock();
+            var sink = new NullRecEventSink();
+            using var useCase = new RecordingUseCase(observationBus, clock, sink);
+
+            // 全レイヤー weight と全スロット weight を毎フレーム変化させる（Req 9.5）。
+            // 基準に無いレイヤー / スロットは最初の 1 フレームで IdDefine が追記され、以後は定常状態になる。
+            string[] layers = { "emotion", "lipsync", "eyes" };
+            string[] slots = { "@expression", "input:osc", "input:gamepad" };
+            RecBaselineState baseline = new RecBaselineState(
+                null, null, null, null,
+                new[] { new Hidano.FacialControl.Domain.Models.LayerWeightEntry(layers[0], 1f) },
+                new[] { new Hidano.FacialControl.Domain.Models.InputSourceWeightEntry(layers[0], slots[0], 1f) });
+
+            useCase.StartRecording(baseline);
+
+            for (int i = 0; i < WarmupFrames; i++)
+            {
+                PublishWeightFrame(useCase, clock, layers, slots, i);
+            }
+
+            ForceFullCollection();
+            using var recorder = StartGcRecorder();
+
+            for (int i = 0; i < MeasurementFrames; i++)
+            {
+                PublishWeightFrame(useCase, clock, layers, slots, WarmupFrames + i);
+            }
+
+            Assert.That(recorder.LastValue, Is.EqualTo(0L),
+                "RecordingUseCase weight steady-state hot path must not allocate GC.");
+
+            useCase.StopRecording();
+        }
+
+        [Test]
         public void PlaybackUseCase_SteadyState_AfterWarmup_AllocatesZeroGC()
         {
             var triggerPort = new NullTriggerInjectionPort();
@@ -165,6 +203,42 @@ namespace Hidano.FacialControl.Rec.Tests.PlayMode
         }
 
         [Test]
+        public void PlaybackUseCase_WeightSteadyState_AfterWarmup_AllocatesZeroGC()
+        {
+            var weightPort = new NullWeightInjectionPort();
+            var triggerPort = new NullTriggerInjectionPort();
+            var expressionPort = new NullExpressionInjectionPort();
+            var analogPort = new NullAnalogInjectionPort();
+            var valueProviderPort = new NullValueProviderInjectionPort();
+            var useCase = new PlaybackUseCase(
+                weightPort,
+                triggerPort,
+                expressionPort,
+                analogPort,
+                valueProviderPort);
+            RecTimeline timeline = CreateWeightPlaybackTimeline(WarmupFrames + MeasurementFrames + 1);
+
+            useCase.Load(timeline, CreateProfile());
+            Assert.That(useCase.StartPlayback(), Is.True);
+
+            for (int i = 0; i < WarmupFrames; i++)
+            {
+                useCase.Tick(DeltaTime);
+            }
+
+            ForceFullCollection();
+            using var recorder = StartGcRecorder();
+
+            for (int i = 0; i < MeasurementFrames; i++)
+            {
+                useCase.Tick(DeltaTime);
+            }
+
+            Assert.That(recorder.LastValue, Is.EqualTo(0L),
+                "PlaybackUseCase weight steady-state Tick path must not allocate GC.");
+        }
+
+        [Test]
         public void FacialInputObservationBus_WithoutObservers_PublishHotPath_AllocatesZeroGC()
         {
             var bus = new FacialInputObservationBus();
@@ -201,6 +275,25 @@ namespace Hidano.FacialControl.Rec.Tests.PlayMode
             useCase.OnTriggerOn("input:trigger", "smile");
             useCase.OnTriggerOff("input:trigger", "smile");
             useCase.OnAnalogSample("input:gaze", axes);
+        }
+
+        private static void PublishWeightFrame(
+            RecordingUseCase useCase,
+            ManualRecClock clock,
+            string[] layers,
+            string[] slots,
+            int frameIndex)
+        {
+            clock.SetElapsedSeconds(frameIndex * DeltaTime);
+            float weight = (frameIndex % 100) / 100f;
+            for (int l = 0; l < layers.Length; l++)
+            {
+                useCase.OnLayerWeightSample(layers[l], weight);
+                for (int s = 0; s < slots.Length; s++)
+                {
+                    useCase.OnInputSourceWeightSample(layers[l], slots[s], 1f - weight);
+                }
+            }
         }
 
         private static void PublishLargeValueProviderFrame(
@@ -279,6 +372,37 @@ namespace Hidano.FacialControl.Rec.Tests.PlayMode
                 (frameCount + 1) * DeltaTime,
                 valuesByEvent,
                 masksByEvent);
+        }
+
+        private static RecTimeline CreateWeightPlaybackTimeline(int frameCount)
+        {
+            var events = new RecEvent[frameCount * 2];
+            var weightsByEvent = new IReadOnlyList<float>[events.Length];
+            for (int i = 0; i < frameCount; i++)
+            {
+                double timestamp = (i + 1) * DeltaTime;
+                float weight = (i % 100) / 100f;
+                int eventIndex = i * 2;
+                events[eventIndex] = RecEvent.CreateLayerWeightSample(timestamp, 0);
+                events[eventIndex + 1] = RecEvent.CreateInputSourceWeightSample(timestamp, 0, 0);
+                weightsByEvent[eventIndex] = new[] { weight };
+                weightsByEvent[eventIndex + 1] = new[] { 1f - weight };
+            }
+
+            return new RecTimeline(
+                new RecBaselineState(
+                    null,
+                    null,
+                    null,
+                    null,
+                    new[] { new Hidano.FacialControl.Domain.Models.LayerWeightEntry("layer", 1f) },
+                    new[] { new Hidano.FacialControl.Domain.Models.InputSourceWeightEntry("layer", "input:source", 1f) }),
+                events,
+                new[] { "input:source" },
+                Array.Empty<string>(),
+                new[] { "layer" },
+                (frameCount + 1) * DeltaTime,
+                weightsByEvent);
         }
 
         private static float[] CreateLargeValues()
@@ -429,6 +553,32 @@ namespace Hidano.FacialControl.Rec.Tests.PlayMode
             }
 
             public void InjectAnalogSample(string sourceId, ReadOnlySpan<float> axes)
+            {
+            }
+
+            public void EndInjection()
+            {
+            }
+        }
+
+        private sealed class NullWeightInjectionPort : IWeightInjectionPort
+        {
+            public bool CanBeginInjection(out string reason)
+            {
+                reason = string.Empty;
+                return true;
+            }
+
+            public bool TryBeginInjection(RecBaselineState baseline)
+            {
+                return true;
+            }
+
+            public void InjectLayerWeight(string layerName, float weight)
+            {
+            }
+
+            public void InjectInputSourceWeight(string layerName, string slotId, float weight)
             {
             }
 

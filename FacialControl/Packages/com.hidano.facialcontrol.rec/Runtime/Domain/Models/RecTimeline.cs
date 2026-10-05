@@ -11,6 +11,7 @@ namespace Hidano.FacialControl.Rec.Domain.Models
         private readonly RecEvent[] _events;
         private readonly string[] _sourceIds;
         private readonly string[] _expressionIds;
+        private readonly string[] _layerIds;
         private readonly float[][] _payloadByEvent;
         private readonly byte[][] _maskBytesByEvent;
 
@@ -19,6 +20,19 @@ namespace Hidano.FacialControl.Rec.Domain.Models
             IEnumerable<RecEvent> events,
             IEnumerable<string> sourceIds,
             IEnumerable<string> expressionIds,
+            double durationSeconds,
+            IEnumerable<IReadOnlyList<float>> analogAxesByEvent = null,
+            IEnumerable<IReadOnlyList<byte>> maskBytesByEvent = null)
+            : this(baseline, events, sourceIds, expressionIds, null, durationSeconds, analogAxesByEvent, maskBytesByEvent)
+        {
+        }
+
+        public RecTimeline(
+            RecBaselineState baseline,
+            IEnumerable<RecEvent> events,
+            IEnumerable<string> sourceIds,
+            IEnumerable<string> expressionIds,
+            IEnumerable<string> layerIds,
             double durationSeconds,
             IEnumerable<IReadOnlyList<float>> analogAxesByEvent = null,
             IEnumerable<IReadOnlyList<byte>> maskBytesByEvent = null)
@@ -31,7 +45,8 @@ namespace Hidano.FacialControl.Rec.Domain.Models
             Baseline = baseline ?? RecBaselineState.Empty;
             _sourceIds = CopyIds(sourceIds, nameof(sourceIds));
             _expressionIds = CopyIds(expressionIds, nameof(expressionIds));
-            _events = CopyAndValidateEvents(events, _sourceIds.Length, _expressionIds.Length, durationSeconds);
+            _layerIds = CopyIds(layerIds, nameof(layerIds));
+            _events = CopyAndValidateEvents(events, _sourceIds.Length, _expressionIds.Length, _layerIds.Length, durationSeconds);
             _payloadByEvent = CopyAndValidatePayloads(_events, analogAxesByEvent, nameof(analogAxesByEvent));
             _maskBytesByEvent = CopyAndValidateMasks(_events, maskBytesByEvent, nameof(maskBytesByEvent));
             DurationSeconds = durationSeconds;
@@ -44,6 +59,8 @@ namespace Hidano.FacialControl.Rec.Domain.Models
         public IReadOnlyList<string> SourceIds => _sourceIds;
 
         public IReadOnlyList<string> ExpressionIds => _expressionIds;
+
+        public IReadOnlyList<string> LayerIds => _layerIds;
 
         public double DurationSeconds { get; }
 
@@ -103,6 +120,7 @@ namespace Hidano.FacialControl.Rec.Domain.Models
             IEnumerable<RecEvent> events,
             int sourceIdCount,
             int expressionIdCount,
+            int layerIdCount,
             double durationSeconds)
         {
             if (events == null)
@@ -126,7 +144,7 @@ namespace Hidano.FacialControl.Rec.Domain.Models
                     throw new ArgumentException("Timeline events must be sorted by non-decreasing timestamp.", nameof(events));
                 }
 
-                ValidateIndexes(evt, sourceIdCount, expressionIdCount, nameof(events));
+                ValidateIndexes(evt, sourceIdCount, expressionIdCount, layerIdCount, nameof(events));
                 lastTimestamp = evt.TimestampSeconds;
                 first = false;
                 list.Add(evt);
@@ -291,8 +309,25 @@ namespace Hidano.FacialControl.Rec.Domain.Models
             return copied;
         }
 
-        private static void ValidateIndexes(RecEvent evt, int sourceIdCount, int expressionIdCount, string paramName)
+        private static void ValidateIndexes(RecEvent evt, int sourceIdCount, int expressionIdCount, int layerIdCount, string paramName)
         {
+            if (evt.Kind == RecEventKind.LayerWeightSample)
+            {
+                if (evt.LayerIdIndex >= layerIdCount)
+                {
+                    throw new ArgumentException("unknown layer id index", paramName);
+                }
+                return;
+            }
+
+            if (evt.Kind == RecEventKind.InputSourceWeightSample)
+            {
+                if (evt.LayerIdIndex >= layerIdCount || evt.SourceIdIndex >= sourceIdCount)
+                {
+                    throw new ArgumentException("unknown weight id index", paramName);
+                }
+                return;
+            }
             if (evt.Kind == RecEventKind.AnalogSample || evt.Kind == RecEventKind.ValueProviderSample)
             {
                 if (evt.SourceIdIndex >= sourceIdCount)

@@ -1,4 +1,5 @@
 using System;
+using Hidano.FacialControl.Domain.Interfaces;
 
 namespace Hidano.FacialControl.Domain.Adapters
 {
@@ -6,7 +7,7 @@ namespace Hidano.FacialControl.Domain.Adapters
     /// Observes trigger and analog input events for a single FacialController scope.
     /// All callbacks are invoked synchronously on the main thread.
     /// </summary>
-    public interface IFacialInputObserver
+    public interface IFacialInputObserver : ILayerWeightObserver
     {
         /// <summary>
         /// Called after a trigger source activates an expression.

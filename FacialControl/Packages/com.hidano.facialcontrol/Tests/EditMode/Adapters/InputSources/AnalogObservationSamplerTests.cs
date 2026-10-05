@@ -188,6 +188,10 @@ namespace Hidano.FacialControl.Tests.EditMode.Adapters.InputSources
             public void OnExpressionDeactivated(string sourceId, string expressionId)
             {
             }
+
+            public void OnLayerWeightSample(string layerName, float weight) { }
+
+            public void OnInputSourceWeightSample(string layerName, string slotId, float weight) { }
         }
 
         private sealed class FakeAnalogSource : IInputSource, IAnalogInputSource

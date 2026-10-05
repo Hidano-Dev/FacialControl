@@ -116,6 +116,23 @@ namespace Hidano.FacialControl.Rec.Tests.EditMode
             Assert.That(result, Is.Null);
         }
 
+        [Test]
+        public void TryRead_FileWithoutWeightBaselineFlag_LogsErrorAndReturnsFalse()
+        {
+            // rec-weight-coverage 以前の構造（bit0 のみ）のファイルはレコード内容に関わらず読込拒否する。
+            byte[] bytes = RecBinaryFormat.Serialize(CreateTimeline(), 123L);
+            bytes[6] = (byte)RecHeaderFlags.FullInputBaseline;
+            bytes[7] = 0;
+            string filePath = WriteRecordingFile(bytes);
+
+            LogAssert.Expect(LogType.Error, new Regex("WeightBaseline"));
+
+            bool success = RecFileReader.TryRead(filePath, out RecBinaryFormat.ReadResult result);
+
+            Assert.That(success, Is.False);
+            Assert.That(result, Is.Null);
+        }
+
         private string WriteRecordingFile(byte[] bytes)
         {
             string filePath = Path.Combine(_tempDirectory, "test.fcrec");

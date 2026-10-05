@@ -98,6 +98,39 @@ namespace Hidano.FacialControl.Tests.PlayMode.Performance
             Assert.That(observer.ActivatedExpressionId, Is.EqualTo("expr-happy"));
         }
 
+        [Test]
+        public void Initialize_ExposesWeightInjectionGateAndWiresWeightObserverOnObserverEdge()
+        {
+            _controllerGameObject = CreateControllerHost();
+            var controller = _controllerGameObject.AddComponent<FacialController>();
+            var profile = CreateProfileWithExpression();
+            var observer = new ExpressionObservationSpy();
+
+            Assert.That(controller.WeightInjectionGate, Is.Null,
+                "未初期化時の weight gate は null であるべき");
+
+            controller.InitializeWithProfile(profile);
+            Assert.That(controller.WeightInjectionGate, Is.Not.Null,
+                "初期化後は weight gate が公開されるべき");
+
+            controller.InputObservationBus.Subscribe(observer);
+            InvokeLateUpdate(controller);
+            controller.SetLayerWeight("emotion", 0.5f);
+            InvokeLateUpdate(controller);
+
+            Assert.That(observer.LayerWeightSampleCount, Is.EqualTo(1));
+            Assert.That(observer.LastLayerName, Is.EqualTo("emotion"));
+            Assert.That(observer.LastLayerWeight, Is.EqualTo(0.5f));
+
+            controller.InputObservationBus.Unsubscribe(observer);
+            InvokeLateUpdate(controller);
+            controller.SetLayerWeight("emotion", 0.75f);
+            InvokeLateUpdate(controller);
+
+            Assert.That(observer.LayerWeightSampleCount, Is.EqualTo(1),
+                "observer 切断後は weight 通知を行わないべき");
+        }
+
         private GameObject CreateControllerHost()
         {
             var root = new GameObject("FacialControllerGcZeroGateTestsHost");
@@ -149,6 +182,9 @@ namespace Hidano.FacialControl.Tests.PlayMode.Performance
         {
             public string ActivatedSourceId { get; private set; }
             public string ActivatedExpressionId { get; private set; }
+            public int LayerWeightSampleCount { get; private set; }
+            public string LastLayerName { get; private set; }
+            public float LastLayerWeight { get; private set; }
 
             public void OnExpressionActivated(string sourceId, string expressionId)
             {
@@ -161,6 +197,13 @@ namespace Hidano.FacialControl.Tests.PlayMode.Performance
             public void OnTriggerOff(string sourceId, string expressionId) { }
             public void OnAnalogSample(string sourceId, ReadOnlySpan<float> axes) { }
             public void OnValueProviderSample(string sourceId, in ValueProviderSample sample) { }
+            public void OnLayerWeightSample(string layerName, float weight)
+            {
+                LayerWeightSampleCount++;
+                LastLayerName = layerName;
+                LastLayerWeight = weight;
+            }
+            public void OnInputSourceWeightSample(string layerName, string slotId, float weight) { }
         }
 
         private static Action<FacialController> CreateLateUpdateDelegate()

@@ -32,6 +32,8 @@ namespace Hidano.FacialControl.Tests.EditMode.Domain.Services
                 bus.PublishValueProviderSample("vp", in sample);
                 bus.OnExpressionActivated("@expression", "smile");
                 bus.OnExpressionDeactivated("@expression", "smile");
+                bus.OnLayerWeightSample("Face", 0.5f);
+                bus.OnInputSourceWeightSample("Face", "jaw", 0.25f);
             });
         }
 
@@ -46,12 +48,16 @@ namespace Hidano.FacialControl.Tests.EditMode.Domain.Services
             bus.OnTriggerOn("input", "smile");
             bus.OnTriggerOff("input", "smile");
             bus.PublishAnalogSample("gaze", axes);
+            bus.OnLayerWeightSample("Face", 0.5f);
+            bus.OnInputSourceWeightSample("Face", "jaw", 0.25f);
 
             Assert.IsTrue(bus.HasObservers);
             Assert.That(observer.TriggerOnCalls, Is.EqualTo(new[] { ("input", "smile") }));
             Assert.That(observer.TriggerOffCalls, Is.EqualTo(new[] { ("input", "smile") }));
             Assert.That(observer.AnalogCalls[0].sourceId, Is.EqualTo("gaze"));
             Assert.That(observer.AnalogCalls[0].axes, Is.EqualTo(axes));
+            Assert.That(observer.LayerWeightCalls, Is.EqualTo(new[] { ("Face", 0.5f) }));
+            Assert.That(observer.InputSourceWeightCalls, Is.EqualTo(new[] { ("Face", "jaw", 0.25f) }));
         }
 
         [Test]
@@ -138,6 +144,29 @@ namespace Hidano.FacialControl.Tests.EditMode.Domain.Services
         }
 
         [Test]
+        public void Publish_WeightObserverChanges_AreDeferredAndExceptionsAreIsolated()
+        {
+            var bus = new FacialInputObservationBus();
+            var first = new RecordingObserver();
+            var second = new RecordingObserver();
+            var throwing = new ThrowingObserver();
+            first.OnLayerWeightAction = () => bus.Subscribe(second);
+
+            bus.Subscribe(first);
+            bus.Subscribe(throwing);
+            bus.OnLayerWeightSample("Face", 0.75f);
+            bus.OnLayerWeightSample("Face", 0.25f);
+            bus.OnInputSourceWeightSample("Face", "jaw", 0.4f);
+
+            LogAssert.Expect(LogType.Exception, InvalidOperationPattern);
+            LogAssert.Expect(LogType.Exception, InvalidOperationPattern);
+            LogAssert.Expect(LogType.Exception, InvalidOperationPattern);
+            Assert.That(first.LayerWeightCalls, Is.EqualTo(new[] { ("Face", 0.75f), ("Face", 0.25f) }));
+            Assert.That(second.LayerWeightCalls, Is.EqualTo(new[] { ("Face", 0.25f) }));
+            Assert.That(second.InputSourceWeightCalls, Is.EqualTo(new[] { ("Face", "jaw", 0.4f) }));
+        }
+
+        [Test]
         public void Publish_NewContracts_DispatchesAndAppliesSubscriptionChangesAfterPublish()
         {
             var bus = new FacialInputObservationBus();
@@ -179,6 +208,7 @@ namespace Hidano.FacialControl.Tests.EditMode.Domain.Services
             public Action OnTriggerOnAction { get; set; }
             public Action OnAnalogAction { get; set; }
             public Action OnValueProviderAction { get; set; }
+            public Action OnLayerWeightAction { get; set; }
             public List<(string sourceId, string expressionId)> TriggerOnCalls { get; } =
                 new List<(string sourceId, string expressionId)>();
             public List<(string sourceId, string expressionId)> TriggerOffCalls { get; } =
@@ -186,6 +216,8 @@ namespace Hidano.FacialControl.Tests.EditMode.Domain.Services
             public List<(string sourceId, float[] axes)> AnalogCalls { get; } =
                 new List<(string sourceId, float[] axes)>();
             public int ValueProviderCalls { get; private set; }
+            public List<(string layerName, float weight)> LayerWeightCalls { get; } = new List<(string, float)>();
+            public List<(string layerName, string slotId, float weight)> InputSourceWeightCalls { get; } = new List<(string, string, float)>();
             public List<(string sourceId, string expressionId)> ActivatedCalls { get; } =
                 new List<(string sourceId, string expressionId)>();
             public List<(string sourceId, string expressionId)> DeactivatedCalls { get; } =
@@ -223,6 +255,17 @@ namespace Hidano.FacialControl.Tests.EditMode.Domain.Services
             {
                 DeactivatedCalls.Add((sourceId, expressionId));
             }
+
+            public void OnLayerWeightSample(string layerName, float weight)
+            {
+                LayerWeightCalls.Add((layerName, weight));
+                OnLayerWeightAction?.Invoke();
+            }
+
+            public void OnInputSourceWeightSample(string layerName, string slotId, float weight)
+            {
+                InputSourceWeightCalls.Add((layerName, slotId, weight));
+            }
         }
 
         private sealed class ThrowingObserver : IFacialInputObserver
@@ -254,6 +297,16 @@ namespace Hidano.FacialControl.Tests.EditMode.Domain.Services
             }
 
             public void OnExpressionDeactivated(string sourceId, string expressionId)
+            {
+                throw new InvalidOperationException("FacialInputObservationBusTests observer failure");
+            }
+
+            public void OnLayerWeightSample(string layerName, float weight)
+            {
+                throw new InvalidOperationException("FacialInputObservationBusTests observer failure");
+            }
+
+            public void OnInputSourceWeightSample(string layerName, string slotId, float weight)
             {
                 throw new InvalidOperationException("FacialInputObservationBusTests observer failure");
             }

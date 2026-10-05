@@ -106,6 +106,8 @@ namespace Hidano.FacialControl.Adapters.Json
         {
             if (dto.layers == null)
                 dto.layers = new List<LayerDefinitionDto>();
+            else
+                dto.layers = RemoveDuplicateLayers(dto.layers);
             if (dto.expressions == null)
                 dto.expressions = new List<ExpressionDto>();
             if (dto.slots == null)
@@ -136,6 +138,32 @@ namespace Hidano.FacialControl.Adapters.Json
                 expr.snapshot = NormalizeExpressionSnapshotDto(expr.snapshot);
                 NormalizeOverlaySlotBindingDtos(expr.snapshot.overlays);
             }
+        }
+
+        private static List<LayerDefinitionDto> RemoveDuplicateLayers(List<LayerDefinitionDto> layers)
+        {
+            var accepted = new List<LayerDefinitionDto>(layers.Count);
+            var names = new HashSet<string>(StringComparer.Ordinal);
+            bool warned = false;
+
+            for (int i = 0; i < layers.Count; i++)
+            {
+                var layer = layers[i];
+                if (layer != null && !names.Add(layer.name))
+                {
+                    if (!warned)
+                    {
+                        Debug.LogWarning(
+                            "SystemTextJsonParser: layers にレイヤー名の重複があるため、後続の重複レイヤーを読み捨てました。");
+                        warned = true;
+                    }
+                    continue;
+                }
+
+                accepted.Add(layer);
+            }
+
+            return accepted;
         }
 
         private static void NormalizeOverlaySlotBindingDtos(List<OverlaySlotBindingDto> overlays)

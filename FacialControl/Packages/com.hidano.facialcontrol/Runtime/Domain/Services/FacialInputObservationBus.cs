@@ -177,6 +177,44 @@ namespace Hidano.FacialControl.Domain.Services
             }
         }
 
+        public void OnLayerWeightSample(string layerName, float weight)
+        {
+            if (!HasObservers) return;
+            _publishDepth++;
+            try
+            {
+                for (int i = 0; i < _observers.Count; i++)
+                {
+                    try { _observers[i].OnLayerWeightSample(layerName, weight); }
+                    catch (Exception ex) { Debug.LogException(ex); }
+                }
+            }
+            finally
+            {
+                _publishDepth--;
+                if (_publishDepth == 0) ApplyPendingChanges();
+            }
+        }
+
+        public void OnInputSourceWeightSample(string layerName, string slotId, float weight)
+        {
+            if (!HasObservers) return;
+            _publishDepth++;
+            try
+            {
+                for (int i = 0; i < _observers.Count; i++)
+                {
+                    try { _observers[i].OnInputSourceWeightSample(layerName, slotId, weight); }
+                    catch (Exception ex) { Debug.LogException(ex); }
+                }
+            }
+            finally
+            {
+                _publishDepth--;
+                if (_publishDepth == 0) ApplyPendingChanges();
+            }
+        }
+
         public void OnExpressionActivated(string sourceId, string expressionId)
         {
             PublishExpressionEvent(sourceId, expressionId, true);

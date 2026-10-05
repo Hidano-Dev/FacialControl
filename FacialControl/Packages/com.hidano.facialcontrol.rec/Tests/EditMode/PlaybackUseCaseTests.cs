@@ -638,6 +638,9 @@ namespace Hidano.FacialControl.Rec.Tests.EditMode
                 CurrentObserver?.OnExpressionDeactivated(sourceId, expressionId);
             }
 
+            public void OnLayerWeightSample(string layerName, float weight) { CurrentObserver?.OnLayerWeightSample(layerName, weight); }
+            public void OnInputSourceWeightSample(string layerName, string slotId, float weight) { CurrentObserver?.OnInputSourceWeightSample(layerName, slotId, weight); }
+
             public void PublishTriggerOn(string sourceId, string expressionId)
             {
                 OnTriggerOn(sourceId, expressionId);

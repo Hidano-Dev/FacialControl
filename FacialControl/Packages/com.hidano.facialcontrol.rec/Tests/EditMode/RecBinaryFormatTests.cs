@@ -2,11 +2,12 @@ using System;
 using System.Buffers.Binary;
 using System.Collections.Generic;
 using System.Linq;
+using Hidano.FacialControl.Domain.Models;
 using Hidano.FacialControl.Rec.Domain.Models;
 using Hidano.FacialControl.Rec.Domain.Services;
+using Hidano.FacialControl.Testing;
 using NUnit.Framework;
 
-using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.Rec.Tests.EditMode
 {
     [TestFixture]
@@ -97,7 +98,105 @@ namespace Hidano.FacialControl.Rec.Tests.EditMode
             bool success = RecBinaryFormat.TryRead(bytes, out _, out string error);
 
             Assert.That(success, Is.False);
-            Assert.That(error, Does.Contain("lack the required FullInputBaseline bit"));
+            Assert.That(error, Does.Contain("lack the required bits"));
+        }
+
+        [Test]
+        public void Serialize_WeightBaselineAndSamples_RoundTripsBitExact()
+        {
+            float layerWeight = BitConverter.Int32BitsToSingle(unchecked((int)0x80000000));
+            float slotWeight = BitConverter.Int32BitsToSingle(0x00000001);
+            var baseline = new RecBaselineState(
+                null, null, null, null,
+                new[] { new LayerWeightEntry("face", layerWeight) },
+                new[] { new InputSourceWeightEntry("face", "input", slotWeight) });
+            var events = new[]
+            {
+                RecEvent.CreateLayerWeightSample(0.1d, 0),
+                RecEvent.CreateInputSourceWeightSample(0.2d, 0, 0),
+            };
+            var timeline = new RecTimeline(baseline, events, new[] { "input" }, Array.Empty<string>(),
+                new[] { "face" }, 0.2d,
+                new IReadOnlyList<float>[] { new[] { 0.25f }, new[] { 0.75f } });
+
+            byte[] bytes = RecBinaryFormat.Serialize(timeline, 123L);
+
+            Assert.That(RecBinaryFormat.TryRead(bytes, out RecBinaryFormat.ReadResult result, out string error), Is.True, error);
+            Assert.That(BitConverter.SingleToInt32Bits(result.Timeline.Baseline.LayerWeightEntries[0].Weight),
+                Is.EqualTo(BitConverter.SingleToInt32Bits(layerWeight)));
+            Assert.That(BitConverter.SingleToInt32Bits(result.Timeline.Baseline.InputSourceWeightEntries[0].Weight),
+                Is.EqualTo(BitConverter.SingleToInt32Bits(slotWeight)));
+            Assert.That(result.Timeline.LayerIds, Is.EqualTo(new[] { "face" }));
+            Assert.That(result.Timeline.Events, Is.EqualTo(events));
+            Assert.That(result.Timeline.GetPayloadSpan(0).ToArray(), Is.EqualTo(new[] { 0.25f }));
+            Assert.That(result.Timeline.GetPayloadSpan(1).ToArray(), Is.EqualTo(new[] { 0.75f }));
+        }
+
+        [Test]
+        public void WriteHeader_Always_SetsFullInputAndWeightBaselineFlags()
+        {
+            byte[] header = new byte[RecBinaryFormat.HeaderSize];
+            RecBinaryFormat.WriteHeader(header, 123L);
+            Assert.That(BitConverter.ToUInt16(header, 6), Is.EqualTo(0x0003));
+        }
+
+        [Test]
+        public void TryRead_HeaderWithoutWeightBaselineFlag_ReturnsError()
+        {
+            byte[] bytes = RecBinaryFormat.Serialize(CreateTimeline(), 123L);
+            bytes[6] = 0x01;
+            bytes[7] = 0;
+            Assert.That(RecBinaryFormat.TryRead(bytes, out _, out string error), Is.False);
+            Assert.That(error, Does.Contain("WeightBaseline"));
+        }
+
+        [Test]
+        public void TryRead_WeightBaselineAfterTimedRecord_ReturnsError()
+        {
+            var events = new[] { RecEvent.CreateTriggerOn(0.1d, 0, 0) };
+            var timeline = new RecTimeline(RecBaselineState.Empty, events, new[] { "src" }, new[] { "expr" }, 0.1d);
+            byte[] bytes = RecBinaryFormat.Serialize(timeline, 123L);
+            int footer = bytes.Length - RecBinaryFormat.FooterRecordSize;
+            byte[] record = new byte[7];
+            RecBinaryFormat.WriteRecord(record, RecEvent.CreateBaselineLayerWeight(0), new[] { 0.5f });
+            byte[] malformed = new byte[bytes.Length + record.Length];
+            Buffer.BlockCopy(bytes, 0, malformed, 0, footer);
+            Buffer.BlockCopy(record, 0, malformed, footer, record.Length);
+            Buffer.BlockCopy(bytes, footer, malformed, footer + record.Length, bytes.Length - footer);
+            Assert.That(RecBinaryFormat.TryRead(malformed, out _, out string error), Is.False);
+            Assert.That(error, Does.Contain("precede"));
+        }
+
+        [Test]
+        public void TryRead_DuplicateBaselineLayerWeight_ReturnsError()
+        {
+            var baseline = new RecBaselineState(null, null, null, null,
+                new[] { new LayerWeightEntry("face", 0.5f) }, null);
+            var timeline = new RecTimeline(baseline, Array.Empty<RecEvent>(), Array.Empty<string>(), Array.Empty<string>(),
+                new[] { "face" }, 0d);
+            byte[] bytes = RecBinaryFormat.Serialize(timeline, 123L);
+            int record = FindRecord(bytes, (byte)RecEventKind.BaselineLayerWeight);
+            const int recordSize = 7;
+            byte[] duplicate = new byte[bytes.Length + recordSize];
+            Buffer.BlockCopy(bytes, 0, duplicate, 0, record);
+            Buffer.BlockCopy(bytes, record, duplicate, record + recordSize, bytes.Length - record);
+            Buffer.BlockCopy(bytes, record, duplicate, record, recordSize);
+            BinaryPrimitives.WriteUInt32LittleEndian(duplicate.AsSpan(duplicate.Length - 4), 3);
+            Assert.That(RecBinaryFormat.TryRead(duplicate, out _, out string error), Is.False);
+            Assert.That(error, Does.Contain("Duplicate BaselineLayerWeight"));
+        }
+
+        [Test]
+        public void TryRead_WeightSampleWithUnknownLayerIndex_ReturnsError()
+        {
+            var timeline = new RecTimeline(RecBaselineState.Empty,
+                new[] { RecEvent.CreateLayerWeightSample(0.1d, 0) }, Array.Empty<string>(), Array.Empty<string>(),
+                new[] { "face" }, 0.1d, new IReadOnlyList<float>[] { new[] { 0.5f } });
+            byte[] bytes = RecBinaryFormat.Serialize(timeline, 123L);
+            int sample = FindRecord(bytes, (byte)RecEventKind.LayerWeightSample);
+            BinaryPrimitives.WriteUInt16LittleEndian(bytes.AsSpan(sample + 9, 2), 1);
+            Assert.That(RecBinaryFormat.TryRead(bytes, out _, out string error), Is.False);
+            Assert.That(error, Does.Contain("unknown layer id index"));
         }
 
         [Test]

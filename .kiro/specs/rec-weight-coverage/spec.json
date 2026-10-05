@@ -1,0 +1,22 @@
+{
+  "feature_name": "rec-weight-coverage",
+  "created_at": "2026-10-04T16:55:51Z",
+  "updated_at": "2026-10-04T22:30:00Z",
+  "language": "ja",
+  "phase": "implementation",
+  "approvals": {
+    "requirements": {
+      "generated": true,
+      "approved": true
+    },
+    "design": {
+      "generated": true,
+      "approved": true
+    },
+    "tasks": {
+      "generated": true,
+      "approved": true
+    }
+  },
+  "ready_for_implementation": true
+}
