@@ -6,6 +6,9 @@
         "Hidano.FacialControl.Application",
         "Hidano.FacialControl.Adapters",
         "Hidano.FacialControl.InputSystem",
+        "Hidano.FacialControl.Rec.Domain",
+        "Hidano.FacialControl.Rec.Application",
+        "Hidano.FacialControl.Rec.Adapters",
         "Hidano.FacialControl.Osc",
         "Hidano.FacialControl.Tests.Shared",
         "Unity.Collections",
@@ -27,6 +30,12 @@
     "defineConstraints": [
         "UNITY_INCLUDE_TESTS"
     ],
-    "versionDefines": [],
+    "versionDefines": [
+        {
+            "name": "com.hidano.facialcontrol.rec",
+            "expression": "",
+            "define": "FACIALCONTROL_HAS_REC"
+        }
+    ],
     "noEngineReferences": false
 }
