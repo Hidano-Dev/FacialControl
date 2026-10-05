@@ -26,7 +26,7 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
     public sealed class RecToTimelineExportWorkflowTests : SizedTestFixture
     {
         [Test]
-        public void TryExportTimelineAsset_NewAsset_CreatesTimelineBakeAndBindings()
+        public void TryExportTimelineAsset_NewAsset_CreatesTimelineAndBakeWithoutTouchingSceneObjects()
         {
             ExportFixture fixture = ExportFixture.Create();
             var host = new GameObject("RecTimelineExportHost");
@@ -39,26 +39,57 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
                     fixture.RecordingAbsolutePath,
                     fixture.Profile,
                     fixture.TimelinePath,
-                    out RecToTimelineExporter.ExportResult result,
-                    director: director,
-                    receiver: receiver);
+                    out RecToTimelineExporter.ExportResult result);
 
                 Assert.That(success, Is.True);
                 Assert.That(result.Success, Is.True);
                 Assert.That(result.Timeline, Is.Not.Null);
                 Assert.That(result.BakeAsset, Is.Not.Null);
                 Assert.That(AssetDatabase.LoadAssetAtPath<TimelineAsset>(fixture.TimelinePath), Is.Not.Null);
-                Assert.That(receiver.BakeAsset, Is.Null, "Receiver の上書き欄は自動で書かない（Bake はトラック参照から解決する）");
-                Assert.That(AssetDatabase.GetAssetPath(director.playableAsset), Is.EqualTo(fixture.TimelinePath));
 
+                // Export は TimelineAsset 1 つで完結し、シーン上の Director / Receiver に副作用を持たない（Req 10.5）。
+                Assert.That(director.playableAsset, Is.Null);
+                Assert.That(receiver.BakeAsset, Is.Null);
                 foreach (TrackAsset track in result.Timeline.GetOutputTracks())
                 {
-                    Assert.That(director.GetGenericBinding(track), Is.SameAs(receiver));
+                    Assert.That(director.GetGenericBinding(track), Is.Null);
                 }
             }
             finally
             {
                 UnityEngine.Object.DestroyImmediate(host);
+                fixture.Dispose();
+            }
+        }
+
+        [Test]
+        public void TryExportTimelineAsset_ReturnsDetectionsAndChannelSubIdsAreValidForPlayback()
+        {
+            ExportFixture fixture = ExportFixture.Create();
+
+            try
+            {
+                bool success = RecToTimelineExporter.TryExportTimelineAsset(
+                    fixture.RecordingAbsolutePath,
+                    fixture.Profile,
+                    fixture.TimelinePath,
+                    out RecToTimelineExporter.ExportResult result);
+
+                Assert.That(success, Is.True);
+                Assert.That(result.ChannelDetections, Has.Count.EqualTo(1), "Analog イベントを持つ source だけが検出される");
+                Assert.That(result.ChannelDetections[0].SourceId, Is.EqualTo("live:gaze"));
+                Assert.That(result.ChannelDetections[0].Kind, Is.EqualTo(FacialValueChannelKind.Gaze));
+                Assert.That(result.ChannelDetections[0].Reason, Is.EqualTo(ChannelDetectionReason.ConventionGazeChannel));
+
+                FacialProfile profile = TimelineProfileSource.Resolve(fixture.Profile);
+                var derivation = Hidano.FacialControl.Timeline.Domain.Services.TimelineChannelDeriver.Derive(
+                    TimelineAssetScanner.Scan(result.Timeline).Tracks, profile);
+                Assert.That(derivation.InvalidChannelSubIds, Is.Empty, "Export した ChannelSubId を再生側が不正扱いしない");
+                Assert.That(derivation.Channels, Has.Count.EqualTo(1));
+                Assert.That(derivation.Channels[0].ChannelSubId, Is.EqualTo("live:gaze"));
+            }
+            finally
+            {
                 fixture.Dispose();
             }
         }

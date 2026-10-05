@@ -327,7 +327,7 @@
   - 完了条件: Gaze トラックの順序を入れ替えても目ボーンの対応が変わらない
   - _Requirements: 7.4_
 
-- [ ] 10.4 REC Exporter の署名から Director / Receiver を撤去し、チャネル種別の判定理由を返す検出 API と Gaze 判定の拡張を実装する（timeline Editor）
+- [x] 10.4 REC Exporter の署名から Director / Receiver を撤去し、チャネル種別の判定理由を返す検出 API と Gaze 判定の拡張を実装する（timeline Editor）
   - Export の署名を 記録パス / Profile SO / 出力パス / 結果 / 既存 Timeline（任意）/ 種別上書き（任意、プログラム・テスト用途）に変更し、Director / Receiver への副作用を無くす
   - チャネル検出は source id ごとに 種別と理由（ExplicitGazeSourceId / ConventionGazeChannel / GazeProviderDeclaration / NonTwoAxisSamples / DefaultAnalog / Overridden）と軸数を返す。Gaze 判定順は GazeChannel の明示 source id 完全一致 → 規約 id が GazeChannels に存在 → Profile の各 binding の gaze 宣言（slug + channelId またはワイルドカード slug）→ 2 軸でなければ Analog（Warning 継続）→ 既定 Analog
   - 既存 `RecToTimelineExporterTests` / `RecToTimelineExportWorkflowTests`（Medium）の director / receiver 引数と Receiver の Bake / GenericBinding アサートを撤去し、新署名、検出理由 5 種、Director / Receiver 非依存、を書き換え・追記する。8.1 の fixture の Export 呼び出しも新署名へ更新する

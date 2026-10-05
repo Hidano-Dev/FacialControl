@@ -1,5 +1,8 @@
 using System;
 using System.Collections.Generic;
+using Hidano.FacialControl.Adapters.ScriptableObject;
+using Hidano.FacialControl.Adapters.ScriptableObject.Serializable;
+using Hidano.FacialControl.Domain.Adapters;
 using Hidano.FacialControl.Domain.Models;
 using Hidano.FacialControl.Rec.Domain.Models;
 using Hidano.FacialControl.Timeline.Editor;
@@ -159,6 +162,213 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
                 {
                     UnityEngine.Object.DestroyImmediate(timeline);
                 }
+            }
+        }
+
+        // ================================================================
+        // チャネル検出（種別と理由）
+        // ================================================================
+
+        [Test]
+        public void DetectChannels_ExplicitGazeSourceId_IsGazeWithExplicitReason()
+        {
+            DetectionProfileSO profile = CreateDetectionProfile();
+            try
+            {
+                profile.WritableGazeChannels[0].sourceIdLeft = "custom:eyeL";
+
+                ChannelDetection detection = DetectSingle(profile, "custom:eyeL", 2);
+
+                Assert.That(detection.Kind, Is.EqualTo(FacialValueChannelKind.Gaze));
+                Assert.That(detection.Reason, Is.EqualTo(ChannelDetectionReason.ExplicitGazeSourceId));
+                Assert.That(detection.AxisCount, Is.EqualTo(2));
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(profile);
+            }
+        }
+
+        [Test]
+        public void DetectChannels_ConventionIdOfProfileGazeChannel_IsGazeWithConventionReason()
+        {
+            DetectionProfileSO profile = CreateDetectionProfile();
+            try
+            {
+                ChannelDetection detection = DetectSingle(profile, "osc:gaze", 2);
+
+                Assert.That(detection.Kind, Is.EqualTo(FacialValueChannelKind.Gaze));
+                Assert.That(detection.Reason, Is.EqualTo(ChannelDetectionReason.ConventionGazeChannel));
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(profile);
+            }
+        }
+
+        [Test]
+        public void DetectChannels_BindingGazeDeclaration_IsGazeWithProviderReason()
+        {
+            DetectionProfileSO profile = CreateDetectionProfile();
+            try
+            {
+                profile.WritableAdapterBindings.Add(new GazeDeclaringBinding("vmc", "look"));
+                profile.WritableAdapterBindings.Add(new GazeDeclaringBinding("ifm", null));
+
+                ChannelDetection declared = DetectSingle(profile, "vmc:look", 2);
+                ChannelDetection wildcard = DetectSingle(profile, "ifm:eyes", 2);
+                ChannelDetection otherChannel = DetectSingle(profile, "vmc:other", 2);
+
+                Assert.That(declared.Kind, Is.EqualTo(FacialValueChannelKind.Gaze));
+                Assert.That(declared.Reason, Is.EqualTo(ChannelDetectionReason.GazeProviderDeclaration));
+                Assert.That(wildcard.Kind, Is.EqualTo(FacialValueChannelKind.Gaze), "ワイルドカード宣言は slug 一致で Gaze");
+                Assert.That(wildcard.Reason, Is.EqualTo(ChannelDetectionReason.GazeProviderDeclaration));
+                Assert.That(otherChannel.Kind, Is.EqualTo(FacialValueChannelKind.Analog), "宣言に無いチャネルは Gaze にしない");
+                Assert.That(otherChannel.Reason, Is.EqualTo(ChannelDetectionReason.DefaultAnalog));
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(profile);
+            }
+        }
+
+        [Test]
+        public void DetectChannels_GazeCandidateWithNonTwoAxisSamples_IsAnalogWithNonTwoAxisReason()
+        {
+            DetectionProfileSO profile = CreateDetectionProfile();
+            try
+            {
+                LogAssert.Expect(LogType.Warning, new System.Text.RegularExpressions.Regex(@"\[RecToTimelineExporter\].*'osc:gaze'"));
+
+                ChannelDetection detection = DetectSingle(profile, "osc:gaze", 3);
+
+                Assert.That(detection.Kind, Is.EqualTo(FacialValueChannelKind.Analog));
+                Assert.That(detection.Reason, Is.EqualTo(ChannelDetectionReason.NonTwoAxisSamples));
+                Assert.That(detection.AxisCount, Is.EqualTo(3));
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(profile);
+            }
+        }
+
+        [Test]
+        public void DetectChannels_UnrelatedSource_IsDefaultAnalog()
+        {
+            DetectionProfileSO profile = CreateDetectionProfile();
+            try
+            {
+                ChannelDetection detection = DetectSingle(profile, "osc:lt", 1);
+
+                Assert.That(detection.SourceId, Is.EqualTo("osc:lt"));
+                Assert.That(detection.Kind, Is.EqualTo(FacialValueChannelKind.Analog));
+                Assert.That(detection.Reason, Is.EqualTo(ChannelDetectionReason.DefaultAnalog));
+                Assert.That(detection.AxisCount, Is.EqualTo(1));
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(profile);
+            }
+        }
+
+        [Test]
+        public void DetectChannels_KindOverride_UsesOverrideWithOverriddenReason()
+        {
+            DetectionProfileSO profile = CreateDetectionProfile();
+            try
+            {
+                var sequence = new FakeRecordedEventSequence(
+                    1.0d,
+                    new[] { new RecordedEvent(0.1d, RecordedEventKind.AnalogValue, sourceId: "osc:lt", axes: new[] { 0.1f, 0.2f }) });
+                var overrides = new Dictionary<string, FacialValueChannelKind>(StringComparer.Ordinal)
+                {
+                    ["osc:lt"] = FacialValueChannelKind.Gaze,
+                };
+
+                IReadOnlyList<ChannelDetection> detections = Editor.RecToTimelineExporter.DetectChannels(sequence, profile, overrides);
+
+                Assert.That(detections, Has.Count.EqualTo(1));
+                Assert.That(detections[0].Kind, Is.EqualTo(FacialValueChannelKind.Gaze));
+                Assert.That(detections[0].Reason, Is.EqualTo(ChannelDetectionReason.Overridden));
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(profile);
+            }
+        }
+
+        [Test]
+        public void DetectChannels_TriggerOnlySource_IsNotListedAndOrderIsBySourceId()
+        {
+            DetectionProfileSO profile = CreateDetectionProfile();
+            try
+            {
+                var sequence = new FakeRecordedEventSequence(
+                    1.0d,
+                    new[]
+                    {
+                        new RecordedEvent(0.1d, RecordedEventKind.TriggerOn, expressionId: "smile", sourceId: "input:trigger"),
+                        new RecordedEvent(0.2d, RecordedEventKind.AnalogValue, sourceId: "osc:lt", axes: new[] { 0.5f }),
+                        new RecordedEvent(0.3d, RecordedEventKind.AnalogValue, sourceId: "osc:gaze", axes: new[] { 0.1f, 0.2f }),
+                        new RecordedEvent(0.4d, RecordedEventKind.TriggerOff, expressionId: "smile", sourceId: "input:trigger"),
+                    });
+
+                IReadOnlyList<ChannelDetection> detections = Editor.RecToTimelineExporter.DetectChannels(sequence, profile);
+
+                Assert.That(detections, Has.Count.EqualTo(2), "Analog イベントを持たないトリガー専用 source は含めない");
+                Assert.That(detections[0].SourceId, Is.EqualTo("osc:gaze"));
+                Assert.That(detections[1].SourceId, Is.EqualTo("osc:lt"));
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(profile);
+            }
+        }
+
+        private static ChannelDetection DetectSingle(FacialCharacterProfileSO profile, string sourceId, int axisCount)
+        {
+            var sequence = new FakeRecordedEventSequence(
+                1.0d,
+                new[] { new RecordedEvent(0.1d, RecordedEventKind.AnalogValue, sourceId: sourceId, axes: new float[axisCount]) });
+            IReadOnlyList<ChannelDetection> detections = Editor.RecToTimelineExporter.DetectChannels(sequence, profile);
+            Assert.That(detections, Has.Count.EqualTo(1));
+            return detections[0];
+        }
+
+        private static DetectionProfileSO CreateDetectionProfile()
+        {
+            var profile = ScriptableObject.CreateInstance<DetectionProfileSO>();
+            Assert.That(profile.GazeChannels[0].id, Is.EqualTo("gaze"), "前提: 既定の Gaze チャネル");
+            return profile;
+        }
+
+        private sealed class DetectionProfileSO : FacialCharacterProfileSO
+        {
+            public List<GazeChannel> WritableGazeChannels
+            {
+                get
+                {
+                    _ = GazeChannels;
+                    return _gazeChannels;
+                }
+            }
+
+            public List<AdapterBindingBase> WritableAdapterBindings => _adapterBindings;
+        }
+
+        private sealed class GazeDeclaringBinding : AdapterBindingBase, IGazeSourceProvider
+        {
+            private readonly string _channelId;
+
+            public GazeDeclaringBinding(string slug, string channelId)
+            {
+                Slug = slug;
+                _channelId = channelId;
+            }
+
+            public IEnumerable<GazeSourceDeclaration> GetGazeSourceDeclarations()
+            {
+                yield return new GazeSourceDeclaration(_channelId, providesLeftRightPair: false);
             }
         }
 

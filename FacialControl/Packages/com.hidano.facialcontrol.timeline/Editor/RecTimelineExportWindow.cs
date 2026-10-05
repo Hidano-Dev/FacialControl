@@ -203,8 +203,6 @@ namespace Hidano.FacialControl.Timeline.Editor
                 outputPath,
                 out RecToTimelineExporter.ExportResult result,
                 existingTimeline,
-                director,
-                receiver,
                 sourceOverrides);
 
             if (!success)
