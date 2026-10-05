@@ -128,7 +128,7 @@
   - 完了条件: 走査結果を 4.2 の導出に渡して期待どおりのレイヤー / チャネルが得られる
   - _Requirements: 2.3, 4.1, 8.2_
 
-- [ ] 5.3 全 Facial トラックの Bake 参照一致を検証して Bake を解決する Locator を実装する（timeline Runtime Adapters）
+- [x] 5.3 全 Facial トラックの Bake 参照一致を検証して Bake を解決する Locator を実装する（timeline Runtime Adapters）
   - 5.2 の走査結果の全 holder（root + 子）を検査し、Facial トラック無しは Missing、全 null は LegacyExport、非 null 参照が 1 種で null 無しは Found、それ以外（混在・部分欠落）は Conflict（走査順に依存する採用はしない）。上書き Bake が指定されていれば検証後に OverrideUsed とし、トラック参照と不一致なら OverrideDiffers を立てる
   - 結果に採用 Bake / トラック参照 / holder 数 / null 数 / 参照種類数 を含める
   - 新規 `FacialTimelineBakeLocatorTests`（Small）に Found / Missing / LegacyExport / Conflict（混在）/ Conflict（部分欠落）/ OverrideUsed 一致 / OverrideUsed 不一致 / OverrideUsed 部分欠落 / トラック順入れ替えで同じ結果、を書く
