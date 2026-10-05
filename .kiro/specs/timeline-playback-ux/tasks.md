@@ -172,7 +172,7 @@
   - _Requirements: 2.7, 5.2, 5.3, 8.2, 8.3, 8.4, 8.5, 8.9, 10.7, 11.4_
 
 - [ ] 6. Receiver をファサード化し、binding を受信許可フラグに格下げし、Mixer を Edit / Play で分岐させる（timeline Runtime）
-- [ ] 6.1 Receiver を再生セッションの集約点に書き換え、binding と Mixer の呼び出しを新 API へ切り替える（timeline Runtime Adapters + Playables）
+- [x] 6.1 Receiver を再生セッションの集約点に書き換え、binding と Mixer の呼び出しを新 API へ切り替える（timeline Runtime Adapters + Playables）
   - binding が渡す接続コンテキスト（slug / Profile / BlendShape 名 / registry / controller / 有効フラグ）を定義し、Receiver に接続 / 切断の内部 API、`BeginPlaybackSession(timeline, director)`、ReleaseAll、セッション状態（Idle / Pending / Active / Failed）、診断状態、上書き Director / Bake、直近の Bake 解決結果、乗っ取りエントリ、接続レイヤー名、Mixer 向けの sink 解決（署名維持）を持たせる
   - セッション開始は冪等。Failed 判定順は (1) binding 未接続 / 無効 / Receiver 別 GameObject / 別 timeline の SessionConflict → (2) Locator が Conflict / LegacyExport → (3) Connector が LegacyStateDeclaration。Profile は controller が保持する値を使い、Bake の Profile 内容ハッシュ不一致は ProfileMismatch（Warning）、Profile 一致で Source ハッシュのみ不一致は BakeStale（Warning）でいずれも Active を維持。controller 未初期化は Pending でログ無し再試行。Console 出力は最初の Error 1 件のみ、Inspector には全件。Bake → sink のバインディングはセッション開始時に全レイヤー分を先行構築し、`(Timeline, Bake, Profile)` が同じ間はセッション資源をプールする
   - 旧 `Configure(tuple 列)` と `BeginPlaybackSession(profile, timeline)` を撤去し、binding の OnStart は接続コンテキストを渡すだけ、Dispose は切断（ReleaseAll 含む）を呼ぶ形に切り替える（Enabled / legacy フィールドの仕上げは 6.3）。Mixer は Director を graph resolver から得て新署名を呼ぶ（Edit / Play 分岐は 6.4）。Gaze 乗っ取りは 5.6 の Takeover へ委譲し、既存の Receiver 内実装を撤去する

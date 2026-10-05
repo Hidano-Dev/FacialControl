@@ -8,12 +8,14 @@ using Hidano.FacialControl.Domain.Models;
 using Hidano.FacialControl.Timeline.Adapters;
 using Hidano.FacialControl.Timeline.Adapters.Assets;
 using Hidano.FacialControl.Timeline.Adapters.InputSources;
+using Hidano.FacialControl.Timeline.Adapters.Session;
 using Hidano.FacialControl.Timeline.Clips;
 using Hidano.FacialControl.Timeline.Editor;
 using Hidano.FacialControl.Timeline.Tracks;
 using NUnit.Framework;
 using UnityEditor;
 using UnityEngine;
+using UnityEngine.Playables;
 using UnityEngine.TestTools;
 using UnityEngine.Timeline;
 
@@ -72,24 +74,28 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
         {
             TestAssetFixture fixture = CreateFixture();
             var host = new GameObject("TimelineHost");
-            var receiver = host.AddComponent<FacialTimelineReceiver>();
+            host.AddComponent<Animator>();
             var controller = host.AddComponent<FacialController>();
-            var registry = new FakeInputSourceRegistry();
+            var receiver = host.AddComponent<FacialTimelineReceiver>();
+            var director = host.AddComponent<PlayableDirector>();
             string dialogTitle = null;
             string dialogMessage = null;
             Action<string, string, string> originalDialog = TimelineBakeDirtyWatcher.DisplayDialog;
 
             try
             {
+                FacialControllerRendererOwnership.Clear();
+                FacialProfile profile = fixture.Profile.BuildFallbackProfile();
                 controller.CharacterSO = fixture.Profile;
-                receiver.BakeAsset = fixture.Bake;
-                receiver.Configure(
-                    fixture.Profile.BuildFallbackProfile(),
-                    registry,
-                    Array.Empty<(string layer, TimelineExpressionStateSink sink)>(),
-                    Array.Empty<(string sub, TimelineBakedValueSink sink)>(),
-                    Array.Empty<(string sub, TimelineAnalogInputSource sink)>(),
-                    Array.Empty<(string sub, TimelineGazeInputSource sink, string takeoverSourceId)>());
+                controller.InitializeWithProfile(profile);
+                TimelineReceiverTestHost.AssignBakeToAllTracks(fixture.Timeline, fixture.Bake);
+                receiver.AttachBinding(new TimelineBindingContext(
+                    AdapterSlug.Parse("timeline"),
+                    profile,
+                    Array.Empty<string>(),
+                    new InputSourceRegistry(),
+                    controller,
+                    enabled: true));
 
                 ((FacialExpressionClip)fixture.ExpressionClip.asset).ExpressionId = "smile-2";
                 EditorUtility.SetDirty(fixture.Timeline);
@@ -100,8 +106,9 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
                     dialogMessage = message;
                 };
 
-                LogAssert.Expect(LogType.Warning, new System.Text.RegularExpressions.Regex(@"\[FacialTimelineReceiver\].*hash mismatch"));
-                receiver.BeginPlaybackSession(fixture.Profile.BuildFallbackProfile(), fixture.Timeline);
+                receiver.BeginPlaybackSession(fixture.Timeline, director);
+                Assert.That(receiver.SessionState, Is.EqualTo(TimelineSessionState.Active));
+                Assert.That(receiver.Diagnostics.Contains(Timeline.Domain.Diagnostics.TimelineDiagnosticCode.BakeStale), Is.True);
 
                 RepairRunResult result = TimelineBakeDirtyWatcher.HandleEnteredEditModeNow();
 
@@ -119,6 +126,7 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
                     UnityEngine.Object.DestroyImmediate(host);
                 }
 
+                FacialControllerRendererOwnership.Clear();
                 fixture.Dispose();
             }
         }

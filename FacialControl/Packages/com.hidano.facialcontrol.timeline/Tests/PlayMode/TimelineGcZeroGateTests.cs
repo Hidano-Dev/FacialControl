@@ -161,10 +161,11 @@ namespace Hidano.FacialControl.Timeline.Tests.PlayMode
                 Timeline = CreateTimeline();
                 Bake = TimelineBakeService.Bake(Timeline, _profile);
 
+                // レイヤーはトラック名から自動導出される（Target Layer Names の設定は不要）。
                 _binding = new TimelineAdapterBinding();
-                MutableTargetLayerNames(_binding).Add(ExpressionLayerName);
 
-                _receiverObject = new GameObject("TimelineGcZeroGateTests_Receiver");
+                _receiverObject = TimelinePlayModeControllerHost.Create(
+                    "TimelineGcZeroGateTests_Receiver", _profile, new[] { "Smile" });
                 _receiver = _receiverObject.AddComponent<FacialTimelineReceiver>();
                 _receiver.BakeAsset = Bake;
                 _binding.OnStart(new AdapterBuildContext(
@@ -175,15 +176,6 @@ namespace Hidano.FacialControl.Timeline.Tests.PlayMode
                     new NoopTimeProvider(),
                     _receiverObject,
                     lipSyncProvider: null));
-                Assert.That(_receiver.TryGetExpressionValueSink(ExpressionLayerName, out _valueSink), Is.True);
-
-                _registry = new LayerInputSourceRegistry(
-                    _profile,
-                    blendShapeCount: 1,
-                    new[] { (0, 0, (IInputSource)_valueSink) });
-                _weightBuffer = new LayerInputSourceWeightBuffer(_registry.LayerCount, _registry.MaxSourcesPerLayer);
-                _weightBuffer.SetWeight(0, 0, 1f);
-                _aggregator = new LayerInputSourceAggregator(_registry, _weightBuffer, blendShapeCount: 1);
 
                 _directorObject = new GameObject("TimelineGcZeroGateTests_Director");
                 _director = _directorObject.AddComponent<PlayableDirector>();
@@ -194,6 +186,16 @@ namespace Hidano.FacialControl.Timeline.Tests.PlayMode
                 _director.SetGenericBinding(Timeline.GetOutputTrack(0), _receiver);
                 _director.RebuildGraph();
                 _director.playableGraph.Evaluate(0f);
+                Assert.That(_receiver.SessionState, Is.EqualTo(TimelineSessionState.Active));
+                Assert.That(_receiver.TryGetExpressionValueSink(ExpressionLayerName, out _valueSink), Is.True);
+
+                _registry = new LayerInputSourceRegistry(
+                    _profile,
+                    blendShapeCount: 1,
+                    new[] { (0, 0, (IInputSource)_valueSink) });
+                _weightBuffer = new LayerInputSourceWeightBuffer(_registry.LayerCount, _registry.MaxSourcesPerLayer);
+                _weightBuffer.SetWeight(0, 0, 1f);
+                _aggregator = new LayerInputSourceAggregator(_registry, _weightBuffer, blendShapeCount: 1);
 
                 AggregateCurrentValues();
             }
@@ -243,10 +245,7 @@ namespace Hidano.FacialControl.Timeline.Tests.PlayMode
                     UnityEngine.Object.DestroyImmediate(_directorObject);
                 }
 
-                if (_receiverObject != null)
-                {
-                    UnityEngine.Object.DestroyImmediate(_receiverObject);
-                }
+                TimelinePlayModeControllerHost.Destroy(_receiverObject);
             }
 
             private void AggregateCurrentValues()
@@ -337,15 +336,6 @@ namespace Hidano.FacialControl.Timeline.Tests.PlayMode
         private sealed class NoopTimeProvider : ITimeProvider
         {
             public double UnscaledTimeSeconds => 0d;
-        }
-
-        private static List<string> MutableTargetLayerNames(TimelineAdapterBinding binding)
-        {
-            FieldInfo field = typeof(TimelineAdapterBinding).GetField(
-                "targetLayerNames",
-                BindingFlags.Instance | BindingFlags.NonPublic);
-            Assert.That(field, Is.Not.Null);
-            return (List<string>)field.GetValue(binding);
         }
 
         private static TimelineAsset CreateTimeline()

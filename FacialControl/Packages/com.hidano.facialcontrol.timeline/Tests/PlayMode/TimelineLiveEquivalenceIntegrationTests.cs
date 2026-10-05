@@ -338,15 +338,27 @@ namespace Hidano.FacialControl.Timeline.Tests.PlayMode
 
             public TimelinePathHarness(TimelineAsset timeline, FacialProfile profile, FacialTimelineBakeAsset bake)
             {
+                // レイヤーはトラック名から自動導出される（Target Layer Names の設定は不要）。
                 _binding = new TimelineAdapterBinding();
-                MutableTargetLayerNames(_binding).Add("Expressions");
 
-                _receiverObject = new GameObject("TimelineLiveEquivalence_Receiver");
+                _receiverObject = TimelinePlayModeControllerHost.Create(
+                    "TimelineLiveEquivalence_Receiver", profile, new[] { "Smile" });
                 _receiver = _receiverObject.AddComponent<FacialTimelineReceiver>();
                 _receiver.BakeAsset = bake;
                 _binding.OnStart(CreateBindingContext(profile, new[] { "Smile" }, _receiverObject));
 
                 Assert.That(_binding.Receiver, Is.SameAs(_receiver));
+
+                _directorObject = new GameObject("TimelineLiveEquivalence_Director");
+                _director = _directorObject.AddComponent<PlayableDirector>();
+                _director.playableAsset = timeline;
+                _director.timeUpdateMode = DirectorUpdateMode.Manual;
+                _director.extrapolationMode = DirectorWrapMode.None;
+                _director.SetGenericBinding(timeline.GetOutputTrack(0), _receiver);
+                _director.Play();
+                _director.playableGraph.Evaluate(0f);
+
+                Assert.That(_receiver.SessionState, Is.EqualTo(TimelineSessionState.Active));
                 Assert.That(_receiver.TryGetExpressionSink("Expressions", out _expressionSink), Is.True);
                 Assert.That(_receiver.TryGetExpressionValueSink("Expressions", out _valueSink), Is.True);
 
@@ -360,15 +372,6 @@ namespace Hidano.FacialControl.Timeline.Tests.PlayMode
                 _weightBuffer = new LayerInputSourceWeightBuffer(_registry.LayerCount, _registry.MaxSourcesPerLayer);
                 _weightBuffer.SetWeight(0, 0, 1f);
                 _aggregator = new LayerInputSourceAggregator(_registry, _weightBuffer, blendShapeCount: 1);
-
-                _directorObject = new GameObject("TimelineLiveEquivalence_Director");
-                _director = _directorObject.AddComponent<PlayableDirector>();
-                _director.playableAsset = timeline;
-                _director.timeUpdateMode = DirectorUpdateMode.Manual;
-                _director.extrapolationMode = DirectorWrapMode.None;
-                _director.SetGenericBinding(timeline.GetOutputTrack(0), _receiver);
-                _director.Play();
-                _director.playableGraph.Evaluate(0f);
                 _aggregator.AggregateAndBlend(0f, _priorities, _layerWeights, _finalOutput);
             }
 
@@ -408,10 +411,7 @@ namespace Hidano.FacialControl.Timeline.Tests.PlayMode
                     UnityEngine.Object.DestroyImmediate(_directorObject);
                 }
 
-                if (_receiverObject != null)
-                {
-                    UnityEngine.Object.DestroyImmediate(_receiverObject);
-                }
+                TimelinePlayModeControllerHost.Destroy(_receiverObject);
             }
         }
 
@@ -430,16 +430,14 @@ namespace Hidano.FacialControl.Timeline.Tests.PlayMode
 
             public TimelineOverlayHarness(TimelineAsset timeline, FacialProfile profile, FacialTimelineBakeAsset bake)
             {
+                // レイヤーはトラック名から自動導出される（Target Layer Names の設定は不要）。
                 _binding = new TimelineAdapterBinding();
-                MutableTargetLayerNames(_binding).Add("Expressions");
 
-                _receiverObject = new GameObject("TimelineLiveEquivalence_OverlayReceiver");
+                _receiverObject = TimelinePlayModeControllerHost.Create(
+                    "TimelineLiveEquivalence_OverlayReceiver", profile, new[] { "Smile" });
                 _receiver = _receiverObject.AddComponent<FacialTimelineReceiver>();
                 _receiver.BakeAsset = bake;
                 _binding.OnStart(CreateBindingContext(profile, new[] { "Smile" }, _receiverObject));
-
-                Assert.That(_receiver.TryGetExpressionSink("Expressions", out _expressionSink), Is.True);
-                Assert.That(_receiver.TryGetExpressionValueSink("Expressions", out _valueSink), Is.True);
 
                 _directorObject = new GameObject("TimelineLiveEquivalence_OverlayDirector");
                 _director = _directorObject.AddComponent<PlayableDirector>();
@@ -449,6 +447,10 @@ namespace Hidano.FacialControl.Timeline.Tests.PlayMode
                 _director.SetGenericBinding(timeline.GetOutputTrack(0), _receiver);
                 _director.Play();
                 _director.playableGraph.Evaluate(0f);
+
+                Assert.That(_receiver.SessionState, Is.EqualTo(TimelineSessionState.Active));
+                Assert.That(_receiver.TryGetExpressionSink("Expressions", out _expressionSink), Is.True);
+                Assert.That(_receiver.TryGetExpressionValueSink("Expressions", out _valueSink), Is.True);
                 RefreshOutput();
             }
 
@@ -490,10 +492,7 @@ namespace Hidano.FacialControl.Timeline.Tests.PlayMode
                     UnityEngine.Object.DestroyImmediate(_directorObject);
                 }
 
-                if (_receiverObject != null)
-                {
-                    UnityEngine.Object.DestroyImmediate(_receiverObject);
-                }
+                TimelinePlayModeControllerHost.Destroy(_receiverObject);
             }
 
             private void RefreshOutput()
@@ -609,15 +608,6 @@ namespace Hidano.FacialControl.Timeline.Tests.PlayMode
                 new NoopTimeProvider(),
                 host,
                 lipSyncProvider: null);
-        }
-
-        private static List<string> MutableTargetLayerNames(TimelineAdapterBinding binding)
-        {
-            FieldInfo field = typeof(TimelineAdapterBinding).GetField(
-                "targetLayerNames",
-                BindingFlags.Instance | BindingFlags.NonPublic);
-            Assert.That(field, Is.Not.Null);
-            return (List<string>)field.GetValue(binding);
         }
 
         private sealed class NoopTimeProvider : ITimeProvider

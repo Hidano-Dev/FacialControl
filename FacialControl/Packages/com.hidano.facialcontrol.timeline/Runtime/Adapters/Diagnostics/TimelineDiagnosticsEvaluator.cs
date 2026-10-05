@@ -101,6 +101,37 @@ namespace Hidano.FacialControl.Timeline.Adapters.Diagnostics
             Flush(target, TimelineDiagnosticArea.Placement, items);
         }
 
+        /// <summary>
+        /// Bake / Profile 領域だけを評価して置換する（再生セッション開始時に Receiver が Bake 解決と Profile 照合に使う）。
+        /// </summary>
+        public static void EvaluateBakeAndProfileAreas(FacialTimelineDiagnostics target, TimelineStaticEvaluationContext context)
+        {
+            if (target == null)
+            {
+                throw new ArgumentNullException(nameof(target));
+            }
+
+            var items = new List<TimelineDiagnosticItem>();
+            EvaluateBakeAndProfile(context, items, out List<TimelineDiagnosticItem> profileItems);
+            Flush(target, TimelineDiagnosticArea.Bake, items);
+            Flush(target, TimelineDiagnosticArea.Profile, profileItems);
+        }
+
+        /// <summary>
+        /// LayerMatch 領域（Profile のレイヤー名と一致しないトラック）だけを評価して置換する。
+        /// </summary>
+        public static void EvaluateLayerMatchArea(FacialTimelineDiagnostics target, TimelineStaticEvaluationContext context)
+        {
+            if (target == null)
+            {
+                throw new ArgumentNullException(nameof(target));
+            }
+
+            var items = new List<TimelineDiagnosticItem>();
+            EvaluateLayerMatch(context, items);
+            Flush(target, TimelineDiagnosticArea.LayerMatch, items);
+        }
+
         private static void EvaluateDirector(in TimelineStaticEvaluationContext context, List<TimelineDiagnosticItem> items)
         {
             if (context.Director == null)

@@ -367,6 +367,41 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
             Assert.That(diagnostics.Revision, Is.GreaterThan(revision));
         }
 
+        [Test]
+        public void EvaluateBakeAndProfileAreas_ReplacesOnlyBakeAndProfileAreas()
+        {
+            Scenario s = CreateScenario();
+            s.Bake.ProfileContentHashHex = "deadbeefdeadbeef";
+            var diagnostics = new FacialTimelineDiagnostics();
+            var placement = new TimelineDiagnosticItem(
+                TimelineDiagnosticArea.Placement,
+                TimelineDiagnosticCode.ControllerMissing,
+                TimelineDiagnosticSeverity.Error,
+                string.Empty,
+                string.Empty);
+            diagnostics.ReplaceArea(TimelineDiagnosticArea.Placement, new[] { placement });
+
+            TimelineDiagnosticsEvaluator.EvaluateBakeAndProfileAreas(diagnostics, s.BuildContext());
+
+            Assert.That(diagnostics.Contains(TimelineDiagnosticCode.ProfileMismatch), Is.True);
+            Assert.That(diagnostics.Contains(TimelineDiagnosticCode.ControllerMissing), Is.True, "他領域は触らない");
+            Assert.That(diagnostics.Contains(TimelineDiagnosticCode.DirectorMissing), Is.False);
+            Assert.That(diagnostics.Contains(TimelineDiagnosticCode.BindingMissing), Is.False);
+        }
+
+        [Test]
+        public void EvaluateLayerMatchArea_TrackNameNotInProfile_ReplacesOnlyLayerMatchArea()
+        {
+            Scenario s = CreateScenario();
+            s.Track.name = "Emotion Typo";
+            var diagnostics = new FacialTimelineDiagnostics();
+
+            TimelineDiagnosticsEvaluator.EvaluateLayerMatchArea(diagnostics, s.BuildContext());
+
+            Assert.That(diagnostics.Contains(TimelineDiagnosticCode.TrackLayerUnmatched, "Emotion Typo"), Is.True);
+            Assert.That(diagnostics.Items, Has.Count.EqualTo(1));
+        }
+
         // ================================================================
         // ヘルパー
         // ================================================================

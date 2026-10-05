@@ -2,6 +2,7 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 using Hidano.FacialControl.Adapters.InputSources;
+using Hidano.FacialControl.Adapters.ScriptableObject;
 using Hidano.FacialControl.Domain.Adapters;
 using Hidano.FacialControl.Domain.Interfaces;
 using Hidano.FacialControl.Domain.Models;
@@ -208,6 +209,59 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
 
             _takeover.Release();
             Assert.That(_registry.Resolve(AnalogId), Is.SameAs(original));
+        }
+
+        [Test]
+        public void Release_EntryUnregisteredDuringSession_ClearsReplacementWithoutRestoring()
+        {
+            // 旧 FacialTimelineReceiverTests.ReleaseAll_WhenTakeoverSourceMissing_WarnsAndClearsInjectedOwnership から移管。
+            var original = new FakeScalarSource("original", 0f);
+            _registry.Register(AdapterSlug.Parse("osc"), "gaze", original);
+            _takeover.Attach(new[] { Gaze(GazeId, 2) }, _diagnostics);
+            _takeover.TryGetGazeSink(GazeId, out TimelineGazeInputSource sink);
+            _registry.Unregister(AdapterSlug.Parse("osc"), "gaze");
+
+            _takeover.Release();
+
+            Assert.That(_registry.TryResolve(GazeId, out _), Is.False, "消えたエントリを勝手に復活させない");
+            Assert.That(sink.ReplacedSource, Is.Null, "退避した原本の保持を解く");
+        }
+
+        // ================================================================
+        // Gaze 消費者への到達（実 registry + GazeChannelResolver）
+        // ================================================================
+
+        [Test]
+        public void Attach_GazeWithRealRegistry_ResolverSeesSinkAndReleaseRestoresOriginal()
+        {
+            // 旧 FacialTimelineReceiverTests.BeginPlaybackSession_WithRealRegistry_RebindsGazeConsumerAndReleaseRestoresOriginalSource から移管。
+            var registry = new InputSourceRegistry();
+            var takeover = new TimelineChannelTakeover(registry, AdapterSlug.Parse("timeline"));
+            var liveSource = new TestAnalogSource("live:gaze", 2);
+            registry.Register(AdapterSlug.Parse("live"), "gaze", liveSource);
+            var config = new GazeChannel
+            {
+                id = "gaze",
+                useDistinctLeftRight = true,
+                sourceIdLeft = "live:gaze",
+                sourceIdRight = "live:gaze",
+            };
+            Assert.That(GazeChannelResolver.TryResolve(config, registry, out ResolvedGazeInputSources before), Is.True);
+            Assert.That(before.LeftSource, Is.SameAs(liveSource));
+
+            takeover.Attach(new[] { Gaze("live:gaze", 2) }, _diagnostics);
+
+            Assert.That(takeover.TryGetGazeSink("live:gaze", out TimelineGazeInputSource sink), Is.True);
+            Assert.That(GazeChannelResolver.TryResolve(config, registry, out ResolvedGazeInputSources during), Is.True);
+            Assert.That(during.LeftSource, Is.SameAs(sink));
+            Assert.That(during.RightSource, Is.SameAs(sink));
+
+            takeover.Release();
+
+            Assert.That(GazeChannelResolver.TryResolve(config, registry, out ResolvedGazeInputSources after), Is.True);
+            Assert.That(after.LeftSource, Is.SameAs(liveSource));
+            Assert.That(after.RightSource, Is.SameAs(liveSource));
+            Assert.That(sink.ReplacedSource, Is.Null);
         }
 
         // ================================================================

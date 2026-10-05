@@ -9,6 +9,7 @@ using Hidano.FacialControl.Domain.Services;
 using Hidano.FacialControl.Timeline.Adapters;
 using Hidano.FacialControl.Timeline.Adapters.AdapterBindings;
 using Hidano.FacialControl.Timeline.Adapters.InputSources;
+using Hidano.FacialControl.Timeline.Adapters.Session;
 using NUnit.Framework;
 using UnityEditor;
 using UnityEngine;
@@ -66,60 +67,29 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
         }
 
         [Test]
-        public void OnStart_RegistersStateAnalogAndGazeSinks_AndConfiguresReceiver()
+        public void OnStart_PassesBindingContextToReceiverWithoutRegisteringSinks()
         {
             var registry = new FakeInputSourceRegistry();
             var binding = new TimelineAdapterBinding();
-            MutableTargetLayerNames(binding).Add("emotion");
-            MutableTargetLayerNames(binding).Add("eye");
-            MutableChannelDefinitions(binding).Add(new TimelineValueChannelConfig
-            {
-                Sub = "analog-main",
-                AxisCount = 3,
-            });
-            MutableChannelDefinitions(binding).Add(new TimelineValueChannelConfig
-            {
-                Sub = "gaze-main",
-                AxisCount = 2,
-                IsGaze = true,
-                TakeoverSourceId = "live:gaze",
-            });
-
             var host = new GameObject("TimelineAdapterBindingTests");
+            AdapterBuildContext context = CreateContext(registry, host);
+
             try
             {
-                binding.OnStart(CreateContext(registry, host));
+                binding.OnStart(context);
 
                 Assert.That(binding.Receiver, Is.Not.Null);
                 Assert.That(host.GetComponent<FacialTimelineReceiver>(), Is.SameAs(binding.Receiver));
-
-                Assert.That(registry.TryResolve("timeline:emotion", out IInputSource emotionSource), Is.True);
-                Assert.That(registry.TryResolve("timeline:eye", out IInputSource eyeSource), Is.True);
-                Assert.That(registry.TryResolve("timeline:emotion:state", out IInputSource emotionStateSource), Is.True);
-                Assert.That(registry.TryResolve("timeline:eye:state", out IInputSource eyeStateSource), Is.True);
-                Assert.That(registry.TryResolve("timeline:analog-main", out IInputSource analogSource), Is.True);
-                Assert.That(registry.TryResolve("timeline:gaze-0", out IInputSource gazeSource), Is.True);
-
-                Assert.That(emotionSource, Is.InstanceOf<TimelineBakedValueSink>());
-                Assert.That(eyeSource, Is.InstanceOf<TimelineBakedValueSink>());
-                Assert.That(emotionStateSource, Is.InstanceOf<TimelineExpressionStateSink>());
-                Assert.That(eyeStateSource, Is.InstanceOf<TimelineExpressionStateSink>());
-                Assert.That(analogSource, Is.InstanceOf<TimelineAnalogInputSource>());
-                Assert.That(gazeSource, Is.InstanceOf<TimelineGazeInputSource>());
-                Assert.That(((TimelineAnalogInputSource)analogSource).AxisCount, Is.EqualTo(3));
-
-                Assert.That(binding.Receiver.TryGetExpressionSink("emotion", out var emotionSink), Is.True);
-                Assert.That(binding.Receiver.TryGetExpressionSink("eye", out var eyeSink), Is.True);
-                Assert.That(binding.Receiver.TryGetExpressionValueSink("emotion", out var emotionValueSink), Is.True);
-                Assert.That(binding.Receiver.TryGetExpressionValueSink("eye", out var eyeValueSink), Is.True);
-                Assert.That(binding.Receiver.TryGetAnalogSink("analog-main", out var resolvedAnalog), Is.True);
-                Assert.That(binding.Receiver.TryGetGazeSink("gaze-main", out var resolvedGaze), Is.True);
-                Assert.That(emotionSink, Is.SameAs(emotionStateSource));
-                Assert.That(eyeSink, Is.SameAs(eyeStateSource));
-                Assert.That(emotionValueSink, Is.SameAs(emotionSource));
-                Assert.That(eyeValueSink, Is.SameAs(eyeSource));
-                Assert.That(resolvedAnalog, Is.SameAs(analogSource));
-                Assert.That(resolvedGaze, Is.SameAs(gazeSource));
+                Assert.That(binding.Receiver.IsBindingAttached, Is.True);
+                TimelineBindingContext attached = binding.Receiver.BindingContext;
+                Assert.That(attached.Slug.Value, Is.EqualTo("timeline"));
+                Assert.That(attached.Registry, Is.SameAs(registry));
+                Assert.That(attached.BlendShapeNames, Is.SameAs(context.BlendShapeNames));
+                Assert.That(attached.Profile.Layers.Length, Is.EqualTo(2));
+                Assert.That(attached.Enabled, Is.True);
+                Assert.That(registry.RegisteredIds, Is.Empty,
+                    "OnStart は sink を登録しない（接続はセッション開始時に Receiver が行う）");
+                Assert.That(binding.Receiver.SessionState, Is.EqualTo(TimelineSessionState.Idle));
             }
             finally
             {
@@ -133,7 +103,6 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
         {
             var registry = new FakeInputSourceRegistry();
             var binding = new TimelineAdapterBinding();
-            MutableTargetLayerNames(binding).Add("emotion");
 
             var host = new GameObject("TimelineAdapterBindingDisposeTests");
             try
@@ -248,11 +217,6 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
         {
             public double UnscaledTimeSeconds => 0d;
         }
-        private static List<string> MutableTargetLayerNames(TimelineAdapterBinding binding)
-        {
-            return ResolveField<List<string>>(binding, "targetLayerNames");
-        }
-
         private static List<TimelineValueChannelConfig> MutableChannelDefinitions(TimelineAdapterBinding binding)
         {
             return ResolveField<List<TimelineValueChannelConfig>>(binding, "channelDefinitions");

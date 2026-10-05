@@ -92,8 +92,6 @@ namespace Hidano.FacialControl.Timeline.Tests.PlayMode
                 bakedBlendShapeNames: new[] { "Smile" });
             using var overlayHarness = new OverlayAggregationHarness(profile, fixture.ExpressionSink, fixture.ValueSink, blendShapeNames);
 
-            LogAssert.Expect(LogType.Warning, new System.Text.RegularExpressions.Regex(@"\[FacialTimelineReceiver\].*BakeAsset"));
-
             fixture.AdvanceTo(0.25f);
             overlayHarness.Aggregate();
 
@@ -202,11 +200,14 @@ namespace Hidano.FacialControl.Timeline.Tests.PlayMode
             {
                 Profile = profile;
                 Timeline = timeline;
-                Bake = attachBakeAsset ? TimelineBakeService.Bake(timeline, profile) : null;
+                // Bake 無しの縮退は「このレイヤーの値カーブを持たない Bake」で表す（Bake 参照の欠落は Failed になるため）。
+                Bake = attachBakeAsset
+                    ? TimelineBakeService.Bake(timeline, profile)
+                    : ScriptableObject.CreateInstance<FacialTimelineBakeAsset>();
+                // レイヤーはトラック名から自動導出される（Target Layer Names の設定は不要）。
                 _binding = new TimelineAdapterBinding();
-                MutableTargetLayerNames(_binding).Add(ExpressionLayer);
 
-                _receiverObject = new GameObject("TimelineDegradation_Receiver");
+                _receiverObject = TimelinePlayModeControllerHost.Create("TimelineDegradation_Receiver", profile, blendShapeNames);
                 _receiver = _receiverObject.AddComponent<FacialTimelineReceiver>();
                 _receiver.BakeAsset = Bake;
                 _binding.OnStart(new AdapterBuildContext(
@@ -217,10 +218,6 @@ namespace Hidano.FacialControl.Timeline.Tests.PlayMode
                     new NoopTimeProvider(),
                     _receiverObject,
                     lipSyncProvider: null));
-                Assert.That(_receiver.TryGetExpressionSink(ExpressionLayer, out TimelineExpressionStateSink expressionSink), Is.True);
-                Assert.That(_receiver.TryGetExpressionValueSink(ExpressionLayer, out TimelineBakedValueSink valueSink), Is.True);
-                ExpressionSink = expressionSink;
-                ValueSink = valueSink;
 
                 _directorObject = new GameObject("TimelineDegradation_Director");
                 _director = _directorObject.AddComponent<PlayableDirector>();
@@ -231,6 +228,12 @@ namespace Hidano.FacialControl.Timeline.Tests.PlayMode
                 _director.SetGenericBinding(timeline.GetOutputTrack(0), _receiver);
                 _director.Play();
                 _director.playableGraph.Evaluate(0f);
+
+                Assert.That(_receiver.SessionState, Is.EqualTo(TimelineSessionState.Active));
+                Assert.That(_receiver.TryGetExpressionSink(ExpressionLayer, out TimelineExpressionStateSink expressionSink), Is.True);
+                Assert.That(_receiver.TryGetExpressionValueSink(ExpressionLayer, out TimelineBakedValueSink valueSink), Is.True);
+                ExpressionSink = expressionSink;
+                ValueSink = valueSink;
             }
 
             public FacialProfile Profile { get; }
@@ -288,10 +291,7 @@ namespace Hidano.FacialControl.Timeline.Tests.PlayMode
                     UnityEngine.Object.DestroyImmediate(_directorObject);
                 }
 
-                if (_receiverObject != null)
-                {
-                    UnityEngine.Object.DestroyImmediate(_receiverObject);
-                }
+                TimelinePlayModeControllerHost.Destroy(_receiverObject);
             }
         }
 
@@ -528,15 +528,6 @@ namespace Hidano.FacialControl.Timeline.Tests.PlayMode
         private sealed class NoopTimeProvider : ITimeProvider
         {
             public double UnscaledTimeSeconds => 0d;
-        }
-
-        private static List<string> MutableTargetLayerNames(TimelineAdapterBinding binding)
-        {
-            System.Reflection.FieldInfo field = typeof(TimelineAdapterBinding).GetField(
-                "targetLayerNames",
-                System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
-            Assert.That(field, Is.Not.Null);
-            return (List<string>)field.GetValue(binding);
         }
 
         private static string[] CollectBakedBlendShapeNames(BlendShapeCurve[] curves)

@@ -44,13 +44,18 @@ namespace Hidano.FacialControl.Timeline.Playables
                 return;
             }
 
-            TimelineAsset timeline = ResolveTimeline(playable);
+            PlayableDirector director = ResolveDirector(playable);
+            TimelineAsset timeline = director != null ? director.playableAsset as TimelineAsset : null;
             if (!UnityEngine.Application.isPlaying)
             {
                 FacialTimelineEditorPreviewBridge.ApplyPreview?.Invoke(receiver, timeline, playable.GetTime());
             }
 
-            receiver.BeginPlaybackSession(timeline);
+            receiver.BeginPlaybackSession(timeline, director);
+            if (!receiver.IsSessionOwnedBy(director))
+            {
+                return;
+            }
 
             if (!receiver.TryGetExpressionSink(_layerName, out Timeline.Adapters.InputSources.TimelineExpressionStateSink expressionSink))
             {
@@ -130,15 +135,9 @@ namespace Hidano.FacialControl.Timeline.Playables
             }
         }
 
-        private static TimelineAsset ResolveTimeline(Playable playable)
+        private static PlayableDirector ResolveDirector(Playable playable)
         {
-            var resolver = playable.GetGraph().GetResolver();
-            if (resolver is PlayableDirector director)
-            {
-                return director.playableAsset as TimelineAsset;
-            }
-
-            return null;
+            return playable.GetGraph().GetResolver() as PlayableDirector;
         }
 
         private void ReleaseReceiver()
