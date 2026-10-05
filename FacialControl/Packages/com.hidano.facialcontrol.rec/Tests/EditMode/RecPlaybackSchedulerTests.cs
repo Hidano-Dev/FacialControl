@@ -243,6 +243,34 @@ namespace Hidano.FacialControl.Rec.Tests.EditMode
             }));
         }
 
+        [Test]
+        public void Tick_DispatchesWeightEventsWithLayerAndSlotIdsAndValues()
+        {
+            var timeline = new RecTimeline(
+                RecBaselineState.Empty,
+                new[]
+                {
+                    RecEvent.CreateLayerWeightSample(0.1d, 0),
+                    RecEvent.CreateInputSourceWeightSample(0.2d, 0, 0),
+                },
+                new[] { "osc" },
+                null,
+                new[] { "face" },
+                0.2d,
+                new[] { new[] { 0.25f }, new[] { 0.75f } });
+            var scheduler = new RecPlaybackScheduler();
+            scheduler.Load(timeline);
+            var visitor = new RecordingVisitor();
+
+            scheduler.Tick(0.2f, visitor);
+
+            Assert.That(visitor.Entries, Is.EqualTo(new[]
+            {
+                "layer-weight:face:0.25",
+                "source-weight:face:osc:0.75",
+            }));
+        }
+
         private static RecTimeline CreateTimeline()
         {
             return new RecTimeline(
@@ -300,6 +328,16 @@ namespace Hidano.FacialControl.Rec.Tests.EditMode
             public void VisitExpressionDeactivate(string sourceId, string expressionId)
             {
                 _entries.Add($"deactivate:{sourceId}:{expressionId}");
+            }
+
+            public void VisitLayerWeightSample(string layerName, float weight)
+            {
+                _entries.Add($"layer-weight:{layerName}:{weight:0.00}");
+            }
+
+            public void VisitInputSourceWeightSample(string layerName, string slotId, float weight)
+            {
+                _entries.Add($"source-weight:{layerName}:{slotId}:{weight:0.00}");
             }
         }
     }

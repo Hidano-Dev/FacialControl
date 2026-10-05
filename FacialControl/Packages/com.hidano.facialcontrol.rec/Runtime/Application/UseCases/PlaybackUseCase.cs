@@ -253,6 +253,14 @@ namespace Hidano.FacialControl.Rec.Application.UseCases
             _expressionPort.InjectDeactivate(expressionId);
         }
 
+        public void VisitLayerWeightSample(string layerName, float weight)
+        {
+        }
+
+        public void VisitInputSourceWeightSample(string layerName, string slotId, float weight)
+        {
+        }
+
         private void LogMissingExpressionIdsOnce()
         {
             for (int i = 0; i < _missingExpressionIds.Length; i++)
