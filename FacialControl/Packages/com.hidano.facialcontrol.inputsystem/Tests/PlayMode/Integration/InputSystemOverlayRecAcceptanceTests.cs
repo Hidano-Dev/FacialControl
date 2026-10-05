@@ -1,5 +1,4 @@
 #if FACIALCONTROL_HAS_REC
-using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.IO;
@@ -15,7 +14,6 @@ using NUnit.Framework;
 using UnityEngine;
 using UnityEngine.InputSystem;
 using UnityEngine.InputSystem.LowLevel;
-using UnityEngine.InputSystem.Utilities;
 using UnityEngine.TestTools;
 using Hidano.FacialControl.Testing;
 
@@ -92,10 +90,7 @@ namespace Hidano.FacialControl.InputSystem.Tests.PlayMode.Integration
             Assert.That(Snapshot(renderer)[0], Is.EqualTo(changed[0]).Within(Tolerance));
             Assert.That(Snapshot(renderer)[1], Is.EqualTo(changed[1]).Within(Tolerance));
 
-            // Completed 状態からの StopPlayback は既に停止済みなので、再度 Playing にして
-            // 停止経路そのものも受け入れ対象にする。
-            Assert.That(recording.StartPlayback(), Is.True);
-            yield return null;
+            // 再生完了（Completed）後もポートは確立したまま。StopPlayback で解放されてからトリガーに追従する。
             recording.StopPlayback();
             yield return WaitFrames(2);
             SetTrigger(0.5f);
