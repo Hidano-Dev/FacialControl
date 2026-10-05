@@ -113,7 +113,7 @@
   - _Requirements: 1.5, 4.5, 4.6, 7.1, 7.5_
   - _Boundary: FacialTimelineHashCalculator, FacialTimelineBakeAsset, TimelineBakeService_
 
-- [ ] 5. TimelineAsset の走査・Bake 解決・Director / Track binding 解決・レイヤー接続・乗っ取り・静的診断を Adapters サービスとして実装する（timeline Runtime Adapters）
+- [x] 5. TimelineAsset の走査・Bake 解決・Director / Track binding 解決・レイヤー接続・乗っ取り・静的診断を Adapters サービスとして実装する（timeline Runtime Adapters）
 - [x] 5.1 Facial トラックに Bake 参照の保持口を持たせ、Value トラックに Receiver 型の binding 属性を付ける（timeline Runtime Tracks）
   - Bake 参照保持の契約（取得 / 設定）を定義し、Expression トラックと Value トラックが HideInInspector のシリアライズフィールドで実装する
   - Value トラックに Receiver を binding 型とする属性を付け、Director Inspector に binding 欄が出るようにする
@@ -163,7 +163,7 @@
   - _Requirements: 1.3, 3.2, 3.4, 3.5, 3.6, 3.7, 10.4_
   - _Boundary: TimelineChannelTakeover, TimelineAnalogInputSource, TimelineGazeInputSource_
 
-- [ ] 5.7 Edit / Play 開始前に静的に判定できる診断を評価する Evaluator と評価コンテキストを実装する（timeline Runtime Adapters）
+- [x] 5.7 Edit / Play 開始前に静的に判定できる診断を評価する Evaluator と評価コンテキストを実装する（timeline Runtime Adapters）
   - 評価コンテキスト（Director / Timeline / Controller / Profile SO / Profile と有無 / GazeChannels / Bake 解決結果 / 導出結果 / Bake に記録された Profile 内容ハッシュ）を定義する
   - Director 領域（DirectorMissing / TimelineNotBound / DirectorAmbiguous）、TrackBinding 領域（AutoAssigned / Foreign）、Bake 領域（Fresh / Missing / Stale / LegacyExport / ReferenceConflict / OverrideUsed / OverrideDiffers）、Profile 領域（Matched / Mismatch。空文字も不一致）、ProfileBinding 領域（BindingMissing / BindingSlugInvalid。Enabled と legacy は 6.3 で追加）、LayerMatch 領域（TrackLayerUnmatched）、Placement 領域（ReceiverNotOnControllerObject / ControllerMissing / ControllerNotInitialized）を領域単位で診断状態へ置換する。Severity は design.md の分類どおり
   - 新規 `TimelineDiagnosticsEvaluatorTests`（Medium。GameObject + Receiver + Director を組む）に Director 無し / Timeline 未バインド / Receiver 別 GameObject / トラック名不一致 / Bake の LegacyExport と Conflict / Profile 内容ハッシュ不一致（Warning）/ binding 無し の各ケースで `Contains(code)`、全問題なしで Overall が Ok、を書く
