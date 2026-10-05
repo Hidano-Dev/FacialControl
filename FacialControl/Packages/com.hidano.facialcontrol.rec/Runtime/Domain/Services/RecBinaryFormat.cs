@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 using Hidano.FacialControl.Domain.Interfaces;
+using Hidano.FacialControl.Domain.Models;
 using Hidano.FacialControl.Rec.Domain.Models;
 
 namespace Hidano.FacialControl.Rec.Domain.Services
@@ -1376,10 +1377,10 @@ namespace Hidano.FacialControl.Rec.Domain.Services
             return entries;
         }
 
-        private static IReadOnlyList<RecBaselineState.LayerWeightEntry> BuildBaselineLayerWeightEntries(
+        private static IReadOnlyList<LayerWeightEntry> BuildBaselineLayerWeightEntries(
             RecIdTable idTable, List<(ushort layerIndex, float weight)> records)
         {
-            var entries = new List<RecBaselineState.LayerWeightEntry>(records.Count);
+            var entries = new List<LayerWeightEntry>(records.Count);
             var seen = new HashSet<ushort>();
             for (int i = 0; i < records.Count; i++)
             {
@@ -1387,15 +1388,15 @@ namespace Hidano.FacialControl.Rec.Domain.Services
                     throw new InvalidOperationException($"Baseline layer weight referenced undefined layer index {records[i].layerIndex}.");
                 if (!seen.Add(records[i].layerIndex))
                     throw new InvalidOperationException($"Duplicate BaselineLayerWeight record for layer index {records[i].layerIndex}.");
-                entries.Add(new RecBaselineState.LayerWeightEntry(layerId, records[i].weight));
+                entries.Add(new LayerWeightEntry(layerId, records[i].weight));
             }
             return entries;
         }
 
-        private static IReadOnlyList<RecBaselineState.InputSourceWeightEntry> BuildBaselineInputSourceWeightEntries(
+        private static IReadOnlyList<InputSourceWeightEntry> BuildBaselineInputSourceWeightEntries(
             RecIdTable idTable, List<(ushort layerIndex, ushort sourceIndex, float weight)> records)
         {
-            var entries = new List<RecBaselineState.InputSourceWeightEntry>(records.Count);
+            var entries = new List<InputSourceWeightEntry>(records.Count);
             var seen = new HashSet<string>(StringComparer.Ordinal);
             for (int i = 0; i < records.Count; i++)
             {
@@ -1405,7 +1406,7 @@ namespace Hidano.FacialControl.Rec.Domain.Services
                 string key = records[i].layerIndex + ":" + records[i].sourceIndex;
                 if (!seen.Add(key))
                     throw new InvalidOperationException($"Duplicate BaselineInputSourceWeight record for layer index {records[i].layerIndex} and source index {records[i].sourceIndex}.");
-                entries.Add(new RecBaselineState.InputSourceWeightEntry(layerId, sourceId, records[i].weight));
+                entries.Add(new InputSourceWeightEntry(layerId, sourceId, records[i].weight));
             }
             return entries;
         }

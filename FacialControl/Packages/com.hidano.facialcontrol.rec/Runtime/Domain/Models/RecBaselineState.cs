@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using Hidano.FacialControl.Domain.Models;
 
 namespace Hidano.FacialControl.Rec.Domain.Models
 {
@@ -61,50 +62,48 @@ namespace Hidano.FacialControl.Rec.Domain.Models
         public IReadOnlyList<ValueProviderEntry> ValueProviderEntries => _valueProviderEntries;
 
         public IReadOnlyList<string> ExpressionEntries => _expressionEntries;
+
+        /// <summary>系1.5 基準: レイヤー weight（core の <see cref="LayerWeightEntry"/> を正本とする）。</summary>
         public IReadOnlyList<LayerWeightEntry> LayerWeightEntries => _layerWeightEntries;
+
+        /// <summary>系1.5 基準: 入力源 weight（core の <see cref="InputSourceWeightEntry"/> を正本とする）。</summary>
         public IReadOnlyList<InputSourceWeightEntry> InputSourceWeightEntries => _inputSourceWeightEntries;
 
-        public bool TryGetLayerWeight(string layerName, out LayerWeightEntry entry)
+        public bool TryGetLayerWeight(string layerName, out float weight)
         {
-            for (int i = 0; layerName != null && i < _layerWeightEntries.Length; i++)
+            if (layerName != null)
             {
-                if (string.Equals(_layerWeightEntries[i].LayerName, layerName, StringComparison.Ordinal)) { entry = _layerWeightEntries[i]; return true; }
+                for (int i = 0; i < _layerWeightEntries.Length; i++)
+                {
+                    if (string.Equals(_layerWeightEntries[i].LayerName, layerName, StringComparison.Ordinal))
+                    {
+                        weight = _layerWeightEntries[i].Weight;
+                        return true;
+                    }
+                }
             }
-            entry = default; return false;
+
+            weight = 0f;
+            return false;
         }
 
-        public bool TryGetInputSourceWeight(string layerName, string slotId, out InputSourceWeightEntry entry)
+        public bool TryGetInputSourceWeight(string layerName, string slotId, out float weight)
         {
-            for (int i = 0; layerName != null && slotId != null && i < _inputSourceWeightEntries.Length; i++)
+            if (layerName != null && slotId != null)
             {
-                if (string.Equals(_inputSourceWeightEntries[i].LayerName, layerName, StringComparison.Ordinal)
-                    && string.Equals(_inputSourceWeightEntries[i].SlotId, slotId, StringComparison.Ordinal)) { entry = _inputSourceWeightEntries[i]; return true; }
+                for (int i = 0; i < _inputSourceWeightEntries.Length; i++)
+                {
+                    if (string.Equals(_inputSourceWeightEntries[i].LayerName, layerName, StringComparison.Ordinal)
+                        && string.Equals(_inputSourceWeightEntries[i].SlotId, slotId, StringComparison.Ordinal))
+                    {
+                        weight = _inputSourceWeightEntries[i].Weight;
+                        return true;
+                    }
+                }
             }
-            entry = default; return false;
-        }
 
-        public readonly struct LayerWeightEntry
-        {
-            public LayerWeightEntry(string layerName, float weight)
-            {
-                if (string.IsNullOrWhiteSpace(layerName)) throw new ArgumentException("Layer name is required.", nameof(layerName));
-                LayerName = layerName; Weight = weight;
-            }
-            public string LayerName { get; }
-            public float Weight { get; }
-        }
-
-        public readonly struct InputSourceWeightEntry
-        {
-            public InputSourceWeightEntry(string layerName, string slotId, float weight)
-            {
-                if (string.IsNullOrWhiteSpace(layerName)) throw new ArgumentException("Layer name is required.", nameof(layerName));
-                if (string.IsNullOrWhiteSpace(slotId)) throw new ArgumentException("Slot id is required.", nameof(slotId));
-                LayerName = layerName; SlotId = slotId; Weight = weight;
-            }
-            public string LayerName { get; }
-            public string SlotId { get; }
-            public float Weight { get; }
+            weight = 0f;
+            return false;
         }
 
         public bool TryGetTriggerStack(string sourceId, out IReadOnlyList<string> expressionIds)
@@ -288,22 +287,61 @@ namespace Hidano.FacialControl.Rec.Domain.Models
 
         private static LayerWeightEntry[] CopyLayerWeights(IEnumerable<LayerWeightEntry> entries)
         {
-            if (entries == null) return EmptyLayerWeightEntries;
-            var list = new List<LayerWeightEntry>(); var seen = new HashSet<string>(StringComparer.Ordinal);
-            foreach (LayerWeightEntry entry in entries) { if (!seen.Add(entry.LayerName)) throw new ArgumentException($"Duplicate layer weight '{entry.LayerName}'.", nameof(entries)); list.Add(entry); }
+            if (entries == null)
+            {
+                return EmptyLayerWeightEntries;
+            }
+
+            var list = new List<LayerWeightEntry>();
+            var seen = new HashSet<string>(StringComparer.Ordinal);
+            foreach (LayerWeightEntry entry in entries)
+            {
+                if (string.IsNullOrWhiteSpace(entry.LayerName))
+                {
+                    throw new ArgumentException("Layer weight entry requires a layer name.", nameof(entries));
+                }
+
+                if (!seen.Add(entry.LayerName))
+                {
+                    throw new ArgumentException($"Duplicate layer weight '{entry.LayerName}'.", nameof(entries));
+                }
+
+                list.Add(entry);
+            }
+
             return list.Count == 0 ? EmptyLayerWeightEntries : list.ToArray();
         }
 
         private static InputSourceWeightEntry[] CopyInputSourceWeights(IEnumerable<InputSourceWeightEntry> entries)
         {
-            if (entries == null) return EmptyInputSourceWeightEntries;
-            var list = new List<InputSourceWeightEntry>(); var seen = new HashSet<string>(StringComparer.Ordinal);
+            if (entries == null)
+            {
+                return EmptyInputSourceWeightEntries;
+            }
+
+            var list = new List<InputSourceWeightEntry>();
+            var seen = new HashSet<string>(StringComparer.Ordinal);
             foreach (InputSourceWeightEntry entry in entries)
             {
+                if (string.IsNullOrWhiteSpace(entry.LayerName))
+                {
+                    throw new ArgumentException("Input-source weight entry requires a layer name.", nameof(entries));
+                }
+
+                if (string.IsNullOrWhiteSpace(entry.SlotId))
+                {
+                    throw new ArgumentException("Input-source weight entry requires a slot id.", nameof(entries));
+                }
+
                 string key = entry.LayerName + "\u001f" + entry.SlotId;
-                if (!seen.Add(key)) throw new ArgumentException($"Duplicate input-source weight '{entry.LayerName}/{entry.SlotId}'.", nameof(entries));
+                if (!seen.Add(key))
+                {
+                    throw new ArgumentException($"Duplicate input-source weight '{entry.LayerName}/{entry.SlotId}'.", nameof(entries));
+                }
+
                 list.Add(entry);
             }
+
             return list.Count == 0 ? EmptyInputSourceWeightEntries : list.ToArray();
         }
 

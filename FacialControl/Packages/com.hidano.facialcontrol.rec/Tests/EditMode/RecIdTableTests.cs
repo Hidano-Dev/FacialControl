@@ -1,4 +1,5 @@
 using System;
+using Hidano.FacialControl.Domain.Models;
 using Hidano.FacialControl.Rec.Domain.Models;
 using Hidano.FacialControl.Rec.Domain.Services;
 using Hidano.FacialControl.Testing;
@@ -49,8 +50,8 @@ namespace Hidano.FacialControl.Rec.Tests.EditMode
         {
             var baseline = new RecBaselineState(
                 null, null, null, null,
-                new[] { new RecBaselineState.LayerWeightEntry("face", 1f), new RecBaselineState.LayerWeightEntry("eyes", 1f) },
-                new[] { new RecBaselineState.InputSourceWeightEntry("face", "osc", 1f) });
+                new[] { new LayerWeightEntry("face", 1f), new LayerWeightEntry("eyes", 1f) },
+                new[] { new InputSourceWeightEntry("face", "osc", 1f) });
 
             RecIdTable table = RecIdTable.CreateSeeded(baseline);
 
@@ -67,11 +68,11 @@ namespace Hidano.FacialControl.Rec.Tests.EditMode
                 null,
                 new[] { new RecBaselineState.AnalogEntry("input:gaze", new[] { 0.5f }) },
                 null, null,
-                new[] { new RecBaselineState.LayerWeightEntry("face", 1f) },
+                new[] { new LayerWeightEntry("face", 1f) },
                 new[]
                 {
-                    new RecBaselineState.InputSourceWeightEntry("face", "osc", 1f),
-                    new RecBaselineState.InputSourceWeightEntry("face", "@expression", 1f),
+                    new InputSourceWeightEntry("face", "osc", 1f),
+                    new InputSourceWeightEntry("face", "@expression", 1f),
                 });
 
             RecIdTable table = RecIdTable.CreateSeeded(baseline);

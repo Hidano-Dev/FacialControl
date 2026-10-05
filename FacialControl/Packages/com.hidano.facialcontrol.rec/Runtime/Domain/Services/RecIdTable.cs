@@ -37,9 +37,14 @@ namespace Hidano.FacialControl.Rec.Domain.Services
             }
 
             for (int i = 0; i < baseline.LayerWeightEntries.Count; i++)
+            {
                 idTable.GetOrAddLayerId(baseline.LayerWeightEntries[i].LayerName);
+            }
+
             for (int i = 0; i < baseline.InputSourceWeightEntries.Count; i++)
+            {
                 idTable.GetOrAddLayerId(baseline.InputSourceWeightEntries[i].LayerName);
+            }
 
             for (int i = 0; i < baseline.TriggerEntries.Count; i++)
             {

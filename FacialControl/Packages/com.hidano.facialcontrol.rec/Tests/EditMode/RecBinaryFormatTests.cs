@@ -2,11 +2,12 @@ using System;
 using System.Buffers.Binary;
 using System.Collections.Generic;
 using System.Linq;
+using Hidano.FacialControl.Domain.Models;
 using Hidano.FacialControl.Rec.Domain.Models;
 using Hidano.FacialControl.Rec.Domain.Services;
+using Hidano.FacialControl.Testing;
 using NUnit.Framework;
 
-using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.Rec.Tests.EditMode
 {
     [TestFixture]
@@ -107,8 +108,8 @@ namespace Hidano.FacialControl.Rec.Tests.EditMode
             float slotWeight = BitConverter.Int32BitsToSingle(0x00000001);
             var baseline = new RecBaselineState(
                 null, null, null, null,
-                new[] { new RecBaselineState.LayerWeightEntry("face", layerWeight) },
-                new[] { new RecBaselineState.InputSourceWeightEntry("face", "input", slotWeight) });
+                new[] { new LayerWeightEntry("face", layerWeight) },
+                new[] { new InputSourceWeightEntry("face", "input", slotWeight) });
             var events = new[]
             {
                 RecEvent.CreateLayerWeightSample(0.1d, 0),
@@ -170,7 +171,7 @@ namespace Hidano.FacialControl.Rec.Tests.EditMode
         public void TryRead_DuplicateBaselineLayerWeight_ReturnsError()
         {
             var baseline = new RecBaselineState(null, null, null, null,
-                new[] { new RecBaselineState.LayerWeightEntry("face", 0.5f) }, null);
+                new[] { new LayerWeightEntry("face", 0.5f) }, null);
             var timeline = new RecTimeline(baseline, Array.Empty<RecEvent>(), Array.Empty<string>(), Array.Empty<string>(),
                 new[] { "face" }, 0d);
             byte[] bytes = RecBinaryFormat.Serialize(timeline, 123L);
