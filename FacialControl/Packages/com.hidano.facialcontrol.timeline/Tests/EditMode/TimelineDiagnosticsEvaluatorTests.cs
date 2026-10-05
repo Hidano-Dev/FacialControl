@@ -14,6 +14,7 @@ using Hidano.FacialControl.Timeline.Adapters.Session;
 using Hidano.FacialControl.Timeline.Domain.Diagnostics;
 using Hidano.FacialControl.Timeline.Domain.Models;
 using Hidano.FacialControl.Timeline.Domain.Services;
+using Hidano.FacialControl.Timeline.Editor;
 using Hidano.FacialControl.Timeline.Tracks;
 using NUnit.Framework;
 using UnityEngine;
@@ -45,6 +46,7 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
             }
 
             _created.Clear();
+            TearDownSavedAssets();
         }
 
         // ================================================================
@@ -431,6 +433,193 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
 
             Assert.That(diagnostics.Contains(TimelineDiagnosticCode.TrackLayerUnmatched, "Emotion Typo"), Is.True);
             Assert.That(diagnostics.Items, Has.Count.EqualTo(1));
+        }
+
+        // ================================================================
+        // Edit 側（Receiver Inspector の評価）
+        // ================================================================
+
+        [Test]
+        public void EditEvaluate_ReferenceConflictOnSavedTimeline_MarksWatcherPending()
+        {
+            Scenario s = CreateScenario();
+            SaveTimeline(s);
+            var second = s.Timeline.CreateTrack<FacialExpressionTrack>(null, "other");
+            second.Bake = null;
+            TimelineEditChangeWatcher watcher = CreateWatcher();
+
+            ReceiverEditEvaluation result = FacialTimelineReceiverEditEvaluator.Evaluate(s.Receiver, watcher, requestAutoRebake: true);
+
+            Assert.That(s.Receiver.Diagnostics.Contains(TimelineDiagnosticCode.BakeReferenceConflict), Is.True, Describe(s.Receiver.Diagnostics));
+            Assert.That(watcher.IsPending(s.Timeline), Is.True);
+            Assert.That(result.AutoRebakePending, Is.True);
+            Assert.That(s.Receiver.Diagnostics.Contains(TimelineDiagnosticCode.UnsavedTimeline), Is.False);
+        }
+
+        [Test]
+        public void EditEvaluate_ProfileMismatchOnSavedTimeline_MarksWatcherPending()
+        {
+            Scenario s = CreateScenario();
+            SaveTimeline(s);
+            s.Bake.ProfileContentHashHex = "deadbeefdeadbeef";
+            TimelineEditChangeWatcher watcher = CreateWatcher();
+
+            ReceiverEditEvaluation result = FacialTimelineReceiverEditEvaluator.Evaluate(s.Receiver, watcher, requestAutoRebake: true);
+
+            Assert.That(s.Receiver.Diagnostics.Contains(TimelineDiagnosticCode.ProfileMismatch), Is.True, Describe(s.Receiver.Diagnostics));
+            Assert.That(watcher.IsPending(s.Timeline), Is.True);
+            Assert.That(result.AutoRebakePending, Is.True);
+        }
+
+        [Test]
+        public void EditEvaluate_ConflictOnUnsavedTimeline_ReportsUnsavedTimelineAndStaysNotPending()
+        {
+            Scenario s = CreateScenario();
+            var second = s.Timeline.CreateTrack<FacialExpressionTrack>(null, "other");
+            second.Bake = null;
+            TimelineEditChangeWatcher watcher = CreateWatcher();
+
+            ReceiverEditEvaluation result = FacialTimelineReceiverEditEvaluator.Evaluate(s.Receiver, watcher, requestAutoRebake: true);
+
+            Assert.That(watcher.IsPending(s.Timeline), Is.False);
+            Assert.That(result.AutoRebakePending, Is.False);
+            Assert.That(s.Receiver.Diagnostics.Contains(TimelineDiagnosticCode.UnsavedTimeline), Is.True, Describe(s.Receiver.Diagnostics));
+            Assert.That(SeverityOf(s.Receiver.Diagnostics, TimelineDiagnosticCode.UnsavedTimeline), Is.EqualTo(TimelineDiagnosticSeverity.Info));
+        }
+
+        [Test]
+        public void EditEvaluate_WithGate_RequestsOnceUntilDiagnosticResolves()
+        {
+            Scenario s = CreateScenario();
+            SaveTimeline(s);
+            var second = s.Timeline.CreateTrack<FacialExpressionTrack>(null, "other");
+            second.Bake = null;
+            TimelineEditChangeWatcher watcher = CreateWatcher();
+            var gate = new AutoRebakeRequestGate();
+
+            FacialTimelineReceiverEditEvaluator.Evaluate(s.Receiver, watcher, true, gate);
+            watcher.FlushNow();
+            FacialTimelineReceiverEditEvaluator.Evaluate(s.Receiver, watcher, true, gate);
+            Assert.That(watcher.IsPending(s.Timeline), Is.False, "解消しないまま再評価しても再要求しない");
+
+            second.Bake = s.Bake;
+            FacialTimelineReceiverEditEvaluator.Evaluate(s.Receiver, watcher, true, gate);
+            Assert.That(s.Receiver.Diagnostics.Contains(TimelineDiagnosticCode.BakeReferenceConflict), Is.False);
+            watcher.FlushNow();
+            Assert.That(watcher.IsPending(s.Timeline), Is.False);
+            second.Bake = null;
+            FacialTimelineReceiverEditEvaluator.Evaluate(s.Receiver, watcher, true, gate);
+
+            Assert.That(watcher.IsPending(s.Timeline), Is.True, "解消後に再発したら再び要求する");
+        }
+
+        [Test]
+        public void EditEvaluate_RequestAutoRebakeFalse_DoesNotMarkDirty()
+        {
+            Scenario s = CreateScenario();
+            SaveTimeline(s);
+            s.Bake.ProfileContentHashHex = "deadbeefdeadbeef";
+            TimelineEditChangeWatcher watcher = CreateWatcher();
+
+            FacialTimelineReceiverEditEvaluator.Evaluate(s.Receiver, watcher, requestAutoRebake: false);
+
+            Assert.That(watcher.IsPending(s.Timeline), Is.False);
+        }
+
+        [Test]
+        public void EditEvaluate_LegacyDeclarations_MapsToLayerConnectionArea()
+        {
+            Scenario s = CreateScenario();
+            s.ProfileSO.Layers.Add(new LayerDefinitionSerializable
+            {
+                name = EmotionLayer,
+                inputSources = new List<InputSourceDeclarationSerializable>
+                {
+                    new InputSourceDeclarationSerializable { id = "timeline:emotion:state", weight = 1f },
+                    new InputSourceDeclarationSerializable { id = "timeline:emotion", weight = 0.5f },
+                },
+            });
+            TimelineEditChangeWatcher watcher = CreateWatcher();
+
+            ReceiverEditEvaluation result = FacialTimelineReceiverEditEvaluator.Evaluate(s.Receiver, watcher, requestAutoRebake: true);
+
+            FacialTimelineDiagnostics diagnostics = s.Receiver.Diagnostics;
+            Assert.That(diagnostics.Contains(TimelineDiagnosticCode.LegacyStateDeclaration, EmotionLayer + " / timeline:emotion:state"), Is.True, Describe(diagnostics));
+            Assert.That(SeverityOf(diagnostics, TimelineDiagnosticCode.LegacyStateDeclaration), Is.EqualTo(TimelineDiagnosticSeverity.Error));
+            Assert.That(diagnostics.Contains(TimelineDiagnosticCode.LayerConnectionSkippedDeclared, EmotionLayer), Is.True);
+            Assert.That(SeverityOf(diagnostics, TimelineDiagnosticCode.LayerConnectionSkippedDeclared), Is.EqualTo(TimelineDiagnosticSeverity.Info));
+            Assert.That(result.HasLegacyStateDeclarations, Is.True);
+        }
+
+        [Test]
+        public void EditEvaluate_ResolvesDirectorTimelineAndProfile()
+        {
+            Scenario s = CreateScenario();
+            TimelineEditChangeWatcher watcher = CreateWatcher();
+
+            ReceiverEditEvaluation result = FacialTimelineReceiverEditEvaluator.Evaluate(s.Receiver, watcher, requestAutoRebake: true);
+
+            Assert.That(result.Director, Is.SameAs(s.Director));
+            Assert.That(result.Timeline, Is.SameAs(s.Timeline));
+            Assert.That(result.ProfileAsset, Is.SameAs(s.ProfileSO));
+            Assert.That(result.UnboundTrackCount, Is.EqualTo(1), "Director の Facial トラック binding は未設定");
+            Assert.That(s.Director.GetGenericBinding(s.Track), Is.Null, "Edit 評価は binding を書かない（ボタンで設定する）");
+        }
+
+        [Test]
+        public void EditorTrackBindingWriter_SetsBindingWithUndo()
+        {
+            Scenario s = CreateScenario();
+            UnityEditor.Undo.IncrementCurrentGroup();
+
+            TrackBindingReport report = TimelineTrackBindingResolver.EnsureBindings(
+                s.Director, s.Timeline, s.Receiver, EditorTrackBindingWriter.Instance);
+            Assert.That(report.Assigned, Is.EqualTo(1));
+            Assert.That(s.Director.GetGenericBinding(s.Track), Is.SameAs(s.Receiver));
+
+            UnityEditor.Undo.PerformUndo();
+
+            Assert.That(s.Director.GetGenericBinding(s.Track), Is.Null, "Undo で元に戻る");
+        }
+
+        private string _savedFolder;
+
+        private void TearDownSavedAssets()
+        {
+            if (!string.IsNullOrEmpty(_savedFolder) && UnityEditor.AssetDatabase.IsValidFolder(_savedFolder))
+            {
+                UnityEditor.AssetDatabase.DeleteAsset(_savedFolder);
+            }
+
+            _savedFolder = null;
+        }
+
+        private void SaveTimeline(Scenario s)
+        {
+            string folderName = "TimelineDiagnosticsEvaluatorTests_" + System.Guid.NewGuid().ToString("N");
+            UnityEditor.AssetDatabase.CreateFolder("Assets", folderName);
+            _savedFolder = "Assets/" + folderName;
+            _created.Remove(s.Timeline);
+            UnityEditor.AssetDatabase.CreateAsset(s.Timeline, _savedFolder + "/Timeline.playable");
+        }
+
+        private static TimelineEditChangeWatcher CreateWatcher()
+        {
+            return new TimelineEditChangeWatcher(new NoopRebakeExecutor(), () => 0d, null, null)
+            {
+                IsPlayModeTransition = () => false,
+                RefreshTimelineWindow = null,
+            };
+        }
+
+        private sealed class NoopRebakeExecutor : IRebakeExecutor
+        {
+            public RebakeOutcome Rebake(TimelineAsset timeline, out FacialTimelineBakeAsset bake, out string failureReason)
+            {
+                bake = null;
+                failureReason = string.Empty;
+                return RebakeOutcome.NoChange;
+            }
         }
 
         // ================================================================

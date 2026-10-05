@@ -286,7 +286,7 @@
   - _Requirements: 3.3, 9.1_
   - _Boundary: LegacyTimelineDeclarationCleaner_
 
-- [ ] 9.6 Receiver Inspector を UI Toolkit で実装し、Edit で静的診断・操作ボタン・購読の所有を持たせる（timeline Editor Inspector）
+- [x] 9.6 Receiver Inspector を UI Toolkit で実装し、Edit で静的診断・操作ボタン・購読の所有を持たせる（timeline Editor Inspector）
   - Editor 用の binding 書込口（Undo.RecordObject(director) + SetDirty 付き）を実装する
   - CustomEditor の CreateInspectorGUI で (a) 上書きフィールド（Director / Bake。Bake がトラック参照と異なれば BakeOverrideDiffers を隣に表示）、(b) 領域ごとの Foldout に診断項目を重大度アイコン + 件名 + 直し方で表示（Ok は 1 行に畳む）、(c) Play 中はセッション状態・接続レイヤー・乗っ取り一覧、(d) ボタン「トラック binding を今設定」（Editor 書込口）/「今再ベイク」（9.2）/「旧 timeline 宣言を削除」（9.5。Edit で LegacyStateDeclaration があるときだけ有効）を構成する
   - Edit 評価は 7.1 で Profile を解決して Receiver の静的診断 overload を呼び、9.5 の Scan 結果を LayerConnection 領域（state 宣言は LegacyStateDeclaration Error、値 sink 宣言は LayerConnectionSkippedDeclared Info）に写し、BakeReferenceConflict / BakeLegacyExport / ProfileMismatch を検出したら Services の Watcher に MarkDirty して「自動再ベイク中」を併記、MarkDirty が UnsavedTimeline を返したら Bake 領域に Info で保存を案内する。Inspector 自身はデバウンスや再ベイクを持たない
