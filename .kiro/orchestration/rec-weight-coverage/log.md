@@ -109,3 +109,13 @@
 | 4.1–4.4 | OK | 全タスク差し戻し後に修正。4.3 で基準捕捉の実欠陥（初期化直後の録画で weight 0）を検出・修正 |
 | 5.1 | SKIPPED | directive（timeline パッケージ変更禁止）による |
 | 5.2–5.5 | OK | 5.2・5.4 は codex FAIL 後に Orchestrator が補完・修正 |
+
+## Phase 6: validate-impl（Gate D）
+
+- Command: `/kiro:validate-impl rec-weight-coverage`（codex-first。Bash 不可のため `codex exec --sandbox read-only` を PowerShell から起動。実行前後で HEAD と作業ツリーに変化なしを確認）
+- Result: **DECISION: NO-GO**
+  - PASS: テスト（EditMode 2358 / PlayMode 458、failed 0）、実行時生存性、TODO・秘密情報、クロスタスク統合、設計・依存方向・配置
+  - BLOCKER: task 5.1 未実装のため Req 7.7（weight kind を含む `.fcrec` を timeline REC Export が例外なく読む）を保証できない
+  - MAJOR: Req 11.7（timeline README の weight kind 記載）未実装
+  - 要件カバレッジ 74 項目中 72。未達 2 項目はどちらも directive が禁止した timeline パッケージ内
+- Gate D: **ESCALATED（ユーザー判断）**。NO-GO の理由は directive の制約で意図的に skip した 2 項目のみで、本 spec が変更した core / rec / inputsystem 側の指摘は無い。coordinator の指示どおり push と PR 作成までは進め、マージ前に timeline 側の追随（Track A マージ後の別 PR、または本 PR への追加）をユーザーが判断する旨を PR 本文に明記する
