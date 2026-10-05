@@ -181,11 +181,16 @@ namespace Hidano.FacialControl.Timeline.Tests.PlayMode
             AssetDatabase.SaveAssetIfDirty(Timeline);
         }
 
-        /// <summary>Profile SO の変更を保存する（Editor で Profile を編集して保存した状態を再現する）。</summary>
-        public void SaveProfile()
+        /// <summary>
+        /// Profile SO を編集したことを Editor 側へ知らせる（Dirty 化と Profile 読込キャッシュの無効化）。
+        /// </summary>
+        /// <remarks>
+        /// ディスクへは保存しない。Play 中に Profile アセットを保存すると、既存の保存フック（TimelineBakeDirtyWatcher）が
+        /// delayCall で自動再ベイクと Receiver の Bake 上書きを行い、テストの手順（編集 → 読み込み直し → 再生）に割り込むため。
+        /// </remarks>
+        public void MarkProfileChanged()
         {
             EditorUtility.SetDirty(ProfileAsset);
-            AssetDatabase.SaveAssetIfDirty(ProfileAsset);
             TimelineProfileSource.InvalidateCache(ProfileAsset);
         }
 

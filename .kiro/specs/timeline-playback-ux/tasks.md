@@ -224,7 +224,7 @@
   - 完了条件: Export 直後の TimelineAsset だけで Runtime が Bake を解決できる
   - _Requirements: 1.2, 4.1, 4.4, 4.7_
 
-- [ ] 8. REC Export の出力をそのまま使う PlayMode end-to-end テストで受け入れ条件を固定する（timeline Tests）
+- [x] 8. REC Export の出力をそのまま使う PlayMode end-to-end テストで受け入れ条件を固定する（timeline Tests）
 - [x] 8.1 e2e 用の共有 fixture（.fcrec 生成・Fake Analog binding・配置ヘルパー）とテスト asmdef の参照を用意する（timeline Tests/Shared + asmdef）
   - Tests/Shared の asmdef に core Domain / Application / Adapters と Rec Domain / Rec Adapters の参照を、Tests/PlayMode の asmdef に Rec / Application の参照を追加する。inputsystem は参照しない
   - `.fcrec` を trigger（smile）/ analog（`osc:lt` 1 軸）/ gaze（`osc:gaze` 2 軸）で書き出すヘルパー、外から値を設定できる Fake analog source、Fake analog source を `osc:lt` に登録し core の Analog Expression 消費者（binding `lt` → `squint`）を構築して 2.4 の契約で registry に接続し `osc:analog-expression` で登録する Fake binding（InputSystem の構成と同形、Dispose で切断）、BlendShape 3 個以上のメッシュ + 明示目ボーン + Profile SO（emotion / overlay レイヤー、smile / squint、GazeChannels 既定、AdapterBindings に Timeline binding と Fake binding、emotion の inputSources に `osc:analog-expression`）を `Assets/<guid>/` に保存し Export → FacialController / Receiver / Director 配置までを束ねる fixture を実装する。生成物は TearDown で削除
@@ -238,7 +238,7 @@
   - 完了条件: Profile に Timeline 専用設定を一切書かずに 3 種が再現され、受け入れ条件 (1)(4) が緑
   - _Requirements: 1.1, 1.2, 1.3, 1.5, 3.2, 3.4, 3.6, 8.9, 11.1, 11.2_
 
-- [ ] 8.3 手順欠落と復旧、Clip 編集後のタイミング変化を e2e で固定する（timeline Tests/PlayMode）
+- [x] 8.3 手順欠落と復旧、Clip 編集後のタイミング変化を e2e で固定する（timeline Tests/PlayMode）
   - `TimelinePlaybackEndToEndTests` に追記: Clip を移動して再ベイク（Bake サービス + 7.3 の Writer）した後の再生で BlendShape が変わる時刻が移動する、1 トラックだけ Bake 参照を別インスタンス（または null）にずらすと BakeReferenceConflict で Failed → 再ベイクで全トラック同一参照に戻り Active に復旧、旧 Profile（`:state` 宣言あり）で LegacyStateDeclaration の Failed → 宣言を除いた Profile で再現、Receiver を controller と別 GameObject に置くと ReceiverNotOnControllerObject、binding 無効で BindingDisabled、を診断コードの値で検証する
   - 完了条件: 受け入れ条件 (3) の各欠落ケースが診断状態で判定でき、第 1 段のロールバック基準（値 sink 宣言のみの旧 Profile が動き、`:state` 宣言ありは止まる）を満たす
   - _Requirements: 2.6, 3.3, 6.3, 8.1, 8.2, 8.3, 8.4, 10.7, 11.3, 11.4_

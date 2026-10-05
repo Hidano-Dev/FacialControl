@@ -2,6 +2,7 @@
 using System.Collections;
 using System.Text;
 using Hidano.FacialControl.Adapters.Playable;
+using Hidano.FacialControl.Adapters.ScriptableObject.Serializable;
 using Hidano.FacialControl.Domain.Interfaces;
 using Hidano.FacialControl.Testing;
 using Hidano.FacialControl.Timeline.Adapters;
@@ -38,6 +39,12 @@ namespace Hidano.FacialControl.Timeline.Tests.PlayMode
         /// <summary>trigger 終了と遷移の後（Analog / Gaze は続く）。</summary>
         private const double AfterTriggerSeconds = 1.2d;
 
+        /// <summary>Clip 移動先の開始時刻（0.2〜0.8 s → 1.0〜1.6 s）。</summary>
+        private const double MovedClipStartSeconds = 1.0d;
+
+        /// <summary>移動後の trigger 区間の中（移動前は trigger 後）。</summary>
+        private const double MovedMidTriggerSeconds = 1.3d;
+
         private const string EmotionValueSinkId = "timeline:" + TimelineE2EFixture.EmotionLayer;
 
         private TimelineE2EFixture _fixture;
@@ -47,6 +54,7 @@ namespace Hidano.FacialControl.Timeline.Tests.PlayMode
         {
             _fixture?.Dispose();
             _fixture = null;
+            LogAssert.ignoreFailingMessages = false;
         }
 
         [Test]
@@ -160,6 +168,184 @@ namespace Hidano.FacialControl.Timeline.Tests.PlayMode
             Assert.That(
                 character.GetBlendShapeWeight(TimelineE2EFixture.SquintBlendShape),
                 Is.EqualTo(TimelineE2EFixture.SquintExpressionValue * 0.25f * 100f).Within(WeightTolerance));
+        }
+
+        // ================================================================
+        // 手順欠落と復旧、Clip 編集後のタイミング変化（受け入れ条件 (3)）
+        // ================================================================
+
+        [UnityTest]
+        public IEnumerator ClipMovedAndRebaked_NextPlayback_ShiftsBlendShapeChangeTime()
+        {
+            _fixture = TimelineE2EFixture.Create();
+            TimelineE2ECharacter character = _fixture.Spawn(TimelineE2EPlacement.SameObject);
+
+            yield return character.EvaluateAt(MidTriggerSeconds);
+            Assert.That(character.GetBlendShapeWeight(TimelineE2EFixture.SmileBlendShape), Is.EqualTo(100f).Within(WeightTolerance), "前提: 移動前は 0.5 s で smile");
+            yield return character.EvaluateAt(MovedMidTriggerSeconds);
+            Assert.That(character.GetBlendShapeWeight(TimelineE2EFixture.SmileBlendShape), Is.EqualTo(0f).Within(WeightTolerance), "前提: 移動前は 1.3 s で smile なし");
+            yield return character.StopDirector();
+
+            // Clip を 0.2〜0.8 s から 1.0〜1.6 s へ移動し、Editor の再ベイクと同じ経路で焼き直す。
+            TimelineClip smileClip = FindEmotionClip(_fixture.Timeline);
+            smileClip.start = MovedClipStartSeconds;
+            _fixture.Rebake();
+
+            yield return character.EvaluateAt(MidTriggerSeconds);
+            Assert.That(character.Receiver.SessionState, Is.EqualTo(TimelineSessionState.Active), DescribeDiagnostics(character));
+            Assert.That(character.GetBlendShapeWeight(TimelineE2EFixture.SmileBlendShape), Is.EqualTo(0f).Within(WeightTolerance), "移動後は 0.5 s で smile が出ない");
+            yield return character.EvaluateAt(MovedMidTriggerSeconds);
+            Assert.That(character.GetBlendShapeWeight(TimelineE2EFixture.SmileBlendShape), Is.EqualTo(100f).Within(WeightTolerance), "移動後は 1.3 s で smile が出る");
+            Assert.That(character.Receiver.Diagnostics.Contains(TimelineDiagnosticCode.BakeFresh), Is.True, DescribeDiagnostics(character));
+        }
+
+        [UnityTest]
+        public IEnumerator TrackBakeReferenceShifted_Play_FailsWithReferenceConflictAndRebakeRecovers()
+        {
+            LogAssert.ignoreFailingMessages = true;
+            _fixture = TimelineE2EFixture.Create();
+            var foreignBake = ScriptableObject.CreateInstance<FacialTimelineBakeAsset>();
+            try
+            {
+                // 1 トラック（osc:lt の Value トラック）だけ Bake 参照を別インスタンスにずらす。
+                ((IFacialTimelineBakeHolder)FindValueTrack(_fixture.Timeline, RecFixtureWriter.AnalogSourceId)).Bake = foreignBake;
+                TimelineE2ECharacter character = _fixture.Spawn(TimelineE2EPlacement.SameObject);
+
+                yield return character.EvaluateAt(MidTriggerSeconds);
+                Assert.That(character.Receiver.SessionState, Is.EqualTo(TimelineSessionState.Failed), DescribeDiagnostics(character));
+                Assert.That(character.Receiver.Diagnostics.Contains(TimelineDiagnosticCode.BakeReferenceConflict), Is.True, DescribeDiagnostics(character));
+                Assert.That(character.Receiver.Diagnostics.Overall, Is.EqualTo(TimelineDiagnosticSeverity.Error));
+                Assert.That(character.GetBlendShapeWeight(TimelineE2EFixture.SmileBlendShape), Is.EqualTo(0f).Within(WeightTolerance), "古い / 不整合な Bake を無言で再生しない");
+                Assert.That(ResolveRegistry(character.Controller, EmotionValueSinkId), Is.Null, "Failed では何も登録しない");
+
+                // 再ベイクで全トラックが同じ参照に戻り、次のセッションで Active に復旧する。
+                _fixture.Rebake();
+                Assert.That(FacialTimelineBakeLocator.Locate(_fixture.Timeline, null).Status, Is.EqualTo(BakeLocateStatus.Found));
+                yield return character.StopDirector();
+                character.Receiver.ReleaseAll();
+
+                yield return character.EvaluateAt(MidTriggerSeconds);
+                Assert.That(character.Receiver.SessionState, Is.EqualTo(TimelineSessionState.Active), DescribeDiagnostics(character));
+                Assert.That(character.Receiver.Diagnostics.Contains(TimelineDiagnosticCode.BakeReferenceConflict), Is.False, DescribeDiagnostics(character));
+                Assert.That(character.GetBlendShapeWeight(TimelineE2EFixture.SmileBlendShape), Is.EqualTo(100f).Within(WeightTolerance));
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(foreignBake);
+            }
+        }
+
+        [UnityTest]
+        public IEnumerator LegacyStateDeclaration_Play_FailsAndRemovingDeclarationReproduces()
+        {
+            LogAssert.ignoreFailingMessages = true;
+            // 旧 Profile: Layer.inputSources に timeline:{layer}:state の宣言が残っている（その Profile で録画・Export した）。
+            _fixture = TimelineE2EFixture.Create(configureProfile: profile =>
+                profile.Layers[0].inputSources.Add(new InputSourceDeclarationSerializable { id = EmotionValueSinkId + ":state", weight = 1f }));
+            TimelineE2ECharacter character = _fixture.Spawn(TimelineE2EPlacement.SameObject);
+
+            yield return character.EvaluateAt(MidTriggerSeconds);
+            Assert.That(character.Receiver.SessionState, Is.EqualTo(TimelineSessionState.Failed), DescribeDiagnostics(character));
+            Assert.That(character.Receiver.Diagnostics.Contains(TimelineDiagnosticCode.LegacyStateDeclaration), Is.True, DescribeDiagnostics(character));
+            Assert.That(ResolveRegistry(character.Controller, EmotionValueSinkId), Is.Null, "旧 :state 宣言では何も登録しない");
+            Assert.That(character.Controller.IsLayerInputSourceBound(TimelineE2EFixture.EmotionLayer, EmotionValueSinkId), Is.False);
+            Assert.That(character.GetBlendShapeWeight(TimelineE2EFixture.SmileBlendShape), Is.EqualTo(0f).Within(WeightTolerance));
+
+            // 宣言を除いた Profile（Profile 変更に伴う再ベイク済み）で読み込み直すと再現される。
+            _fixture.EmotionInputSources.RemoveAll(declaration => declaration.id == EmotionValueSinkId + ":state");
+            _fixture.MarkProfileChanged();
+            _fixture.Rebake();
+            character.Controller.LoadCharacter(_fixture.ProfileAsset);
+            Assert.That(character.Receiver.SessionState, Is.EqualTo(TimelineSessionState.Idle), "前提: 読み込み直しで binding が付け直されセッションが解放される");
+
+            yield return character.EvaluateAt(MidTriggerSeconds);
+            Assert.That(character.Receiver.SessionState, Is.EqualTo(TimelineSessionState.Active), DescribeDiagnostics(character));
+            Assert.That(character.Receiver.Diagnostics.Contains(TimelineDiagnosticCode.LegacyStateDeclaration), Is.False, DescribeDiagnostics(character));
+            Assert.That(character.Receiver.Diagnostics.Contains(TimelineDiagnosticCode.ProfileMatched), Is.True, DescribeDiagnostics(character));
+            Assert.That(character.GetBlendShapeWeight(TimelineE2EFixture.SmileBlendShape), Is.EqualTo(100f).Within(WeightTolerance));
+        }
+
+        [UnityTest]
+        public IEnumerator ValueSinkDeclarationOnly_LegacyProfile_PlaysWithDeclaredConnection()
+        {
+            // 第 1 段のロールバック基準: 値 sink（timeline:{layer}）の宣言だけを持つ旧 Profile はそのまま動く。
+            _fixture = TimelineE2EFixture.Create();
+            _fixture.EmotionInputSources.Add(new InputSourceDeclarationSerializable { id = EmotionValueSinkId, weight = 1f });
+            _fixture.MarkProfileChanged();
+            _fixture.Rebake();
+            TimelineE2ECharacter character = _fixture.Spawn(TimelineE2EPlacement.SameObject);
+
+            yield return character.EvaluateAt(MidTriggerSeconds);
+            Assert.That(character.Receiver.SessionState, Is.EqualTo(TimelineSessionState.Active), DescribeDiagnostics(character));
+            Assert.That(
+                character.Receiver.Diagnostics.Contains(TimelineDiagnosticCode.LayerConnectionSkippedDeclared, TimelineE2EFixture.EmotionLayer),
+                Is.True,
+                DescribeDiagnostics(character));
+            Assert.That(character.GetBlendShapeWeight(TimelineE2EFixture.SmileBlendShape), Is.EqualTo(100f).Within(WeightTolerance));
+            Assert.That(
+                character.GetBlendShapeWeight(TimelineE2EFixture.SquintBlendShape),
+                Is.EqualTo(TimelineE2EFixture.SquintExpressionValue * _fixture.Recording.AnalogValue * 100f).Within(WeightTolerance));
+        }
+
+        [UnityTest]
+        public IEnumerator ReceiverOnChildObject_Play_ReportsReceiverNotOnControllerObject()
+        {
+            LogAssert.ignoreFailingMessages = true;
+            _fixture = TimelineE2EFixture.Create();
+            TimelineE2ECharacter character = _fixture.Spawn(TimelineE2EPlacement.ReceiverOnChild);
+            Assert.That(character.Receiver.gameObject, Is.Not.SameAs(character.Controller.gameObject), "前提: Receiver は controller と別 GameObject");
+
+            // Start の静的診断（配置の誤り）が Play 開始時に記録される。
+            yield return null;
+            Assert.That(
+                character.Receiver.Diagnostics.Contains(TimelineDiagnosticCode.ReceiverNotOnControllerObject),
+                Is.True,
+                DescribeDiagnostics(character));
+
+            yield return character.EvaluateAt(MidTriggerSeconds);
+            Assert.That(character.Receiver.SessionState, Is.EqualTo(TimelineSessionState.Failed), DescribeDiagnostics(character));
+            Assert.That(
+                character.Receiver.Diagnostics.Contains(TimelineDiagnosticCode.ReceiverNotOnControllerObject),
+                Is.True,
+                DescribeDiagnostics(character));
+            Assert.That(character.GetBlendShapeWeight(TimelineE2EFixture.SmileBlendShape), Is.EqualTo(0f).Within(WeightTolerance));
+        }
+
+        [UnityTest]
+        public IEnumerator BindingDisabled_Play_ReportsBindingDisabled()
+        {
+            LogAssert.ignoreFailingMessages = true;
+            _fixture = TimelineE2EFixture.Create();
+            _fixture.TimelineBinding.Enabled = false;
+            _fixture.MarkProfileChanged();
+            TimelineE2ECharacter character = _fixture.Spawn(TimelineE2EPlacement.SameObject);
+
+            yield return null;
+            Assert.That(character.Receiver.Diagnostics.Contains(TimelineDiagnosticCode.BindingDisabled), Is.True, DescribeDiagnostics(character));
+
+            yield return character.EvaluateAt(MidTriggerSeconds);
+            Assert.That(character.Receiver.SessionState, Is.EqualTo(TimelineSessionState.Failed), DescribeDiagnostics(character));
+            Assert.That(character.Receiver.Diagnostics.Contains(TimelineDiagnosticCode.BindingDisabled), Is.True, DescribeDiagnostics(character));
+            Assert.That(ResolveRegistry(character.Controller, EmotionValueSinkId), Is.Null, "無効時は sink を登録しない");
+            Assert.That(ResolveRegistry(character.Controller, _fixture.FakeBinding.AnalogSourceId), Is.SameAs(_fixture.FakeBinding.AnalogSource), "無効時は乗っ取らない");
+            Assert.That(character.GetBlendShapeWeight(TimelineE2EFixture.SmileBlendShape), Is.EqualTo(0f).Within(WeightTolerance));
+        }
+
+        private static TimelineClip FindEmotionClip(TimelineAsset timeline)
+        {
+            foreach (TrackAsset track in timeline.GetRootTracks())
+            {
+                if (track is FacialExpressionTrack && track.name == TimelineE2EFixture.EmotionLayer)
+                {
+                    foreach (TimelineClip clip in track.GetClips())
+                    {
+                        return clip;
+                    }
+                }
+            }
+
+            Assert.Fail("前提: emotion の Expression トラックに Clip がある");
+            return null;
         }
 
         private IEnumerator AssertReproducesRecording(TimelineE2ECharacter character)

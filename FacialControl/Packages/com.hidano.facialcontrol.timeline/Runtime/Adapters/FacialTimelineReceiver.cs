@@ -47,7 +47,8 @@ namespace Hidano.FacialControl.Timeline.Adapters
     /// (3) 旧 <c>:state</c> 宣言。最初に見つかった Error だけを Console に 1 回出す（Inspector は診断状態の全件を読む）。
     /// Profile 内容ハッシュ不一致（ProfileMismatch）と Source ハッシュ不一致（BakeStale）は Warning で、Active のまま Bake の値を再生する。</para>
     /// <para>Profile は controller が保持する値（<see cref="FacialController.CurrentProfile"/>）を使い、再読込しない。</para>
-    /// <para>(Timeline, Bake, Profile) が同じ間はセッション資源（導出結果・sink・Bake → sink のバインディング）を再利用する。</para>
+    /// <para>(Timeline, Bake, Profile) が同じ間はセッション資源（導出結果・sink・Bake → sink のバインディング）を再利用する。
+    /// 同じ Bake インスタンスでも再ベイクで中身（ExpressionBakes / SourceHashHex）が変わったら作り直す。</para>
     /// <para>メインスレッド専用。Active 中の Mixer 向け API（TryGet* / <see cref="SampleExpressionValues"/>）はヒープ確保しない。</para>
     /// </remarks>
     public sealed class FacialTimelineReceiver : MonoBehaviour
@@ -106,6 +107,9 @@ namespace Hidano.FacialControl.Timeline.Adapters
         // セッション資源プールのキー（(Timeline, Bake, Profile) が同じ間は導出結果と Bake → sink のバインディングを再利用する）。
         private TimelineAsset _pooledTimeline;
         private FacialTimelineBakeAsset _pooledBake;
+        // 同じ Bake インスタンスでも再ベイク（UpdateBakeAsset）で中身が差し替わるため、中身の同一性もキーに含める。
+        private ExpressionSourceBake[] _pooledBakeExpressionBakes;
+        private string _pooledBakeSourceHash;
         private FacialProfile _pooledProfile;
         private bool _hasPooledProfile;
         private TimelineDerivation _pooledDerivation;
@@ -568,9 +572,13 @@ namespace Hidano.FacialControl.Timeline.Adapters
 
         private TimelineDerivation AcquireDerivation(TimelineAsset timeline, FacialTimelineBakeAsset bake, FacialProfile profile)
         {
+            ExpressionSourceBake[] bakeContent = bake != null ? bake.ExpressionBakes : null;
+            string bakeSourceHash = bake != null ? bake.SourceHashHex : null;
             if (_pooledDerivation != null
                 && _pooledTimeline == timeline
                 && _pooledBake == bake
+                && ReferenceEquals(_pooledBakeExpressionBakes, bakeContent)
+                && string.Equals(_pooledBakeSourceHash, bakeSourceHash, StringComparison.Ordinal)
                 && _hasPooledProfile
                 && SameProfileSnapshot(_pooledProfile, profile))
             {
@@ -580,6 +588,8 @@ namespace Hidano.FacialControl.Timeline.Adapters
             _pooledDerivation = TimelineChannelDeriver.Derive(TimelineAssetScanner.Scan(timeline).Tracks, profile);
             _pooledTimeline = timeline;
             _pooledBake = bake;
+            _pooledBakeExpressionBakes = bakeContent;
+            _pooledBakeSourceHash = bakeSourceHash;
             _pooledProfile = profile;
             _hasPooledProfile = true;
             _playbackByLayer.Clear();
@@ -591,6 +601,8 @@ namespace Hidano.FacialControl.Timeline.Adapters
             _pooledDerivation = null;
             _pooledTimeline = null;
             _pooledBake = null;
+            _pooledBakeExpressionBakes = null;
+            _pooledBakeSourceHash = null;
             _pooledProfile = default;
             _hasPooledProfile = false;
             _playbackByLayer.Clear();
