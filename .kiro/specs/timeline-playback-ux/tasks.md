@@ -144,7 +144,7 @@
   - _Requirements: 1.6, 5.2, 8.5_
   - _Boundary: TimelineTrackBindingResolver, ITrackBindingWriter_
 
-- [ ] 5.5 導出結果から sink を生成し、registry 登録と FacialController への接続 / 解放を行う Connector を実装する（timeline Runtime Adapters）
+- [x] 5.5 導出結果から sink を生成し、registry 登録と FacialController への接続 / 解放を行う Connector を実装する（timeline Runtime Adapters）
   - 接続前に Profile の宣言を 4.1 の旧 state 宣言判定で静的走査し、1 件でも一致すれば何も登録せず LegacyStateDeclaration（Error、件名 = レイヤー名 + 宣言 id、直し方付き）を記録して中断する
   - レイヤーごとに値 id / state id を合成（フォールバック時は LayerSinkIdFallback を Info で記録）、Bake の名前から値 sink を、BlendShape 名列と Profile から state sink を生成（セッションプールがあれば再利用）。値 sink のみ registry に登録し、既存宣言で接続済みなら LayerConnectionSkippedDeclared（Info）、未接続なら 2.2 の API で weight 1 で接続（成功 LayerConnected / 失敗 LayerConnectionFailed）。state id がレイヤーに接続済みなら登録済みを全部戻して LegacyStateDeclaration で中断、そうでなければ状態入力源として登録（registry には登録しない）
   - 解放は接続したレイヤーの解放・状態登録解除・値 sink の登録解除・TriggerOff / Invalidate を行い、二重解放は no-op
