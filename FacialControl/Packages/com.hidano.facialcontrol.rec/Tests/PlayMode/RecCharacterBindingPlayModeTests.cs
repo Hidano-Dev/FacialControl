@@ -178,6 +178,72 @@ namespace Hidano.FacialControl.Rec.Tests.PlayMode
         }
 
         [UnityTest]
+        public IEnumerator StartPlayback_WeightGateUnresolved_FailsWithoutLeavingPartialInjection()
+        {
+            SetupHarness(out FacialController controller, out RecCharacterBinding binding, out FakeObservationBus bus,
+                out FakeInputSourceRegistry registry, out TestTriggerSource triggerSource, out FakeAnalogSource analogSource);
+            Assert.That(binding.StartRecording("gate-unresolved"), Is.True);
+            bus.PublishTriggerOn(triggerSource.Id, "smile");
+            bus.PublishAnalog(analogSource.Id, 0.25f, -0.5f);
+            binding.StopRecording();
+            Assert.That(binding.LoadRecording("gate-unresolved"), Is.True);
+
+            // weight gate（LayerUseCase）が解決できない状態。5 ポートの preflight で拒否され、どのポートも確立しない。
+            GetLayerUseCase(controller).Dispose();
+            SetControllerPrivateField(controller, "_layerUseCase", null);
+            Assert.That(controller.WeightInjectionGate, Is.Null);
+
+            LogAssert.Expect(LogType.Error, new Regex("weight injection requires an initialised FacialController"));
+            Assert.That(binding.StartPlayback(), Is.False);
+            yield return null;
+
+            Assert.That(binding.PlaybackState, Is.Not.EqualTo(RecPlaybackState.Playing));
+            Assert.That(registry.TryResolve(analogSource.Id, out IInputSource analogResolved), Is.True);
+            Assert.That(analogResolved, Is.SameAs(analogSource), "no port may remain established after a failed start");
+            Assert.That(registry.TryResolve(triggerSource.Id, out IInputSource triggerResolved), Is.True);
+            Assert.That(triggerResolved, Is.SameAs(triggerSource), "no port may remain established after a failed start");
+        }
+
+        [UnityTest]
+        public IEnumerator Playback_ValueProviderReplaceAndRestore_KeepsSlotWeights()
+        {
+            SetupFullCoverageHarness(
+                out FacialController controller,
+                out RecCharacterBinding binding,
+                out FakeObservationBus bus,
+                out FakeInputSourceRegistry registry,
+                out FakeValueProvider valueProvider,
+                out Expression expression);
+            LayerUseCase layerUseCase = GetLayerUseCase(controller);
+            controller.SetInputSourceWeight(0, 1, 0.35f);
+            layerUseCase.UpdateWeights(0f);
+            var before = new List<InputSourceWeightEntry>();
+            controller.WeightInjectionGate.CollectInputSourceWeights(before);
+            Assert.That(before.Exists(e => e.Weight == 0.35f), Is.True, "the value provider slot weight must be observable");
+
+            Assert.That(binding.StartRecording("vp-weights"), Is.True);
+            valueProvider.Publish(0.5f);
+            binding.StopRecording();
+            Assert.That(binding.LoadRecording("vp-weights"), Is.True);
+            Assert.That(binding.StartPlayback(), Is.True);
+            yield return null;
+
+            Assert.That(registry.TryResolve(valueProvider.Id, out IInputSource replaced), Is.True);
+            Assert.That(replaced, Is.Not.SameAs(valueProvider), "the value provider must be replaced during playback");
+            var during = new List<InputSourceWeightEntry>();
+            controller.WeightInjectionGate.CollectInputSourceWeights(during);
+            Assert.That(during, Is.EqualTo(before), "replacing the value provider must not change slot weights");
+
+            binding.StopPlayback();
+            yield return null;
+            Assert.That(registry.TryResolve(valueProvider.Id, out IInputSource restored), Is.True);
+            Assert.That(restored, Is.SameAs(valueProvider));
+            var after = new List<InputSourceWeightEntry>();
+            controller.WeightInjectionGate.CollectInputSourceWeights(after);
+            Assert.That(after, Is.EqualTo(before), "restoring the original value provider must not change slot weights");
+        }
+
+        [UnityTest]
         public IEnumerator StartPlayback_BuildsFivePortSessionWithWeightInjector()
         {
             SetupHarness(out FacialController controller, out RecCharacterBinding binding, out FakeObservationBus bus,
