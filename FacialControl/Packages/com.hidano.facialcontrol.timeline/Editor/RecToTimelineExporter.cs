@@ -199,7 +199,14 @@ namespace Hidano.FacialControl.Timeline.Editor
 
                 if (receiver != null)
                 {
-                    receiver.BakeAsset = bakeAsset;
+                    // Receiver.BakeAsset は任意の上書き欄。ユーザーが既に明示設定している場合だけ新しい Bake へ追従させる。
+                    if (receiver.BakeAsset != null && !ReferenceEquals(receiver.BakeAsset, bakeAsset))
+                    {
+                        Undo.RecordObject(receiver, "Update Timeline Bake Override");
+                        receiver.BakeAsset = bakeAsset;
+                        EditorUtility.SetDirty(receiver);
+                    }
+
                     if (director != null)
                     {
                         BindReceiverToTimelineTracks(director, targetTimeline, receiver);

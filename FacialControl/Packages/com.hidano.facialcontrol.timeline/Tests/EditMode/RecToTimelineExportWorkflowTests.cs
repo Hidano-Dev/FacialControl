@@ -48,7 +48,7 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
                 Assert.That(result.Timeline, Is.Not.Null);
                 Assert.That(result.BakeAsset, Is.Not.Null);
                 Assert.That(AssetDatabase.LoadAssetAtPath<TimelineAsset>(fixture.TimelinePath), Is.Not.Null);
-                Assert.That(receiver.BakeAsset, Is.SameAs(result.BakeAsset));
+                Assert.That(receiver.BakeAsset, Is.Null, "Receiver の上書き欄は自動で書かない（Bake はトラック参照から解決する）");
                 Assert.That(AssetDatabase.GetAssetPath(director.playableAsset), Is.EqualTo(fixture.TimelinePath));
 
                 foreach (TrackAsset track in result.Timeline.GetOutputTracks())

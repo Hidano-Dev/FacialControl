@@ -255,7 +255,7 @@
   - 完了条件: 連続した編集が 1 回の再ベイクに畳まれ、未保存 Timeline が予約されない
   - _Requirements: 6.1, 6.2, 6.5, 6.6, 6.7_
 
-- [ ] 9.2 DirtyWatcher のダイアログを撤去し、再ベイク口の公開・参照修復・Undo 対応・Play 移行前の Profile 直列同期を実装する（timeline Editor + Editor asmdef）
+- [x] 9.2 DirtyWatcher のダイアログを撤去し、再ベイク口の公開・参照修復・Undo 対応・Play 移行前の Profile 直列同期を実装する（timeline Editor + Editor asmdef）
   - timeline Editor asmdef に core Editor（`Hidano.FacialControl.Editor`）の参照を追加する
   - 再ベイクを public 化し（Timeline のみ / Profile SO 指定の 2 overload、結果と失敗理由を返す）、ハッシュ一致で焼き直さない場合も 7.3 の Writer を必ず適用して参照が変わったら ReferencesRepaired を返す。Receiver 参照の更新は Undo.RecordObject + SetDirty。鮮度判定は 7.1 の Profile で 7.2 の種別判定を使う
   - Play 終了後のダイアログ分岐と結果の HasDialog を撤去し、Edit 復帰時の修復は無言で実行して Console に Info を 1 行出す。Play 中に検出された HashMismatch / ProfileMismatch は Receiver の診断状態を走査して修復する
