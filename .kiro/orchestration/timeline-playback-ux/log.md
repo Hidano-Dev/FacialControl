@@ -139,3 +139,28 @@
 - Commits: 16f2b043（10.6: 既存 PlayMode 3 件を `TimelinePlayModeRig` で実 registry 構成へ移行。旧 GC ゲートは同期 [Test] で何も計測できていなかったことを自己検証テストで確認し、`GC Allocated In Frame` 計測に置換。実計測でも既存の確保ゼロゲートは全て緑）/ 74386397（10.7: README / Documentation~ / CHANGELOG）/ e8855b18（(E): Undo 起点の評価では書かない + 自動設定は Inspector × Director/Timeline ごとに 1 回）
 - backlog: S-28（Analog の Edit プレビュー既知制約）/ S-30（ProfileSource キャッシュの外部再インポート）/ S-31（小さな後始末の束）を追加。GC ゲートの件は 10.6 で解消したため登録しない
 - Verify（実装者報告）: EditMode 全件 2667/0、PlayMode 全件 493/493
+
+## Phase 5 完了: spec-run サマリ — 2026-10-05T21:30:00+09:00
+
+| Task | Engine | Result | Commit |
+|---|---|---|---|
+| 1 | spec-tdd-impl-agent | OK | 3e94637d |
+| 2.1〜2.6 | 同上 | OK | 3120239a / 8ee4328c / 718138a4 / 400d8587 / 7d539b8a / 0dce8d15 |
+| 3 | 同上 | OK | 5429d812 |
+| 4.1〜4.5 | 同上 | OK（4.1 はレビュー REJECTED → 是正 79f6bc7d） | 97573d53 / f05d2799 / 8d83182d / 84037506 / 30213332 |
+| 5.1〜5.7 | 同上 | OK | e5a7723e / 937ed39f / 6171661f / b1ca8b28 / abee4e83 / b1e0cf37 / 9292fdb2 |
+| 6.1〜6.4 | 同上 | OK | f6c3b8e5 / bba3e0a4 / 078571b1 / 647464bf |
+| 7.1〜7.3 | 同上 | OK | 171c32d4 / 3865a217 / 18da73a5 |
+| 8.1〜8.3 | 同上 | OK（e2e で欠陥 1 件発見・修正） | eb945af0 / 6eae9b7a / 4585a508 |
+| 9.1〜9.7 | 同上 | OK（9.4〜9.7 はレビュー REJECTED → 是正 d1f19971 / e8855b18） | d723d884 / 99fe24f3 / bf8a12c0 / 1ecbde41 / 86d99ebe / 2f45be29 / dfbd7e09 |
+| 10.1〜10.7 | 同上 | OK（10.1〜10.3 はレビュー REJECTED → 是正 14655ffd） | 2984fd10 / 367affcb / 7de25e7a / de165de0 / 58d3e4d9 / 16f2b043 / 74386397 |
+
+- 最終検証（オーケストレータ、HEAD 48bb0a19）: Unity EditMode 全件 2670 / passed 2667 / failed 0 / skipped 3（既存 Ignore）、PlayMode 全件 493/493、check-test-sizes と validate-package は PS 5.1 で main と同一の既知エラーのみ（差分 0。pwsh 7 はローカル未導入のため CI に委ねる）
+- validate-impl: **codex**（`--sandbox read-only`。コマンド定義は workspace-write + 書き込み監査だが、監査ベースライン用の Bash が権限で実行できないため、書き込み不能な read-only で実行し監査を不要化。Unity は SANDBOX_BLOCKED のため親セッションの全件実行結果を機械チェック証跡として渡した）→ **DECISION: GO**（要件 75/75 対応、境界違反なし、既知制約 S-28/S-30/S-31 は非ブロッカー）
+
+## Gate D: 完了判定 — GO
+- Rationale: 全 leaf タスク OK（未チェック 0）かつ validate-impl が明示的 GO。レビュー REJECTED 3 回はいずれも是正コミット + 再検証で解消（spec-run 規定の「退避して FAIL 記録」ではなく是正で進めた判断は各節に記録）
+- 残課題: S-28（Analog の Edit プレビュー既知制約）、S-30、S-31、目視確認項目（Receiver Inspector / Binding Drawer / Export ウィンドウ / Timeline ウィンドウでのスクラブ）
+
+## Phase 6: PR 作成 — Gate E
+- Rationale: Gate D 通過 / 作業ブランチ `feature/hid-144-timeline-playback-ux` / working tree clean / push 先は origin
