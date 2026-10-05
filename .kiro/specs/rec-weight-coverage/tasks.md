@@ -92,7 +92,7 @@
   - Small テストで「レイヤー weight サンプルが Layer 定義 → kind 12 の順で追記される」「入力源 weight サンプルが kind 13 で追記される」「Open が weight 基準を時刻付きの前に書く」「定常状態の記録で確保ゼロ」が緑になる
   - _Requirements: 3.1, 3.2, 3.4, 4.3, 7.5, 9.5_
 
-- [ ] 4.2 weight 注入ポートの実装を追加する
+- [x] 4.2 weight 注入ポートの実装を追加する
   - gate を遅延解決するデリゲートを受け取り、preflight は「gate 解決可否」と「レイヤー名が一意か」のみ（副作用なし。不合格は理由付き）、確立は「解除 → gate 解決 → ライブ遮断 → 宣言値リセット → 基準 weight 設定」の順で行い、途中失敗は自ポートの副作用を残さず false を返す。時刻付き注入は gate へ委譲し、未知の対象は id 単位 1 回の Warning でスキップ。解放は遮断解除のみ（値は維持）で冪等
   - Fake gate を使った Small テストで「gate 未解決は preflight 不合格・確立も副作用なし」「レイヤー名重複は preflight 不合格（理由に duplicate layer names）」「確立の呼出順（Suspend → Reset → Baseline）」「未知対象は warn-once で継続」「解放の冪等」が緑になる
   - _Requirements: 2.6, 4.4, 4.5, 4.6, 5.1, 5.5, 5.6, 6.1, 6.2, 6.5, 6.6, 9.7_
