@@ -77,7 +77,7 @@
 - **系1 経路**: `FacialController.Activate/Deactivate` → `ExpressionUseCase.Activate/Deactivate`（プレーンクラス、`_activeByLayer: Dictionary<layer, List<Expression>>`）。消費側 `LayerUseCase.UpdateWeights` は `CollectActiveExpressions` → `GroupByLayer` → `LayerExpressionSource.UpdateExpressions`（変化検出のたびに必ず遷移を開始）。`LayerExpressionSource.Id` は `"input"` で inputsystem の予約 id と同名のため、系1 の識別子にも値提供型の選別にも id は使えない
 - **既存の面の後付けパターン**: `ExpressionTriggerInputSourceBase` の `SetTriggerEventObserver` / `SuspendTriggerInput` / `ResumeTriggerInput` / `InjectTriggerOn/Off` / `ResetToExpressionStack`。系1 ゲートはこの形を `ExpressionUseCase` に写す
 - **注入面**: `RecAnalogInjector` の Replace / Register + `IInjectedInputSource` 占有規則 + 参照同一性復元。`FacialController` は宣言 id 全てを `Subscribe` しており、Replace は `BindLateInputSource`（同 id スワップ + weight 焼き込み）で次フレームの Aggregate から反映される
-> **HID-80 上書き注記:** 直参照経路 (2) の weight は rec-weight-coverage task 5.1（skip）で記録・遮断・注入対象へ上書きされた。timeline パッケージは変更しない。
+> **HID-80 上書き注記:** 直参照経路 (2) の weight は `rec-weight-coverage` により記録・遮断・注入対象へ上書きされた。
 
 - **直参照経路の実態**: (1) `OscReceiverAdapterBinding.PublishRuntimeMappings` が heartbeat でマッピング集合が変わるたび `new OscInputSource` + `_runtimeRegistry.Replace`（占有検査なし）。(2) inputsystem の `ApplyOverlayLayerWeights` が `InputActionAnalogSource` 直参照で `FacialController.SetLayerWeight` を毎フレーム駆動（HID-80）。(3) `AnalogExpressionInputSource` / `AnalogBlendShapeInputSource` / `OverlayInputSource` は内部で `IAnalogInputSource` 直参照や `IActiveExpressionProvider`（系2 の `Layer2ActiveExpressionProvider`）から値を導出するが、自身が registry 経由でレイヤーに居るため **自身を Replace すれば遮断できる**
 - **`.fcrec`**: `RecEvent.AxisCount` は `byte`、`RecEventChunkQueue` は float ペイロードのみ（既定容量 128 float/segment）、`RecBinaryFormat` は kind 1〜6/255 を固定レイアウトで読み書き、`RecTimelineSeek` は kind 2〜4 のみ畳み込む、timeline Editor の `RecEventSequenceAdapter` は未知 kind で例外を投げる。ヘッダ（16 byte）の `flags`（u16、offset 6）は予約で writer は常に 0 を書き、reader は値を検証しない（「将来ビットを割り当てても `formatVersion` を上げずに済む」意図がコードコメントと rec README に明記されている）。`Serialize/Write` と `RecStreamWriter` はどちらも `RecBinaryFormat.WriteHeader` を経由するためヘッダの書込点は 1 箇所、読込点は `RecBinaryFormat.TryRead` の 1 箇所（`RecFileReader` と timeline Editor の Export はこれを呼ぶ）
@@ -957,7 +957,7 @@ namespace Hidano.FacialControl.Rec.Domain.Models
 }
 ```
 - `ProductAssemblies` の内容（Runtime 11: `Hidano.FacialControl.Domain` / `.Application` / `.Adapters` / `.Osc` / `.InputSystem` / `.LipSync` / `.IFacialMocap` / `.Rec.Domain` / `.Rec.Application` / `.Rec.Adapters` / `.Timeline`。Editor 9: `Hidano.FacialControl.Editor` / `.Osc.Editor` / `.InputSystem.Editor` / `.LipSync.Editor` / `.IFacialMocap.Editor` / `.Rec.Editor` / `.Timeline.Editor` / `.RoutingEditor` / `.ExpressionCreator`）
-> **HID-80 上書き注記:** 次の overlay layer weight 駆動の初期既知制限は rec-weight-coverage task 5.1（skip）で上書きされた。timeline パッケージは変更しない。
+> **HID-80 上書き注記:** 次の overlay layer weight 駆動の初期既知制限は `rec-weight-coverage` により上書きされた。
 
 - 除外エントリの区分と付帯情報: #14 / #15 / #16 = InjectionSource、#17 = WrappedByObservedSource（`WrapperTypeFullName` = #8、`AllowedDirectReferrers` = `InputSystemAdapterBinding`「wrapper 構築・`AnalogExpressionInputSource` への辞書引き渡し（#3 観測対象）・overlay layer weight 駆動（HID-80 既知制限）」）、#18 = NotRegisteredAtRuntime（`AllowedDirectReferrers` = `ArKitOscAdapterBinding`「構築・Tick・診断公開のみ。非登録は osc Medium 契約で固定」）、#19 = NotRegisteredAtRuntime（`AllowedDirectReferrers` = 空）、#20 = EditorOnly。`RuntimeRegistrationContractTest`（主契約、必須）: #17 = `Hidano.FacialControl.InputSystem.Tests.PlayMode.InputSystemAdapterBindingIntegrationTests::OnStart_FakeRegistry_RegisteredTypesAreOnlyCatalogObservedTypes`、#18 = `...ArKitOscAdapterBindingTests::OnStart_FakeRegistry_RegistersNoInputSource`、#19 = `...OscReceiverAdapterBindingTests::OnStart_FakeRegistry_RegisteredTypesAreOnlyCatalogObservedTypes`（fixture の名前空間は実装時に既存 fixture の FullName で確定する）。実装時の IL 走査で追加の referrer（Editor の Drawer 等）が見つかった場合は、理由を付して許容集合へ追加する（理由なしの追加は契約テストが拒否する）
 
@@ -1216,7 +1216,7 @@ public interface IRecEventVisitor
 | 文書 | 変更 |
 |------|------|
 | `.kiro/specs/rec-recording-playback/design.md` L21（Non-Goals） | 「リップシンク由来の操作イベントは他入力と同様に観測面経由で記録される」→「リップシンクは `LipSyncPhonemeOverlayInputSource` が合成へ供給した BlendShape 値（消費値・有効性・寄与対象集合）を値提供型観測面経由で記録する（rec-full-input-coverage で上書き）」 |
-| 同 L24（Non-Goals）/ L44（Out of Boundary） | 「拡張パッケージ内部の直接参照消費者への注入到達」→ 値提供型は自身の Replace で遮断されるため対象内へ変更。残る未到達としていた inputsystem overlay binding の layer weight / input-source weight 駆動（HID-80）も `rec-weight-coverage` で上書きされ、weight の観測・遮断・注入対象に含まれる |
+| 同 L24（Non-Goals）/ L44（Out of Boundary） | 「拡張パッケージ内部の直接参照消費者への注入到達」→ 値提供型は自身の Replace で遮断されるため対象内へ変更。残る未到達は inputsystem overlay binding の layer weight 駆動のみ（HID-80）と付記（rec-full-input-coverage で上書き） |
 | 同 L45（Out of Boundary） | 「系1 経路の記録は対象外」→「rec-full-input-coverage により上書き: 系1 は `ExpressionUseCase` の観測面・遮断面・注入面で記録・遮断・注入される」 |
 | 同 Revalidation Triggers / Physical Data Model | `IFacialInputObserver` 形状と `.fcrec` kind 表（7〜11）を本書へ参照 |
 | `.kiro/specs/rec-playback-input-exclusivity/design.md` Non-Goals | 「osc パッケージの改修」「記録機能・`.fcrec` の変更」→ rec-full-input-coverage で上書きされた旨を付記。Req 3.3 の 0 埋め seed は値提供型には適用せず「無効」で確立する旨を付記 |
@@ -1226,7 +1226,7 @@ public interface IRecEventVisitor
 | rec `Documentation~/README.md` | kind 表に 7〜11 を追加、mask 順疎値の説明、値提供型・系1 の遮断仕様節、既知制限（mask 外非ゼロ非再現、基準捕捉は Update 時点の読取） |
 | timeline `README.md` / `Documentation~/README.md` REC Export 節 | 「値提供型・系1 のレコード kind は Export 対象外として無視する（読込は失敗しない）」 |
 
-> **文書整合の上書き注記:** rec-weight-coverage task 5.1（skip）により、上記の HID-80 前提は上書きされた。timeline パッケージは変更せず、weight kind 12〜15 の REC Export 対応は timeline トラック合流後の follow-up とする。
+> **文書整合の上書き注記:** `rec-weight-coverage` により、上記の HID-80 前提は上書きされた。weight kind 12〜15 の timeline REC Export 対応は timeline トラック合流後の follow-up（rec-weight-coverage task 5.1 は skip し timeline パッケージを変更していない）。
 
 ## Data Models
 
@@ -1386,7 +1386,7 @@ TDD（Red-Green-Refactor）厳守。テストファイルは対象クラス単�
 
 ## 既知制限（文書化対象）
 
-> **HID-80 上書き注記:** この既知制限は rec-weight-coverage task 5.1（skip）により上書きされた。timeline パッケージは変更しない。
+> **HID-80 上書き注記:** この既知制限は `rec-weight-coverage` により上書きされた。
 
 1. **レイヤー weight / 入力源 weight のランタイム変更は記録も遮断もされない**（HID-80）。inputsystem overlay binding が `InputActionAnalogSource` 直参照で駆動する `FacialController.SetLayerWeight` と `LayerUseCase.SetInputSourceWeight` が対象。再生中にこれらが動くとブレンド結果はライブ weight の影響を受ける
 2. 開始時スナップショット方式: 再生開始後に新規登録された入力源（値提供型・系1 を含む）は遮断対象外
