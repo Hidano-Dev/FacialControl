@@ -164,3 +164,4 @@
 
 ## Phase 6: PR 作成 — Gate E
 - Rationale: Gate D 通過 / 作業ブランチ `feature/hid-144-timeline-playback-ux` / working tree clean / push 先は origin
+- Branch/PR: feature/hid-144-timeline-playback-ux / https://github.com/Hidano-Dev/FacialControl/pull/49（マージはしない。レビューとマージ判断は人間）
