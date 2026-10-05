@@ -8,8 +8,8 @@ using Hidano.FacialControl.Domain.Models;
 using Hidano.FacialControl.Domain.Services;
 using Hidano.FacialControl.Timeline.Adapters;
 using Hidano.FacialControl.Timeline.Adapters.AdapterBindings;
-using Hidano.FacialControl.Timeline.Adapters.InputSources;
 using Hidano.FacialControl.Timeline.Adapters.Session;
+using Hidano.FacialControl.Timeline.Domain.Diagnostics;
 using NUnit.Framework;
 using UnityEditor;
 using UnityEngine;
@@ -17,10 +17,34 @@ using UnityEngine;
 using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.Timeline.Tests.EditMode
 {
-    [SmallTest]
+    /// <summary>
+    /// <see cref="TimelineAdapterBinding"/>（Slug + 有効フラグの受信許可フラグ）の OnStart / Dispose と legacy フィールドの扱いを検証する。
+    /// GameObject と Receiver を生成するため Medium。
+    /// </summary>
+    [MediumTest]
     public sealed class TimelineAdapterBindingTests : SizedTestFixture
     {
         private const string ExpectedDisplayName = "Timeline";
+
+        private readonly List<UnityEngine.Object> _created = new List<UnityEngine.Object>();
+
+        [TearDown]
+        public void TearDown()
+        {
+            for (int i = _created.Count - 1; i >= 0; i--)
+            {
+                if (_created[i] != null)
+                {
+                    UnityEngine.Object.DestroyImmediate(_created[i]);
+                }
+            }
+
+            _created.Clear();
+        }
+
+        // ================================================================
+        // 型
+        // ================================================================
 
         [Test]
         public void Type_HasSerializableAndFacialAdapterBindingAttributes()
@@ -45,33 +69,50 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
         }
 
         [Test]
-        public void GetGazeSourceDeclarations_ValidGazeChannelsDeclareChannelIdsOnly()
+        public void Type_ImplementsDynamicInputsMarkerAndNotGazeSourceProvider()
         {
-            var binding = new TimelineAdapterBinding();
-            MutableChannelDefinitions(binding).Add(new TimelineValueChannelConfig
-            {
-                Sub = "gaze",
-                IsGaze = true,
-            });
-            MutableChannelDefinitions(binding).Add(new TimelineValueChannelConfig
-            {
-                Sub = "invalid:gaze",
-                IsGaze = true,
-            });
-
-            var declarations = new List<GazeSourceDeclaration>(binding.GetGazeSourceDeclarations());
-
-            Assert.That(declarations, Has.Count.EqualTo(1));
-            Assert.That(declarations[0].ChannelId, Is.EqualTo("gaze"));
-            Assert.That(declarations[0].ProvidesLeftRightPair, Is.False);
+            Assert.That(typeof(IAdapterBindingDynamicInputs).IsAssignableFrom(typeof(TimelineAdapterBinding)), Is.True);
+            Assert.That(typeof(IGazeSourceProvider).IsAssignableFrom(typeof(TimelineAdapterBinding)), Is.False,
+                "乗っ取りは Gaze の提供ではないため Gaze 提供者 interface を実装しない");
         }
 
         [Test]
-        public void OnStart_PassesBindingContextToReceiverWithoutRegisteringSinks()
+        public void NewInstance_IsEnabledWithoutLegacyFields()
+        {
+            var binding = new TimelineAdapterBinding();
+
+            Assert.That(binding.Enabled, Is.True);
+            Assert.That(binding.HasLegacyFields, Is.False);
+            Assert.That(binding.Slug, Is.EqualTo("timeline"));
+        }
+
+        [Test]
+        public void LegacyFields_AreHiddenFromInspectorButStillSerialized()
+        {
+            foreach (string fieldName in new[] { "targetLayerNames", "channelDefinitions" })
+            {
+                FieldInfo field = typeof(TimelineAdapterBinding).GetField(fieldName, BindingFlags.Instance | BindingFlags.NonPublic);
+                Assert.That(field, Is.Not.Null, fieldName);
+                Assert.That(field.GetCustomAttribute<SerializeField>(), Is.Not.Null, fieldName + " はデシリアライズのため残す");
+                Assert.That(field.GetCustomAttribute<HideInInspector>(), Is.Not.Null, fieldName + " は Inspector に出さない");
+            }
+
+            FieldInfo enabledField = typeof(TimelineAdapterBinding).GetField("enabled", BindingFlags.Instance | BindingFlags.NonPublic);
+            Assert.That(enabledField, Is.Not.Null);
+            Assert.That(enabledField.GetCustomAttribute<SerializeField>(), Is.Not.Null);
+            Assert.That(enabledField.GetCustomAttribute<HideInInspector>(), Is.Null);
+        }
+
+        // ================================================================
+        // OnStart（有効）
+        // ================================================================
+
+        [Test]
+        public void OnStart_Enabled_AddsOwnedReceiverAndPassesBindingContext()
         {
             var registry = new FakeInputSourceRegistry();
             var binding = new TimelineAdapterBinding();
-            var host = new GameObject("TimelineAdapterBindingTests");
+            GameObject host = CreateHost();
             AdapterBuildContext context = CreateContext(registry, host);
 
             try
@@ -79,6 +120,7 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
                 binding.OnStart(context);
 
                 Assert.That(binding.Receiver, Is.Not.Null);
+                Assert.That(binding.OwnsReceiver, Is.True);
                 Assert.That(host.GetComponent<FacialTimelineReceiver>(), Is.SameAs(binding.Receiver));
                 Assert.That(binding.Receiver.IsBindingAttached, Is.True);
                 TimelineBindingContext attached = binding.Receiver.BindingContext;
@@ -94,32 +136,163 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
             finally
             {
                 binding.Dispose();
-                UnityEngine.Object.DestroyImmediate(host);
             }
         }
 
         [Test]
-        public void Dispose_ReleasesAndDestroysReceiver()
+        public void OnStart_EnabledWithUserPlacedReceiver_UsesItWithoutOwnership()
         {
-            var registry = new FakeInputSourceRegistry();
             var binding = new TimelineAdapterBinding();
+            GameObject host = CreateHost();
+            var placed = host.AddComponent<FacialTimelineReceiver>();
 
-            var host = new GameObject("TimelineAdapterBindingDisposeTests");
             try
             {
-                binding.OnStart(CreateContext(registry, host));
+                binding.OnStart(CreateContext(new FakeInputSourceRegistry(), host));
 
-                Assert.That(host.GetComponent<FacialTimelineReceiver>(), Is.Not.Null);
-
-                binding.Dispose();
-
-                Assert.That(binding.Receiver, Is.Null);
-                Assert.That(host.GetComponent<FacialTimelineReceiver>(), Is.Null);
+                Assert.That(binding.Receiver, Is.SameAs(placed));
+                Assert.That(binding.OwnsReceiver, Is.False);
+                Assert.That(placed.IsBindingAttached, Is.True);
             }
             finally
             {
-                UnityEngine.Object.DestroyImmediate(host);
+                binding.Dispose();
             }
+        }
+
+        // ================================================================
+        // OnStart（無効）
+        // ================================================================
+
+        [Test]
+        public void OnStart_Disabled_DoesNotCreateReceiver()
+        {
+            var binding = new TimelineAdapterBinding { Enabled = false };
+            GameObject host = CreateHost();
+
+            binding.OnStart(CreateContext(new FakeInputSourceRegistry(), host));
+
+            Assert.That(host.GetComponent<FacialTimelineReceiver>(), Is.Null, "無効時は Receiver を生成しない");
+            Assert.That(binding.Receiver, Is.Null);
+            binding.Dispose();
+        }
+
+        [Test]
+        public void OnStart_DisabledWithUserPlacedReceiver_PassesDisabledContextAndSessionReportsBindingDisabled()
+        {
+            var binding = new TimelineAdapterBinding { Enabled = false };
+            GameObject host = CreateHost();
+            var placed = host.AddComponent<FacialTimelineReceiver>();
+            bool previousIgnore = UnityEngine.TestTools.LogAssert.ignoreFailingMessages;
+            UnityEngine.TestTools.LogAssert.ignoreFailingMessages = true;
+
+            try
+            {
+                binding.OnStart(CreateContext(new FakeInputSourceRegistry(), host));
+
+                Assert.That(placed.IsBindingAttached, Is.True);
+                Assert.That(placed.BindingContext.Enabled, Is.False);
+
+                placed.BeginPlaybackSession(null, null);
+
+                Assert.That(placed.SessionState, Is.EqualTo(TimelineSessionState.Failed));
+                Assert.That(placed.Diagnostics.Contains(TimelineDiagnosticCode.BindingDisabled), Is.True);
+            }
+            finally
+            {
+                UnityEngine.TestTools.LogAssert.ignoreFailingMessages = previousIgnore;
+                binding.Dispose();
+            }
+        }
+
+        // ================================================================
+        // legacy フィールド
+        // ================================================================
+
+        [Test]
+        public void OnStart_WithLegacyFields_WarnsOncePerBindingInstance()
+        {
+            var binding = new TimelineAdapterBinding();
+            ResolveField<List<string>>(binding, "targetLayerNames").Add("emotion");
+            var other = new TimelineAdapterBinding();
+            ResolveField<List<TimelineValueChannelConfig>>(other, "channelDefinitions")
+                .Add(new TimelineValueChannelConfig { Sub = "gaze", IsGaze = true });
+            GameObject host = CreateHost();
+            using var logs = new BindingLogCounter();
+
+            Assert.That(binding.HasLegacyFields, Is.True);
+            Assert.That(other.HasLegacyFields, Is.True);
+
+            binding.OnStart(CreateContext(new FakeInputSourceRegistry(), host));
+            binding.Dispose();
+            binding.OnStart(CreateContext(new FakeInputSourceRegistry(), host));
+            binding.Dispose();
+
+            Assert.That(logs.Warnings, Is.EqualTo(1), "同じ binding インスタンスでは 1 回だけ警告する");
+
+            other.OnStart(CreateContext(new FakeInputSourceRegistry(), host));
+            other.Dispose();
+
+            Assert.That(logs.Warnings, Is.EqualTo(2), "別インスタンスは別に警告する");
+            Assert.That(logs.Errors, Is.EqualTo(0), "legacy フィールドがあっても再生は継続する");
+        }
+
+        [Test]
+        public void OnStart_WithoutLegacyFields_DoesNotWarn()
+        {
+            var binding = new TimelineAdapterBinding();
+            GameObject host = CreateHost();
+            using var logs = new BindingLogCounter();
+
+            binding.OnStart(CreateContext(new FakeInputSourceRegistry(), host));
+            binding.Dispose();
+
+            Assert.That(logs.Warnings + logs.Errors, Is.EqualTo(0));
+        }
+
+        // ================================================================
+        // Dispose の所有判定
+        // ================================================================
+
+        [Test]
+        public void Dispose_OwnedReceiver_DetachesAndDestroysIt()
+        {
+            var binding = new TimelineAdapterBinding();
+            GameObject host = CreateHost();
+            binding.OnStart(CreateContext(new FakeInputSourceRegistry(), host));
+            Assert.That(binding.OwnsReceiver, Is.True);
+
+            binding.Dispose();
+
+            Assert.That(binding.Receiver, Is.Null);
+            Assert.That(binding.OwnsReceiver, Is.False);
+            Assert.That(host.GetComponent<FacialTimelineReceiver>(), Is.Null, "自分が追加した Receiver は破棄する");
+        }
+
+        [Test]
+        public void Dispose_UserPlacedReceiver_DetachesButKeepsComponent()
+        {
+            var binding = new TimelineAdapterBinding();
+            GameObject host = CreateHost();
+            var placed = host.AddComponent<FacialTimelineReceiver>();
+            binding.OnStart(CreateContext(new FakeInputSourceRegistry(), host));
+
+            binding.Dispose();
+
+            Assert.That(binding.Receiver, Is.Null);
+            Assert.That(host.GetComponent<FacialTimelineReceiver>(), Is.SameAs(placed), "ユーザー配置の Receiver は残す");
+            Assert.That(placed.IsBindingAttached, Is.False, "接続は解放する");
+        }
+
+        // ================================================================
+        // ヘルパー
+        // ================================================================
+
+        private GameObject CreateHost()
+        {
+            var host = new GameObject("TimelineAdapterBindingTests");
+            _created.Add(host);
+            return host;
         }
 
         private static AdapterBuildContext CreateContext(FakeInputSourceRegistry registry, GameObject host)
@@ -143,6 +316,58 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
                     new LayerDefinition("emotion", 0, ExclusionMode.LastWins),
                     new LayerDefinition("eye", 1, ExclusionMode.Blend),
                 });
+        }
+
+        private static T ResolveField<T>(object instance, string fieldName) where T : class
+        {
+            FieldInfo field = instance.GetType().GetField(
+                fieldName,
+                BindingFlags.Instance | BindingFlags.NonPublic);
+
+            Assert.That(field, Is.Not.Null, $"Field '{fieldName}' was not found.");
+
+            T value = field.GetValue(instance) as T;
+            Assert.That(value, Is.Not.Null, $"Field '{fieldName}' was null.");
+            return value;
+        }
+
+        /// <summary>binding が出す Console 出力（<c>[TimelineAdapterBinding]</c> 接頭辞）を数える。</summary>
+        private sealed class BindingLogCounter : IDisposable
+        {
+            private readonly bool _previousIgnore;
+
+            public BindingLogCounter()
+            {
+                _previousIgnore = UnityEngine.TestTools.LogAssert.ignoreFailingMessages;
+                UnityEngine.TestTools.LogAssert.ignoreFailingMessages = true;
+                UnityEngine.Application.logMessageReceived += OnLog;
+            }
+
+            public int Errors { get; private set; }
+            public int Warnings { get; private set; }
+
+            public void Dispose()
+            {
+                UnityEngine.Application.logMessageReceived -= OnLog;
+                UnityEngine.TestTools.LogAssert.ignoreFailingMessages = _previousIgnore;
+            }
+
+            private void OnLog(string condition, string stackTrace, LogType type)
+            {
+                if (condition == null || !condition.Contains("TimelineAdapterBinding"))
+                {
+                    return;
+                }
+
+                if (type == LogType.Error || type == LogType.Exception || type == LogType.Assert)
+                {
+                    Errors++;
+                }
+                else if (type == LogType.Warning)
+                {
+                    Warnings++;
+                }
+            }
         }
 
         private sealed class FakeInputSourceRegistry : IInputSourceRegistry
@@ -216,23 +441,6 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
         private sealed class FakeTimeProvider : ITimeProvider
         {
             public double UnscaledTimeSeconds => 0d;
-        }
-        private static List<TimelineValueChannelConfig> MutableChannelDefinitions(TimelineAdapterBinding binding)
-        {
-            return ResolveField<List<TimelineValueChannelConfig>>(binding, "channelDefinitions");
-        }
-
-        private static T ResolveField<T>(object instance, string fieldName) where T : class
-        {
-            FieldInfo field = instance.GetType().GetField(
-                fieldName,
-                BindingFlags.Instance | BindingFlags.NonPublic);
-
-            Assert.That(field, Is.Not.Null, $"Field '{fieldName}' was not found.");
-
-            T value = field.GetValue(instance) as T;
-            Assert.That(value, Is.Not.Null, $"Field '{fieldName}' was null.");
-            return value;
         }
     }
 }

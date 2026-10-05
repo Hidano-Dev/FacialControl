@@ -275,6 +275,37 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
             Assert.That(diagnostics.Contains(TimelineDiagnosticCode.BindingMissing), Is.False);
         }
 
+        [Test]
+        public void EvaluateStatic_BindingDisabled_ReportsBindingDisabledError()
+        {
+            Scenario s = CreateScenario();
+            s.Binding.Enabled = false;
+            var diagnostics = new FacialTimelineDiagnostics();
+
+            TimelineDiagnosticsEvaluator.EvaluateStatic(s.Receiver, diagnostics, s.BuildContext());
+
+            Assert.That(diagnostics.Contains(TimelineDiagnosticCode.BindingDisabled), Is.True, Describe(diagnostics));
+            Assert.That(SeverityOf(diagnostics, TimelineDiagnosticCode.BindingDisabled), Is.EqualTo(TimelineDiagnosticSeverity.Error));
+            Assert.That(diagnostics.Contains(TimelineDiagnosticCode.BindingMissing), Is.False);
+        }
+
+        [Test]
+        public void EvaluateStatic_BindingWithLegacyFields_ReportsBindingLegacyFieldsWarning()
+        {
+            Scenario s = CreateScenario();
+            var legacy = (List<string>)typeof(TimelineAdapterBinding)
+                .GetField("targetLayerNames", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)
+                .GetValue(s.Binding);
+            legacy.Add(EmotionLayer);
+            var diagnostics = new FacialTimelineDiagnostics();
+
+            TimelineDiagnosticsEvaluator.EvaluateStatic(s.Receiver, diagnostics, s.BuildContext());
+
+            Assert.That(diagnostics.Contains(TimelineDiagnosticCode.BindingLegacyFields), Is.True, Describe(diagnostics));
+            Assert.That(SeverityOf(diagnostics, TimelineDiagnosticCode.BindingLegacyFields), Is.EqualTo(TimelineDiagnosticSeverity.Warning));
+            Assert.That(diagnostics.HasErrors, Is.False, "legacy フィールドは再生を止めない");
+        }
+
         // ================================================================
         // LayerMatch
         // ================================================================

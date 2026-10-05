@@ -53,6 +53,10 @@ namespace Hidano.FacialControl.Timeline.Adapters.Diagnostics
             "Profile の AdapterBindings に Timeline binding がありません。Profile Inspector で Timeline binding を追加してください。";
         private const string BindingSlugInvalidDetail =
             "Timeline binding の Slug が不正です。英小文字・数字・ハイフンなどの有効な slug（既定 timeline）にしてください。";
+        private const string BindingDisabledDetail =
+            "Timeline binding の受信が無効になっています。Profile Inspector で Timeline binding を有効にしてください。";
+        private const string BindingLegacyFieldsDetail =
+            "Timeline binding に旧フィールド（Target Layer Names / Channel Definitions）が残っています。再生には使われません（レイヤーとチャネルはトラックから自動で導出されます）。";
         private const string TrackLayerUnmatchedDetail =
             "トラック名が Profile のレイヤー名と一致しないため、このトラックは再生されません。トラック名をレイヤー名に合わせてください。";
         private const string ReceiverNotOnControllerDetail =
@@ -256,9 +260,22 @@ namespace Hidano.FacialControl.Timeline.Adapters.Diagnostics
             }
 
             string slugText = string.IsNullOrWhiteSpace(binding.Slug) ? DefaultBindingSlug : binding.Slug;
-            if (!AdapterSlug.TryParse(slugText, out _))
+            bool slugValid = AdapterSlug.TryParse(slugText, out AdapterSlug slug);
+            if (!slugValid)
             {
                 items.Add(Error(TimelineDiagnosticArea.ProfileBinding, TimelineDiagnosticCode.BindingSlugInvalid, slugText, BindingSlugInvalidDetail));
+            }
+
+            if (!binding.Enabled)
+            {
+                // 件名は Receiver のセッション開始時の BindingDisabled と同じ（slug）にし、警告ゲートで重複させない。
+                string disabledSubject = slugValid ? slug.Value : slugText;
+                items.Add(Error(TimelineDiagnosticArea.ProfileBinding, TimelineDiagnosticCode.BindingDisabled, disabledSubject, BindingDisabledDetail));
+            }
+
+            if (binding.HasLegacyFields)
+            {
+                items.Add(Warning(TimelineDiagnosticArea.ProfileBinding, TimelineDiagnosticCode.BindingLegacyFields, subject, BindingLegacyFieldsDetail));
             }
         }
 

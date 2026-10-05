@@ -188,7 +188,7 @@
   - 完了条件: 4 手順のうち Receiver の配置だけで Track binding が埋まり、欠落ケースの診断が Play 開始時に 1 回ずつ出る
   - _Requirements: 1.6, 2.7, 8.1, 8.4, 8.5, 8.7, 9.4_
 
-- [ ] 6.3 binding を Slug + 有効フラグのみの受信許可フラグに格下げし、旧フィールドを legacy として残す（timeline Runtime Adapters）
+- [x] 6.3 binding を Slug + 有効フラグのみの受信許可フラグに格下げし、旧フィールドを legacy として残す（timeline Runtime Adapters）
   - 有効フラグ（既定 true）を追加し、Target Layer Names / Channel Definitions を HideInInspector の legacy フィールドに格下げ（値は再生に使わない）。どちらかが非空なら OnStart で binding インスタンスごと 1 回だけ Console に警告する
   - OnStart は Slug 検証 → legacy 警告 → 有効判定 → Receiver 取得または AddComponent（所有フラグ）→ 接続。無効時は Receiver を生成せず、既存 Receiver があれば無効の接続コンテキストだけ渡す。Dispose は切断後、所有している場合のみ Receiver を破棄する。2.3 のマーカーを実装し、Gaze 提供者 interface の実装を外す
   - 5.7 の Evaluator の ProfileBinding 領域に BindingDisabled（Error）/ BindingLegacyFields（Warning）を追加する
