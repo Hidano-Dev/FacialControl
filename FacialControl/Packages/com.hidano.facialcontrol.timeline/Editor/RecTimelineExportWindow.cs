@@ -3,29 +3,40 @@ using System.Collections.Generic;
 using Hidano.FacialControl.Adapters.ScriptableObject.Serializable;
 using Hidano.FacialControl.Rec.Adapters.FileSystem;
 using Hidano.FacialControl.Rec.Domain.Services;
-using Hidano.FacialControl.Timeline.Adapters;
 using Hidano.FacialControl.Timeline.Tracks;
 using UnityEditor;
 using UnityEditor.UIElements;
 using UnityEngine;
-using UnityEngine.Playables;
 using UnityEngine.Timeline;
 using UnityEngine.UIElements;
 
 namespace Hidano.FacialControl.Timeline.Editor
 {
+    /// <summary>
+    /// REC（.fcrec）を TimelineAsset に書き出すウィンドウ。
+    /// </summary>
+    /// <remarks>
+    /// <para>入力は REC ファイル / Profile / 出力 TimelineAsset（任意）だけ。Director / Receiver の配線は Receiver が
+    /// 再生開始時と Edit 評価時に自動で行うため指定欄を持たない（Req 10.5）。</para>
+    /// <para>チャネル種別（Analog / Gaze）は <see cref="RecToTimelineExporter.DetectChannels(RecBinaryFormat.ReadResult, FacialCharacterProfileSO)"/>
+    /// の自動判定に任せ、上書き欄（Source Overrides）は持たない。REC 読み込み後に検出結果（source id / 判定結果 / 理由）を
+    /// 読み取り専用で表示する。トリガー専用（Analog イベントを持たない）source は検出結果に含まれないため表示しない（Req 10.1 / 10.2）。</para>
+    /// </remarks>
     public sealed class RecTimelineExportWindow : EditorWindow
     {
-        private readonly Dictionary<string, SourceKindOverrideMode> _sourceOverrideModes =
-            new Dictionary<string, SourceKindOverrideMode>(StringComparer.Ordinal);
+        internal const string DetectionListName = "rec-export-detections";
+
+        internal const string NextStepsMessage =
+            "次の手順: 1) PlayableDirector に TimelineAsset をセット 2) FacialController と同じ GameObject に FacialTimelineReceiver を追加";
+
+        private readonly List<string> _listedSourceIds = new List<string>();
 
         private TextField _recordingPathField;
         private ObjectField _profileField;
         private ObjectField _timelineField;
-        private ObjectField _directorField;
-        private ObjectField _receiverField;
-        private ScrollView _sourceOverrideList;
+        private ScrollView _detectionList;
         private HelpBox _statusBox;
+        private bool _built;
 
         [MenuItem("Tools/FacialControl/Timeline/REC Export")]
         public static void Open()
@@ -35,8 +46,26 @@ namespace Hidano.FacialControl.Timeline.Editor
             window.minSize = new Vector2(520f, 420f);
         }
 
+        /// <summary>テスト用: 検出結果リストに表示している source id。</summary>
+        internal IReadOnlyList<string> ListedSourceIds => _listedSourceIds;
+
+        /// <summary>テスト用: ステータス欄の文言。</summary>
+        internal string StatusText => _statusBox != null ? _statusBox.text : string.Empty;
+
         private void CreateGUI()
         {
+            EnsureBuilt();
+        }
+
+        /// <summary>UI を構築する（冪等。ウィンドウを表示せずにテストから呼べる）。</summary>
+        internal void EnsureBuilt()
+        {
+            if (_built)
+            {
+                return;
+            }
+
+            _built = true;
             VisualElement root = rootVisualElement;
             root.style.paddingLeft = 10f;
             root.style.paddingRight = 10f;
@@ -57,7 +86,7 @@ namespace Hidano.FacialControl.Timeline.Editor
             };
             recordingButtons.Add(browseRecordingButton);
 
-            var reloadSourcesButton = new Button(RefreshSourceOverridesFromRecording)
+            var reloadSourcesButton = new Button(RefreshDetections)
             {
                 text = "Reload Sources"
             };
@@ -69,6 +98,8 @@ namespace Hidano.FacialControl.Timeline.Editor
                 objectType = typeof(FacialCharacterProfileSO),
                 allowSceneObjects = false,
             };
+            // Gaze 判定は Profile（GazeChannels / binding の gaze 宣言）に依存するため、変更したら検出し直す。
+            _profileField.RegisterValueChangedCallback(_ => RefreshDetectionsIfRecordingSelected());
             root.Add(_profileField);
 
             _timelineField = new ObjectField("Output Timeline")
@@ -78,30 +109,16 @@ namespace Hidano.FacialControl.Timeline.Editor
             };
             root.Add(_timelineField);
 
-            _directorField = new ObjectField("Playable Director")
-            {
-                objectType = typeof(PlayableDirector),
-                allowSceneObjects = true,
-            };
-            root.Add(_directorField);
+            var detectionHeader = new Label("Detected Channels（自動判定）");
+            detectionHeader.style.marginTop = 8f;
+            detectionHeader.style.unityFontStyleAndWeight = FontStyle.Bold;
+            root.Add(detectionHeader);
 
-            _receiverField = new ObjectField("Timeline Receiver")
-            {
-                objectType = typeof(FacialTimelineReceiver),
-                allowSceneObjects = true,
-            };
-            root.Add(_receiverField);
-
-            var sourceHeader = new Label("Source Overrides");
-            sourceHeader.style.marginTop = 8f;
-            sourceHeader.style.unityFontStyleAndWeight = FontStyle.Bold;
-            root.Add(sourceHeader);
-
-            _sourceOverrideList = new ScrollView(ScrollViewMode.Vertical);
-            _sourceOverrideList.style.flexGrow = 1f;
-            _sourceOverrideList.style.minHeight = 180f;
-            _sourceOverrideList.style.marginTop = 4f;
-            root.Add(_sourceOverrideList);
+            _detectionList = new ScrollView(ScrollViewMode.Vertical) { name = DetectionListName };
+            _detectionList.style.flexGrow = 1f;
+            _detectionList.style.minHeight = 180f;
+            _detectionList.style.marginTop = 4f;
+            root.Add(_detectionList);
 
             _statusBox = new HelpBox("Select a REC file and reload sources.", HelpBoxMessageType.Info);
             _statusBox.style.marginTop = 8f;
@@ -113,6 +130,14 @@ namespace Hidano.FacialControl.Timeline.Editor
             };
             exportButton.style.marginTop = 8f;
             root.Add(exportButton);
+        }
+
+        /// <summary>入力欄を設定する（テストとプログラムからの利用向け）。</summary>
+        internal void SetInputs(string recordingPath, FacialCharacterProfileSO profile)
+        {
+            EnsureBuilt();
+            _recordingPathField.value = recordingPath ?? string.Empty;
+            _profileField.SetValueWithoutNotify(profile);
         }
 
         private void BrowseRecording()
@@ -131,13 +156,23 @@ namespace Hidano.FacialControl.Timeline.Editor
             }
 
             _recordingPathField.value = selected;
-            RefreshSourceOverridesFromRecording();
+            RefreshDetections();
         }
 
-        private void RefreshSourceOverridesFromRecording()
+        private void RefreshDetectionsIfRecordingSelected()
         {
-            _sourceOverrideModes.Clear();
-            _sourceOverrideList.Clear();
+            if (_recordingPathField != null && !string.IsNullOrWhiteSpace(_recordingPathField.value))
+            {
+                RefreshDetections();
+            }
+        }
+
+        /// <summary>REC を読み込み、チャネル検出結果を読み取り専用リストに表示する。</summary>
+        internal void RefreshDetections()
+        {
+            EnsureBuilt();
+            _listedSourceIds.Clear();
+            _detectionList.Clear();
 
             if (!RecFileReader.TryRead(_recordingPathField.value, out RecBinaryFormat.ReadResult readResult))
             {
@@ -145,46 +180,76 @@ namespace Hidano.FacialControl.Timeline.Editor
                 return;
             }
 
-            IReadOnlyList<string> sourceIds = readResult.Timeline.SourceIds;
-            for (int i = 0; i < sourceIds.Count; i++)
+            var profile = _profileField.value as FacialCharacterProfileSO;
+            IReadOnlyList<ChannelDetection> detections = RecToTimelineExporter.DetectChannels(readResult, profile);
+            for (int i = 0; i < detections.Count; i++)
             {
-                string sourceId = sourceIds[i];
-                _sourceOverrideModes[sourceId] = SourceKindOverrideMode.Auto;
-                _sourceOverrideList.Add(CreateSourceRow(sourceId));
+                _listedSourceIds.Add(detections[i].SourceId);
+                _detectionList.Add(CreateDetectionRow(detections[i]));
             }
 
-            SetStatus($"Loaded {sourceIds.Count} source id(s) from REC.", HelpBoxMessageType.Info);
+            if (detections.Count == 0)
+            {
+                _detectionList.Add(new Label("値チャネル（Analog / Gaze）はありません。"));
+            }
+
+            string message = $"Loaded {detections.Count} value channel(s) from REC.";
+            if (profile == null)
+            {
+                message += " Profile を選ぶと Gaze 判定に Profile の GazeChannels と binding の gaze 宣言が使われます。";
+            }
+
+            SetStatus(message, HelpBoxMessageType.Info);
         }
 
-        private VisualElement CreateSourceRow(string sourceId)
+        private static VisualElement CreateDetectionRow(ChannelDetection detection)
         {
             var row = new VisualElement();
             row.style.flexDirection = FlexDirection.Row;
             row.style.alignItems = Align.Center;
             row.style.marginBottom = 4f;
 
-            var label = new Label(sourceId);
-            label.style.flexGrow = 1f;
-            row.Add(label);
+            var sourceLabel = new Label(detection.SourceId);
+            sourceLabel.style.flexGrow = 1f;
+            sourceLabel.style.flexBasis = 0f;
+            row.Add(sourceLabel);
 
-            var enumField = new EnumField(SourceKindOverrideMode.Auto);
-            enumField.RegisterValueChangedCallback(evt =>
-            {
-                _sourceOverrideModes[sourceId] = (SourceKindOverrideMode)evt.newValue;
-            });
-            row.Add(enumField);
+            var kindLabel = new Label($"{detection.Kind}（{detection.AxisCount} 軸）");
+            kindLabel.style.width = 110f;
+            row.Add(kindLabel);
+
+            var reasonLabel = new Label(ReasonLabel(detection.Reason));
+            reasonLabel.style.flexGrow = 1f;
+            reasonLabel.style.flexBasis = 0f;
+            reasonLabel.style.whiteSpace = WhiteSpace.Normal;
+            row.Add(reasonLabel);
             return row;
+        }
+
+        /// <summary>判定理由の表示文。</summary>
+        internal static string ReasonLabel(ChannelDetectionReason reason)
+        {
+            switch (reason)
+            {
+                case ChannelDetectionReason.ExplicitGazeSourceId:
+                    return "Profile の GazeChannel の source id と一致";
+                case ChannelDetectionReason.ConventionGazeChannel:
+                    return "Gaze の規約 id（Profile の GazeChannels にあるチャネル）";
+                case ChannelDetectionReason.GazeProviderDeclaration:
+                    return "Profile の binding が gaze source を宣言";
+                case ChannelDetectionReason.NonTwoAxisSamples:
+                    return "Gaze 候補だが 2 軸でないため Analog";
+                case ChannelDetectionReason.DefaultAnalog:
+                    return "Gaze の手がかりなし（Analog）";
+                case ChannelDetectionReason.Overridden:
+                    return "上書き指定";
+                default:
+                    return reason.ToString();
+            }
         }
 
         private void Export()
         {
-            var profile = _profileField.value as FacialCharacterProfileSO;
-            if (profile == null)
-            {
-                SetStatus("Profile is required.", HelpBoxMessageType.Error);
-                return;
-            }
-
             string outputPath = ResolveOutputPath();
             if (string.IsNullOrWhiteSpace(outputPath))
             {
@@ -192,18 +257,27 @@ namespace Hidano.FacialControl.Timeline.Editor
                 return;
             }
 
-            var existingTimeline = _timelineField.value as TimelineAsset;
-            var director = _directorField.value as PlayableDirector;
-            var receiver = _receiverField.value as FacialTimelineReceiver;
-            IReadOnlyDictionary<string, FacialValueChannelKind> sourceOverrides = BuildSourceOverrides();
+            ExportTo(outputPath);
+        }
 
+        /// <summary>指定パスへ Export し、完了したら残りの手順をステータスに表示する。</summary>
+        internal bool ExportTo(string outputPath)
+        {
+            EnsureBuilt();
+            var profile = _profileField.value as FacialCharacterProfileSO;
+            if (profile == null)
+            {
+                SetStatus("Profile is required.", HelpBoxMessageType.Error);
+                return false;
+            }
+
+            var existingTimeline = _timelineField.value as TimelineAsset;
             bool success = RecToTimelineExporter.TryExportTimelineAsset(
                 _recordingPathField.value,
                 profile,
                 outputPath,
                 out RecToTimelineExporter.ExportResult result,
-                existingTimeline,
-                sourceOverrides);
+                existingTimeline);
 
             if (!success)
             {
@@ -216,30 +290,12 @@ namespace Hidano.FacialControl.Timeline.Editor
                     SetStatus("Export failed. Check Console for details.", HelpBoxMessageType.Error);
                 }
 
-                return;
+                return false;
             }
 
-            _timelineField.value = result.Timeline;
-            SetStatus($"Exported TimelineAsset to '{result.OutputAssetPath}'.", HelpBoxMessageType.Info);
-        }
-
-        private IReadOnlyDictionary<string, FacialValueChannelKind> BuildSourceOverrides()
-        {
-            var overrides = new Dictionary<string, FacialValueChannelKind>(StringComparer.Ordinal);
-            foreach (KeyValuePair<string, SourceKindOverrideMode> pair in _sourceOverrideModes)
-            {
-                switch (pair.Value)
-                {
-                    case SourceKindOverrideMode.Analog:
-                        overrides[pair.Key] = FacialValueChannelKind.Analog;
-                        break;
-                    case SourceKindOverrideMode.Gaze:
-                        overrides[pair.Key] = FacialValueChannelKind.Gaze;
-                        break;
-                }
-            }
-
-            return overrides;
+            _timelineField.SetValueWithoutNotify(result.Timeline);
+            SetStatus($"Exported TimelineAsset to '{result.OutputAssetPath}'.\n{NextStepsMessage}", HelpBoxMessageType.Info);
+            return true;
         }
 
         private string ResolveOutputPath()
@@ -260,13 +316,6 @@ namespace Hidano.FacialControl.Timeline.Editor
         {
             _statusBox.messageType = messageType;
             _statusBox.text = message;
-        }
-
-        private enum SourceKindOverrideMode
-        {
-            Auto = 0,
-            Analog = 1,
-            Gaze = 2,
         }
     }
 }

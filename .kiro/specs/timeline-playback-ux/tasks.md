@@ -334,7 +334,7 @@
   - 完了条件: Export が TimelineAsset 1 つで完結し、出力した ChannelSubId を再生側が不正扱いしない
   - _Requirements: 10.3, 10.4, 10.5_
 
-- [ ] 10.5 REC Export ウィンドウから配線指定と Source Overrides を撤去し、検出結果と残り手順を表示する（timeline Editor Windows）
+- [x] 10.5 REC Export ウィンドウから配線指定と Source Overrides を撤去し、検出結果と残り手順を表示する（timeline Editor Windows）
   - Director / Receiver の ObjectField と Source Overrides（Auto / Analog / Gaze）を撤去し、REC 読み込み後に 10.4 の検出結果（source id / 判定結果 / 理由）の読み取り専用リストを表示する。トリガー専用（Analog イベントを持たない）source は表示しない
   - Export 完了後にステータスへ「次の手順: 1) PlayableDirector に TimelineAsset をセット 2) FacialController と同じ GameObject に FacialTimelineReceiver を追加」を表示する
   - 既存のウィンドウテスト（`{Target}Tests` があれば追記、無ければ新規）で生成・破棄 smoke と、検出結果リストにトリガー専用 source が含まれないことを固定する
