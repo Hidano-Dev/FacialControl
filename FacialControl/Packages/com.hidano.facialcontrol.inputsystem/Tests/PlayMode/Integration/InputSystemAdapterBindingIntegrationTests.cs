@@ -635,6 +635,134 @@ namespace Hidano.FacialControl.InputSystem.Tests.PlayMode.Integration
             }
         }
 
+        // ---------------------------------------------------------------
+        // Analog expression: registry の Replace / Unregister への追従（timeline-playback-ux 3）
+        // ---------------------------------------------------------------
+
+        private const string AnalogReplaceActionName = "AnalogSmile";
+        private const float AnalogReplaceExpressionValue = 0.8f;
+
+        [Test]
+        public void OnStart_AnalogExpression_ReplaceSourceWithStub_WritesStubTimesExpressionValue()
+        {
+            const string slug = "input-system-analog-replace";
+            AnalogExpressionInputSource sink = StartAnalogExpressionBinding(slug);
+            var output = new float[2];
+
+            _registry.Replace(
+                AdapterSlug.Parse(slug),
+                AnalogReplaceActionName,
+                new StubAnalogInputSource(AnalogReplaceActionName, 0.5f));
+
+            Assert.IsTrue(sink.TryWriteValues(output),
+                "Replace 後は stub の値で analog expression が寄与するべき。");
+            Assert.AreEqual(0.5f * AnalogReplaceExpressionValue, output[0], 1e-5f,
+                "smile は stub 値 × Expression 値で書かれるべき。");
+            Assert.AreEqual(0f, output[1], 1e-5f);
+        }
+
+        [Test]
+        public void OnStart_AnalogExpression_UnregisterAfterReplace_RestoresConstructedSource()
+        {
+            const string slug = "input-system-analog-unregister";
+            AnalogExpressionInputSource sink = StartAnalogExpressionBinding(slug);
+            var baseline = new float[2];
+            bool baselineWritten = sink.TryWriteValues(baseline);
+
+            var parsedSlug = AdapterSlug.Parse(slug);
+            _registry.Replace(parsedSlug, AnalogReplaceActionName, new StubAnalogInputSource(AnalogReplaceActionName, 0.5f));
+            var replaced = new float[2];
+            Assert.IsTrue(sink.TryWriteValues(replaced), "Sanity: Replace 中は stub の値で寄与する。");
+
+            _registry.Unregister(parsedSlug, AnalogReplaceActionName);
+
+            var restored = new float[2];
+            bool restoredWritten = sink.TryWriteValues(restored);
+            Assert.AreEqual(baselineWritten, restoredWritten,
+                "Unregister 後は構築時 source（スティック無入力）の結果に戻るべき。");
+            Assert.AreEqual(baseline[0], restored[0], 1e-5f);
+            Assert.AreEqual(baseline[1], restored[1], 1e-5f);
+        }
+
+        [Test]
+        public void OnStart_AnalogExpression_ReplaceBackToOriginalWrapper_MatchesConstructedValue()
+        {
+            const string slug = "input-system-analog-replace-back";
+            AnalogExpressionInputSource sink = StartAnalogExpressionBinding(slug);
+            Assert.IsTrue(_registry.TryResolve(slug + ":" + AnalogReplaceActionName, out IInputSource originalWrapper),
+                "Sanity: analog action の wrapper が registry に登録されている。");
+            var baseline = new float[2];
+            bool baselineWritten = sink.TryWriteValues(baseline);
+
+            var parsedSlug = AdapterSlug.Parse(slug);
+            _registry.Replace(parsedSlug, AnalogReplaceActionName, new StubAnalogInputSource(AnalogReplaceActionName, 0.5f));
+            Assert.IsTrue(sink.TryWriteValues(new float[2]), "Sanity: Replace 中は stub の値で寄与する。");
+
+            _registry.Replace(parsedSlug, AnalogReplaceActionName, originalWrapper);
+
+            var restored = new float[2];
+            bool restoredWritten = sink.TryWriteValues(restored);
+            Assert.AreEqual(baselineWritten, restoredWritten,
+                "元の wrapper へ Replace し直すと構築時と同じ結果になるべき。");
+            Assert.AreEqual(baseline[0], restored[0], 1e-5f);
+            Assert.AreEqual(baseline[1], restored[1], 1e-5f);
+        }
+
+        /// <summary>
+        /// Analog モードの action 1 本（<c>&lt;Gamepad&gt;/leftTrigger</c>）で実 binding を OnStart し、
+        /// registry から analog expression 消費者を取得して返す。
+        /// </summary>
+        private AnalogExpressionInputSource StartAnalogExpressionBinding(string slug)
+        {
+            _sourceAsset = CreateValueActionAsset(
+                actionMapName: "Expression",
+                actionName: AnalogReplaceActionName,
+                binding: "<Gamepad>/leftTrigger");
+            _binding = CreateBinding(
+                slug: slug,
+                asset: _sourceAsset,
+                actionMapName: "Expression",
+                expressionBindings: new List<ExpressionBindingEntry>
+                {
+                    new ExpressionBindingEntry
+                    {
+                        actionName = AnalogReplaceActionName,
+                        expressionId = "expr-smile",
+                        bindingMode = BindingMode.Analog,
+                    },
+                });
+
+            var ctx = new AdapterBuildContext(
+                profile: new FacialProfile(
+                    "1.0",
+                    layers: new[] { new LayerDefinition("emotion", 0, ExclusionMode.LastWins) },
+                    expressions: new[]
+                    {
+                        new Expression(
+                            "expr-smile",
+                            "Smile",
+                            "emotion",
+                            0.25f,
+                            TransitionCurve.Linear,
+                            new[] { new BlendShapeMapping("smile", AnalogReplaceExpressionValue) }),
+                    }),
+                blendShapeNames: new List<string> { "smile", "frown" },
+                inputSourceRegistry: _registry,
+                facialOutputBus: new FacialOutputBus(),
+                timeProvider: new UnityTimeProvider(),
+                hostGameObject: _hostGameObject,
+                lipSyncProvider: null);
+
+            _binding.OnStart(in ctx);
+            _bindingStarted = true;
+
+            Assert.IsTrue(_registry.TryResolve(slug + ":" + AnalogExpressionInputSource.ReservedId, out IInputSource resolved),
+                "Sanity: analog expression 消費者が registry に登録されている。");
+            var sink = resolved as AnalogExpressionInputSource;
+            Assert.IsNotNull(sink, "Sanity: analog expression 消費者は AnalogExpressionInputSource。");
+            return sink;
+        }
+
         // Helpers
         // ---------------------------------------------------------------
 

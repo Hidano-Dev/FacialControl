@@ -67,7 +67,7 @@
   - _Requirements: 1.5, 4.5, 7.1, 11.5_
   - _Boundary: FacialCharacterProfileAutoExporter_
 
-- [ ] 3. InputSystem の analog expression 経路が registry の差し替えを追従することを 1 行の接続と PlayMode テストで固定する（inputsystem パッケージ）
+- [x] 3. InputSystem の analog expression 経路が registry の差し替えを追従することを 1 行の接続と PlayMode テストで固定する（inputsystem パッケージ）
   - InputSystemAdapterBinding の analog expression sink 構築直後に、2.4 の契約で registry を接続する呼び出しを 1 行追加する。他のメソッド（analog source 構築 / 登録 id / wrapper / Overlay / weight 経路 / Dispose）は変更しない
   - PlayMode テスト用に外から値を設定できる stub analog source（`IInputSource` + `IAnalogInputSource`）を inputsystem の Tests/PlayMode 配下に新設する
   - 既存 `InputSystemAdapterBindingIntegrationTests`（PlayMode Medium）に、Analog モードの action 1 本で実 binding を OnStart → registry から analog expression 消費者を取得 → `{slug}:{actionName}` を stub へ Replace で値が stub × Expression 値に追従 → Unregister で構築時の値に戻る、Replace 元 wrapper へ戻しても構築時と同じ値、を追記する。Overlay 経路のテストは変更しない
