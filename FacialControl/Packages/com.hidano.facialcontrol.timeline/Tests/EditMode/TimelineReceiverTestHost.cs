@@ -106,6 +106,19 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
             Receiver.AttachBinding(Context(enabled));
         }
 
+        /// <summary>
+        /// Timeline binding を AdapterBindings に持つ Profile SO を controller に設定する（静的診断の ProfileBinding 領域を満たす）。
+        /// Bake のハッシュは SO の GazeChannels を含めて焼き直す必要があるため、<see cref="StampHashes"/> より前に呼ぶ。
+        /// </summary>
+        public TimelineTestProfileSO AssignProfileSource()
+        {
+            var so = ScriptableObject.CreateInstance<TimelineTestProfileSO>();
+            _created.Add(so);
+            so.WritableAdapterBindings.Add(new Hidano.FacialControl.Timeline.Adapters.AdapterBindings.TimelineAdapterBinding());
+            Controller.CharacterSO = so;
+            return so;
+        }
+
         public T Track<T>(UnityEngine.Object obj) where T : UnityEngine.Object
         {
             _created.Add(obj);
@@ -154,7 +167,8 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
         /// <summary>現在の Timeline / Profile から Bake のハッシュを焼き直す（Fresh + ProfileMatched の状態にする）。</summary>
         public void StampHashes(TimelineAsset timeline, FacialTimelineBakeAsset bake)
         {
-            GazeChannel[] gaze = FacialTimelineHashCalculator.ToGazeChannelArray(null);
+            GazeChannel[] gaze = FacialTimelineHashCalculator.ToGazeChannelArray(
+                Controller.CharacterSO != null ? Controller.CharacterSO.GazeChannels : null);
             bake.ProfileContentHashHex = FacialTimelineHashCalculator.ComputeProfileContentHashHex(Profile, gaze);
             bake.SourceHashHex = FacialTimelineHashCalculator.ComputeHashHex(timeline, Profile, gaze, bake.SampleRate);
         }
@@ -231,6 +245,12 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
             _created.Add(mesh);
             return mesh;
         }
+    }
+
+    /// <summary>AdapterBindings をテストから書き換えられる Profile SO。</summary>
+    internal sealed class TimelineTestProfileSO : Hidano.FacialControl.Adapters.ScriptableObject.Serializable.FacialCharacterProfileSO
+    {
+        public List<Hidano.FacialControl.Domain.Adapters.AdapterBindingBase> WritableAdapterBindings => _adapterBindings;
     }
 
     /// <summary>注入型ではない Analog 入力源（registry の原本役）。値を外から設定できる。</summary>

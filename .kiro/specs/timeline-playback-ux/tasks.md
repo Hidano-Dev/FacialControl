@@ -181,7 +181,7 @@
   - _Depends: 5.3, 5.5, 5.6, 5.7_
   - _Requirements: 1.1, 1.2, 1.4, 3.2, 4.2, 4.3, 4.6, 5.1, 5.5, 8.3, 8.6, 10.7, 11.4_
 
-- [ ] 6.2 Receiver のライフサイクルで Director 解決・Track binding 自動設定・Play 開始時の静的診断・全解放を行う（timeline Runtime Adapters）
+- [x] 6.2 Receiver のライフサイクルで Director 解決・Track binding 自動設定・Play 開始時の静的診断・全解放を行う（timeline Runtime Adapters）
   - Play の OnEnable で 5.4 により Director を解決して Facial トラックの binding を自動設定し、設定が発生し graph が有効なら RebuildGraph する。Start で 5.7 の静的診断を評価し、Error / Warning を 4.4 のゲートで 1 回ずつ Console に出す（Info は出さない）。OnDisable / OnDestroy は ReleaseAll、ReleaseAll 時にゲートの Play エポックをリセットする
   - Edit / Play 共通の静的診断評価（Runtime は controller の Profile、Editor は Profile を渡す overload）を公開する
   - 既存 `FacialTimelineReceiverTests` に OnEnable 後に binding が自分を指す、Receiver を別 GameObject に置いたときの診断、Director 無しの診断、同一セッションで同じ警告が 2 回出ない（ゲート）、無効化で接続 / 乗っ取りが解放される、を追記する

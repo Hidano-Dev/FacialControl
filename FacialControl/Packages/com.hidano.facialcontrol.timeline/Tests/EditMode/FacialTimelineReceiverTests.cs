@@ -425,6 +425,167 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
             Assert.That(s.Host.Controller.IsLayerInputSourceBound(EmotionLayer, ValueId), Is.False);
         }
 
+        [Test]
+        public void BeginPlaybackSession_WithoutBindingAndControllerNotInitialized_StaysPendingWithoutLog()
+        {
+            // 6.1 レビュー F3: binding の OnStart は controller の初期化中に呼ばれるため、未初期化の間は binding 未接続を確定しない。
+            Scenario s = CreateScenario(initializeController: false);
+            using var logs = new TimelineLogCounter();
+
+            s.Begin();
+
+            Assert.That(s.Receiver.SessionState, Is.EqualTo(TimelineSessionState.Pending), Describe(s.Receiver));
+            Assert.That(s.Receiver.Diagnostics.Contains(TimelineDiagnosticCode.BindingMissing), Is.False);
+            Assert.That(logs.Errors + logs.Warnings, Is.EqualTo(0));
+
+            s.Host.InitializeController();
+            s.Host.Attach();
+            s.Begin();
+
+            Assert.That(s.Receiver.SessionState, Is.EqualTo(TimelineSessionState.Active), Describe(s.Receiver));
+        }
+
+        // ================================================================
+        // ライフサイクル（Play の OnEnable / Start）
+        // ================================================================
+
+        [Test]
+        public void OnEnableInPlay_FacialTracksWithoutBinding_BindsTracksToReceiver()
+        {
+            Scenario s = CreateScenario();
+            s.Host.Director.ClearGenericBinding(s.Track);
+            Assert.That(s.Host.Director.GetGenericBinding(s.Track), Is.Null, "fixture: binding 未設定");
+
+            s.Receiver.OnEnableInPlay();
+
+            Assert.That(s.Host.Director.GetGenericBinding(s.Track), Is.SameAs(s.Receiver),
+                "Receiver を置くだけで Facial トラックの binding が自分を指す");
+        }
+
+        [Test]
+        public void OnEnableInPlay_TrackBoundToOtherObject_LeavesBindingAndReportsForeignOnStart()
+        {
+            Scenario s = CreateScenario(withProfileSource: true);
+            var other = new GameObject("ForeignBindingTarget");
+            _disposables.Add(new DestroyOnDispose(other));
+            s.Host.Director.SetGenericBinding(s.Track, other);
+            using var logs = new TimelineLogCounter();
+
+            s.Receiver.OnEnableInPlay();
+            s.Receiver.StartInPlay();
+
+            Assert.That(s.Host.Director.GetGenericBinding(s.Track), Is.SameAs(other), "他者の binding は上書きしない");
+            Assert.That(s.Receiver.Diagnostics.Contains(TimelineDiagnosticCode.TrackBindingForeign, EmotionLayer), Is.True,
+                Describe(s.Receiver));
+            Assert.That(logs.Warnings, Is.EqualTo(1));
+        }
+
+        [Test]
+        public void StartInPlay_FullyConfigured_EvaluatesStaticDiagnosticsWithoutConsoleOutput()
+        {
+            Scenario s = CreateScenario(withProfileSource: true);
+            using var logs = new TimelineLogCounter();
+
+            s.Receiver.OnEnableInPlay();
+            s.Receiver.StartInPlay();
+
+            Assert.That(s.Receiver.Diagnostics.Contains(TimelineDiagnosticCode.BakeFresh), Is.True, Describe(s.Receiver));
+            Assert.That(s.Receiver.Diagnostics.Contains(TimelineDiagnosticCode.ProfileMatched), Is.True);
+            Assert.That(s.Receiver.Diagnostics.HasErrors, Is.False, Describe(s.Receiver));
+            Assert.That(logs.Errors + logs.Warnings, Is.EqualTo(0), "Info は Console に出さない");
+        }
+
+        [Test]
+        public void StartInPlay_ReceiverOnChildOfControllerObject_ReportsReceiverNotOnControllerObject()
+        {
+            Scenario s = CreateScenario(withProfileSource: true);
+            var child = new GameObject("ChildReceiver");
+            _disposables.Add(new DestroyOnDispose(child));
+            child.transform.SetParent(s.Host.Root.transform, false);
+            var receiver = child.AddComponent<FacialTimelineReceiver>();
+            using var logs = new TimelineLogCounter();
+
+            receiver.OnEnableInPlay();
+            receiver.StartInPlay();
+
+            Assert.That(receiver.Diagnostics.Contains(TimelineDiagnosticCode.ReceiverNotOnControllerObject), Is.True,
+                Describe(receiver));
+            Assert.That(logs.Errors, Is.EqualTo(1));
+        }
+
+        [Test]
+        public void StartInPlay_NoDirector_ReportsDirectorMissing()
+        {
+            Scenario s = CreateScenario(withProfileSource: true);
+            UnityEngine.Object.DestroyImmediate(s.Host.Director);
+            using var logs = new TimelineLogCounter();
+
+            s.Receiver.OnEnableInPlay();
+            s.Receiver.StartInPlay();
+
+            Assert.That(s.Receiver.Diagnostics.Contains(TimelineDiagnosticCode.DirectorMissing), Is.True, Describe(s.Receiver));
+            Assert.That(logs.Errors, Is.EqualTo(1));
+        }
+
+        [Test]
+        public void StartInPlay_SameWarningWithinSession_IsLoggedOnceAndAgainAfterReleaseAll()
+        {
+            Scenario s = CreateScenario(withProfileSource: true);
+            s.Bake.SourceHashHex = "0000000000000000";
+            s.Host.Attach();
+            using var logs = new TimelineLogCounter();
+
+            s.Receiver.StartInPlay();
+            s.Receiver.StartInPlay();
+            s.Begin();
+
+            Assert.That(s.Receiver.Diagnostics.Contains(TimelineDiagnosticCode.BakeStale), Is.True, Describe(s.Receiver));
+            Assert.That(logs.Warnings, Is.EqualTo(1), "同一セッションで同じ警告は 1 回だけ");
+
+            s.Receiver.ReleaseAll();
+            s.Receiver.StartInPlay();
+
+            Assert.That(logs.Warnings, Is.EqualTo(2), "ReleaseAll で警告ゲートのエポックがリセットされる");
+        }
+
+        [Test]
+        public void EvaluateStaticDiagnostics_WithExplicitProfile_UsesGivenProfileForLayerMatch()
+        {
+            Scenario s = CreateScenario(withProfileSource: true);
+            var otherProfile = new FacialProfile(
+                "1.0",
+                new[] { new LayerDefinition("eye", 0, ExclusionMode.LastWins) },
+                Array.Empty<Expression>());
+
+            s.Receiver.EvaluateStaticDiagnostics(otherProfile, hasProfile: true);
+
+            Assert.That(s.Receiver.Diagnostics.Contains(TimelineDiagnosticCode.TrackLayerUnmatched, EmotionLayer), Is.True,
+                Describe(s.Receiver));
+
+            s.Receiver.EvaluateStaticDiagnostics();
+
+            Assert.That(s.Receiver.Diagnostics.Contains(TimelineDiagnosticCode.TrackLayerUnmatched), Is.False,
+                "引数なしは controller の Profile で評価する");
+        }
+
+        [Test]
+        public void OnDisableInPlay_AfterActiveWithTakeover_ReleasesConnectionsAndTakeovers()
+        {
+            Scenario s = CreateScenario(withAnalogChannel: true);
+            var original = new TestAnalogSource("osc:lt", 1, 0.2f);
+            s.Host.Registry.Register(AdapterSlug.Parse("osc"), "lt", original);
+            s.Host.Attach();
+            s.Begin();
+            Assert.That(s.Receiver.SessionState, Is.EqualTo(TimelineSessionState.Active), Describe(s.Receiver));
+
+            s.Receiver.OnDisableInPlay();
+
+            Assert.That(s.Receiver.SessionState, Is.EqualTo(TimelineSessionState.Idle));
+            Assert.That(s.Host.Controller.IsLayerInputSourceBound(EmotionLayer, ValueId), Is.False);
+            Assert.That(s.Host.Registry.TryResolve("osc:lt", out IInputSource after), Is.True);
+            Assert.That(after, Is.SameAs(original));
+        }
+
         // ================================================================
         // ヘルパー
         // ================================================================
@@ -447,11 +608,16 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
         private Scenario CreateScenario(
             bool initializeController = true,
             InputSourceDeclaration[] declarations = null,
-            bool withAnalogChannel = false)
+            bool withAnalogChannel = false,
+            bool withProfileSource = false)
         {
             FacialProfile profile = CreateProfile(declarations);
             TimelineReceiverTestHost host = TimelineReceiverTestHost.Create(profile, BlendShapes, initializeController);
             _disposables.Add(host);
+            if (withProfileSource)
+            {
+                host.AssignProfileSource();
+            }
 
             TimelineAsset timeline = host.CreateTimeline();
             FacialExpressionTrack track = timeline.CreateTrack<FacialExpressionTrack>(null, EmotionLayer);

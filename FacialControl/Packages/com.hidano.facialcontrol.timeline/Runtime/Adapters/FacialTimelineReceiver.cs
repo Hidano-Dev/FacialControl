@@ -94,6 +94,11 @@ namespace Hidano.FacialControl.Timeline.Adapters
         private BakeLocateResult _lastBakeLocate;
         private FacialTimelineBakeAsset _sessionBake;
 
+        // Play の OnEnable で行った Track binding 自動設定の結果（Start の静的診断の TrackBinding 領域に使う）。
+        private TrackBindingReport _trackBindingReport;
+        private PlayableDirector _trackBindingDirector;
+        private bool _hasTrackBindingReport;
+
         // セッション資源プールのキー（(Timeline, Bake, Profile) が同じ間は導出結果と Bake → sink のバインディングを再利用する）。
         private TimelineAsset _pooledTimeline;
         private FacialTimelineBakeAsset _pooledBake;
@@ -193,9 +198,15 @@ namespace Hidano.FacialControl.Timeline.Adapters
             // (1) binding・配置
             if (!_hasBinding)
             {
-                if (GetComponent<FacialController>() == null)
+                FacialController hostController = GetComponent<FacialController>();
+                if (hostController == null)
                 {
                     Fail(TimelineDiagnosticArea.Placement, TimelineDiagnosticCode.ReceiverNotOnControllerObject, name, ReceiverNotOnControllerDetail);
+                }
+                else if (!hostController.IsInitialized)
+                {
+                    // binding の OnStart は controller の初期化中に呼ばれるため、未初期化の間は binding 未接続を確定しない（ログ無し）。
+                    _state = TimelineSessionState.Pending;
                 }
                 else
                 {
@@ -314,6 +325,154 @@ namespace Hidano.FacialControl.Timeline.Adapters
             _activeTimeline = null;
             _activeDirector = null;
             _state = TimelineSessionState.Idle;
+            _warningGate.ResetEpoch();
+        }
+
+        // ================================================================
+        // 静的診断（Edit / Play 共通）
+        // ================================================================
+
+        /// <summary>
+        /// controller が保持する Profile（未初期化なら Profile 無し）で静的診断を評価し、診断状態の静的領域を置換する。
+        /// Console には出さない。シーン走査を伴うため毎フレーム呼ばない。
+        /// </summary>
+        public void EvaluateStaticDiagnostics()
+        {
+            FacialController controller = ResolveController();
+            bool hasProfile = controller != null && controller.IsInitialized && controller.CurrentProfile.HasValue;
+            EvaluateStaticDiagnostics(hasProfile ? controller.CurrentProfile.Value : default, hasProfile);
+        }
+
+        /// <summary>
+        /// 指定 Profile で静的診断を評価する（Editor は TimelineProfileSource で解決した Profile を渡す）。
+        /// </summary>
+        public void EvaluateStaticDiagnostics(FacialProfile profile, bool hasProfile)
+        {
+            FacialController controller = ResolveController();
+            PlayableDirector resolved = TimelineTrackBindingResolver.ResolveDirector(this, director, out DirectorResolveStatus status);
+            TimelineAsset timeline = resolved != null ? resolved.playableAsset as TimelineAsset : null;
+            BakeLocateResult located = FacialTimelineBakeLocator.Locate(timeline, bakeAsset);
+            TimelineDerivation derivation = timeline != null && hasProfile
+                ? TimelineChannelDeriver.Derive(TimelineAssetScanner.Scan(timeline).Tracks, profile)
+                : null;
+            TrackBindingReport? trackBindings = _hasTrackBindingReport && _trackBindingDirector == resolved
+                ? _trackBindingReport
+                : (TrackBindingReport?)null;
+
+            var context = new TimelineStaticEvaluationContext(
+                resolved,
+                status,
+                timeline,
+                controller,
+                controller != null ? controller.CharacterSO : null,
+                profile,
+                hasProfile,
+                gazeChannels: null,
+                bake: located,
+                derivation: derivation,
+                trackBindings: trackBindings);
+            TimelineDiagnosticsEvaluator.EvaluateStatic(this, _diagnostics, context);
+        }
+
+        // ================================================================
+        // ライフサイクル（Play のみ。Edit の評価は Inspector が行う）
+        // ================================================================
+
+        private void OnEnable()
+        {
+            if (UnityEngine.Application.isPlaying)
+            {
+                OnEnableInPlay();
+            }
+        }
+
+        private void Start()
+        {
+            if (UnityEngine.Application.isPlaying)
+            {
+                StartInPlay();
+            }
+        }
+
+        private void OnDisable()
+        {
+            OnDisableInPlay();
+        }
+
+        private void OnDestroy()
+        {
+            ReleaseAll();
+        }
+
+        /// <summary>
+        /// Play の OnEnable 本体: Director を解決し、binding 未設定の Facial トラックに自分を設定する。
+        /// 設定が発生し graph が既に有効なら RebuildGraph する（Mixer は binding 済みトラックからしか Receiver を呼ばないため）。
+        /// </summary>
+        internal void OnEnableInPlay()
+        {
+            _hasTrackBindingReport = false;
+            _trackBindingDirector = null;
+
+            PlayableDirector resolved = TimelineTrackBindingResolver.ResolveDirector(this, director, out _);
+            if (resolved == null || !(resolved.playableAsset is TimelineAsset timeline))
+            {
+                return;
+            }
+
+            TrackBindingReport report = TimelineTrackBindingResolver.EnsureBindings(
+                resolved, timeline, this, RuntimeTrackBindingWriter.Instance);
+            _trackBindingReport = report;
+            _trackBindingDirector = resolved;
+            _hasTrackBindingReport = true;
+
+            if (report.Assigned > 0 && resolved.playableGraph.IsValid())
+            {
+                resolved.RebuildGraph();
+            }
+        }
+
+        /// <summary>
+        /// Play の Start 本体: 静的診断を評価し、Error / Warning を警告ゲートで 1 回ずつ Console に出す（Info は出さない）。
+        /// </summary>
+        internal void StartInPlay()
+        {
+            EvaluateStaticDiagnostics();
+
+            IReadOnlyList<TimelineDiagnosticItem> items = _diagnostics.Items;
+            for (int i = 0; i < items.Count; i++)
+            {
+                TimelineDiagnosticItem item = items[i];
+                if (item.Severity == TimelineDiagnosticSeverity.Error)
+                {
+                    if (_warningGate.TryPass(GetInstanceID(), item.Code, item.Subject))
+                    {
+                        Debug.LogError(Format(item), this);
+                    }
+                }
+                else if (item.Severity == TimelineDiagnosticSeverity.Warning)
+                {
+                    if (_warningGate.TryPass(GetInstanceID(), item.Code, item.Subject))
+                    {
+                        Debug.LogWarning(Format(item), this);
+                    }
+                }
+            }
+        }
+
+        /// <summary>OnDisable 本体: セッションを解放する（接続 / 乗っ取りの復元と警告エポックのリセット）。</summary>
+        internal void OnDisableInPlay()
+        {
+            ReleaseAll();
+        }
+
+        private FacialController ResolveController()
+        {
+            if (_hasBinding && _binding.Controller != null)
+            {
+                return _binding.Controller;
+            }
+
+            return GetComponentInParent<FacialController>(true);
         }
 
         // ================================================================
@@ -393,16 +552,6 @@ namespace Hidano.FacialControl.Timeline.Adapters
             }
 
             return _takeover.TryGetGazeSink(channelSubId, out sink);
-        }
-
-        private void OnDisable()
-        {
-            ReleaseAll();
-        }
-
-        private void OnDestroy()
-        {
-            ReleaseAll();
         }
 
         // ================================================================
