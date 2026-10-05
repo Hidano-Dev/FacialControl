@@ -315,7 +315,7 @@
   - 完了条件: Timeline 以外の live 入力が無くレイヤー weight 既定の条件で、Edit 合成と Play の BlendShape 値が許容誤差内で一致する
   - _Requirements: 7.1, 7.6, 11.5_
 
-- [ ] 10.2 Edit プレビューを Compositor 経由に置き換え、未構成時の 1 回警告と Profile 不一致の自動再ベイクを組み込む（timeline Editor）
+- [x] 10.2 Edit プレビューを Compositor 経由に置き換え、未構成時の 1 回警告と Profile 不一致の自動再ベイクを組み込む（timeline Editor）
   - 既存の Edit プレビューの BlendShape 単純加算を 10.1 の Compositor 呼び出しに置換し、Bake は 5.3 の Locator で解決、Compositor は controller ごとにキャッシュして BakeUpdated で破棄する。controller 未構成は例外ではなく 4.4 のゲートで 1 回警告してプレビューを継続（無言 return 廃止）。Locator が Conflict / LegacyExport なら描画せず MarkDirty（BakeReferenceInconsistent）、ProfileCheck が不一致なら描画を続けつつ Receiver の診断 Profile 領域に ProfileMismatch（Warning、「自動再ベイク中」併記）を書いて MarkDirty（ProfileMismatch）する
   - `TimelinePreviewCompositorTests` に JSON と SO を意図的に食い違わせた fixture（profile.json の Expression 値だけ書き換え）で Compositor が ProfileMismatch を報告しつつ描画し、同 fixture の Play セッションが ProfileMismatch（Warning）+ Active で同じ Bake の値を出す（不一致中も Edit / Play の renderer 値が一致）、MarkDirty → 再ベイク後に両方 Ok、を追記する。既存の Edit プレビューテストで Receiver 未構成が例外にならず警告 1 回であることを固定する
   - 完了条件: Clip を動かした直後に Edit プレビューが新しい Bake で描かれ、Edit でセッション開始が呼ばれない
