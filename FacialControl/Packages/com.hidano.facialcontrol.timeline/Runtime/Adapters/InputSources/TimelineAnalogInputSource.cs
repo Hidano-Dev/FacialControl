@@ -8,7 +8,11 @@ namespace Hidano.FacialControl.Timeline.Adapters.InputSources
     /// <summary>
     /// Timeline-owned variable-axis analog sink. Values are valid only while Timeline publishes them.
     /// </summary>
-    public class TimelineAnalogInputSource : IInputSource, IAnalogInputSource
+    /// <remarks>
+    /// registry の既存エントリを Replace で乗っ取る注入型の入力源（<see cref="IInjectedInputSource"/>）。
+    /// 乗っ取り前の原本は <see cref="AttachReplacement"/> で退避し、復元時に <see cref="ClearReplacement"/> で忘れる。
+    /// </remarks>
+    public class TimelineAnalogInputSource : IInputSource, IAnalogInputSource, IInjectedInputSource
     {
         private static readonly BitArray EmptyContributeMask = new BitArray(0);
 
@@ -38,6 +42,19 @@ namespace Hidano.FacialControl.Timeline.Adapters.InputSources
         public bool IsValid => _isValid;
 
         public int AxisCount { get; }
+
+        /// <summary>乗っ取り前に退避した原本。乗っ取っていなければ null。</summary>
+        public IInputSource ReplacedSource { get; private set; }
+
+        public void AttachReplacement(IInputSource replacedSource)
+        {
+            ReplacedSource = replacedSource;
+        }
+
+        public void ClearReplacement()
+        {
+            ReplacedSource = null;
+        }
 
         public void Tick(float deltaTime)
         {

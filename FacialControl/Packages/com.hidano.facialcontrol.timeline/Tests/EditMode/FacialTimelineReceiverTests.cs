@@ -182,7 +182,8 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
         {
             var receiver = CreateReceiver();
             var registry = new InputSourceRegistry();
-            var liveSource = new TimelineAnalogInputSource(InputSourceId.Parse("live:gaze"), axisCount: 2);
+            // live 側の原本は注入型ではない 2 軸 analog（Timeline の analog sink は注入型なので原本役に使えない）。
+            var liveSource = new FakeLiveGazeSource("live:gaze");
             var timelineGaze = new TimelineGazeInputSource(InputSourceId.Parse("timeline:gaze-0"));
             var config = new GazeChannel
             {
@@ -495,6 +496,56 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
             public bool TryWriteValues(Span<float> output)
             {
                 return false;
+            }
+        }
+
+        /// <summary>注入型ではない 2 軸の analog 入力源（live 側の原本役）。</summary>
+        private sealed class FakeLiveGazeSource : IInputSource, IAnalogInputSource
+        {
+            public FakeLiveGazeSource(string id)
+            {
+                Id = id;
+                ContributeMask = new System.Collections.BitArray(0);
+            }
+
+            public string Id { get; }
+
+            public InputSourceType Type => InputSourceType.ValueProvider;
+
+            public int BlendShapeCount => 0;
+
+            public System.Collections.BitArray ContributeMask { get; }
+
+            public bool IsValid => true;
+
+            public int AxisCount => 2;
+
+            public void Tick(float deltaTime)
+            {
+            }
+
+            public bool TryWriteValues(Span<float> output)
+            {
+                return false;
+            }
+
+            public bool TryReadScalar(out float value)
+            {
+                value = 0f;
+                return true;
+            }
+
+            public bool TryReadVector2(out float x, out float y)
+            {
+                x = 0f;
+                y = 0f;
+                return true;
+            }
+
+            public bool TryReadAxes(Span<float> output)
+            {
+                output.Clear();
+                return true;
             }
         }
 

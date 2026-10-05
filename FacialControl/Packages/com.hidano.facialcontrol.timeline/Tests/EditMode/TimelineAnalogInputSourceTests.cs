@@ -50,5 +50,28 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
             Assert.That(output, Is.EqualTo(new[] { 3f, 4f }));
             Assert.That(source.BlendShapeCount, Is.Zero);
         }
+
+        [Test]
+        public void Type_ImplementsInjectedInputSourceMarker()
+        {
+            var source = new TimelineAnalogInputSource(InputSourceId.Parse("osc:lt"), axisCount: 1);
+
+            Assert.That(source, Is.InstanceOf<IInjectedInputSource>(),
+                "Analog 乗っ取り sink も Gaze と同じ占有規則（IInjectedInputSource）に乗ること");
+            Assert.That(source.ReplacedSource, Is.Null);
+        }
+
+        [Test]
+        public void AttachReplacement_ThenClear_TracksReplacedSource()
+        {
+            var source = new TimelineAnalogInputSource(InputSourceId.Parse("osc:lt"), axisCount: 1);
+            IInputSource original = new TimelineAnalogInputSource(InputSourceId.Parse("osc:original"), axisCount: 1);
+
+            source.AttachReplacement(original);
+            Assert.That(source.ReplacedSource, Is.SameAs(original));
+
+            source.ClearReplacement();
+            Assert.That(source.ReplacedSource, Is.Null);
+        }
     }
 }

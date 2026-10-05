@@ -153,7 +153,7 @@
   - _Depends: 1, 2.2, 4.1, 4.2, 4.3_
   - _Requirements: 3.1, 3.2, 3.3, 4.3, 8.1, 8.8_
 
-- [ ] 5.6 (P) Analog / Gaze チャネルを ChannelSubId の registry エントリへ Replace で乗っ取り、復元する Takeover を実装する（timeline Runtime Adapters）
+- [x] 5.6 (P) Analog / Gaze チャネルを ChannelSubId の registry エントリへ Replace で乗っ取り、復元する Takeover を実装する（timeline Runtime Adapters）
   - Timeline の Analog 入力源を注入型（占有規則共有）にし、差し替え元の退避 / 接続 / 解除の実装を Gaze 入力源から基底へ移動する
   - チャネルごとに ChannelSubId を最初の `:` で slug / sub に分割して解決し、未登録は AnalogSourceNotFound / GazeSourceNotFound（Warning）、既存が注入型なら AnalogOccupied / GazeOccupied（Warning）、成功なら原本を退避して Replace し AnalogTakeoverAttached / GazeTakeoverAttached（Info）。Gaze は 2 軸前提で不足は 0 埋め。独自 id での別途登録はしない
   - 解放は参照同一性を確認して原本を Replace で戻す（他者占有なら Warning + スキップ）。Inspector 表示用のエントリ一覧を公開する
