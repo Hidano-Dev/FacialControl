@@ -99,6 +99,10 @@ namespace Hidano.FacialControl.Timeline.Adapters
         private PlayableDirector _trackBindingDirector;
         private bool _hasTrackBindingReport;
 
+        // 記録済みの SessionConflict の相手（同じ相手の再記録で文字列を作らないため）。
+        private PlayableDirector _conflictDirector;
+        private bool _hasConflictRecord;
+
         // セッション資源プールのキー（(Timeline, Bake, Profile) が同じ間は導出結果と Bake → sink のバインディングを再利用する）。
         private TimelineAsset _pooledTimeline;
         private FacialTimelineBakeAsset _pooledBake;
@@ -185,7 +189,7 @@ namespace Hidano.FacialControl.Timeline.Adapters
             switch (_state)
             {
                 case TimelineSessionState.Active:
-                    if (timeline != _activeTimeline || playingDirector != _activeDirector)
+                    if (!ReferenceEquals(timeline, _activeTimeline) || !ReferenceEquals(playingDirector, _activeDirector))
                     {
                         RecordSessionConflict(playingDirector);
                     }
@@ -297,6 +301,8 @@ namespace Hidano.FacialControl.Timeline.Adapters
             _sessionBake = located.Bake;
             BuildExpressionBakePlaybacks(derivation, located.Bake);
             _diagnostics.ReplaceArea(TimelineDiagnosticArea.Session, EmptyItems);
+            _conflictDirector = null;
+            _hasConflictRecord = false;
 
             _activeTimeline = timeline;
             _activeDirector = playingDirector;
@@ -311,7 +317,7 @@ namespace Hidano.FacialControl.Timeline.Adapters
         /// </summary>
         public bool IsSessionOwnedBy(PlayableDirector playingDirector)
         {
-            return _state == TimelineSessionState.Active && _activeDirector == playingDirector;
+            return _state == TimelineSessionState.Active && ReferenceEquals(_activeDirector, playingDirector);
         }
 
         /// <summary>
@@ -325,6 +331,8 @@ namespace Hidano.FacialControl.Timeline.Adapters
             _activeTimeline = null;
             _activeDirector = null;
             _state = TimelineSessionState.Idle;
+            _conflictDirector = null;
+            _hasConflictRecord = false;
             _warningGate.ResetEpoch();
         }
 
@@ -699,6 +707,14 @@ namespace Hidano.FacialControl.Timeline.Adapters
 
         private void RecordSessionConflict(PlayableDirector otherDirector)
         {
+            // 所有者でない Director の Mixer は毎フレーム呼ぶため、記録済みの競合相手なら文字列を作らずに戻る（確保なし）。
+            if (_hasConflictRecord && ReferenceEquals(_conflictDirector, otherDirector))
+            {
+                return;
+            }
+
+            _hasConflictRecord = true;
+            _conflictDirector = otherDirector;
             string subject = otherDirector != null ? otherDirector.name : string.Empty;
             if (_diagnostics.Contains(TimelineDiagnosticCode.SessionConflict, subject))
             {

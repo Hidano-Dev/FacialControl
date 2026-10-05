@@ -11,6 +11,7 @@ using Hidano.FacialControl.Timeline.Adapters.Assets;
 using Hidano.FacialControl.Timeline.Adapters.AdapterBindings;
 using Hidano.FacialControl.Timeline.Adapters.InputSources;
 using Hidano.FacialControl.Timeline.Clips;
+using Hidano.FacialControl.Timeline.Domain.Diagnostics;
 using Hidano.FacialControl.Timeline.Editor;
 using Hidano.FacialControl.Timeline.Tracks;
 using NUnit.Framework;
@@ -73,6 +74,41 @@ namespace Hidano.FacialControl.Timeline.Tests.PlayMode
 
             Assert.That(recorder.LastValue, Is.EqualTo(0L),
                 "Timeline jump evaluation must remain zero-alloc after scratch buffers are warmed.");
+        }
+
+        [Test]
+        public void TimelinePlayback_SessionConflictWithSecondDirector_AfterWarmup_AllocatesZeroGC()
+        {
+            // 6.1 レビュー F1: 所有者でない Director の Mixer が毎フレーム Begin を呼んでも、記録済みの競合では確保しない。
+            bool previousIgnore = UnityEngine.TestTools.LogAssert.ignoreFailingMessages;
+            UnityEngine.TestTools.LogAssert.ignoreFailingMessages = true;
+            try
+            {
+                using var fixture = new TimelinePlaybackFixture(withConflictingDirector: true);
+
+                for (int i = 0; i < WarmupFrames; i++)
+                {
+                    fixture.AdvanceLinearly(FrameDeltaTime);
+                }
+
+                Assert.That(fixture.Receiver.Diagnostics.Contains(TimelineDiagnosticCode.SessionConflict),
+                    Is.True, "fixture: 2 つ目の Director が競合として記録されている");
+
+                ForceFullCollection();
+                using var recorder = StartGcRecorder();
+
+                for (int i = 0; i < MeasurementFrames; i++)
+                {
+                    fixture.AdvanceLinearly(FrameDeltaTime);
+                }
+
+                Assert.That(recorder.LastValue, Is.EqualTo(0L),
+                    "SessionConflict 中の ProcessFrame も確保しない。");
+            }
+            finally
+            {
+                UnityEngine.TestTools.LogAssert.ignoreFailingMessages = previousIgnore;
+            }
         }
 
         [Test]
@@ -153,9 +189,11 @@ namespace Hidano.FacialControl.Timeline.Tests.PlayMode
             private readonly GameObject _receiverObject;
             private readonly PlayableDirector _director;
             private readonly FacialTimelineReceiver _receiver;
+            private readonly GameObject _conflictObject;
+            private readonly PlayableDirector _conflictDirector;
             private float _currentTime;
 
-            public TimelinePlaybackFixture()
+            public TimelinePlaybackFixture(bool withConflictingDirector = false)
             {
                 _profile = CreateProfile();
                 Timeline = CreateTimeline();
@@ -189,6 +227,20 @@ namespace Hidano.FacialControl.Timeline.Tests.PlayMode
                 Assert.That(_receiver.SessionState, Is.EqualTo(TimelineSessionState.Active));
                 Assert.That(_receiver.TryGetExpressionValueSink(ExpressionLayerName, out _valueSink), Is.True);
 
+                if (withConflictingDirector)
+                {
+                    // 同じ Receiver を binding する 2 つ目の Director（所有者ではないので SessionConflict になる）。
+                    _conflictObject = new GameObject("TimelineGcZeroGateTests_ConflictDirector");
+                    _conflictDirector = _conflictObject.AddComponent<PlayableDirector>();
+                    _conflictDirector.playOnAwake = false;
+                    _conflictDirector.playableAsset = Timeline;
+                    _conflictDirector.timeUpdateMode = DirectorUpdateMode.Manual;
+                    _conflictDirector.extrapolationMode = DirectorWrapMode.None;
+                    _conflictDirector.SetGenericBinding(Timeline.GetOutputTrack(0), _receiver);
+                    _conflictDirector.RebuildGraph();
+                    _conflictDirector.playableGraph.Evaluate(0f);
+                }
+
                 _registry = new LayerInputSourceRegistry(
                     _profile,
                     blendShapeCount: 1,
@@ -204,9 +256,16 @@ namespace Hidano.FacialControl.Timeline.Tests.PlayMode
 
             public FacialTimelineBakeAsset Bake { get; }
 
+            public FacialTimelineReceiver Receiver => _receiver;
+
             public void AdvanceLinearly(float deltaTime)
             {
                 _director.playableGraph.Evaluate(deltaTime);
+                if (_conflictDirector != null)
+                {
+                    _conflictDirector.playableGraph.Evaluate(deltaTime);
+                }
+
                 _currentTime += deltaTime;
                 AggregateCurrentValues();
             }
@@ -224,6 +283,16 @@ namespace Hidano.FacialControl.Timeline.Tests.PlayMode
                 if (_director != null && _director.playableGraph.IsValid())
                 {
                     _director.playableGraph.Destroy();
+                }
+
+                if (_conflictDirector != null && _conflictDirector.playableGraph.IsValid())
+                {
+                    _conflictDirector.playableGraph.Destroy();
+                }
+
+                if (_conflictObject != null)
+                {
+                    UnityEngine.Object.DestroyImmediate(_conflictObject);
                 }
 
                 _registry.Dispose();

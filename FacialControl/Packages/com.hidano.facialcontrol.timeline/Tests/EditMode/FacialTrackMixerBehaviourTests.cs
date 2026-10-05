@@ -3,7 +3,10 @@ using Hidano.FacialControl.Domain.Models;
 using Hidano.FacialControl.Timeline.Adapters;
 using Hidano.FacialControl.Timeline.Adapters.Assets;
 using Hidano.FacialControl.Timeline.Adapters.InputSources;
+using Hidano.FacialControl.Domain.Interfaces;
 using Hidano.FacialControl.Timeline.Clips;
+using Hidano.FacialControl.Timeline.EditorPreview;
+using Hidano.FacialControl.Timeline.Playables;
 using Hidano.FacialControl.Timeline.Tracks;
 using NUnit.Framework;
 using UnityEngine;
@@ -12,9 +15,96 @@ using UnityEngine.Timeline;
 using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.Timeline.Tests.EditMode
 {
+    /// <summary>
+    /// Expression / Value Mixer の振る舞い。EditMode で graph を評価するため、Play 相当のケースは
+    /// <see cref="FacialTimelinePlayMode.OverrideIsPlaying"/> で Play 判定を固定する。
+    /// </summary>
     [MediumTest]
     public sealed class FacialTrackMixerBehaviourTests : SizedTestFixture
     {
+        private FacialTimelineEditorPreviewBridge.ApplyPreviewDelegate _previousPreview;
+        private int _previewCalls;
+
+        [SetUp]
+        public void SetUp()
+        {
+            FacialTimelinePlayMode.OverrideIsPlaying = true;
+            _previousPreview = FacialTimelineEditorPreviewBridge.ApplyPreview;
+            _previewCalls = 0;
+        }
+
+        [TearDown]
+        public void TearDown()
+        {
+            FacialTimelinePlayMode.OverrideIsPlaying = null;
+            FacialTimelineEditorPreviewBridge.ApplyPreview = _previousPreview;
+        }
+
+        // ================================================================
+        // Edit 相当（プレビュー bridge のみ。セッションを開始しない）
+        // ================================================================
+
+        [Test]
+        public void ExpressionMixer_EditEquivalent_CallsPreviewOnlyAndKeepsSessionIdleWithoutLog()
+        {
+            FacialTimelinePlayMode.OverrideIsPlaying = false;
+            FacialTimelineEditorPreviewBridge.ApplyPreview = (receiver, timeline, time) => _previewCalls++;
+            // binding 未接続（Play なら BindingMissing の Error になる構成）でも Edit ではセッションに触れない。
+            using TimelineReceiverTestHost host = CreateHost(CreateTimeline, attach: false);
+            using var logs = new TimelineLogCounter();
+
+            host.Director.RebuildGraph();
+            host.Director.time = 0.25d;
+            host.Director.Evaluate();
+
+            Assert.That(_previewCalls, Is.GreaterThan(0), "Edit ではプレビュー bridge を呼ぶ");
+            Assert.That(host.Receiver.SessionState, Is.EqualTo(TimelineSessionState.Idle));
+            Assert.That(host.Receiver.Diagnostics.Items, Is.Empty, "Edit 相当の呼び出しは診断状態を変えない");
+            Assert.That(logs.Errors + logs.Warnings, Is.EqualTo(0), "Edit 相当の呼び出しで Console に出さない");
+        }
+
+        [Test]
+        public void ValueMixer_EditEquivalent_CallsPreviewOnlyAndDoesNotTakeOverRegistry()
+        {
+            FacialTimelinePlayMode.OverrideIsPlaying = false;
+            FacialTimelineEditorPreviewBridge.ApplyPreview = (receiver, timeline, time) => _previewCalls++;
+            using TimelineReceiverTestHost host = CreateHost(CreateAnalogTimeline);
+            var original = new TestAnalogSource("osc:analog", 3);
+            host.Registry.Register(AdapterSlug.Parse("osc"), "analog", original);
+            using var logs = new TimelineLogCounter();
+
+            host.Director.RebuildGraph();
+            host.Director.time = 0.25d;
+            host.Director.Evaluate();
+
+            Assert.That(_previewCalls, Is.GreaterThan(0));
+            Assert.That(host.Receiver.SessionState, Is.EqualTo(TimelineSessionState.Idle));
+            Assert.That(host.Registry.TryResolve("osc:analog", out IInputSource current), Is.True);
+            Assert.That(current, Is.SameAs(original), "Edit では乗っ取らない");
+            Assert.That(logs.Errors + logs.Warnings, Is.EqualTo(0));
+        }
+
+        [Test]
+        public void ExpressionMixer_PlayWithFailedSession_DoesNotWriteSinks()
+        {
+            using TimelineReceiverTestHost host = CreateHost(CreateTimeline, attach: false);
+            using var logs = new TimelineLogCounter();
+
+            host.Director.RebuildGraph();
+            host.Director.time = 0.25d;
+            host.Director.Evaluate();
+            host.Director.time = 0.5d;
+            host.Director.Evaluate();
+
+            Assert.That(host.Receiver.SessionState, Is.EqualTo(TimelineSessionState.Failed));
+            Assert.That(host.Receiver.TryGetExpressionSink("Expressions", out _), Is.False);
+            Assert.That(logs.Errors, Is.EqualTo(1), "Mixer 自身はログを出さず、Receiver の最初の Error 1 件のみ");
+        }
+
+        // ================================================================
+        // Play 相当
+        // ================================================================
+
         [Test]
         public void ExpressionMixer_CollectsParentAndChildLaneEvents_AndAdvancesLinearly()
         {
@@ -93,7 +183,7 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
         /// 初期化済み FacialController + Receiver + Director を組み、全 Facial トラックへ同じ Bake 参照を書いて
         /// Director にバインドし、接続コンテキストを Receiver に渡す。
         /// </summary>
-        private static TimelineReceiverTestHost CreateHost(Func<TimelineAsset, TimelineAsset> build)
+        private static TimelineReceiverTestHost CreateHost(Func<TimelineAsset, TimelineAsset> build, bool attach = true)
         {
             TimelineReceiverTestHost host = TimelineReceiverTestHost.Create(CreateProfile(), new[] { "Smile", "Angry" });
             TimelineAsset timeline = build(host.CreateTimeline());
@@ -101,7 +191,11 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
             TimelineReceiverTestHost.AssignBakeToAllTracks(timeline, bake);
             host.StampHashes(timeline, bake);
             host.BindDirector(timeline);
-            host.Attach();
+            if (attach)
+            {
+                host.Attach();
+            }
+
             return host;
         }
 
