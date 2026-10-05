@@ -273,7 +273,7 @@
   - 完了条件: timeline Editor asmdef 内で Unity イベントを購読するクラスが Services（と後続の Inspector インスタンス）だけになる
   - _Requirements: 6.1, 6.5, 6.7, 9.1, 11.7_
 
-- [ ] 9.4 Timeline ウィンドウの Clip / Track 操作を変更通知として Watcher へ流し、Value トラックの Editor を新設する（timeline Editor TrackEditors）
+- [x] 9.4 Timeline ウィンドウの Clip / Track 操作を変更通知として Watcher へ流し、Value トラックの Editor を新設する（timeline Editor TrackEditors）
   - 既存の Expression Clip / Expression Track / Value Clip の Editor に Clip 変更・Track 変更・作成の override を追加し、Services の Watcher へ ClipEdit で MarkDirty する（Editor 側は購読を持たない）。Value Track の Editor を新設し同じ通知を行う。作成時は兄弟トラックの Bake 参照を補完する
   - 既存の TrackEditor / ClipEditor テスト（`{Target}Tests` があれば追記、無ければ新設した Value Track Editor のみ新規）で 変更通知が MarkDirty を 1 回呼ぶ、作成で兄弟の Bake 参照が補完される、を固定する
   - 完了条件: Clip のドラッグ・トリム・追加・削除・Undo のいずれでも Watcher の pending が立つ

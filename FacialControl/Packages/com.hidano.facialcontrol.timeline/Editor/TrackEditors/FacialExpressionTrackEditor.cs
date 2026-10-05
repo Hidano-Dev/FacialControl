@@ -14,6 +14,20 @@ namespace Hidano.FacialControl.Timeline.Editor.TrackEditors
             return BuildTrackOptions(track, base.GetTrackOptions(track, binding), FacialTimelineValidator.Validate(track));
         }
 
+        /// <summary>トラック（とその Clip）の変更。Watcher へ ClipEdit で流す（購読は持たない）。</summary>
+        public override void OnTrackChanged(TrackAsset track)
+        {
+            base.OnTrackChanged(track);
+            TimelineEditNotifier.NotifyClipEdit(track != null ? track.timelineAsset : null);
+        }
+
+        /// <summary>作成・複製。兄弟トラックの Bake 参照を補完してから Watcher へ流す。</summary>
+        public override void OnCreate(TrackAsset track, TrackAsset copiedFrom)
+        {
+            base.OnCreate(track, copiedFrom);
+            TimelineEditNotifier.OnTrackCreated(track);
+        }
+
         public static TrackDrawOptions BuildTrackOptions(
             TrackAsset track,
             TrackDrawOptions options,

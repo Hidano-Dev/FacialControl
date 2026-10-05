@@ -13,6 +13,20 @@ namespace Hidano.FacialControl.Timeline.Editor.TrackEditors
             return BuildClipOptions(clip, base.GetClipOptions(clip), FacialTimelineValidator.Validate(clip.GetParentTrack()));
         }
 
+        /// <summary>移動・トリム・Inspector 編集。Watcher へ ClipEdit で流す（購読は持たない）。</summary>
+        public override void OnClipChanged(TimelineClip clip)
+        {
+            base.OnClipChanged(clip);
+            TimelineEditNotifier.NotifyClipEdit(clip);
+        }
+
+        /// <summary>追加・複製。Watcher へ ClipEdit で流す。</summary>
+        public override void OnCreate(TimelineClip clip, TrackAsset track, TimelineClip clonedFrom)
+        {
+            base.OnCreate(clip, track, clonedFrom);
+            TimelineEditNotifier.NotifyClipEdit(track != null ? track.timelineAsset : null);
+        }
+
         public static ClipDrawOptions BuildClipOptions(
             TimelineClip clip,
             ClipDrawOptions options,
