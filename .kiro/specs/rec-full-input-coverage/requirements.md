@@ -35,6 +35,8 @@ Linear HID-35: REC の記録・遮断対象を FacialControl で動く全入力�
 
 1. The 本機能の設計 shall `FacialControl/Packages/com.hidano.facialcontrol*` 配下の全パッケージの Runtime および Editor アセンブリ（テストアセンブリを除く）に存在する具象 `IInputSource` 実装（抽象型を除く）と、`IInputSource` を実装しない具象 `IAnalogInputSource` 実装（`InputActionAnalogSource` / `ArKitOscAnalogSource` / `OscFloatAnalogSource` 等）を列挙し、それぞれを「観測対象」または「明示的除外」のいずれか一方に分類した一覧を成果物として残す
 2. The 本機能の設計 shall 「明示的除外」に分類した各実装について、除外しても rec-recording-playback Req 3.3 のブレンド完全再現が損なわれない根拠（例: 入力元が既に観測対象として記録され再生時に同一値で再導出される派生値である、再生注入用の内部ソースである）を文書化する
+> **`rec-weight-coverage` による上書き注記:** 以下の HID-80 前提は初期定義であり、rec-weight-coverage task 5.1（skip）で weight 系統が上書きされた。timeline パッケージは変更しない。
+
 3. The 本機能の設計 shall `OverlayInputSource` を上記の分類規則に従って判定し、その結論と根拠を文書化する（本要件は分類結果を固定しない。派生値として除外する場合は「active 表情の記録から同一の overlay 出力が再導出されること」を根拠として示す）。この判定は、overlay のレイヤー weight を駆動する経路（inputsystem の overlay binding による `FacialController.SetLayerWeight`）が本 spec ではライブのまま残る（HID-80 で扱う）ことを明示した前提の上で行い、「派生値」の根拠は表情由来の出力値（active 表情から解決される overlay 値）のみを対象とし、レイヤー weight には及ばないことを明記する
 4. The 本機能の設計 shall core 内の派生型入力源（`AnalogBlendShapeInputSource` / `AnalogExpressionInputSource` 等、観測対象の `IAnalogInputSource` を入力として値を導出する実装）、`IAnalogInputSource` 単独実装（`InputActionAnalogSource` のようにラッパ経由で registry 登録されつつ直参照もされるもの、`ArKitOscAnalogSource` / `OscFloatAnalogSource` のように Runtime の消費者を持たないもの）、および Editor アセンブリの実装（timeline Editor の `OfflineExpressionSource` 等）についても同じ規則で分類し、除外する場合は「再生時に入力側の注入から同一値が導出される」「Runtime の合成パイプラインに到達しない」「Editor のベイクシミュレーション専用である」等の根拠を示す
 5. The 本機能 shall 「観測対象」に分類された全実装について Requirement 2〜6 の記録・基準状態・遮断・注入・ラウンドトリップを成立させ、一部の観測対象だけが成立した状態を完成とみなさない
@@ -169,7 +171,7 @@ Linear HID-35: REC の記録・遮断対象を FacialControl で動く全入力�
 
 ### Requirement 10: 既存 spec 文書と rec ドキュメントの整合
 
-> **`rec-weight-coverage` による上書き注記:** 本文書の初期定義にある HID-80（レイヤー weight / 入力源 weight をライブのまま残す既知制限）は上書きされた。現在は weight 系統も REC の記録・遮断・注入対象であり、「ライブのまま残る」とする記述は履歴上の初期定義として扱う。kind 12〜15 の timeline REC Export 対応は timeline トラック合流後の follow-up であり、本タスクでは timeline パッケージを変更しない。
+> **`rec-weight-coverage` による上書き注記:** 本文書の初期定義にある HID-80（レイヤー weight / 入力源 weight をライブのまま残す既知制限）は上書きされた。現在は weight 系統も REC の記録・遮断・注入対象であり、「ライブのまま残る」とする記述は履歴上の初期定義として扱う。kind 12〜15 の timeline REC Export 対応は timeline トラック合流後の follow-up であり、rec-weight-coverage task 5.1（skip）では timeline パッケージを変更しない。
 
 **Objective:** As a ライブラリ利用者・開発者, I want REC の対象範囲に関する文書が実装と一致していてほしい, so that 「記録されるはず」「記録されないはず」の誤解に基づく運用・設計ミスが起きない
 
@@ -181,5 +183,9 @@ Linear HID-35: REC の記録・遮断対象を FacialControl で動く全入力�
 4. The rec パッケージのドキュメント（`README.md` / `Documentation~/`）shall REC の記録・遮断対象となる入力種別の一覧（トリガー型 / アナログ・gaze / 値提供型 / 系1 経路）と、明示的除外に分類した実装とその理由を記載する
 5. The rec パッケージのドキュメント shall `.fcrec` の `formatVersion` が 1 のまま据え置かれたこと、および本 spec 以前の記録構造で書かれたファイルの読込互換・移行は提供しない旨を記載する
 6. The rec パッケージのドキュメント shall 開始時スナップショット方式（再生中に新規登録された入力源は遮断対象外）が値提供型・系1 経路にも適用される既知制限として記載する
-7. The 本機能の設計文書（`.kiro/specs/rec-full-input-coverage/design.md`）および rec パッケージの `README.md` に、初期仕様ではランタイムのレイヤー weight / 入力源 weight 変更（inputsystem overlay binding による `FacialController.SetLayerWeight`、`LayerUseCase.SetInputSourceWeight`）を既知制限（Linear HID-80）としていたが、`rec-weight-coverage` により記録・遮断・注入の対象へ上書きされたことを注記する。現在の既知制限として「ライブのまま残る」と記載してはならない
-8. The timeline パッケージのドキュメント（REC Export に関する節）shall 本 spec で追加されたレコード kind のうち Export 対象としない kind を無視する旨を記載する。ただし `rec-weight-coverage` の実装指示により timeline パッケージは本タスクでは変更せず、kind 12〜15 の timeline REC Export 対応は timeline トラック合流後の follow-up とする
+> **Req 10.7 上書き注記:** rec-weight-coverage task 5.1（skip）により、HID-80 の weight 系統は記録・遮断・注入対象へ上書きされた。rec-weight-coverage task 5.1（skip）では timeline パッケージを変更しない。
+
+7. The 本機能の設計文書（`.kiro/specs/rec-full-input-coverage/design.md`）および rec パッケージの `README.md` shall ランタイムのレイヤー weight / 入力源 weight 変更（inputsystem overlay binding による `FacialController.SetLayerWeight`、`LayerUseCase.SetInputSourceWeight`）が記録も遮断もされないことを既知制限として記載し、Linear HID-80 を参照として付記する
+> **Req 10.8 上書き注記:** rec-weight-coverage task 5.1（skip）の実装指示により timeline パッケージは変更せず、kind 12〜15 の timeline REC Export 対応は timeline トラック合流後の follow-up とする。
+
+8. The timeline パッケージのドキュメント（REC Export に関する節）shall 本 spec で追加されたレコード kind のうち Export 対象としない kind を無視する旨を記載する
