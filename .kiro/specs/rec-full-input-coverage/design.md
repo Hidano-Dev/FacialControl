@@ -18,7 +18,7 @@
 
 ### Non-Goals
 
-- ランタイムのレイヤー weight / 入力源 weight 変更（inputsystem overlay binding の `FacialController.SetLayerWeight`、`LayerUseCase.SetInputSourceWeight`）の記録・遮断 — Linear **HID-80** へ分離。本 spec ではライブのまま残る既知制限として文書化する
+- ランタイムのレイヤー weight / 入力源 weight 変更（inputsystem overlay binding の `FacialController.SetLayerWeight`、`LayerUseCase.SetInputSourceWeight`）の記録・遮断 — 初期には Linear **HID-80** へ分離していたが、`rec-weight-coverage` により記録・遮断・注入の対象へ上書きされた。現在は既知制限ではない
 - 音声解析・音声波形の記録（リップシンクは `LipSyncPhonemeOverlayInputSource` が合成へ供給した BlendShape 値のみを対象）
 - Timeline 独自 Track のベイク・スクラブ（rec-timeline-baking 系）、ランタイム UI、排他 on/off オプション
 - 本 spec 以前の記録構造で書かれた `.fcrec` の読込互換・移行（単一フォーマットのみ。旧構造ファイルはヘッダ `flags` の必須ビット欠落として読込エラーになり、再生に到達しない。「Migration Strategy」）
@@ -39,7 +39,9 @@
 
 ### Out of Boundary
 
-- レイヤー weight / 入力源 weight のランタイム変更経路（HID-80）。`OverlayInputSource` の分類判定はこの経路がライブのまま残る前提で行う
+> **`rec-weight-coverage` による上書き注記:** 以下に残る HID-80 の weight 除外前提、および分類表の #4 / #17 に残る初期定義は上書きされた。現在の weight 系統は記録・遮断・注入対象であり、timeline REC Export の kind 12〜15 対応だけは timeline トラック合流後の follow-up とする。
+
+- レイヤー weight / 入力源 weight のランタイム変更経路（HID-80）。これは初期境界であったが、`rec-weight-coverage` により記録・遮断・注入の対象へ上書きされた。`OverlayInputSource` の分類判定も、レイヤー weight を除外根拠にしてはならない
 - lipsync / ifacialmocap / timeline / inputsystem パッケージの入力源実装の改修（Req 8.4）。timeline **Editor** の `RecEventSequenceAdapter`（REC Export）と `BakeSimulationHarness.RecordingObserver` は入力源実装ではなく、契約追随のコンパイル変更のみ行う
 - `IInjectedInputSource` 占有規則・`ResetToExpressionStack` の意味論・`ITriggerEventObserver` 契約の変更（既存 spec の契約を流用し変更しない）
 - Timeline 注入（`FacialTimelineReceiver` の gaze 乗っ取り）との同時使用時の優先順位変更（占有規則どおり先着優先のまま）
@@ -1210,15 +1212,15 @@ public interface IRecEventVisitor
 | 文書 | 変更 |
 |------|------|
 | `.kiro/specs/rec-recording-playback/design.md` L21（Non-Goals） | 「リップシンク由来の操作イベントは他入力と同様に観測面経由で記録される」→「リップシンクは `LipSyncPhonemeOverlayInputSource` が合成へ供給した BlendShape 値（消費値・有効性・寄与対象集合）を値提供型観測面経由で記録する（rec-full-input-coverage で上書き）」 |
-| 同 L24（Non-Goals）/ L44（Out of Boundary） | 「拡張パッケージ内部の直接参照消費者への注入到達」→ 値提供型は自身の Replace で遮断されるため対象内へ変更。残る未到達は inputsystem overlay binding の layer weight 駆動のみ（HID-80）と付記（rec-full-input-coverage で上書き） |
+| 同 L24（Non-Goals）/ L44（Out of Boundary） | 「拡張パッケージ内部の直接参照消費者への注入到達」→ 値提供型は自身の Replace で遮断されるため対象内へ変更。残る未到達としていた inputsystem overlay binding の layer weight / input-source weight 駆動（HID-80）も `rec-weight-coverage` で上書きされ、weight の観測・遮断・注入対象に含まれる |
 | 同 L45（Out of Boundary） | 「系1 経路の記録は対象外」→「rec-full-input-coverage により上書き: 系1 は `ExpressionUseCase` の観測面・遮断面・注入面で記録・遮断・注入される」 |
 | 同 Revalidation Triggers / Physical Data Model | `IFacialInputObserver` 形状と `.fcrec` kind 表（7〜11）を本書へ参照 |
 | `.kiro/specs/rec-playback-input-exclusivity/design.md` Non-Goals | 「osc パッケージの改修」「記録機能・`.fcrec` の変更」→ rec-full-input-coverage で上書きされた旨を付記。Req 3.3 の 0 埋め seed は値提供型には適用せず「無効」で確立する旨を付記 |
-| rec `README.md` 「記録される内容」 | 入力種別一覧を 4 系（トリガー / アナログ・gaze / 値提供型 / 系1）に拡張し、明示的除外 7 型とその理由を表で記載。既知制限に HID-80（layer weight / 入力源 weight はライブのまま）を追記 |
-| rec `README.md` 「ファイル形式」 | `formatVersion` 1 据え置き（v1 未リリースのため在置き変更）。ヘッダ `flags` の記述を「予約（常に 0）・読み込み側は検証しない」から「bit0 `FullInputBaseline` は必須（writer は常に 1 を書き、reader は欠落を読込エラーにする）。bit1〜15 は予約で検証しない」へ更新。**本変更より前に記録されたファイル（flags = 0）は `REC file header flags 0x0000 lack the required FullInputBaseline bit 0x0001. ...; re-record with the current version.` のエラーで読込が拒否され、再生は開始されない**（互換・移行なし。再収録を案内） |
+| rec `README.md` 「記録される内容」 | 入力種別一覧に weight 系統を追加し、明示的除外 7 型とその理由を表で記載。初期仕様にあった HID-80 の既知制限は `rec-weight-coverage` により上書きされた旨を注記 |
+| rec `README.md` 「ファイル形式」 | `formatVersion` 1 据え置き（v1 未リリースのため在置き変更）。weight 系統の kind 12〜15 とヘッダ `flags` bit1 `WeightBaseline` を追加した旨を記載 |
 | rec `README.md` 「再生中の入力遮断」 | 値提供型（無効 seed）と系1（Suspend + 基準確立）の項を追加。開始時スナップショット方式が両者にも適用される既知制限 |
 | rec `Documentation~/README.md` | kind 表に 7〜11 を追加、mask 順疎値の説明、値提供型・系1 の遮断仕様節、既知制限（mask 外非ゼロ非再現、基準捕捉は Update 時点の読取） |
-| timeline `README.md` / `Documentation~/README.md` REC Export 節 | 「値提供型・系1 のレコード kind は Export 対象外として無視する（読込は失敗しない）」 |
+| timeline `README.md` / `Documentation~/README.md` REC Export 節 | 「値提供型・系1 のレコード kind は Export 対象外として無視する（読込は失敗しない）」の方針は維持する。`rec-weight-coverage` では timeline パッケージを変更せず、weight kind 12〜15 の REC Export 対応は timeline トラック合流後の follow-up とする |
 
 ## Data Models
 
@@ -1349,14 +1351,14 @@ TDD（Red-Green-Refactor）厳守。テストファイルは対象クラス単�
 
 ## 入力源分類表（Req 1.1–1.4 の成果物。`RecInputSourceCoverageCatalog` と 1:1）
 
-前提: ランタイムのレイヤー weight / 入力源 weight 変更（inputsystem overlay binding による `FacialController.SetLayerWeight`、`LayerUseCase.SetInputSourceWeight`）は本 spec の対象外でライブのまま残る（Linear HID-80）。以下の「派生値」判断は表情由来の出力値のみを対象とし、レイヤー weight には及ばない。
+前提: ランタイムのレイヤー weight / 入力源 weight 変更（inputsystem overlay binding による `FacialController.SetLayerWeight`、`LayerUseCase.SetInputSourceWeight`）を本 spec の対象外とする初期方針は、`rec-weight-coverage` により上書きされた。現在は weight 系統も記録・遮断・注入の対象である。以下の「派生値」判断をレイヤー weight の除外根拠にしてはならない。
 
 | # | 型 FullName | アセンブリ | 分類 | カテゴリ | 除外区分 | 理由 / 根拠 | 契約テスト（除外行のみ） |
 |---|---|---|---|---|---|---|---|
 | 1 | `Hidano.FacialControl.Application.UseCases.LayerUseCase+LayerExpressionSource` | Hidano.FacialControl.Application | 観測対象 | 系1 | — | 系1 の消費アダプタ（sourceIdx=0 予約枠）。観測・遮断・注入は上流の `ExpressionUseCase` ゲートで行い、基準確立は `ResetGeneration` 追従のスナップで反映 | — |
 | 2 | `Hidano.FacialControl.Adapters.InputSources.AnalogBlendShapeInputSource` | Hidano.FacialControl.Adapters | 観測対象 | 値提供型 | — | `IAnalogInputSource` 直参照辞書から導出するが、自身がレイヤーに居る VP であり観測面が自動適用される。Replace により直参照経路ごと遮断される（派生値として除外すると直参照のライブ値が再生中に残る） | — |
 | 3 | `Hidano.FacialControl.Adapters.InputSources.AnalogExpressionInputSource` | Hidano.FacialControl.Adapters | 観測対象 | 値提供型 | — | `InputActionAnalogSource` を直参照する。入力側 analog（`input:{action}`）は wrapper 経由で観測されるが、再生時に wrapper を Replace しても本クラスの直参照は切れないため、自身を観測・Replace する | — |
-| 4 | `Hidano.FacialControl.Adapters.InputSources.OverlayInputSource` | Hidano.FacialControl.Adapters | 観測対象 | 値提供型 | — | 系2 active（`Layer2ActiveExpressionProvider`）から snapshot を解決する派生値だが、内部にクロスフェード状態（from / target / elapsed）を持つ。記録開始時に遷移途中だった場合、トリガー基準の `ResetToExpressionStack` では overlay の内部状態が再現されず、再生フレーム 0 に収束窓が生じる。よって「active 表情の記録から同一の overlay 出力が再導出される」根拠は成立せず、消費値を直接観測・注入する。音素予約 slot（a/i/u/e/o）の inert インスタンスは常時無効として基準 1 件のみ記録される。レイヤー weight（overlay binding の `SetLayerWeight`）はライブのまま残る（HID-80） | — |
+| 4 | `Hidano.FacialControl.Adapters.InputSources.OverlayInputSource` | Hidano.FacialControl.Adapters | 観測対象 | 値提供型 | — | 系2 active（`Layer2ActiveExpressionProvider`）から snapshot を解決する派生値だが、内部にクロスフェード状態（from / target / elapsed）を持つ。記録開始時に遷移途中だった場合、トリガー基準の `ResetToExpressionStack` では overlay の内部状態が再現されず、再生フレーム 0 に収束窓が生じる。よって「active 表情の記録から同一の overlay 出力が再導出される」根拠は成立せず、消費値を直接観測・注入する。音素予約 slot（a/i/u/e/o）の inert インスタンスは常時無効として基準 1 件のみ記録される。レイヤー weight（overlay binding の `SetLayerWeight`）も `rec-weight-coverage` により記録・遮断・注入対象となる | — |
 | 5 | `Hidano.FacialControl.Adapters.InputSources.OscInputSource` | Hidano.FacialControl.Osc | 観測対象 | 値提供型 | — | OSC / iFacialMocap 受信 BlendShape。heartbeat による mask 変化は in-place 更新を経て観測面で記録される | — |
 | 6 | `Hidano.FacialControl.Adapters.InputSources.GazeVector2InputSource` | Hidano.FacialControl.Osc | 観測対象 | アナログ | — | 既存（gaze 2 軸） | — |
 | 7 | `Hidano.FacialControl.Adapters.InputSources.ExpressionTriggerInputSource` | Hidano.FacialControl.InputSystem | 観測対象 | トリガー | — | 既存 | — |
@@ -1369,7 +1371,7 @@ TDD（Red-Green-Refactor）厳守。テストファイルは対象クラス単�
 | 14 | `Hidano.FacialControl.Timeline.Adapters.InputSources.TimelineGazeInputSource` | Hidano.FacialControl.Timeline | 明示的除外 | — | InjectionSource | 他注入者（`FacialTimelineReceiver`）の注入ソース（`IInjectedInputSource`）。REC は占有規則により装着済み id をスキップし、両者は排他。記録時に装着されていれば原本と同様にアナログ観測面経由で値は記録されるが、REC が到達性を保証する対象ではない | `ExclusionContract_InjectionSource_ImplementsIInjectedInputSource` |
 | 15 | `Hidano.FacialControl.Rec.Adapters.Playback.RecPlaybackAnalogSource` | Hidano.FacialControl.Rec.Adapters | 明示的除外 | — | InjectionSource | REC 自身の再生注入用内部ソース。再生中の再記録では注入値が観測面を通る | `ExclusionContract_InjectionSource_ImplementsIInjectedInputSource` |
 | 16 | `Hidano.FacialControl.Rec.Adapters.Playback.RecPlaybackValueProviderSource`（新規） | Hidano.FacialControl.Rec.Adapters | 明示的除外 | — | InjectionSource | 同上（値提供型） | `ExclusionContract_InjectionSource_ImplementsIInjectedInputSource` |
-| 17 | `Hidano.FacialControl.Adapters.InputSources.InputActionAnalogSource` | Hidano.FacialControl.InputSystem | 明示的除外 | — | WrappedByObservedSource（wrapper = #8、許容 referrer = `InputSystemAdapterBinding`） | `IAnalogInputSource` 単独実装。registry へは #8 wrapper 経由で登録され観測・遮断される。直参照消費者は #3（VP として Replace 遮断）と overlay layer weight 駆動（HID-80、ライブのまま残る既知制限） | **主契約**: inputsystem `InputSystemAdapterBindingIntegrationTests.OnStart_FakeRegistry_RegisteredTypesAreOnlyCatalogObservedTypes`（Medium、PlayMode）。Small 補完: `ExclusionContract_WrappedByObservedSource_WrapperIsObservedEntry`、`ExclusionContract_RuntimeRegistrationContract_IsDeclaredAndExists`。補助（IL 走査）: `ExclusionContract_WrappedByObservedSource_DirectReferrersWithinAllowList` |
+| 17 | `Hidano.FacialControl.Adapters.InputSources.InputActionAnalogSource` | Hidano.FacialControl.InputSystem | 明示的除外 | — | WrappedByObservedSource（wrapper = #8、許容 referrer = `InputSystemAdapterBinding`） | `IAnalogInputSource` 単独実装。registry へは #8 wrapper 経由で登録され観測・遮断される。直参照消費者は #3（VP として Replace 遮断）と overlay layer weight 駆動（初期の HID-80 既知制限だったが `rec-weight-coverage` により上書き） | **主契約**: inputsystem `InputSystemAdapterBindingIntegrationTests.OnStart_FakeRegistry_RegisteredTypesAreOnlyCatalogObservedTypes`（Medium、PlayMode）。Small 補完: `ExclusionContract_WrappedByObservedSource_WrapperIsObservedEntry`、`ExclusionContract_RuntimeRegistrationContract_IsDeclaredAndExists`。補助（IL 走査）: `ExclusionContract_WrappedByObservedSource_DirectReferrersWithinAllowList` |
 | 18 | `Hidano.FacialControl.Adapters.InputSources.ArKitOscAnalogSource` | Hidano.FacialControl.Osc | 明示的除外 | — | NotRegisteredAtRuntime（許容 referrer = `ArKitOscAdapterBinding`） | `ArKitOscAdapterBinding.AnalogSource` として公開されるだけで、Runtime に registry 登録も消費者も無い（合成パイプラインに到達しない）。`IInputSource` を実装しないため直接登録は型レベルで不可能 | **主契約**: osc `ArKitOscAdapterBindingTests.OnStart_FakeRegistry_RegistersNoInputSource`（Medium、EditMode）。Small 補完: `ExclusionContract_NotRegisteredAtRuntime_DoesNotImplementIInputSource`、`ExclusionContract_RuntimeRegistrationContract_IsDeclaredAndExists`。補助（IL 走査）: `ExclusionContract_NotRegisteredAtRuntime_DirectReferrersWithinAllowList` |
 | 19 | `Hidano.FacialControl.Adapters.InputSources.OscFloatAnalogSource` | Hidano.FacialControl.Osc | 明示的除外 | — | NotRegisteredAtRuntime（許容 referrer = 空） | Runtime / Editor に構築箇所も参照も無い（テストのみ）。合成パイプラインに到達しない | **主契約**: osc `OscReceiverAdapterBindingTests.OnStart_FakeRegistry_RegisteredTypesAreOnlyCatalogObservedTypes`（Medium、EditMode。osc 受信 binding の登録型が観測対象リテラル集合に閉じる）。Small 補完: `ExclusionContract_NotRegisteredAtRuntime_DoesNotImplementIInputSource`、`ExclusionContract_RuntimeRegistrationContract_IsDeclaredAndExists`。補助（IL 走査）: `ExclusionContract_NotRegisteredAtRuntime_DirectReferrersWithinAllowList`（product 参照ゼロ） |
 | 20 | `Hidano.FacialControl.Timeline.Editor.BakeSimulationHarness+OfflineExpressionSource` | Hidano.FacialControl.Timeline.Editor | 明示的除外 | — | EditorOnly | Editor のベイクシミュレーション専用。`FacialController` の registry に登録されず、合成パイプラインに到達しない。Runtime アセンブリは Editor アセンブリを参照しないため到達経路が構造的に無い | `ExclusionContract_EditorOnly_AssemblyIsDeclaredEditorOnly`、`ExclusionContract_EditorOnly_NoRuntimeAssemblyReferencesEditorAssembly` |
