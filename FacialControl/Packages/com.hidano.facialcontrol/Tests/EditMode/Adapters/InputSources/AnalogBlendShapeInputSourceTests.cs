@@ -3,12 +3,13 @@ using System.Collections;
 using System.Collections.Generic;
 using NUnit.Framework;
 using Hidano.FacialControl.Adapters.InputSources;
+using Hidano.FacialControl.Domain.Adapters;
 using Hidano.FacialControl.Domain.Interfaces;
 using Hidano.FacialControl.Domain.Models;
+using Hidano.FacialControl.Testing;
 #if FACIALCONTROL_HAS_OSC_MODULE
 using UnityEngine;
 using Hidano.FacialControl.Adapters.OSC;
-using Hidano.FacialControl.Testing;
 #endif
 
 namespace Hidano.FacialControl.Tests.EditMode.Adapters.InputSources
@@ -324,6 +325,159 @@ namespace Hidano.FacialControl.Tests.EditMode.Adapters.InputSources
 
         #endregion
 
+        #region registry 再解決（IRegistryAttachableAnalogConsumer）
+
+        private const string ReattachSlugText = "pad";
+        private const string ReattachSourceId = "lt";
+        private const float ReattachOriginalValue = 0.2f;
+        private static readonly string[] ReattachBlendShapeNames = { "JawOpen", "MouthFunnel" };
+
+        [Test]
+        public void Type_ImplementsRegistryAttachableAnalogConsumer()
+        {
+            Assert.That(
+                typeof(IRegistryAttachableAnalogConsumer).IsAssignableFrom(typeof(AnalogBlendShapeInputSource)),
+                Is.True,
+                "AnalogBlendShapeInputSource は IRegistryAttachableAnalogConsumer を実装する必要がある。");
+        }
+
+        [Test]
+        public void TryWriteValues_WithoutAttach_UsesConstructedSource()
+        {
+            AnalogBlendShapeInputSource sut = BuildReattachTarget(out _);
+
+            Assert.That(sut.IsRegistryAttached, Is.False);
+            AssertReattachOutput(sut, ReattachOriginalValue);
+        }
+
+        [Test]
+        public void AttachRegistry_ThenReplaceWithAnalogSource_WritesReplacedSourceValue()
+        {
+            AnalogBlendShapeInputSource sut = BuildReattachTarget(out _);
+            var registry = new FakeRegistry();
+            AdapterSlug slug = AdapterSlug.Parse(ReattachSlugText);
+            var maskBefore = new bool[sut.ContributeMask.Length];
+            sut.ContributeMask.CopyTo(maskBefore, 0);
+
+            sut.AttachRegistry(registry, slug);
+            registry.Replace(slug, ReattachSourceId, new RegistrableScalarSource("timeline-lt", 0.8f));
+
+            Assert.That(sut.IsRegistryAttached, Is.True);
+            AssertReattachOutput(sut, 0.8f);
+            var maskAfter = new bool[sut.ContributeMask.Length];
+            sut.ContributeMask.CopyTo(maskAfter, 0);
+            CollectionAssert.AreEqual(maskBefore, maskAfter, "ContributeMask は差し替えで変わらない。");
+        }
+
+        [Test]
+        public void AttachRegistry_ThenUnregister_RestoresConstructedSource()
+        {
+            AnalogBlendShapeInputSource sut = BuildReattachTarget(out _);
+            var registry = new FakeRegistry();
+            AdapterSlug slug = AdapterSlug.Parse(ReattachSlugText);
+            sut.AttachRegistry(registry, slug);
+            registry.Replace(slug, ReattachSourceId, new RegistrableScalarSource("timeline-lt", 0.8f));
+            AssertReattachOutput(sut, 0.8f);
+
+            registry.Unregister(slug, ReattachSourceId);
+
+            AssertReattachOutput(sut, ReattachOriginalValue);
+        }
+
+        [Test]
+        public void AttachRegistry_ThenReplaceWithNonAnalogSource_IgnoresNotification()
+        {
+            AnalogBlendShapeInputSource sut = BuildReattachTarget(out _);
+            var registry = new FakeRegistry();
+            AdapterSlug slug = AdapterSlug.Parse(ReattachSlugText);
+            sut.AttachRegistry(registry, slug);
+
+            registry.Replace(slug, ReattachSourceId, new FakeNonAnalogSource("plain"));
+
+            AssertReattachOutput(sut, ReattachOriginalValue);
+        }
+
+        [Test]
+        public void AttachRegistry_CalledTwiceWithSameRegistry_DoesNotSubscribeAgain()
+        {
+            AnalogBlendShapeInputSource sut = BuildReattachTarget(out _);
+            var registry = new FakeRegistry();
+            AdapterSlug slug = AdapterSlug.Parse(ReattachSlugText);
+
+            sut.AttachRegistry(registry, slug);
+            int afterFirst = registry.SubscribeCount;
+            sut.AttachRegistry(registry, slug);
+
+            Assert.That(afterFirst, Is.EqualTo(1), "解決済み binding 1 件につき購読は 1 回。");
+            Assert.That(registry.SubscribeCount, Is.EqualTo(afterFirst), "同じ registry への 2 回目の Attach は no-op。");
+        }
+
+        [Test]
+        public void DetachRegistry_AfterReplace_RestoresConstructedSourceAndIgnoresLaterNotifications()
+        {
+            AnalogBlendShapeInputSource sut = BuildReattachTarget(out _);
+            var registry = new FakeRegistry();
+            AdapterSlug slug = AdapterSlug.Parse(ReattachSlugText);
+            sut.AttachRegistry(registry, slug);
+            registry.Replace(slug, ReattachSourceId, new RegistrableScalarSource("timeline-lt", 0.8f));
+            AssertReattachOutput(sut, 0.8f);
+
+            sut.DetachRegistry();
+
+            Assert.That(sut.IsRegistryAttached, Is.False);
+            AssertReattachOutput(sut, ReattachOriginalValue);
+
+            registry.Replace(slug, ReattachSourceId, new RegistrableScalarSource("timeline-lt-2", 0.9f));
+            AssertReattachOutput(sut, ReattachOriginalValue);
+        }
+
+        [Test]
+        public void DetachRegistry_WithoutAttach_IsNoOp()
+        {
+            AnalogBlendShapeInputSource sut = BuildReattachTarget(out _);
+
+            Assert.DoesNotThrow(() => sut.DetachRegistry());
+            Assert.That(sut.IsRegistryAttached, Is.False);
+            AssertReattachOutput(sut, ReattachOriginalValue);
+        }
+
+        [Test]
+        public void AttachRegistry_NullRegistry_Throws()
+        {
+            AnalogBlendShapeInputSource sut = BuildReattachTarget(out _);
+
+            Assert.Throws<ArgumentNullException>(() => sut.AttachRegistry(null, AdapterSlug.Parse(ReattachSlugText)));
+        }
+
+        /// <summary>`lt` 1 軸 → JawOpen（Bipolar, scale 1）だけを束縛した対象を構築する。</summary>
+        private static AnalogBlendShapeInputSource BuildReattachTarget(out RegistrableScalarSource original)
+        {
+            original = new RegistrableScalarSource(ReattachSourceId, ReattachOriginalValue);
+            var sources = new Dictionary<string, IAnalogInputSource>(StringComparer.Ordinal)
+            {
+                { original.Id, original },
+            };
+            var bindings = new[]
+            {
+                new AnalogBindingEntry(ReattachSourceId, 0, AnalogBindingTargetKind.BlendShape, "JawOpen", AnalogTargetAxis.X),
+            };
+            return BuildSource(ReattachBlendShapeNames, sources, bindings);
+        }
+
+        private static void AssertReattachOutput(AnalogBlendShapeInputSource sut, float expected)
+        {
+            Span<float> output = stackalloc float[ReattachBlendShapeNames.Length];
+            output.Clear();
+
+            bool wrote = sut.TryWriteValues(output);
+
+            Assert.That(wrote, Is.True);
+            Assert.That(output[0], Is.EqualTo(expected).Within(1e-6f), "JawOpen = 読む先 source の値 x scale 1。");
+            Assert.That(output[1], Is.EqualTo(0f).Within(1e-6f), "MouthFunnel は束縛されていない。");
+        }
+
+        #endregion
+
         #region ヘルパー / フェイク
 
         /// <summary>単一のフェイク source だけを登録した <see cref="AnalogBlendShapeInputSource"/> を構築する。</summary>
@@ -426,6 +580,145 @@ namespace Hidano.FacialControl.Tests.EditMode.Adapters.InputSources
                     output[i] = 1f;
                 }
                 return copyLength > 0;
+            }
+        }
+
+        /// <summary>
+        /// registry に登録できる 1 軸フェイク。<see cref="IInputSource"/> と <see cref="IAnalogInputSource"/> の両方を実装する
+        /// （InputSystem の wrapper と同形）。
+        /// </summary>
+        private sealed class RegistrableScalarSource : IInputSource, IAnalogInputSource
+        {
+            public RegistrableScalarSource(string id, float value)
+            {
+                Id = id;
+                Value = value;
+            }
+
+            public string Id { get; }
+            public float Value { get; set; }
+            public bool IsValid => true;
+            public int AxisCount => 1;
+            public InputSourceType Type => InputSourceType.ValueProvider;
+            public int BlendShapeCount => 0;
+            public BitArray ContributeMask { get; } = new BitArray(0);
+            public void Tick(float deltaTime) { }
+            public bool TryWriteValues(Span<float> output) => false;
+
+            public bool TryReadScalar(out float value)
+            {
+                value = Value;
+                return true;
+            }
+
+            public bool TryReadVector2(out float x, out float y)
+            {
+                x = Value;
+                y = 0f;
+                return false;
+            }
+
+            public bool TryReadAxes(Span<float> output)
+            {
+                if (output.Length >= 1) output[0] = Value;
+                return output.Length >= 1;
+            }
+        }
+
+        /// <summary><see cref="IAnalogInputSource"/> ではない <see cref="IInputSource"/>。</summary>
+        private sealed class FakeNonAnalogSource : IInputSource
+        {
+            public FakeNonAnalogSource(string id)
+            {
+                Id = id;
+            }
+
+            public string Id { get; }
+            public InputSourceType Type => InputSourceType.ValueProvider;
+            public int BlendShapeCount => 0;
+            public BitArray ContributeMask { get; } = new BitArray(0);
+            public void Tick(float deltaTime) { }
+            public bool TryWriteValues(Span<float> output) => false;
+        }
+
+        /// <summary>
+        /// Subscribe 回数を記録し、Register / Replace / Unregister で購読者へ同期通知する最小 registry。
+        /// 実 <see cref="InputSourceRegistry"/> と同じ通知契約（Register / Replace は新 source、Unregister は null）。
+        /// </summary>
+        private sealed class FakeRegistry : IInputSourceRegistry
+        {
+            private readonly Dictionary<string, IInputSource> _entries =
+                new Dictionary<string, IInputSource>(StringComparer.Ordinal);
+            private readonly Dictionary<string, List<Action<IInputSource>>> _handlers =
+                new Dictionary<string, List<Action<IInputSource>>>(StringComparer.Ordinal);
+            private readonly List<string> _ids = new List<string>();
+
+            public int SubscribeCount { get; private set; }
+
+            public IReadOnlyList<string> RegisteredIds => _ids;
+
+            public void Register(AdapterSlug slug, IInputSource source) => Set(slug.Value, source);
+
+            public void Replace(AdapterSlug slug, IInputSource source) => Set(slug.Value, source);
+
+            public void Register(AdapterSlug slug, string sub, IInputSource source) => Set(slug.Value + ":" + sub, source);
+
+            public void Replace(AdapterSlug slug, string sub, IInputSource source) => Set(slug.Value + ":" + sub, source);
+
+            public void Unregister(AdapterSlug slug) => Remove(slug.Value);
+
+            public void Unregister(AdapterSlug slug, string sub) => Remove(slug.Value + ":" + sub);
+
+            public bool TryResolve(string layerInputSourceId, out IInputSource source)
+            {
+                if (string.IsNullOrEmpty(layerInputSourceId))
+                {
+                    source = null;
+                    return false;
+                }
+
+                return _entries.TryGetValue(layerInputSourceId, out source);
+            }
+
+            public void Subscribe(string id, Action<IInputSource> handler)
+            {
+                if (string.IsNullOrEmpty(id) || handler == null)
+                {
+                    return;
+                }
+
+                SubscribeCount++;
+                if (!_handlers.TryGetValue(id, out List<Action<IInputSource>> list))
+                {
+                    list = new List<Action<IInputSource>>();
+                    _handlers[id] = list;
+                }
+
+                list.Add(handler);
+            }
+
+            private void Set(string key, IInputSource source)
+            {
+                if (source == null) throw new ArgumentNullException(nameof(source));
+                if (!_entries.ContainsKey(key)) _ids.Add(key);
+                _entries[key] = source;
+                Notify(key, source);
+            }
+
+            private void Remove(string key)
+            {
+                if (!_entries.Remove(key)) return;
+                _ids.Remove(key);
+                Notify(key, null);
+            }
+
+            private void Notify(string key, IInputSource source)
+            {
+                if (!_handlers.TryGetValue(key, out List<Action<IInputSource>> list)) return;
+                for (int i = 0; i < list.Count; i++)
+                {
+                    list[i](source);
+                }
             }
         }
 

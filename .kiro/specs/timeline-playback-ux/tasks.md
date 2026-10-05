@@ -52,7 +52,7 @@
   - _Requirements: 3.4, 3.5, 11.1, 11.2_
   - _Boundary: IRegistryAttachableAnalogConsumer, AnalogExpressionInputSource_
 
-- [ ] 2.5 Analog BlendShape 消費者にも同じ registry 再解決契約を実装する（core Adapters）
+- [x] 2.5 Analog BlendShape 消費者にも同じ registry 再解決契約を実装する（core Adapters）
   - AnalogBlendShapeInputSource が 2.4 と同じ契約・同じ差し替え規則を実装する（ContributeMask 不変、hot path に分岐を増やさない）
   - 既存 `AnalogBlendShapeInputSourceTests`（Small）に Replace 追従 / null 復元 / 冪等 / Detach / 契約型実装を追記する
   - 完了条件: 両消費者で契約の `IsAssignableFrom` が true、追記テスト緑
