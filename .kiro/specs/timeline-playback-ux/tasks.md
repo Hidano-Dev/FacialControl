@@ -279,7 +279,7 @@
   - 完了条件: Clip のドラッグ・トリム・追加・削除・Undo のいずれでも Watcher の pending が立つ
   - _Requirements: 6.1, 6.7_
 
-- [ ] 9.5 (P) Profile SO の旧 timeline state 宣言を走査し Undo 可能に削除する Cleaner を実装する（timeline Editor）
+- [x] 9.5 (P) Profile SO の旧 timeline state 宣言を走査し Undo 可能に削除する Cleaner を実装する（timeline Editor）
   - Profile SO の各レイヤー inputSources を 4.1 の旧 state 宣言判定で走査し、state 宣言（削除対象）と値 sink 宣言（Info のみ）を区別して列挙する。削除は Undo.RecordObject → SerializedObject 経由で state 宣言の要素だけ削除 → ApplyModifiedProperties + SetDirty → 7.1 のキャッシュ無効化、削除件数を返す。値 sink 宣言とその weight は変更しない
   - 新規 `LegacyTimelineDeclarationCleanerTests`（Medium。AssetDatabase で SO を作る）に state 2 件 + 値 sink 1 件で Scan が 3 件（state 2）、削除が 2 を返し値 sink と weight が残る、Undo で 3 件に戻る、他 slug の state は対象外、を書く
   - 完了条件: Connector の Play 検出と Inspector の Edit 検出が同じ判定関数を使い、結果がずれない
