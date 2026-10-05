@@ -36,7 +36,7 @@
   - 完了条件: 5 口のテストが緑、既存の接続挙動テストが変更なしで緑
   - _Requirements: 3.1, 3.3, 3.8_
 
-- [ ] 2.3 (P) 動的 id を持つ binding のマーカーを定義し、ルーティング検証が `timeline:` 系 id を不正扱いしないようにする（core Domain + core Editor）
+- [x] 2.3 (P) 動的 id を持つ binding のマーカーを定義し、ルーティング検証が `timeline:` 系 id を不正扱いしないようにする（core Domain + core Editor）
   - Domain に「`{Slug}:*` の id を実行時に導出して登録する binding」を示すマーカー interface を追加する
   - InvalidIdValidator が、Profile の AdapterBindings のうちマーカーを実装する binding の `{Slug}:` prefix に一致する宣言 id を有効扱いにする（呼び出し側の変更なし）
   - 既存 `InvalidIdValidatorTests`（Small）に prefix 許容（一致 / 不一致 slug / マーカー無し binding は従来どおり）を追記する
