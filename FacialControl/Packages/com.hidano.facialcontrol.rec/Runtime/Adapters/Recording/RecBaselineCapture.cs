@@ -3,6 +3,7 @@ using System.Collections;
 using System.Collections.Generic;
 using Hidano.FacialControl.Adapters.InputSources;
 using Hidano.FacialControl.Domain.Interfaces;
+using Hidano.FacialControl.Domain.Models;
 using Hidano.FacialControl.Domain.Services;
 using Hidano.FacialControl.Rec.Domain.Models;
 using UnityEngine;
@@ -23,6 +24,16 @@ namespace Hidano.FacialControl.Rec.Adapters.Recording
             IExpressionActivationGate expressionGate,
             int blendShapeCount)
         {
+            return Capture(registry, expressionGate, blendShapeCount, null);
+        }
+
+        /// <param name="weightGate">現在のレイヤー / 入力源 weight。null なら weight 基準は空。</param>
+        public static RecBaselineState Capture(
+            IInputSourceRegistry registry,
+            IExpressionActivationGate expressionGate,
+            int blendShapeCount,
+            IWeightInjectionGate weightGate)
+        {
             if (registry == null)
             {
                 throw new ArgumentNullException(nameof(registry));
@@ -32,6 +43,14 @@ namespace Hidano.FacialControl.Rec.Adapters.Recording
             var analogEntries = new List<RecBaselineState.AnalogEntry>();
             var valueProviderEntries = new List<RecBaselineState.ValueProviderEntry>();
             var expressionEntries = new List<string>();
+            var layerWeightEntries = new List<LayerWeightEntry>();
+            var inputSourceWeightEntries = new List<InputSourceWeightEntry>();
+
+            if (weightGate != null)
+            {
+                weightGate.CollectLayerWeights(layerWeightEntries);
+                weightGate.CollectInputSourceWeights(inputSourceWeightEntries);
+            }
 
             if (expressionGate != null)
             {
@@ -129,7 +148,13 @@ namespace Hidano.FacialControl.Rec.Adapters.Recording
                 analogEntries.Add(new RecBaselineState.AnalogEntry(sourceId, axes));
             }
 
-            return new RecBaselineState(triggerEntries, analogEntries, valueProviderEntries, expressionEntries);
+            return new RecBaselineState(
+                triggerEntries,
+                analogEntries,
+                valueProviderEntries,
+                expressionEntries,
+                layerWeightEntries,
+                inputSourceWeightEntries);
         }
     }
 }

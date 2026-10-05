@@ -44,6 +44,7 @@ namespace Hidano.FacialControl.Rec.Adapters.Playable
         private RecTriggerInjector _triggerInjector;
         private RecExpressionInjector _expressionInjector;
         private RecValueProviderInjector _valueProviderInjector;
+        private RecWeightInjector _weightInjector;
         private RecordingUseCase _recordingUseCase;
         private RecStreamWriter _streamWriter;
         private RecTimeline _loadedTimeline;
@@ -196,6 +197,13 @@ namespace Hidano.FacialControl.Rec.Adapters.Playable
                 return false;
             }
 
+            IWeightInjectionGate weightGate = controller.WeightInjectionGate;
+            if (weightGate != null && !weightGate.LayerNamesAreUnique)
+            {
+                UnityEngine.Debug.LogWarning("REC recording start was ignored because the profile has duplicate layer names.");
+                return false;
+            }
+
             StopPlayback();
 
             string assetName = ResolveAssetName(controller);
@@ -213,7 +221,8 @@ namespace Hidano.FacialControl.Rec.Adapters.Playable
             RecBaselineState baseline = RecBaselineCapture.Capture(
                 controller.InputSourceRegistry,
                 controller.ExpressionActivationGate,
-                controller.BlendShapeCount);
+                controller.BlendShapeCount,
+                weightGate);
             _requestedRecordingPath = requestedFilePath;
             _recordingStartedUtc = DateTime.UtcNow;
             GetQueueCapacities(controller.BlendShapeCount, out int floatCapacity, out int byteCapacity);
@@ -490,7 +499,8 @@ namespace Hidano.FacialControl.Rec.Adapters.Playable
                 && ReferenceEquals(_sessionRegistry, controller.InputSourceRegistry)
                 && _playbackUseCase != null
                 && _analogInjector != null
-                && _triggerInjector != null)
+                && _triggerInjector != null
+                && _weightInjector != null)
             {
                 return;
             }
@@ -509,7 +519,9 @@ namespace Hidano.FacialControl.Rec.Adapters.Playable
             _valueProviderInjector = new RecValueProviderInjector(
                 controller.InputSourceRegistry,
                 () => controller.BlendShapeCount);
+            _weightInjector = new RecWeightInjector(() => controller.WeightInjectionGate);
             _playbackUseCase = new PlaybackUseCase(
+                _weightInjector,
                 _triggerInjector,
                 _expressionInjector,
                 _analogInjector,
@@ -530,6 +542,7 @@ namespace Hidano.FacialControl.Rec.Adapters.Playable
             _triggerInjector = null;
             _expressionInjector = null;
             _valueProviderInjector = null;
+            _weightInjector = null;
             _runtimeController = null;
             _sessionRegistry = null;
         }

@@ -1,6 +1,7 @@
 using System;
 using System.Reflection;
 using Hidano.FacialControl.Rec.Adapters.Playable;
+using Hidano.FacialControl.Rec.Adapters.Playback;
 using NUnit.Framework;
 
 using Hidano.FacialControl.Testing;
@@ -48,6 +49,15 @@ namespace Hidano.FacialControl.Rec.Tests.EditMode
             Assert.That(type.GetMethod("StartRecording", new[] { typeof(string) })?.ReturnType, Is.EqualTo(typeof(bool)));
             Assert.That(type.GetMethod("LoadRecording", new[] { typeof(string) })?.ReturnType, Is.EqualTo(typeof(bool)));
             Assert.That(type.GetMethod("StartPlayback", Type.EmptyTypes)?.ReturnType, Is.EqualTo(typeof(bool)));
+        }
+
+        [Test]
+        public void PlaybackSession_HasWeightInjectorPort()
+        {
+            FieldInfo field = typeof(RecCharacterBinding).GetField("_weightInjector", BindingFlags.Instance | BindingFlags.NonPublic);
+
+            Assert.That(field, Is.Not.Null);
+            Assert.That(field.FieldType, Is.EqualTo(typeof(RecWeightInjector)));
         }
     }
 }
