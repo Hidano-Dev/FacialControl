@@ -21,7 +21,7 @@
   - _Requirements: 8.8_
 
 - [ ] 2. core の後付け接続 API・Analog 消費者の registry 再解決・Profile 書き出しの冪等入口を追加する（core パッケージ）
-- [ ] 2.1 レイヤー入力源の後付け接続済み判定と系2 provider の増減 API を追加する（core Application）
+- [x] 2.1 レイヤー入力源の後付け接続済み判定と系2 provider の増減 API を追加する（core Application）
   - LayerUseCase に「指定レイヤーに指定 id の後付け入力源が接続済みか」を返す判定を追加する
   - Layer2ActiveExpressionProvider に単一 source の追加（同 (layer, source) は重複追加しない）と削除を追加し、既存の一括設定は維持する
   - 既存 `LayerUseCaseTests` / `Layer2ActiveExpressionProviderTests`（Small）に Bind 後 true / Unbind 後 false、重複追加しない、削除で消えることを追記する

@@ -1145,6 +1145,81 @@ namespace Hidano.FacialControl.Tests.EditMode.Application
             Assert.AreEqual(0.2f, useCase.GetBlendedOutput()[0], 1e-4f,
                 "詰められた source b は自分の weight 1.0 を保つこと（a の 0.5 を引き継がない）");
         }
+
+        // --- 後付け入力源の接続済み判定 (IsLateInputSourceBound) ---
+
+        [Test]
+        public void IsLateInputSourceBound_AfterBindLateInputSource_ReturnsTrue()
+        {
+            var layers = new[] { new LayerDefinition("emotion", 0, ExclusionMode.LastWins) };
+            var profile = new FacialProfile("1.0", layers, Array.Empty<Expression>());
+            var expressionUseCase = new ExpressionUseCase(profile);
+            var blendShapeNames = new[] { "bs_smile" };
+
+            using var useCase = new LayerUseCase(profile, expressionUseCase, blendShapeNames);
+            Assert.IsFalse(useCase.IsLateInputSourceBound(0, "timeline:emotion"), "Bind 前は未接続");
+
+            useCase.BindLateInputSource(0, "timeline:emotion",
+                new FakeValueWritingSource("timeline", blendShapeNames.Length, 0.5f), 1.0f);
+
+            Assert.IsTrue(useCase.IsLateInputSourceBound(0, "timeline:emotion"),
+                "宣言 id で後付け接続した入力源は接続済みと判定されること");
+        }
+
+        [Test]
+        public void IsLateInputSourceBound_AfterUnbindLateInputSource_ReturnsFalse()
+        {
+            var layers = new[] { new LayerDefinition("emotion", 0, ExclusionMode.LastWins) };
+            var profile = new FacialProfile("1.0", layers, Array.Empty<Expression>());
+            var expressionUseCase = new ExpressionUseCase(profile);
+            var blendShapeNames = new[] { "bs_smile" };
+
+            using var useCase = new LayerUseCase(profile, expressionUseCase, blendShapeNames);
+            useCase.BindLateInputSource(0, "timeline:emotion",
+                new FakeValueWritingSource("timeline", blendShapeNames.Length, 0.5f), 1.0f);
+
+            useCase.UnbindLateInputSource(0, "timeline:emotion");
+
+            Assert.IsFalse(useCase.IsLateInputSourceBound(0, "timeline:emotion"),
+                "Unbind 後は未接続に戻ること");
+        }
+
+        [Test]
+        public void IsLateInputSourceBound_DeclaredSourceResolvedAtInit_ReturnsTrue()
+        {
+            // 宣言経路（init 時に解決された additional source）も「接続済み」として同じ判定に乗る。
+            var layers = new[] { new LayerDefinition("emotion", 0, ExclusionMode.LastWins) };
+            var profile = new FacialProfile("1.0", layers, Array.Empty<Expression>());
+            var expressionUseCase = new ExpressionUseCase(profile);
+            var blendShapeNames = new[] { "bs_smile" };
+            var additional = new List<(int layerIdx, IInputSource source, float weight)>
+            {
+                (0, new FakeValueWritingSource("osc", blendShapeNames.Length, 0.4f), 1.0f),
+            };
+
+            using var useCase = new LayerUseCase(profile, expressionUseCase, blendShapeNames, additional, new[] { "osc:live" });
+
+            Assert.IsTrue(useCase.IsLateInputSourceBound(0, "osc:live"), "宣言 id で判定できること");
+            Assert.IsFalse(useCase.IsLateInputSourceBound(0, "osc"), "source.Id ではなく宣言 id がスロットの同定キー");
+        }
+
+        [Test]
+        public void IsLateInputSourceBound_UnknownIdOrLayer_ReturnsFalse()
+        {
+            var layers = new[] { new LayerDefinition("emotion", 0, ExclusionMode.LastWins) };
+            var profile = new FacialProfile("1.0", layers, Array.Empty<Expression>());
+            var expressionUseCase = new ExpressionUseCase(profile);
+            var blendShapeNames = new[] { "bs_smile" };
+
+            using var useCase = new LayerUseCase(profile, expressionUseCase, blendShapeNames);
+            useCase.BindLateInputSource(0, "timeline:emotion",
+                new FakeValueWritingSource("timeline", blendShapeNames.Length, 0.5f), 1.0f);
+
+            Assert.IsFalse(useCase.IsLateInputSourceBound(0, "timeline:other"), "未接続 id は false");
+            Assert.IsFalse(useCase.IsLateInputSourceBound(1, "timeline:emotion"), "範囲外レイヤーは false");
+            Assert.IsFalse(useCase.IsLateInputSourceBound(0, null), "null id は false");
+            Assert.IsFalse(useCase.IsLateInputSourceBound(0, string.Empty), "空 id は false");
+        }
     }
 
     /// <summary>

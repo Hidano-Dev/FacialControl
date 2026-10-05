@@ -442,6 +442,24 @@ namespace Hidano.FacialControl.Application.UseCases
             }
         }
 
+        /// <summary>
+        /// 指定レイヤーに宣言 id <paramref name="id"/> の追加入力源が接続済みかを返す。
+        /// init 時に解決された宣言経路のスロットと、<see cref="BindLateInputSource(int, string, IInputSource, float)"/>
+        /// による後付け接続のどちらも同じスロット同定キー（宣言 id）で判定する。
+        /// 範囲外レイヤー・null / 空 id・未初期化（Dispose 済）は false。
+        /// </summary>
+        /// <param name="layerIdx">対象レイヤー index。</param>
+        /// <param name="id">スロット同定キー（レイヤー宣言の id = <c>InputSourceRegistry</c> の登録キー）。</param>
+        public bool IsLateInputSourceBound(int layerIdx, string id)
+        {
+            if (_registry == null || string.IsNullOrEmpty(id))
+            {
+                return false;
+            }
+
+            return _registry.FindSourceIndex(layerIdx, id) >= 0;
+        }
+
         public LayerInputSourceWeightBuffer.BulkScope BeginInputSourceWeightBatch()
         {
             if (_weightBuffer == null)

@@ -23,6 +23,8 @@ namespace Hidano.FacialControl.Application.UseCases
     /// build-order（後期バインド）: <c>OverlayInputSource</c> はレイヤー入力源（系2）が解決される前に
     /// 構築されるため、本 provider は空で生成して先に注入し、系2 解決後に
     /// <see cref="SetSources"/> で実体（(layer, source) 群）を後から流し込む。
+    /// 宣言の無い系2 入力源（Timeline の state sink 等）を実行中に増減させる場合は
+    /// <see cref="AddSource"/> / <see cref="RemoveSource"/> を使う（一括設定済みのソースは保持される）。
     /// </para>
     /// <para>
     /// 「top」の暫定定義: 指定レイヤーに紐づく系2 インスタンスを走査し、最後に観測した非空スタックの末尾
@@ -65,6 +67,66 @@ namespace Hidano.FacialControl.Application.UseCases
                 }
                 _sources.Add(new LayerSource(layer, source));
             }
+        }
+
+        /// <summary>
+        /// 単一の系2 ソースをレイヤー名付きで追加する。<see cref="SetSources"/> で流し込んだ既存ソースは保持する。
+        /// 同じ (layer, source) の組が既に登録されていれば重複追加しない。
+        /// null の source・null / 空のレイヤー名は無視する。
+        /// </summary>
+        /// <param name="layer">対象レイヤー名。</param>
+        /// <param name="source">追加する系2 入力源。</param>
+        public void AddSource(string layer, ExpressionTriggerInputSourceBase source)
+        {
+            if (source == null || string.IsNullOrEmpty(layer))
+            {
+                return;
+            }
+
+            if (IndexOf(layer, source) >= 0)
+            {
+                return;
+            }
+
+            _sources.Add(new LayerSource(layer, source));
+        }
+
+        /// <summary>
+        /// <see cref="AddSource"/> / <see cref="SetSources"/> で登録した (layer, source) の組を取り除く。
+        /// </summary>
+        /// <param name="layer">対象レイヤー名。</param>
+        /// <param name="source">取り除く系2 入力源。</param>
+        /// <returns>取り除いた場合 true。未登録の組・null は false。</returns>
+        public bool RemoveSource(string layer, ExpressionTriggerInputSourceBase source)
+        {
+            if (source == null || string.IsNullOrEmpty(layer))
+            {
+                return false;
+            }
+
+            int index = IndexOf(layer, source);
+            if (index < 0)
+            {
+                return false;
+            }
+
+            _sources.RemoveAt(index);
+            return true;
+        }
+
+        private int IndexOf(string layer, ExpressionTriggerInputSourceBase source)
+        {
+            for (int i = 0; i < _sources.Count; i++)
+            {
+                var entry = _sources[i];
+                if (ReferenceEquals(entry.Source, source)
+                    && string.Equals(entry.Layer, layer, StringComparison.Ordinal))
+                {
+                    return i;
+                }
+            }
+
+            return -1;
         }
 
         /// <inheritdoc />
