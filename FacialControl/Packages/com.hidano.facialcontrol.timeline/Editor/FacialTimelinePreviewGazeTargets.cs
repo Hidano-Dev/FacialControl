@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using Hidano.FacialControl.Adapters.Bone;
+using Hidano.FacialControl.Domain.Models;
 using UnityEngine;
 using GazeChannel = Hidano.FacialControl.Adapters.ScriptableObject.GazeChannel;
 
@@ -15,6 +16,7 @@ namespace Hidano.FacialControl.Timeline.Editor
     {
         public FacialTimelinePreviewEyeTarget(
             int channelIndex,
+            int sourceIndex,
             bool isLeftEye,
             Transform bone,
             Quaternion restRotation,
@@ -23,6 +25,7 @@ namespace Hidano.FacialControl.Timeline.Editor
             bool isFallback)
         {
             ChannelIndex = channelIndex;
+            SourceIndex = sourceIndex;
             IsLeftEye = isLeftEye;
             Bone = bone;
             RestRotation = restRotation;
@@ -31,8 +34,15 @@ namespace Hidano.FacialControl.Timeline.Editor
             IsFallback = isFallback;
         }
 
-        /// <summary>対応する <see cref="GazeChannel"/> の index。</summary>
+        /// <summary>対応する <see cref="GazeChannel"/> の index（角度制限・rest の取得元）。</summary>
         public int ChannelIndex { get; }
+
+        /// <summary>
+        /// この目を駆動する Gaze 値チャネルの index（<see cref="FacialTimelinePreviewGazeTargets.Resolve"/> に渡した source id 列の index）。
+        /// source id 列を渡さず全 channel を対象にした場合は -1。
+        /// </summary>
+        public int SourceIndex { get; }
+
         public bool IsLeftEye { get; }
         public Transform Bone { get; }
         public Quaternion RestRotation { get; }
@@ -49,21 +59,29 @@ namespace Hidano.FacialControl.Timeline.Editor
     /// </summary>
     /// <remarks>
     /// <list type="bullet">
-    /// <item>入力源の無い channel (<c>isChannelDriven</c> が false) は駆動せず、fallback も使わない。</item>
+    /// <item>Gaze 値チャネル（Bake / Value トラックの ChannelSubId = REC の source id）と <see cref="GazeChannel"/> の対応は
+    /// トラックの index ではなく id で決める（Req 7.4）: GazeChannel の明示 source id（<see cref="GazeChannel.sourceIdLeft"/> /
+    /// <see cref="GazeChannel.sourceIdRight"/>）との完全一致を優先し、無ければ <see cref="GazeSourceIdConvention"/> で分解した
+    /// チャネル id が <see cref="GazeChannel.id"/> と一致するもの（<c>.left</c> / <c>.right</c> はその目だけ、suffix 無しは両目）。
+    /// 一致する値チャネルが無い目は駆動しない（ランタイムは入力源の無い channel を駆動しない）。</item>
     /// <item>path を指定した側はランタイムと同じ <see cref="BoneTransformResolver"/> で解決する
     /// (root からの相対 path / ボーン名 / 末尾一致。見つからなければ駆動しない)。</item>
     /// <item>path が空・空白の側は <see cref="GazeEyeBoneFallback"/> の目ボーンを使う。目ごとに、path 未指定の
-    /// 最初の channel だけが fallback を使う。fallback の目ボーンが無い側は駆動しない。</item>
+    /// 最初の駆動 channel だけが fallback を使う。fallback の目ボーンが無い側は駆動しない。</item>
     /// <item>path 指定の target が fallback と同じボーンを指す場合は path 指定側を優先し、fallback 側を外す。</item>
     /// </list>
     /// </remarks>
     internal static class FacialTimelinePreviewGazeTargets
     {
+        private const int AllChannelsSource = -1;
+        private const int NotDriven = -2;
+
         /// <summary>
         /// <paramref name="configs"/> の目ボーンを解決し、<paramref name="results"/> に channel 順 (左目 → 右目) で追加する。
         /// </summary>
-        /// <param name="isChannelDriven">
-        /// channel index を受け取り、その channel に入力 (ベイク値) があるかを返す。null なら全 channel を対象にする。
+        /// <param name="sourceIds">
+        /// 駆動に使える Gaze 値チャネルの source id 列（Value トラックの ChannelSubId）。null / 空要素は一致しない。
+        /// 列そのものが null なら全 channel の全目を対象にする（Timeline のプロパティ登録用）。
         /// </param>
         /// <param name="resolver">
         /// path 指定の目ボーンを解決する resolver。解決失敗の警告は resolver ごとに 1 回なので、
@@ -72,7 +90,7 @@ namespace Hidano.FacialControl.Timeline.Editor
         public static void Resolve(
             BoneTransformResolver resolver,
             IReadOnlyList<GazeChannel> configs,
-            Predicate<int> isChannelDriven,
+            IReadOnlyList<string> sourceIds,
             GazeEyeBoneFallback fallback,
             List<FacialTimelinePreviewEyeTarget> results)
         {
@@ -87,13 +105,27 @@ namespace Hidano.FacialControl.Timeline.Editor
             for (int i = 0; i < configs.Count; i++)
             {
                 GazeChannel config = configs[i];
-                if (config == null || (isChannelDriven != null && !isChannelDriven(i)))
+                if (config == null)
                 {
                     continue;
                 }
 
-                AddEye(resolver, config, i, true, fallback.Left, ref leftFallbackClaimed, results);
-                AddEye(resolver, config, i, false, fallback.Right, ref rightFallbackClaimed, results);
+                int leftSource = AllChannelsSource;
+                int rightSource = AllChannelsSource;
+                if (sourceIds != null)
+                {
+                    ResolveEyeSources(config, sourceIds, out leftSource, out rightSource);
+                }
+
+                if (leftSource != NotDriven)
+                {
+                    AddEye(resolver, config, i, leftSource, true, fallback.Left, ref leftFallbackClaimed, results);
+                }
+
+                if (rightSource != NotDriven)
+                {
+                    AddEye(resolver, config, i, rightSource, false, fallback.Right, ref rightFallbackClaimed, results);
+                }
             }
 
             RemoveFallbackOwnedByPath(results, start);
@@ -119,10 +151,97 @@ namespace Hidano.FacialControl.Timeline.Editor
                    target.RestRotation;
         }
 
+        /// <summary>
+        /// <paramref name="config"/> の左右の目を駆動する値チャネルの index を id で求める（見つからなければ <see cref="NotDriven"/>）。
+        /// 明示 source id の完全一致 → 規約 id の目指定（.left / .right）→ 規約 id の両目（suffix 無し）の順に優先する。
+        /// 同じ優先度で複数一致した場合は列の先頭を使う。
+        /// </summary>
+        private static void ResolveEyeSources(
+            GazeChannel config,
+            IReadOnlyList<string> sourceIds,
+            out int leftSource,
+            out int rightSource)
+        {
+            int explicitLeft = NotDriven;
+            int explicitRight = NotDriven;
+            int conventionLeft = NotDriven;
+            int conventionRight = NotDriven;
+            int conventionShared = NotDriven;
+            for (int s = 0; s < sourceIds.Count; s++)
+            {
+                string sourceId = sourceIds[s];
+                if (string.IsNullOrEmpty(sourceId))
+                {
+                    continue;
+                }
+
+                if (explicitLeft == NotDriven && Matches(config.sourceIdLeft, sourceId))
+                {
+                    explicitLeft = s;
+                }
+
+                if (explicitRight == NotDriven && Matches(config.sourceIdRight, sourceId))
+                {
+                    explicitRight = s;
+                }
+
+                if (string.IsNullOrEmpty(config.id)
+                    || !GazeSourceIdConvention.TryParse(sourceId, out _, out string channelId, out GazeSide side)
+                    || !string.Equals(channelId, config.id, StringComparison.Ordinal))
+                {
+                    continue;
+                }
+
+                switch (side)
+                {
+                    case GazeSide.Left:
+                        if (conventionLeft == NotDriven)
+                        {
+                            conventionLeft = s;
+                        }
+
+                        break;
+                    case GazeSide.Right:
+                        if (conventionRight == NotDriven)
+                        {
+                            conventionRight = s;
+                        }
+
+                        break;
+                    default:
+                        if (conventionShared == NotDriven)
+                        {
+                            conventionShared = s;
+                        }
+
+                        break;
+                }
+            }
+
+            leftSource = Pick(explicitLeft, conventionLeft, conventionShared);
+            rightSource = Pick(explicitRight, conventionRight, conventionShared);
+        }
+
+        private static int Pick(int explicitSource, int sideSource, int sharedSource)
+        {
+            if (explicitSource != NotDriven)
+            {
+                return explicitSource;
+            }
+
+            return sideSource != NotDriven ? sideSource : sharedSource;
+        }
+
+        private static bool Matches(string declaredSourceId, string sourceId)
+        {
+            return !string.IsNullOrEmpty(declaredSourceId) && string.Equals(declaredSourceId, sourceId, StringComparison.Ordinal);
+        }
+
         private static void AddEye(
             BoneTransformResolver resolver,
             GazeChannel config,
             int channelIndex,
+            int sourceIndex,
             bool isLeftEye,
             GazeEyeBoneFallback.FallbackEye fallbackEye,
             ref bool fallbackClaimed,
@@ -139,6 +258,7 @@ namespace Hidano.FacialControl.Timeline.Editor
 
                 results.Add(new FacialTimelinePreviewEyeTarget(
                     channelIndex,
+                    sourceIndex,
                     isLeftEye,
                     bone,
                     Quaternion.Euler(isLeftEye ? config.leftEyeInitialRotation : config.rightEyeInitialRotation),
@@ -156,6 +276,7 @@ namespace Hidano.FacialControl.Timeline.Editor
             fallbackClaimed = true;
             results.Add(new FacialTimelinePreviewEyeTarget(
                 channelIndex,
+                sourceIndex,
                 isLeftEye,
                 fallbackEye.Bone,
                 fallbackEye.RestRotation,

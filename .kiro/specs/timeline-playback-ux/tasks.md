@@ -321,7 +321,7 @@
   - 完了条件: Clip を動かした直後に Edit プレビューが新しい Bake で描かれ、Edit でセッション開始が呼ばれない
   - _Requirements: 6.2, 7.2, 7.3, 7.5, 8.6, 11.5_
 
-- [ ] 10.3 Edit プレビューの Gaze チャネル解決を index からチャネル id に変える（timeline Editor）
+- [x] 10.3 Edit プレビューの Gaze チャネル解決を index からチャネル id に変える（timeline Editor）
   - Bake の値チャネルの sub（REC source id）を GazeSourceIdConvention のチャネル id、または GazeChannel の明示 source id（左 / 右）との完全一致で解決する辞書に置き換え、index 結合を廃止する。Compositor の Gaze 評価もこの解決を使う
   - 既存 `FacialTimelinePreviewGazeTargetsTests`（Small）を チャネル id 解決（規約 id / 明示 source id / 一致なしは駆動しない / トラック順を入れ替えても同じ対応）へ書き換える
   - 完了条件: Gaze トラックの順序を入れ替えても目ボーンの対応が変わらない

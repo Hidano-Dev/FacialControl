@@ -48,13 +48,15 @@ namespace Hidano.FacialControl.Timeline.Editor
         private readonly ValueChannelBake[] _bakeValueBakes;
         private readonly TimelineStateEvent[] _bakeStateEvents;
         private readonly string _bakeSourceHash;
-        private readonly Predicate<int> _isGazeChannelDriven;
 
         private ExpressionUseCase _expressionUseCase;
         private LayerUseCase _layerUseCase;
         private SkinnedMeshRendererBlendShapeWriter _writer;
         private LayerPlayback[] _layers = Array.Empty<LayerPlayback>();
         private GazeTrackPlayback[] _gazeTracks = Array.Empty<GazeTrackPlayback>();
+
+        // _gazeTracks と同じ並びの駆動用 source id（値の無いトラックは null にして一致させない）。
+        private string[] _gazeSourceIds = Array.Empty<string>();
         private bool _disposed;
 
         /// <param name="controller">描画先の FacialController（renderer と BlendShape 名の取得元）。</param>
@@ -74,7 +76,6 @@ namespace Hidano.FacialControl.Timeline.Editor
             _profile = profile;
             _overrideBake = overrideBake;
             _timeline = timeline;
-            _isGazeChannelDriven = IsGazeChannelDriven;
 
             _located = FacialTimelineBakeLocator.Locate(timeline, overrideBake);
             _bake = _located.Bake;
@@ -190,6 +191,7 @@ namespace Hidano.FacialControl.Timeline.Editor
 
         /// <summary>
         /// 指定時刻の Gaze を目ボーンへ書く（<see cref="CanRender"/> のときだけ）。ランタイムの GazeBonePoseProvider と同じ回転規則。
+        /// Gaze Value トラックと <see cref="GazeChannel"/> の対応はトラック順ではなく ChannelSubId（= Bake の Sub）の id で解決する（Req 7.4）。
         /// </summary>
         public void EvaluateGaze(
             double timeSeconds,
@@ -205,11 +207,11 @@ namespace Hidano.FacialControl.Timeline.Editor
             }
 
             buffer.Clear();
-            FacialTimelinePreviewGazeTargets.Resolve(resolver, gazeChannels, _isGazeChannelDriven, fallback, buffer);
+            FacialTimelinePreviewGazeTargets.Resolve(resolver, gazeChannels, _gazeSourceIds, fallback, buffer);
             for (int i = 0; i < buffer.Count; i++)
             {
                 FacialTimelinePreviewEyeTarget target = buffer[i];
-                _gazeTracks[target.ChannelIndex].Evaluate(timeSeconds, out float x, out float y);
+                _gazeTracks[target.SourceIndex].Evaluate(timeSeconds, out float x, out float y);
                 target.Bone.localRotation = FacialTimelinePreviewGazeTargets.ComputeLocalRotation(
                     target,
                     gazeChannels[target.ChannelIndex],
@@ -291,11 +293,11 @@ namespace Hidano.FacialControl.Timeline.Editor
 
             _layers = playbacks.ToArray();
             _gazeTracks = CollectGazeTracks(_timeline);
-        }
-
-        private bool IsGazeChannelDriven(int channelIndex)
-        {
-            return channelIndex < _gazeTracks.Length && _gazeTracks[channelIndex].HasAnyAxis;
+            _gazeSourceIds = new string[_gazeTracks.Length];
+            for (int i = 0; i < _gazeTracks.Length; i++)
+            {
+                _gazeSourceIds[i] = _gazeTracks[i].HasAnyAxis ? _gazeTracks[i].ChannelSubId : null;
+            }
         }
 
         private static SkinnedMeshRenderer[] ResolveRenderers(FacialController controller)
