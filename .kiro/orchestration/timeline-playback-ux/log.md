@@ -117,3 +117,6 @@
 
 ### Task 8.1 / 8.2 / 8.3 — OK（第 1 段完了）
 - Commits: eb945af0 / 6eae9b7a / 4585a508（e2e で発見した欠陥: Receiver のセッション資源再利用が in-place 再ベイクを検知せず古いカーブで再生 → `AcquireDerivation` に Bake 内容の比較を追加して修正）/ Review: APPROVED（要フォロー: Play 中に Profile を保存すると DirtyWatcher の保存フックが Play 中に再ベイクと `receiver.BakeAsset` 上書きを行い診断を変える潜在欠陥。e2e fixture は保存しない回避策でこれを避けている → 9.2 で必須対応・テスト固定を実装エージェントへ指示 / 非ブロッキング: Req 11.4 のうちトラック名不一致・Bake 解決不可・Receiver 未配置は e2e になく EditMode のみ / 軽微: SourceHashHex 比較は冗長）/ Verify: EditMode 全件 2540/0、**PlayMode 全件 486/486**、check-test-sizes 差分 0。第 1 段のロールバック基準（値 sink 宣言のみの旧 Profile は動き、`:state` 宣言ありは止まる）を e2e で確認
+
+### Task 9.1 / 9.2 / 9.3 — OK
+- Commits: d723d884 / 99fe24f3（8.x レビューの必須対応込み: Play 中の保存フックは記録のみで Edit 復帰時に無言修復、Receiver.BakeAsset はユーザーが明示設定した場合のみ追従。e2e fixture の「保存しない」回避策は通常保存へ戻した）/ bf8a12c0 / Review: APPROVED（Suggestion: 同一 Timeline への MarkDirty 重複で PendingEntry.Reason が最後の理由で上書きされ Info が欠けることがある / 再ベイク後の SetDirty が ObjectChange 経由で NoChange の空振り照合を 1 回起こす（停止は確認済み、回帰テストなし）。FYI: TrackProfile の登録は Watcher 経由の再ベイク時のみ）/ Verify: EditMode 全件 2578/0、timeline PlayMode 33/33、check-test-sizes 差分 0
