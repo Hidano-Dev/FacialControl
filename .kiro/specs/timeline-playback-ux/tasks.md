@@ -75,7 +75,7 @@
   - _Depends: 2.4_
   - _Requirements: 3.4, 11.1, 11.2_
 
-- [ ] 4. Timeline 構成の導出・id 規約・診断モデル・Profile 内容ハッシュを Unity 非依存の Domain として用意する（timeline Runtime Domain）
+- [x] 4. Timeline 構成の導出・id 規約・診断モデル・Profile 内容ハッシュを Unity 非依存の Domain として用意する（timeline Runtime Domain）
 - [x] 4.1 レイヤー sink id の規約（名前優先・index フォールバック・旧 state 宣言判定）を実装する（timeline Runtime Domain）
   - レイヤー名が `[a-zA-Z0-9_.-]` のみで `:` を含まず state 形が 64 文字以内なら `timeline:{name}`、それ以外は `timeline:layer{index}` を合成し、フォールバック使用を呼び出し側へ返す。値 id と state id（`:state` 終端）の両方を合成する
   - 宣言 id が「`{slug}:` で始まり `:state` で終わる」（名前形 / index 形の双方）かを判定する旧 state 宣言判定を提供する。InputSourceId として解釈できない文字列には false
@@ -105,7 +105,7 @@
   - _Requirements: 8.7_
   - _Boundary: TimelineOnceWarningGate_
 
-- [ ] 4.5 (P) Profile スナップショットの内容ハッシュを Timeline 構造から分離し、Bake に保存する（timeline Runtime Domain 既存例外ファイル + Bake アセット）
+- [x] 4.5 (P) Profile スナップショットの内容ハッシュを Timeline 構造から分離し、Bake に保存する（timeline Runtime Domain 既存例外ファイル + Bake アセット）
   - ハッシュ計算に「Profile 内容ハッシュ」（SchemaVersion / Layers / LayerInputSources / Expressions（id 順）/ Slots / DefaultOverlays / BaseExpression / GazeChannels）の ulong と hex を追加し、既存の Source ハッシュは Timeline 構造 + Profile 内容ハッシュ + sampleRate で計算するよう変更する
   - Bake アセットに Profile 内容ハッシュ hex を additive に追加し（既存フィールド不変）、TimelineBakeService の Bake が Source ハッシュと併せて書き込む
   - 既存 `FacialTimelineHashCalculatorTests`（Small）に Layers / LayerInputSources / GazeChannels / Expressions の変更でハッシュが変わる、Expressions の順序に依存しない、Timeline のみの変更で Profile 内容ハッシュが不変、Source ハッシュが Profile 内容ハッシュを含む、を追記する

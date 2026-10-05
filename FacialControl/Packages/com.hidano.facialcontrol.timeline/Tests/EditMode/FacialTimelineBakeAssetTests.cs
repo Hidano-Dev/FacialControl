@@ -36,6 +36,28 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
         }
 
         [Test]
+        public void ProfileContentHashHex_DefaultsToEmptyNormalizesNullAndSerializes()
+        {
+            var asset = ScriptableObject.CreateInstance<FacialTimelineBakeAsset>();
+
+            try
+            {
+                Assert.That(asset.ProfileContentHashHex, Is.EqualTo(string.Empty));
+
+                asset.ProfileContentHashHex = null;
+                Assert.That(asset.ProfileContentHashHex, Is.EqualTo(string.Empty));
+
+                asset.ProfileContentHashHex = "00112233aabbccdd";
+                Assert.That(asset.ProfileContentHashHex, Is.EqualTo("00112233aabbccdd"));
+                StringAssert.Contains("\"profileContentHashHex\":\"00112233aabbccdd\"", EditorJsonUtility.ToJson(asset));
+            }
+            finally
+            {
+                Object.DestroyImmediate(asset);
+            }
+        }
+
+        [Test]
         public void NestedSchema_RetainsAssignedBakeData()
         {
             var asset = ScriptableObject.CreateInstance<FacialTimelineBakeAsset>();

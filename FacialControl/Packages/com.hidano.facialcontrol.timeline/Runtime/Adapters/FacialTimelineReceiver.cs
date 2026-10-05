@@ -233,7 +233,12 @@ namespace Hidano.FacialControl.Timeline.Adapters
                 return;
             }
 
-            string expectedHash = FacialTimelineHashCalculator.ComputeHashHex(timeline, profile, bakeAsset.SampleRate);
+            FacialCharacterProfileSO profileSource = ResolveProfileSource();
+            string expectedHash = FacialTimelineHashCalculator.ComputeHashHex(
+                timeline,
+                profile,
+                FacialTimelineHashCalculator.ToGazeChannelArray(profileSource != null ? profileSource.GazeChannels : null),
+                bakeAsset.SampleRate);
             if (!string.Equals(bakeAsset.SourceHashHex, expectedHash, StringComparison.Ordinal))
             {
                 LastBakeInspectionStatus = BakeInspectionStatus.HashMismatch;

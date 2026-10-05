@@ -1,5 +1,7 @@
 using System;
 using System.Collections.Generic;
+using Hidano.FacialControl.Adapters.ScriptableObject;
+using Hidano.FacialControl.Adapters.ScriptableObject.Serializable;
 using Hidano.FacialControl.Domain.Models;
 using Hidano.FacialControl.Domain.Services;
 using Hidano.FacialControl.Timeline.Adapters.Assets;
@@ -251,6 +253,146 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
 
                 UnityEngine.Object.DestroyImmediate(timeline);
             }
+        }
+
+        [Test]
+        public void Bake_WritesProfileContentHashHexMatchingRecalculationFromSameProfile()
+        {
+            var timeline = ScriptableObject.CreateInstance<TimelineAsset>();
+            FacialTimelineBakeAsset bake = null;
+
+            try
+            {
+                FacialProfile profile = CreateProfile(transitionDuration: 0.25f);
+                CreateExpressionTrack(timeline, start: 0.025d, duration: 0.50d);
+
+                bake = Editor.TimelineBakeService.Bake(timeline, profile);
+
+                Assert.That(bake.ProfileContentHashHex, Is.Not.Empty);
+                Assert.That(
+                    bake.ProfileContentHashHex,
+                    Is.EqualTo(FacialTimelineHashCalculator.ComputeProfileContentHashHex(profile, Array.Empty<GazeChannel>())));
+                Assert.That(
+                    bake.SourceHashHex,
+                    Is.EqualTo(FacialTimelineHashCalculator.ComputeHashHex(timeline, profile, Array.Empty<GazeChannel>(), bake.SampleRate)));
+            }
+            finally
+            {
+                if (bake != null)
+                {
+                    UnityEngine.Object.DestroyImmediate(bake);
+                }
+
+                UnityEngine.Object.DestroyImmediate(timeline);
+            }
+        }
+
+        [Test]
+        public void Bake_FromProfileAsset_WritesHashesIncludingGazeChannelsAndIsNotStale()
+        {
+            var timeline = ScriptableObject.CreateInstance<TimelineAsset>();
+            FacialCharacterProfileSO profileAsset = CreateProfileAsset();
+            FacialTimelineBakeAsset bake = null;
+
+            try
+            {
+                CreateExpressionTrack(timeline, start: 0.025d, duration: 0.50d);
+                GazeChannel[] gazeChannels = CopyGazeChannels(profileAsset);
+
+                bake = Editor.TimelineBakeService.Bake(timeline, profileAsset);
+
+                FacialProfile profile = profileAsset.BuildFallbackProfile();
+                Assert.That(bake.ProfileContentHashHex, Is.Not.Empty);
+                Assert.That(
+                    bake.ProfileContentHashHex,
+                    Is.EqualTo(FacialTimelineHashCalculator.ComputeProfileContentHashHex(profile, gazeChannels)));
+                Assert.That(
+                    bake.SourceHashHex,
+                    Is.EqualTo(FacialTimelineHashCalculator.ComputeHashHex(timeline, profile, gazeChannels, bake.SampleRate)));
+                Assert.That(Editor.TimelineBakeService.IsStale(timeline, profileAsset, bake), Is.False);
+
+                profileAsset.GazeChannels[0].sourceIdLeft = "osc:gaze.changed";
+
+                Assert.That(Editor.TimelineBakeService.IsStale(timeline, profileAsset, bake), Is.True);
+            }
+            finally
+            {
+                if (bake != null)
+                {
+                    UnityEngine.Object.DestroyImmediate(bake);
+                }
+
+                UnityEngine.Object.DestroyImmediate(profileAsset);
+                UnityEngine.Object.DestroyImmediate(timeline);
+            }
+        }
+
+        [Test]
+        public void UpdateBakeAsset_CopiesProfileContentHashHex()
+        {
+            var timeline = ScriptableObject.CreateInstance<TimelineAsset>();
+            FacialCharacterProfileSO profileAsset = CreateProfileAsset();
+            var target = ScriptableObject.CreateInstance<FacialTimelineBakeAsset>();
+
+            try
+            {
+                CreateExpressionTrack(timeline, start: 0.025d, duration: 0.50d);
+
+                Editor.TimelineBakeService.UpdateBakeAsset(timeline, profileAsset, target);
+
+                Assert.That(
+                    target.ProfileContentHashHex,
+                    Is.EqualTo(FacialTimelineHashCalculator.ComputeProfileContentHashHex(
+                        profileAsset.BuildFallbackProfile(),
+                        CopyGazeChannels(profileAsset))));
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(target);
+                UnityEngine.Object.DestroyImmediate(profileAsset);
+                UnityEngine.Object.DestroyImmediate(timeline);
+            }
+        }
+
+        private static FacialCharacterProfileSO CreateProfileAsset()
+        {
+            var profileAsset = ScriptableObject.CreateInstance<FacialCharacterProfileSO>();
+            profileAsset.SchemaVersion = "1.0.0";
+            profileAsset.Layers.Add(new LayerDefinitionSerializable
+            {
+                name = "Expressions",
+                priority = 0,
+                exclusionMode = ExclusionMode.LastWins,
+            });
+            profileAsset.Expressions.Add(new ExpressionSerializable
+            {
+                id = "smile",
+                name = "Smile",
+                layer = "Expressions",
+                transitionDuration = 0.1f,
+                blendShapeValues = new List<BlendShapeMappingSerializable>
+                {
+                    new BlendShapeMappingSerializable
+                    {
+                        name = "Smile",
+                        value = 1f,
+                    },
+                },
+            });
+            profileAsset.GazeChannels[0].sourceIdLeft = "osc:gaze";
+            profileAsset.GazeChannels[0].sourceIdRight = "osc:gaze";
+            return profileAsset;
+        }
+
+        private static GazeChannel[] CopyGazeChannels(FacialCharacterProfileSO profileAsset)
+        {
+            var copy = new GazeChannel[profileAsset.GazeChannels.Count];
+            for (int i = 0; i < copy.Length; i++)
+            {
+                copy[i] = profileAsset.GazeChannels[i];
+            }
+
+            return copy;
         }
 
         private static float SimulateLiveLinearValue(FacialProfile profile, float time, float transitionDuration)

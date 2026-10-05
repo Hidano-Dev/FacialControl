@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using Hidano.FacialControl.Adapters.ScriptableObject;
 using Hidano.FacialControl.Adapters.ScriptableObject.Serializable;
 using Hidano.FacialControl.Timeline.Clips;
 using Hidano.FacialControl.Domain.Models;
@@ -28,16 +29,20 @@ namespace Hidano.FacialControl.Timeline.Editor
             return Bake(
                 timeline,
                 profileAsset.BuildFallbackProfile(),
+                FacialTimelineHashCalculator.ToGazeChannelArray(profileAsset.GazeChannels),
                 sampleRate,
                 AssetDatabase.AssetPathToGUID(AssetDatabase.GetAssetPath(profileAsset)));
         }
 
+        /// <summary>
+        /// Profile 単体から焼く（GazeChannels は空として Profile 内容ハッシュを計算する）。
+        /// </summary>
         public static FacialTimelineBakeAsset Bake(
             TimelineAsset timeline,
             FacialProfile profile,
             float sampleRate = FacialTimelineHashCalculator.DefaultSampleRate)
         {
-            return Bake(timeline, profile, sampleRate, string.Empty);
+            return Bake(timeline, profile, Array.Empty<GazeChannel>(), sampleRate, string.Empty);
         }
 
         public static void UpdateBakeAsset(
@@ -69,6 +74,7 @@ namespace Hidano.FacialControl.Timeline.Editor
         private static FacialTimelineBakeAsset Bake(
             TimelineAsset timeline,
             FacialProfile profile,
+            GazeChannel[] gazeChannels,
             float sampleRate,
             string profileAssetGuid)
         {
@@ -101,7 +107,8 @@ namespace Hidano.FacialControl.Timeline.Editor
             }
 
             var bake = ScriptableObject.CreateInstance<FacialTimelineBakeAsset>();
-            bake.SourceHashHex = FacialTimelineHashCalculator.ComputeHashHex(timeline, profile, sampleRate);
+            bake.SourceHashHex = FacialTimelineHashCalculator.ComputeHashHex(timeline, profile, gazeChannels, sampleRate);
+            bake.ProfileContentHashHex = FacialTimelineHashCalculator.ComputeProfileContentHashHex(profile, gazeChannels);
             bake.ProfileAssetGuid = profileAssetGuid;
             bake.SampleRate = sampleRate;
             bake.ExpressionBakes = expressionBakes.ToArray();
@@ -113,6 +120,7 @@ namespace Hidano.FacialControl.Timeline.Editor
         private static void CopyBakeData(FacialTimelineBakeAsset source, FacialTimelineBakeAsset target)
         {
             target.SourceHashHex = source.SourceHashHex;
+            target.ProfileContentHashHex = source.ProfileContentHashHex;
             target.ProfileAssetGuid = source.ProfileAssetGuid;
             target.SampleRate = source.SampleRate;
             target.ExpressionBakes = source.ExpressionBakes;
@@ -120,9 +128,41 @@ namespace Hidano.FacialControl.Timeline.Editor
             target.StateEvents = source.StateEvents;
         }
 
+        /// <summary>
+        /// Profile SO（Profile + GazeChannels）に対して Bake が古いかを返す。SO から焼いた Bake の鮮度判定に使う。
+        /// </summary>
+        public static bool IsStale(
+            TimelineAsset timeline,
+            FacialCharacterProfileSO profileAsset,
+            FacialTimelineBakeAsset bake)
+        {
+            if (profileAsset == null)
+            {
+                throw new ArgumentNullException(nameof(profileAsset));
+            }
+
+            return IsStale(
+                timeline,
+                profileAsset.BuildFallbackProfile(),
+                FacialTimelineHashCalculator.ToGazeChannelArray(profileAsset.GazeChannels),
+                bake);
+        }
+
+        /// <summary>
+        /// Profile 単体（GazeChannels は空）に対して Bake が古いかを返す。
+        /// </summary>
         public static bool IsStale(
             TimelineAsset timeline,
             FacialProfile profile,
+            FacialTimelineBakeAsset bake)
+        {
+            return IsStale(timeline, profile, Array.Empty<GazeChannel>(), bake);
+        }
+
+        private static bool IsStale(
+            TimelineAsset timeline,
+            FacialProfile profile,
+            GazeChannel[] gazeChannels,
             FacialTimelineBakeAsset bake)
         {
             if (timeline == null)
@@ -139,7 +179,7 @@ namespace Hidano.FacialControl.Timeline.Editor
                 ? bake.SampleRate
                 : FacialTimelineHashCalculator.DefaultSampleRate;
 
-            string expected = FacialTimelineHashCalculator.ComputeHashHex(timeline, profile, sampleRate);
+            string expected = FacialTimelineHashCalculator.ComputeHashHex(timeline, profile, gazeChannels, sampleRate);
             return !string.Equals(expected, bake.SourceHashHex, StringComparison.Ordinal);
         }
 

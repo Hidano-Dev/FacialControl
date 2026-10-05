@@ -172,7 +172,7 @@ namespace Hidano.FacialControl.Timeline.Editor
                 }
 
                 FacialTimelineBakeAsset bake = FindBakeAsset(timelinePath);
-                if (bake != null && !TimelineBakeService.IsStale(timeline, profileAsset.BuildFallbackProfile(), bake))
+                if (bake != null && !TimelineBakeService.IsStale(timeline, profileAsset, bake))
                 {
                     continue;
                 }
@@ -256,7 +256,7 @@ namespace Hidano.FacialControl.Timeline.Editor
             }
 
             FacialTimelineBakeAsset bake = FindBakeAsset(timelinePath);
-            if (bake != null && !TimelineBakeService.IsStale(timeline, profileAsset.BuildFallbackProfile(), bake))
+            if (bake != null && !TimelineBakeService.IsStale(timeline, profileAsset, bake))
             {
                 return;
             }
@@ -293,7 +293,7 @@ namespace Hidano.FacialControl.Timeline.Editor
                     continue;
                 }
 
-                if (!TimelineBakeService.IsStale(timeline, profileAsset.BuildFallbackProfile(), bake))
+                if (!TimelineBakeService.IsStale(timeline, profileAsset, bake))
                 {
                     continue;
                 }

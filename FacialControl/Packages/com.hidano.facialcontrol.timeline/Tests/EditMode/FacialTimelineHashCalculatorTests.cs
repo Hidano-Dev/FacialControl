@@ -1,3 +1,4 @@
+using Hidano.FacialControl.Adapters.ScriptableObject;
 using Hidano.FacialControl.Domain.Models;
 using Hidano.FacialControl.Timeline.Clips;
 using Hidano.FacialControl.Timeline.Domain.Services;
@@ -134,6 +135,183 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
             }
         }
 
+        [Test]
+        public void ComputeProfileContentHash_SameInput_ReturnsSameValueAndHex()
+        {
+            ulong first = FacialTimelineHashCalculator.ComputeProfileContentHash(CreateProfile(0.10f), CreateGazeChannels("osc:gaze"));
+            ulong second = FacialTimelineHashCalculator.ComputeProfileContentHash(CreateProfile(0.10f), CreateGazeChannels("osc:gaze"));
+
+            Assert.That(first, Is.EqualTo(second));
+            Assert.That(
+                FacialTimelineHashCalculator.ComputeProfileContentHashHex(CreateProfile(0.10f), CreateGazeChannels("osc:gaze")),
+                Is.EqualTo(first.ToString("x16")));
+        }
+
+        [Test]
+        public void ComputeProfileContentHash_WhenLayersChange_ReturnsDifferentValue()
+        {
+            var original = CreateProfile(0.10f, layerPriority: 0);
+            var changed = CreateProfile(0.10f, layerPriority: 1);
+
+            Assert.That(
+                FacialTimelineHashCalculator.ComputeProfileContentHash(original, NoGaze),
+                Is.Not.EqualTo(FacialTimelineHashCalculator.ComputeProfileContentHash(changed, NoGaze)));
+        }
+
+        [Test]
+        public void ComputeProfileContentHash_WhenLayerInputSourcesChange_ReturnsDifferentValue()
+        {
+            var original = CreateProfile(0.10f, inputSourceWeight: 1.0f);
+            var changedWeight = CreateProfile(0.10f, inputSourceWeight: 0.5f);
+            var changedId = CreateProfile(0.10f, inputSourceWeight: 1.0f, inputSourceId: "timeline:emotion");
+
+            ulong originalHash = FacialTimelineHashCalculator.ComputeProfileContentHash(original, NoGaze);
+
+            Assert.That(originalHash, Is.Not.EqualTo(FacialTimelineHashCalculator.ComputeProfileContentHash(changedWeight, NoGaze)));
+            Assert.That(originalHash, Is.Not.EqualTo(FacialTimelineHashCalculator.ComputeProfileContentHash(changedId, NoGaze)));
+        }
+
+        [Test]
+        public void ComputeProfileContentHash_WhenGazeChannelsChange_ReturnsDifferentValue()
+        {
+            var profile = CreateProfile(0.10f);
+            GazeChannel[] original = CreateGazeChannels("osc:gaze");
+            GazeChannel[] changedSource = CreateGazeChannels("osc:gaze.left");
+            GazeChannel[] changedBone = CreateGazeChannels("osc:gaze");
+            changedBone[0].leftEyeBonePath = "Armature/Head/LeftEye";
+
+            ulong originalHash = FacialTimelineHashCalculator.ComputeProfileContentHash(profile, original);
+
+            Assert.That(originalHash, Is.Not.EqualTo(FacialTimelineHashCalculator.ComputeProfileContentHash(profile, changedSource)));
+            Assert.That(originalHash, Is.Not.EqualTo(FacialTimelineHashCalculator.ComputeProfileContentHash(profile, changedBone)));
+            Assert.That(originalHash, Is.Not.EqualTo(FacialTimelineHashCalculator.ComputeProfileContentHash(profile, NoGaze)));
+        }
+
+        [Test]
+        public void ComputeProfileContentHash_WhenExpressionsChange_ReturnsDifferentValue()
+        {
+            var original = CreateProfile(0.10f);
+            var changedTransition = CreateProfile(0.40f);
+            var withExtraExpression = CreateProfile(0.10f, includeAngry: true);
+
+            ulong originalHash = FacialTimelineHashCalculator.ComputeProfileContentHash(original, NoGaze);
+
+            Assert.That(originalHash, Is.Not.EqualTo(FacialTimelineHashCalculator.ComputeProfileContentHash(changedTransition, NoGaze)));
+            Assert.That(originalHash, Is.Not.EqualTo(FacialTimelineHashCalculator.ComputeProfileContentHash(withExtraExpression, NoGaze)));
+        }
+
+        [Test]
+        public void ComputeProfileContentHash_ExpressionOrder_DoesNotAffectValue()
+        {
+            var smileFirst = CreateProfile(0.10f, includeAngry: true, angryFirst: false);
+            var angryFirst = CreateProfile(0.10f, includeAngry: true, angryFirst: true);
+
+            Assert.That(
+                FacialTimelineHashCalculator.ComputeProfileContentHash(smileFirst, NoGaze),
+                Is.EqualTo(FacialTimelineHashCalculator.ComputeProfileContentHash(angryFirst, NoGaze)));
+        }
+
+        [Test]
+        public void ComputeProfileContentHash_WhenSlotsDefaultOverlaysOrBaseExpressionChange_ReturnsDifferentValue()
+        {
+            var original = CreateProfile(0.10f);
+            var withSlots = CreateProfile(0.10f, slots: new[] { "blink" });
+            var withDefaultOverlay = CreateProfile(
+                0.10f,
+                slots: new[] { "blink" },
+                defaultOverlays: new[] { new OverlaySlotBinding("blink", true, null) });
+            var withBaseExpression = CreateProfile(
+                0.10f,
+                baseExpression: new[] { new BlendShapeSnapshot("Face", "Smile", 0.2f) });
+
+            ulong originalHash = FacialTimelineHashCalculator.ComputeProfileContentHash(original, NoGaze);
+            ulong slotsHash = FacialTimelineHashCalculator.ComputeProfileContentHash(withSlots, NoGaze);
+
+            Assert.That(originalHash, Is.Not.EqualTo(slotsHash));
+            Assert.That(slotsHash, Is.Not.EqualTo(FacialTimelineHashCalculator.ComputeProfileContentHash(withDefaultOverlay, NoGaze)));
+            Assert.That(originalHash, Is.Not.EqualTo(FacialTimelineHashCalculator.ComputeProfileContentHash(withBaseExpression, NoGaze)));
+        }
+
+        [Test]
+        public void ComputeProfileContentHash_WhenOnlyTimelineChanges_IsUnchangedWhileSourceHashChanges()
+        {
+            var profile = CreateProfile(0.10f);
+            GazeChannel[] gaze = CreateGazeChannels("osc:gaze");
+            var original = CreateTimeline("Expressions", 0.0d, 1.0d, 0.25f);
+            var moved = CreateTimeline("Expressions", 0.5d, 1.0d, 0.25f);
+
+            try
+            {
+                ulong profileHashBefore = FacialTimelineHashCalculator.ComputeProfileContentHash(profile, gaze);
+                ulong sourceHashBefore = FacialTimelineHashCalculator.ComputeHash(original, profile, gaze);
+                ulong sourceHashAfter = FacialTimelineHashCalculator.ComputeHash(moved, profile, gaze);
+                ulong profileHashAfter = FacialTimelineHashCalculator.ComputeProfileContentHash(profile, gaze);
+
+                Assert.That(sourceHashAfter, Is.Not.EqualTo(sourceHashBefore));
+                Assert.That(profileHashAfter, Is.EqualTo(profileHashBefore));
+            }
+            finally
+            {
+                Object.DestroyImmediate(original);
+                Object.DestroyImmediate(moved);
+            }
+        }
+
+        [Test]
+        public void ComputeHash_IncludesProfileContentHash_GazeChannelChangeChangesSourceHash()
+        {
+            var profile = CreateProfile(0.10f);
+            var timeline = CreateTimeline("Expressions", 0.0d, 1.0d, 0.25f);
+
+            try
+            {
+                ulong withGaze = FacialTimelineHashCalculator.ComputeHash(timeline, profile, CreateGazeChannels("osc:gaze"));
+                ulong withOtherGaze = FacialTimelineHashCalculator.ComputeHash(timeline, profile, CreateGazeChannels("osc:gaze.left"));
+
+                Assert.That(withGaze, Is.Not.EqualTo(withOtherGaze));
+                Assert.That(
+                    FacialTimelineHashCalculator.ComputeHashHex(timeline, profile, CreateGazeChannels("osc:gaze")),
+                    Is.EqualTo(withGaze.ToString("x16")));
+            }
+            finally
+            {
+                Object.DestroyImmediate(timeline);
+            }
+        }
+
+        [Test]
+        public void ComputeHash_WithoutGazeChannels_EqualsEmptyGazeChannelOverload()
+        {
+            var profile = CreateProfile(0.10f);
+            var timeline = CreateTimeline("Expressions", 0.0d, 1.0d, 0.25f);
+
+            try
+            {
+                Assert.That(
+                    FacialTimelineHashCalculator.ComputeHash(timeline, profile),
+                    Is.EqualTo(FacialTimelineHashCalculator.ComputeHash(timeline, profile, NoGaze)));
+            }
+            finally
+            {
+                Object.DestroyImmediate(timeline);
+            }
+        }
+
+        private static readonly GazeChannel[] NoGaze = new GazeChannel[0];
+
+        private static GazeChannel[] CreateGazeChannels(string sourceIdLeft)
+        {
+            return new[]
+            {
+                new GazeChannel
+                {
+                    id = "gaze",
+                    sourceIdLeft = sourceIdLeft,
+                    sourceIdRight = sourceIdLeft,
+                },
+            };
+        }
+
         private static TimelineAsset CreateTimeline(
             string trackName,
             double clipStart,
@@ -196,28 +374,63 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
             };
         }
 
-        private static FacialProfile CreateProfile(float transitionDuration)
+        private static FacialProfile CreateProfile(
+            float transitionDuration,
+            int layerPriority = 0,
+            float inputSourceWeight = 1.0f,
+            string inputSourceId = "osc:analog-expression",
+            bool includeAngry = false,
+            bool angryFirst = false,
+            string[] slots = null,
+            OverlaySlotBinding[] defaultOverlays = null,
+            BlendShapeSnapshot[] baseExpression = null)
         {
+            var smile = new Expression(
+                id: "smile",
+                name: "Smile",
+                layer: "emotion",
+                transitionDuration: transitionDuration,
+                transitionCurve: TransitionCurve.Linear,
+                blendShapeValues: new[]
+                {
+                    new BlendShapeMapping("Smile", 1.0f, "Face"),
+                    new BlendShapeMapping("Blink", 0.25f, "Face"),
+                });
+            var angry = new Expression(
+                id: "angry",
+                name: "Angry",
+                layer: "emotion",
+                transitionDuration: 0.2f,
+                transitionCurve: TransitionCurve.Linear,
+                blendShapeValues: new[]
+                {
+                    new BlendShapeMapping("Angry", 1.0f, "Face"),
+                });
+
+            Expression[] expressions;
+            if (!includeAngry)
+            {
+                expressions = new[] { smile };
+            }
+            else
+            {
+                expressions = angryFirst ? new[] { angry, smile } : new[] { smile, angry };
+            }
+
             return new FacialProfile(
                 schemaVersion: "1.0.0",
                 layers: new[]
                 {
-                    new LayerDefinition("emotion", 0, ExclusionMode.LastWins),
+                    new LayerDefinition("emotion", layerPriority, ExclusionMode.LastWins),
                 },
-                expressions: new[]
+                expressions: expressions,
+                layerInputSources: new[]
                 {
-                    new Expression(
-                        id: "smile",
-                        name: "Smile",
-                        layer: "emotion",
-                        transitionDuration: transitionDuration,
-                        transitionCurve: TransitionCurve.Linear,
-                        blendShapeValues: new[]
-                        {
-                            new BlendShapeMapping("Smile", 1.0f, "Face"),
-                            new BlendShapeMapping("Blink", 0.25f, "Face"),
-                        }),
-                });
+                    new[] { new InputSourceDeclaration(inputSourceId, inputSourceWeight, null) },
+                },
+                defaultOverlays: defaultOverlays,
+                slots: slots,
+                baseExpression: baseExpression);
         }
     }
 }
