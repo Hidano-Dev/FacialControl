@@ -650,6 +650,40 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
         }
 
         [Test]
+        public void EditEvaluate_TrackBindingWriteNotAllowed_DoesNotWriteAndDoesNotReportAutoAssigned()
+        {
+            Scenario s = CreateScenario();
+            int dirtyBefore = UnityEditor.EditorUtility.GetDirtyCount(s.Director);
+            TimelineEditChangeWatcher watcher = CreateWatcher();
+
+            ReceiverEditEvaluation result = FacialTimelineReceiverEditEvaluator.Evaluate(
+                s.Receiver, watcher, requestAutoRebake: true, allowTrackBindingWrite: false);
+
+            Assert.That(s.Director.GetGenericBinding(s.Track), Is.Null, "Undo 起点の評価では binding を書かない");
+            Assert.That(UnityEditor.EditorUtility.GetDirtyCount(s.Director), Is.EqualTo(dirtyBefore));
+            Assert.That(s.Receiver.Diagnostics.Contains(TimelineDiagnosticCode.TrackBindingAutoAssigned), Is.False);
+            Assert.That(result.UnboundTrackCount, Is.EqualTo(1), "未設定数は「トラック binding を今設定」の対象として残る");
+        }
+
+        [Test]
+        public void EditEvaluate_AssignGate_AutoAssignsOncePerDirectorAndTimeline()
+        {
+            Scenario s = CreateScenario();
+            TimelineEditChangeWatcher watcher = CreateWatcher();
+            var gate = new TrackBindingAutoAssignGate();
+
+            FacialTimelineReceiverEditEvaluator.Evaluate(s.Receiver, watcher, true, assignGate: gate);
+            Assert.That(s.Director.GetGenericBinding(s.Track), Is.SameAs(s.Receiver));
+
+            s.Director.SetGenericBinding(s.Track, null);
+            FacialTimelineReceiverEditEvaluator.Evaluate(s.Receiver, watcher, true, assignGate: gate);
+
+            Assert.That(s.Director.GetGenericBinding(s.Track), Is.Null, "同じ (Director, Timeline) では 2 回目を書かない");
+            Assert.That(s.Receiver.Diagnostics.Contains(TimelineDiagnosticCode.TrackBindingAutoAssigned), Is.False,
+                "未設定が残っている間は AutoAssigned を出さない");
+        }
+
+        [Test]
         public void EditorTrackBindingWriter_SetsBindingWithUndo()
         {
             Scenario s = CreateScenario();

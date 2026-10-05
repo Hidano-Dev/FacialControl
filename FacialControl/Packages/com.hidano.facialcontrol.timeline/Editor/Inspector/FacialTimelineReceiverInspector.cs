@@ -25,7 +25,8 @@ namespace Hidano.FacialControl.Timeline.Editor.Inspector
     /// このインスタンスが所有し、<see cref="CreateInspectorGUI"/> で登録、root の DetachFromPanelEvent と OnDisable で解除する
     /// （二重解除は no-op。各 handler の先頭で target の破棄を確認する）。Detach で解除した root が再び panel に attach されたら
     /// AttachToPanelEvent で購読を戻す（購読中なら二重登録しない）。再描画は 100 ms 後に合流させる。</para>
-    /// <para>Edit 評価は未設定の Facial トラック binding があるときだけ Receiver を自動設定する（Req 1.6）。</para>
+    /// <para>Edit 評価は未設定の Facial トラック binding があるときだけ Receiver を自動設定する（Req 1.6）。自動設定はこの Inspector
+    /// インスタンス × (Director, TimelineAsset) ごとに 1 回だけで、Undo / Redo 起点の評価では書かない（D7）。</para>
     /// </remarks>
     [CustomEditor(typeof(FacialTimelineReceiver))]
     public sealed class FacialTimelineReceiverInspector : UnityEditor.Editor
@@ -40,6 +41,10 @@ namespace Hidano.FacialControl.Timeline.Editor.Inspector
         private const string AutoRebakeNote = "（自動再ベイク中）";
 
         private readonly AutoRebakeRequestGate _autoRebakeGate = new AutoRebakeRequestGate();
+        private readonly TrackBindingAutoAssignGate _trackBindingGate = new TrackBindingAutoAssignGate();
+
+        // 保留中の評価に Undo / Redo 起点のものが含まれるか（含まれる間は Track binding を書かない）。
+        private bool _pendingFromUndo;
 
         private VisualElement _root;
         private VisualElement _diagnosticsContainer;
@@ -147,6 +152,12 @@ namespace Hidano.FacialControl.Timeline.Editor.Inspector
             _scheduledRefresh?.Pause();
         }
 
+        /// <summary>次の <see cref="RefreshNow"/> で Edit 評価を行うよう予約する（Undo 以外の変更通知と同じ扱い。テスト用）。</summary>
+        internal void RequestEvaluation()
+        {
+            _pendingEvaluate = true;
+        }
+
         /// <summary>保留中の評価を行い、表示を作り直す（予約された再描画の本体。テストからも呼ぶ）。</summary>
         internal void RefreshNow()
         {
@@ -159,6 +170,8 @@ namespace Hidano.FacialControl.Timeline.Editor.Inspector
             if (!playing && _pendingEvaluate)
             {
                 _pendingEvaluate = false;
+                bool fromUndo = _pendingFromUndo;
+                _pendingFromUndo = false;
                 _evaluating = true;
                 try
                 {
@@ -166,7 +179,9 @@ namespace Hidano.FacialControl.Timeline.Editor.Inspector
                         receiver,
                         TimelineEditorServices.ChangeWatcher,
                         requestAutoRebake: true,
-                        _autoRebakeGate);
+                        _autoRebakeGate,
+                        allowTrackBindingWrite: !fromUndo,
+                        assignGate: _trackBindingGate);
                 }
                 finally
                 {
@@ -522,6 +537,8 @@ namespace Hidano.FacialControl.Timeline.Editor.Inspector
                 return;
             }
 
+            // Undo / Redo 起点の評価は表示更新のみ（binding を書くと Undo を打ち消し Redo 履歴も消える）。
+            _pendingFromUndo = true;
             RequestRefresh(evaluate: true);
         }
 

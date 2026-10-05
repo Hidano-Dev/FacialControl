@@ -90,13 +90,28 @@ namespace Hidano.FacialControl.Timeline.Editor
     }
 
     /// <summary>
+    /// Edit の Track binding 自動設定を「Inspector セッション × (Director, TimelineAsset)」ごとに 1 回へ絞るゲート（D7）。
+    /// Director や TimelineAsset が変われば再び 1 回通す。自動設定を Undo した後の再評価で書き直さないようにする。
+    /// </summary>
+    internal sealed class TrackBindingAutoAssignGate
+    {
+        private readonly HashSet<(int directorId, int timelineId)> _entered = new HashSet<(int directorId, int timelineId)>();
+
+        public bool TryEnter(PlayableDirector director, TimelineAsset timeline)
+        {
+            return director != null && timeline != null && _entered.Add((director.GetInstanceID(), timeline.GetInstanceID()));
+        }
+    }
+
+    /// <summary>
     /// Receiver Inspector の Edit 評価（UI に依存しない）。Profile を <see cref="TimelineProfileSource"/> で解決して Receiver の静的診断を評価し、
     /// Profile SO の旧宣言（<see cref="LegacyTimelineDeclarationCleaner.Scan"/>）を LayerConnection 領域に写し、
     /// 自動修復できる診断（Bake 参照の不整合 / 旧形式 / Profile 不一致）を Watcher へ MarkDirty する。
     /// </summary>
     /// <remarks>
     /// デバウンスや再ベイクは持たない（Watcher の役割）。Director の binding は未設定の Facial トラックがあるときだけ
-    /// <see cref="EditorTrackBindingWriter"/> で書く（未設定が 0 件なら書かない）。
+    /// <see cref="EditorTrackBindingWriter"/> で書く（未設定が 0 件なら書かない）。Inspector からは Undo / Redo 起点の評価では書かず、
+    /// 自動設定は <see cref="TrackBindingAutoAssignGate"/> で Inspector × (Director, TimelineAsset) ごとに 1 回にする。
     /// </remarks>
     internal static class FacialTimelineReceiverEditEvaluator
     {
@@ -116,11 +131,17 @@ namespace Hidano.FacialControl.Timeline.Editor
         /// 同じ (Timeline, 理由) の自動再ベイク要求を、その診断が解消するまで 1 回に絞る（null なら毎回要求する）。
         /// 再ベイクで解消しない不一致（Profile を解決できない等）で「再ベイク完了 → 再評価 → 再要求」が回り続けないようにする。
         /// </param>
+        /// <param name="allowTrackBindingWrite">
+        /// false なら Track binding を書かず結果の記録だけ行う（Undo / Redo 起点の評価。書くと Undo を打ち消し Redo 履歴を消すため）。
+        /// </param>
+        /// <param name="assignGate">自動設定を (Director, TimelineAsset) ごとに 1 回へ絞る（null なら毎回、未設定があれば書く）。</param>
         public static ReceiverEditEvaluation Evaluate(
             FacialTimelineReceiver receiver,
             TimelineEditChangeWatcher watcher,
             bool requestAutoRebake,
-            AutoRebakeRequestGate gate = null)
+            AutoRebakeRequestGate gate = null,
+            bool allowTrackBindingWrite = true,
+            TrackBindingAutoAssignGate assignGate = null)
         {
             if (receiver == null)
             {
@@ -136,7 +157,7 @@ namespace Hidano.FacialControl.Timeline.Editor
                 TimelineProfileSource.TryResolveProfileAssetForTimeline(timeline, out profileAsset);
             }
 
-            EnsureTrackBindings(receiver, director, timeline);
+            EnsureTrackBindings(receiver, director, timeline, allowTrackBindingWrite, assignGate);
 
             bool hasProfile = TryResolveProfile(profileAsset, out FacialProfile profile);
             receiver.EvaluateStaticDiagnostics(profile, hasProfile);
@@ -193,16 +214,36 @@ namespace Hidano.FacialControl.Timeline.Editor
         /// <remarks>
         /// 自動設定した直後の再評価（binding 変更の通知で起きる）では設定数が 0 になるため、同じ Director について
         /// 直前に記録した設定数を引き継いで AutoAssigned の表示が一瞬で消えないようにする。
+        /// 書き込みを許さない評価（Undo / Redo 起点、またはゲートで 1 回を使い切った後）は binding を書かずに現状だけを記録し、
+        /// 未設定のトラックが残っていれば AutoAssigned は出さない（「トラック binding を今設定」ボタンで設定できる）。
         /// </remarks>
-        private static void EnsureTrackBindings(FacialTimelineReceiver receiver, PlayableDirector director, TimelineAsset timeline)
+        private static void EnsureTrackBindings(
+            FacialTimelineReceiver receiver,
+            PlayableDirector director,
+            TimelineAsset timeline,
+            bool allowWrite,
+            TrackBindingAutoAssignGate assignGate)
         {
             if (director == null || timeline == null || UnityEngine.Application.isPlaying || EditorUtility.IsPersistent(director))
             {
                 return;
             }
 
+            bool write = allowWrite && (assignGate == null || assignGate.TryEnter(director, timeline));
             TrackBindingReport report = TimelineTrackBindingResolver.EnsureBindings(
-                director, timeline, receiver, EditorTrackBindingWriter.Instance);
+                director, timeline, receiver, write ? EditorTrackBindingWriter.Instance : (ITrackBindingWriter)DryRunTrackBindingWriter.Instance);
+            if (!write)
+            {
+                // 書かなかった分は「未設定のまま」なので設定数に数えない。
+                bool hasUnbound = report.Assigned > 0;
+                report = new TrackBindingReport(0, report.AlreadyBound, report.BoundToOther);
+                if (hasUnbound)
+                {
+                    receiver.RecordTrackBindingReport(director, report);
+                    return;
+                }
+            }
+
             if (report.Assigned == 0
                 && receiver.TryGetTrackBindingReport(director, out TrackBindingReport previous)
                 && previous.Assigned > 0)
@@ -211,6 +252,16 @@ namespace Hidano.FacialControl.Timeline.Editor
             }
 
             receiver.RecordTrackBindingReport(director, report);
+        }
+
+        /// <summary>何も書かない書込口（書き込みを許さない評価で、現状の binding を数えるためだけに使う）。</summary>
+        private sealed class DryRunTrackBindingWriter : ITrackBindingWriter
+        {
+            public static readonly DryRunTrackBindingWriter Instance = new DryRunTrackBindingWriter();
+
+            public void SetGenericBinding(PlayableDirector director, TrackAsset track, UnityEngine.Object value)
+            {
+            }
         }
 
         private static bool TryResolveProfile(FacialCharacterProfileSO profileAsset, out FacialProfile profile)
