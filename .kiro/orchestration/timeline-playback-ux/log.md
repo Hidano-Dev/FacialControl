@@ -79,3 +79,6 @@
 - Engine: **degraded-claude-only**。spec-run の第一優先 `codex exec --dangerously-bypass-approvals-and-sandbox` は Claude Code の auto mode classifier に「Create Unsafe Agents」として拒否された（コマンドは起動していない）。同じ結果を別経路（`claude -p --enable-auto-mode` の無人ネスト起動）で得ることも拒否の意図に反するため行わず、実装は `/kiro:spec-impl` 相当の **spec-tdd-impl-agent（ハーネス内サブエージェント、通常の権限制御下）**、独立レビューは **別のサブエージェント（read-only）**、完了確認（kiro-verify-completion）はオーケストレータ自身が Unity Test Runner（batchmode）で実施する。タスク単位のコミット・tasks.md のチェック・FAIL 時の退避ルールは spec-run の定義どおり
 - 補足: `pwsh`（PowerShell 7）が未インストールのため `scripts/check-test-sizes.ps1` はローカルで正しく動かない（PS 5.1 では main 時点で 33 件の偽陽性）。静的チェックは CI に委ね、PS 5.1 実行の件数差分だけをローカルで監視する
 - Branch/PR: `feature/hid-144-timeline-playback-ux`
+
+### Task 1 — OK（2026-10-05）
+- Engine: spec-tdd-impl-agent / Review: 独立サブエージェント APPROVED（FYI: design.md D11 の「基底へ blendShapeCount: Count を渡す」は同文の「値を書かない」と矛盾。実装は blendShapeCount 0 維持 + ContributeMask override。設計文言を後日修正）/ Verify: EditMode 全件 2277 passed / 0 failed、check-test-sizes（PS5.1）差分 0 / Commit: 3e94637d
