@@ -11,11 +11,13 @@ namespace Hidano.FacialControl.Rec.Adapters.Playback
     /// <summary>REC playback port for suspending live weights and injecting recorded weights.</summary>
     public sealed class RecWeightInjector : IWeightInjectionPort
     {
-        private const string UnresolvedReason = "weight injection gate could not be resolved";
-        private const string DuplicateLayerReason = "duplicate layer names are not supported for weight injection";
+        private const string UnresolvedReason = "weight injection requires an initialised FacialController (WeightInjectionGate is null)";
+        private const string DuplicateLayerReason = "profile has duplicate layer names; weight targets cannot be identified";
 
         private readonly Func<IWeightInjectionGate> _resolveGate;
-        private readonly HashSet<string> _warnedIds = new HashSet<string>(StringComparer.Ordinal);
+        // warn-once の照合 key は連結文字列を作らない（未知対象への注入が毎フレーム続いても確保しない）
+        private readonly HashSet<string> _warnedLayers = new HashSet<string>(StringComparer.Ordinal);
+        private readonly HashSet<(string Layer, string Slot)> _warnedSlots = new HashSet<(string Layer, string Slot)>();
         private IWeightInjectionGate _gate;
 
         public RecWeightInjector(Func<IWeightInjectionGate> resolveGate)
@@ -45,7 +47,8 @@ namespace Hidano.FacialControl.Rec.Adapters.Playback
         public bool TryBeginInjection(RecBaselineState baseline)
         {
             EndInjection();
-            _warnedIds.Clear();
+            _warnedLayers.Clear();
+            _warnedSlots.Clear();
 
             IWeightInjectionGate gate = _resolveGate();
             if (gate == null || !gate.LayerNamesAreUnique || !gate.SuspendLiveWeights())
@@ -62,7 +65,7 @@ namespace Hidano.FacialControl.Rec.Adapters.Playback
                 LayerWeightEntry entry = state.LayerWeightEntries[i];
                 if (!gate.TrySetBaselineLayerWeight(entry.LayerName, entry.Weight))
                 {
-                    WarnUnknownLayer(entry.LayerName);
+                    WarnUnknownLayer(entry.LayerName, isBaseline: true);
                 }
             }
 
@@ -71,7 +74,7 @@ namespace Hidano.FacialControl.Rec.Adapters.Playback
                 InputSourceWeightEntry entry = state.InputSourceWeightEntries[i];
                 if (!gate.TrySetBaselineInputSourceWeight(entry.LayerName, entry.SlotId, entry.Weight))
                 {
-                    WarnUnknownSlot(entry.LayerName, entry.SlotId);
+                    WarnUnknownSlot(entry.LayerName, entry.SlotId, isBaseline: true);
                 }
             }
 
@@ -82,7 +85,7 @@ namespace Hidano.FacialControl.Rec.Adapters.Playback
         {
             if (layerName == null) throw new ArgumentNullException(nameof(layerName));
             if (_gate == null || _gate.TryInjectLayerWeight(layerName, weight)) return;
-            WarnUnknownLayer(layerName);
+            WarnUnknownLayer(layerName, isBaseline: false);
         }
 
         public void InjectInputSourceWeight(string layerName, string slotId, float weight)
@@ -90,7 +93,7 @@ namespace Hidano.FacialControl.Rec.Adapters.Playback
             if (layerName == null) throw new ArgumentNullException(nameof(layerName));
             if (slotId == null) throw new ArgumentNullException(nameof(slotId));
             if (_gate == null || _gate.TryInjectInputSourceWeight(layerName, slotId, weight)) return;
-            WarnUnknownSlot(layerName, slotId);
+            WarnUnknownSlot(layerName, slotId, isBaseline: false);
         }
 
         public void EndInjection()
@@ -103,22 +106,28 @@ namespace Hidano.FacialControl.Rec.Adapters.Playback
             }
         }
 
-        private void WarnUnknownLayer(string layerName)
+        private void WarnUnknownLayer(string layerName, bool isBaseline)
         {
-            string key = "layer:" + layerName;
-            if (_warnedIds.Add(key))
+            if (!_warnedLayers.Add(layerName))
             {
-                Debug.LogWarning($"Playback skipped weight injection for layer '{layerName}' because the layer was not found.");
+                return;
             }
+
+            Debug.LogWarning(isBaseline
+                ? $"Playback skipped weight baseline for '{layerName}' because the target does not exist in the current profile."
+                : $"Playback skipped weight injection for layer '{layerName}' because the layer was not found.");
         }
 
-        private void WarnUnknownSlot(string layerName, string slotId)
+        private void WarnUnknownSlot(string layerName, string slotId, bool isBaseline)
         {
-            string key = "slot:" + layerName + "\u001f" + slotId;
-            if (_warnedIds.Add(key))
+            if (!_warnedSlots.Add((layerName, slotId)))
             {
-                Debug.LogWarning($"Playback skipped weight injection for slot '{slotId}' in layer '{layerName}' because the slot was not found.");
+                return;
             }
+
+            Debug.LogWarning(isBaseline
+                ? $"Playback skipped weight baseline for '{layerName}/{slotId}' because the target does not exist in the current profile."
+                : $"Playback skipped weight injection for slot '{slotId}' in layer '{layerName}' because the slot was not found.");
         }
     }
 }
