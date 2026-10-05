@@ -83,7 +83,7 @@
   - 完了条件: 非 ASCII レイヤー名でも InputSourceId の解析が例外にならず、同一入力で決定的な id が返る
   - _Requirements: 2.3_
 
-- [ ] 4.2 トラック記述子 DTO と、DTO 列 + Profile からレイヤー / チャネルを導出する純粋関数を実装する（timeline Runtime Domain）
+- [x] 4.2 トラック記述子 DTO と、DTO 列 + Profile からレイヤー / チャネルを導出する純粋関数を実装する（timeline Runtime Domain）
   - Scanner が返す Unity 非依存のトラック記述子（index・種別・名前・ChannelSubId・ChannelKind・最大軸数・bake 参照有無と同一性キー・子フラグと親 index）、導出済みレイヤー記述子、チャネル記述子、導出結果（一致レイヤー / 未一致トラック名 / チャネル / 不正 ChannelSubId / Facial トラック有無）を定義する
   - 導出は root の Expression トラックのみをレイヤー候補にし（子トラックは除外）、Profile のレイヤー名と一致したものだけを `LayerIndex` 付きで返し、未一致はトラック名を記録する。チャネルは root の Value トラックのみ、ChannelSubId は REC の source id をそのまま保持、重複は先勝ちで後続を不正として記録、軸数 0 は無効。Profile が default なら全トラックを未一致にする
   - 新規 `TimelineChannelDeriverTests`（Small。DTO 列を手組みし TimelineAsset を生成しない）に root のみ対象 / 子を含めない / 未一致トラック名 / ChannelSubId 重複 / 軸数最大 / 空列 / Profile 未解決 を書く
