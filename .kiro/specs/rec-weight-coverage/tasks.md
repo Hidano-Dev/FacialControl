@@ -103,7 +103,7 @@
   - Small テストで「weight gate ありの捕捉が全レイヤー・全スロットを含む」「gate なしは空」、既存の binding テストに「再生セッションが weight 注入ポートを構築する」「レイヤー名重複のプロファイルでは録画開始が Warning 付きで false」が緑になる
   - _Requirements: 2.6, 4.1, 4.2, 6.4_
 
-- [ ] 4.4 (P) weight 書込経路の分類正本とゲートテストを追加する
+- [x] 4.4 (P) weight 書込経路の分類正本とゲートテストを追加する
   - 入力源分類カタログに weight 書込経路の正本（型 FullName + メンバー名 + アセンブリ名 + 分類 Gated / Excluded + 除外区分 + 理由。設計書の分類表 14 経路と 1:1）を追加する。既存エントリの理由文（`OverlayInputSource`、`InputActionAnalogSource` の許容 referrer）を「weight 経路は遮断・注入の対象」に更新し、件数は変えない
   - Small ゲートテストで「全エントリの型とメンバーがロード済み product アセンブリに実在する（陳腐化は名前付きで失敗）」「型 + メンバーの重複なし」「Excluded は除外区分と理由を持つ」「人工的な陳腐化エントリが失敗する」が緑になり、既存の `RecInputSourceCoverageCatalogTests` が無変更で緑のまま
   - _Requirements: 1.1, 1.2, 1.3, 8.1, 8.2, 8.3, 8.4, 8.5_
