@@ -562,8 +562,91 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
             Assert.That(result.Director, Is.SameAs(s.Director));
             Assert.That(result.Timeline, Is.SameAs(s.Timeline));
             Assert.That(result.ProfileAsset, Is.SameAs(s.ProfileSO));
-            Assert.That(result.UnboundTrackCount, Is.EqualTo(1), "Director の Facial トラック binding は未設定");
-            Assert.That(s.Director.GetGenericBinding(s.Track), Is.Null, "Edit 評価は binding を書かない（ボタンで設定する）");
+            Assert.That(result.UnboundTrackCount, Is.EqualTo(0), "未設定だった Facial トラックは Edit 評価で自動設定される");
+        }
+
+        // ================================================================
+        // Edit 側の Track binding 自動設定（Req 1.6 / D7）
+        // ================================================================
+
+        [Test]
+        public void EditEvaluate_UnboundTrack_AutoAssignsReceiverAndReportsAutoAssignedWithCount()
+        {
+            Scenario s = CreateScenario();
+            s.Timeline.CreateTrack<FacialExpressionTrack>(null, "other").Bake = s.Bake;
+            TimelineEditChangeWatcher watcher = CreateWatcher();
+
+            FacialTimelineReceiverEditEvaluator.Evaluate(s.Receiver, watcher, requestAutoRebake: true);
+
+            Assert.That(s.Director.GetGenericBinding(s.Track), Is.SameAs(s.Receiver), "未設定の Facial トラックに Receiver が設定される");
+            FacialTimelineDiagnostics diagnostics = s.Receiver.Diagnostics;
+            Assert.That(diagnostics.Contains(TimelineDiagnosticCode.TrackBindingAutoAssigned), Is.True, Describe(diagnostics));
+            Assert.That(SeverityOf(diagnostics, TimelineDiagnosticCode.TrackBindingAutoAssigned), Is.EqualTo(TimelineDiagnosticSeverity.Info));
+            Assert.That(SubjectOf(diagnostics, TimelineDiagnosticCode.TrackBindingAutoAssigned), Does.StartWith("2 本"), "件名に設定した本数を出す");
+        }
+
+        [Test]
+        public void EditEvaluate_ReevaluatedAfterAutoAssign_KeepsAutoAssignedForSameDirector()
+        {
+            Scenario s = CreateScenario();
+            TimelineEditChangeWatcher watcher = CreateWatcher();
+            FacialTimelineReceiverEditEvaluator.Evaluate(s.Receiver, watcher, requestAutoRebake: true);
+
+            FacialTimelineReceiverEditEvaluator.Evaluate(s.Receiver, watcher, requestAutoRebake: true);
+
+            Assert.That(s.Receiver.Diagnostics.Contains(TimelineDiagnosticCode.TrackBindingAutoAssigned), Is.True,
+                "直後の再評価（binding 変更の通知による）で表示が消えない");
+        }
+
+        [Test]
+        public void EditEvaluate_AllTracksAlreadyBound_DoesNotWriteDirector()
+        {
+            Scenario s = CreateScenario();
+            s.Director.SetGenericBinding(s.Track, s.Receiver);
+            int dirtyBefore = UnityEditor.EditorUtility.GetDirtyCount(s.Director);
+            UnityEditor.Undo.IncrementCurrentGroup();
+            int undoGroupBefore = UnityEditor.Undo.GetCurrentGroup();
+            TimelineEditChangeWatcher watcher = CreateWatcher();
+
+            FacialTimelineReceiverEditEvaluator.Evaluate(s.Receiver, watcher, requestAutoRebake: true);
+
+            Assert.That(UnityEditor.EditorUtility.GetDirtyCount(s.Director), Is.EqualTo(dirtyBefore), "表示しただけでは Director を dirty にしない");
+            Assert.That(UnityEditor.Undo.GetCurrentGroup(), Is.EqualTo(undoGroupBefore), "Undo 履歴を積まない");
+            Assert.That(s.Director.GetGenericBinding(s.Track), Is.SameAs(s.Receiver));
+            Assert.That(s.Receiver.Diagnostics.Contains(TimelineDiagnosticCode.TrackBindingAutoAssigned), Is.False);
+        }
+
+        [Test]
+        public void EditEvaluate_TrackBoundToOtherObject_ReportsForeignAndKeepsBinding()
+        {
+            Scenario s = CreateScenario();
+            var other = new GameObject("OtherBindingTarget");
+            _created.Add(other);
+            s.Director.SetGenericBinding(s.Track, other);
+            TimelineEditChangeWatcher watcher = CreateWatcher();
+
+            FacialTimelineReceiverEditEvaluator.Evaluate(s.Receiver, watcher, requestAutoRebake: true);
+
+            Assert.That(s.Director.GetGenericBinding(s.Track), Is.SameAs(other), "他オブジェクトを指す binding は触らない");
+            FacialTimelineDiagnostics diagnostics = s.Receiver.Diagnostics;
+            Assert.That(diagnostics.Contains(TimelineDiagnosticCode.TrackBindingForeign, EmotionLayer), Is.True, Describe(diagnostics));
+            Assert.That(SeverityOf(diagnostics, TimelineDiagnosticCode.TrackBindingForeign), Is.EqualTo(TimelineDiagnosticSeverity.Warning));
+            Assert.That(diagnostics.Contains(TimelineDiagnosticCode.TrackBindingAutoAssigned), Is.False);
+        }
+
+        [Test]
+        public void EditEvaluate_AutoAssign_IsUndoable()
+        {
+            Scenario s = CreateScenario();
+            UnityEditor.Undo.IncrementCurrentGroup();
+            TimelineEditChangeWatcher watcher = CreateWatcher();
+
+            FacialTimelineReceiverEditEvaluator.Evaluate(s.Receiver, watcher, requestAutoRebake: true);
+            Assert.That(s.Director.GetGenericBinding(s.Track), Is.SameAs(s.Receiver));
+
+            UnityEditor.Undo.PerformUndo();
+
+            Assert.That(s.Director.GetGenericBinding(s.Track), Is.Null, "自動設定は Undo で戻る");
         }
 
         [Test]
@@ -748,6 +831,20 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
 
             Assert.Fail($"診断 {code} が記録されていない。{Describe(diagnostics)}");
             return default;
+        }
+
+        private static string SubjectOf(FacialTimelineDiagnostics diagnostics, TimelineDiagnosticCode code)
+        {
+            foreach (TimelineDiagnosticItem item in diagnostics.Items)
+            {
+                if (item.Code == code)
+                {
+                    return item.Subject;
+                }
+            }
+
+            Assert.Fail($"診断 {code} が記録されていない。{Describe(diagnostics)}");
+            return null;
         }
 
         private static string Describe(FacialTimelineDiagnostics diagnostics)

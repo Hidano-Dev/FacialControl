@@ -67,6 +67,41 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
         }
 
         [Test]
+        public void AttachAfterDetach_ResubscribesOnceWithoutDoubleRegistration()
+        {
+            FacialTimelineReceiver receiver = CreateReceiver(withDirector: true);
+            FacialTimelineReceiverInspector inspector = CreateInspector(receiver);
+            inspector.CreateInspectorGUI();
+            int subscribed = inspector.SubscriptionCount;
+            Assert.That(subscribed, Is.GreaterThan(0));
+
+            inspector.HandleAttachToPanel();
+            Assert.That(inspector.SubscriptionCount, Is.EqualTo(subscribed), "初回 attach では二重登録しない");
+
+            inspector.HandleDetachFromPanel();
+            Assert.That(inspector.SubscriptionCount, Is.EqualTo(0));
+
+            inspector.HandleAttachToPanel();
+            Assert.That(inspector.SubscriptionCount, Is.EqualTo(subscribed), "Detach で解除した購読を再 attach で戻す");
+
+            inspector.HandleAttachToPanel();
+            Assert.That(inspector.SubscriptionCount, Is.EqualTo(subscribed), "二重登録しない");
+        }
+
+        [Test]
+        public void AttachAfterExplicitUnsubscribe_DoesNotResubscribe()
+        {
+            FacialTimelineReceiver receiver = CreateReceiver(withDirector: true);
+            FacialTimelineReceiverInspector inspector = CreateInspector(receiver);
+            inspector.CreateInspectorGUI();
+
+            inspector.Unsubscribe();
+            inspector.HandleAttachToPanel();
+
+            Assert.That(inspector.SubscriptionCount, Is.EqualTo(0), "Detach 以外（OnDisable 等）で解除した後は再登録しない");
+        }
+
+        [Test]
         public void SaveAndUndoWhileOpen_DoesNotThrow()
         {
             FacialTimelineReceiver receiver = CreateReceiver(withDirector: true);

@@ -95,7 +95,8 @@ namespace Hidano.FacialControl.Timeline.Editor
     /// 自動修復できる診断（Bake 参照の不整合 / 旧形式 / Profile 不一致）を Watcher へ MarkDirty する。
     /// </summary>
     /// <remarks>
-    /// デバウンスや再ベイクは持たない（Watcher の役割）。Director の binding は書かない（ボタンで <see cref="EditorTrackBindingWriter"/> を使う）。
+    /// デバウンスや再ベイクは持たない（Watcher の役割）。Director の binding は未設定の Facial トラックがあるときだけ
+    /// <see cref="EditorTrackBindingWriter"/> で書く（未設定が 0 件なら書かない）。
     /// </remarks>
     internal static class FacialTimelineReceiverEditEvaluator
     {
@@ -134,6 +135,8 @@ namespace Hidano.FacialControl.Timeline.Editor
             {
                 TimelineProfileSource.TryResolveProfileAssetForTimeline(timeline, out profileAsset);
             }
+
+            EnsureTrackBindings(receiver, director, timeline);
 
             bool hasProfile = TryResolveProfile(profileAsset, out FacialProfile profile);
             receiver.EvaluateStaticDiagnostics(profile, hasProfile);
@@ -180,6 +183,34 @@ namespace Hidano.FacialControl.Timeline.Editor
                 CountUnboundTracks(director, timeline),
                 hasLegacy,
                 pending);
+        }
+
+        /// <summary>
+        /// Director の Facial トラックのうち binding が null のものにだけ Receiver を設定し（Req 1.6 / D7。Undo + SetDirty 付き）、
+        /// 結果を Receiver に記録する（TrackBinding 領域の AutoAssigned / Foreign の元）。未設定が 0 件なら何も書かないため、
+        /// Inspector を表示しただけでシーンが dirty になることはない。他オブジェクトを指す binding は触らない。
+        /// </summary>
+        /// <remarks>
+        /// 自動設定した直後の再評価（binding 変更の通知で起きる）では設定数が 0 になるため、同じ Director について
+        /// 直前に記録した設定数を引き継いで AutoAssigned の表示が一瞬で消えないようにする。
+        /// </remarks>
+        private static void EnsureTrackBindings(FacialTimelineReceiver receiver, PlayableDirector director, TimelineAsset timeline)
+        {
+            if (director == null || timeline == null || UnityEngine.Application.isPlaying || EditorUtility.IsPersistent(director))
+            {
+                return;
+            }
+
+            TrackBindingReport report = TimelineTrackBindingResolver.EnsureBindings(
+                director, timeline, receiver, EditorTrackBindingWriter.Instance);
+            if (report.Assigned == 0
+                && receiver.TryGetTrackBindingReport(director, out TrackBindingReport previous)
+                && previous.Assigned > 0)
+            {
+                report = new TrackBindingReport(previous.Assigned, report.AlreadyBound, report.BoundToOther);
+            }
+
+            receiver.RecordTrackBindingReport(director, report);
         }
 
         private static bool TryResolveProfile(FacialCharacterProfileSO profileAsset, out FacialProfile profile)

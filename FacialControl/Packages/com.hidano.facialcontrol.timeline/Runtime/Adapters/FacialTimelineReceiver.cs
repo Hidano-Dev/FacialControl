@@ -386,6 +386,29 @@ namespace Hidano.FacialControl.Timeline.Adapters
             TimelineDiagnosticsEvaluator.EvaluateStatic(this, _diagnostics, context);
         }
 
+        /// <summary>
+        /// Track binding 自動設定の結果を記録する（次の静的診断の TrackBinding 領域に使う）。Edit では Inspector の評価が呼ぶ。
+        /// </summary>
+        internal void RecordTrackBindingReport(PlayableDirector boundDirector, TrackBindingReport report)
+        {
+            _trackBindingReport = report;
+            _trackBindingDirector = boundDirector;
+            _hasTrackBindingReport = boundDirector != null;
+        }
+
+        /// <summary>指定 Director について記録済みの Track binding 自動設定の結果を返す。</summary>
+        internal bool TryGetTrackBindingReport(PlayableDirector boundDirector, out TrackBindingReport report)
+        {
+            if (_hasTrackBindingReport && boundDirector != null && _trackBindingDirector == boundDirector)
+            {
+                report = _trackBindingReport;
+                return true;
+            }
+
+            report = default;
+            return false;
+        }
+
         // ================================================================
         // ライフサイクル（Play のみ。Edit の評価は Inspector が行う）
         // ================================================================

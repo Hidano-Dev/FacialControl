@@ -33,7 +33,7 @@ namespace Hidano.FacialControl.Timeline.Adapters.Diagnostics
             "PlayableDirector に TimelineAsset がセットされていません。Director の Playable 欄に Export した TimelineAsset をセットしてください。";
         private const string AutoAssignedDetail = "Facial トラックの binding に Receiver を自動設定しました。";
         private const string ForeignDetail =
-            "このトラックの binding は別のオブジェクトを指しているため変更しません。この Receiver で再生する場合は binding を外してください。";
+            "このトラックの binding は別のオブジェクトを指しているため変更しません。この Receiver で再生する場合は、PlayableDirector の Bindings でこのトラックの binding を外す（None にする）と自動で設定されます。";
         private const string BakeMissingDetail =
             "TimelineAsset に Facial トラックが無いため、再生する Bake がありません。";
         private const string BakeLegacyExportDetail =
@@ -168,7 +168,8 @@ namespace Hidano.FacialControl.Timeline.Adapters.Diagnostics
             TrackBindingReport report = context.TrackBindings;
             if (report.Assigned > 0)
             {
-                string subject = context.Director != null ? context.Director.name : string.Empty;
+                string directorName = context.Director != null ? context.Director.name : string.Empty;
+                string subject = report.Assigned + " 本（" + directorName + "）";
                 items.Add(Info(TimelineDiagnosticArea.TrackBinding, TimelineDiagnosticCode.TrackBindingAutoAssigned, subject, AutoAssignedDetail));
             }
 

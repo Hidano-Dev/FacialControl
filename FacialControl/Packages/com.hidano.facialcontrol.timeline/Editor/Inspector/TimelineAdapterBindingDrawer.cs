@@ -12,6 +12,7 @@ namespace Hidano.FacialControl.Timeline.Editor.Inspector
     /// </summary>
     /// <remarks>
     /// レイヤー / チャネルは TimelineAsset のトラックから自動導出されるため、旧フィールドは表示しない（値は再生に使われない）。
+    /// 消去はユーザーがボタンを押したときだけ行う明示操作で、表示・保存・再生で自動的には消さない（Req 2.4 の「読み取り専用で残す」と両立）。
     /// </remarks>
     [CustomPropertyDrawer(typeof(TimelineAdapterBinding))]
     public sealed class TimelineAdapterBindingDrawer : PropertyDrawer, IAdapterBindingHeaderSummaryProvider

@@ -23,7 +23,9 @@ namespace Hidano.FacialControl.Timeline.Editor.Inspector
     /// 表示判定は <see cref="FacialTimelineReceiverInspectorModel"/>。デバウンスや再ベイクは持たない（Watcher の役割）。</para>
     /// <para>表示更新の購読（Undo / hierarchyChanged / ObjectChangeEvents / Watcher の BakeUpdated / 診断の Changed / playModeStateChanged）は
     /// このインスタンスが所有し、<see cref="CreateInspectorGUI"/> で登録、root の DetachFromPanelEvent と OnDisable で解除する
-    /// （二重解除は no-op。各 handler の先頭で target の破棄を確認する）。再描画は 100 ms 後に合流させる。</para>
+    /// （二重解除は no-op。各 handler の先頭で target の破棄を確認する）。Detach で解除した root が再び panel に attach されたら
+    /// AttachToPanelEvent で購読を戻す（購読中なら二重登録しない）。再描画は 100 ms 後に合流させる。</para>
+    /// <para>Edit 評価は未設定の Facial トラック binding があるときだけ Receiver を自動設定する（Req 1.6）。</para>
     /// </remarks>
     [CustomEditor(typeof(FacialTimelineReceiver))]
     public sealed class FacialTimelineReceiverInspector : UnityEditor.Editor
@@ -53,6 +55,8 @@ namespace Hidano.FacialControl.Timeline.Editor.Inspector
         private bool _evaluating;
         private ReceiverEditEvaluation _lastEvaluation;
 
+        // DetachFromPanelEvent で購読を外したか（AttachToPanelEvent で戻すのはこの場合だけ）。
+        private bool _unsubscribedByDetach;
         private bool _undoSubscribed;
         private bool _hierarchySubscribed;
         private bool _objectChangeSubscribed;
@@ -87,6 +91,7 @@ namespace Hidano.FacialControl.Timeline.Editor.Inspector
             BuildButtons();
 
             _root.RegisterCallback<DetachFromPanelEvent>(OnDetachFromPanel);
+            _root.RegisterCallback<AttachToPanelEvent>(OnAttachToPanel);
             Subscribe(receiver);
 
             _pendingEvaluate = true;
@@ -102,6 +107,7 @@ namespace Hidano.FacialControl.Timeline.Editor.Inspector
         /// <summary>全購読を解除する。二重呼び出しは no-op。</summary>
         internal void Unsubscribe()
         {
+            _unsubscribedByDetach = false;
             if (_undoSubscribed)
             {
                 Undo.undoRedoPerformed -= OnUndoRedoPerformed;
@@ -451,7 +457,40 @@ namespace Hidano.FacialControl.Timeline.Editor.Inspector
 
         private void OnDetachFromPanel(DetachFromPanelEvent evt)
         {
+            HandleDetachFromPanel();
+        }
+
+        private void OnAttachToPanel(AttachToPanelEvent evt)
+        {
+            HandleAttachToPanel();
+        }
+
+        /// <summary>root が panel から外れたら購読を解除し、再 attach で戻せるよう印を付ける。</summary>
+        internal void HandleDetachFromPanel()
+        {
+            bool hadSubscriptions = SubscriptionCount > 0;
             Unsubscribe();
+            _unsubscribedByDetach = hadSubscriptions;
+        }
+
+        /// <summary>
+        /// root が panel に（再）接続されたら購読を戻す。Detach で解除した場合のみ再登録し、購読中なら何もしない（二重登録しない）。
+        /// </summary>
+        internal void HandleAttachToPanel()
+        {
+            if (!_unsubscribedByDetach || SubscriptionCount > 0)
+            {
+                return;
+            }
+
+            if (!(target is FacialTimelineReceiver receiver) || receiver == null || _root == null)
+            {
+                return;
+            }
+
+            _unsubscribedByDetach = false;
+            Subscribe(receiver);
+            RequestRefresh(evaluate: true);
         }
 
         /// <summary>再描画を 100 ms 後に予約する（予約中なら合流する）。</summary>
