@@ -105,3 +105,6 @@
 
 ### Task 5.5〜5.7 — OK
 - Commits: abee4e83 / b1e0cf37 / 9292fdb2 / Review: APPROVED（Suggestion: Disconnect の「他入力源の slot 順・weight 復元」を既存入力源ありの構成で検証していない / Takeover で同一呼び出し内の ChannelSubId 重複が NotFound として記録される。FYI: ControllerMissing（Error）/ ControllerNotInitialized（Info）/ LayerConnectionFailed（Warning）は design の重大度表に未記載、Release の占有 Warning はゲート非経由）/ 逸脱: Connector テストは PlayMode Medium（app LifetimeScope が PlayMode でのみ生成されるため）/ Verify: 実装者報告 EditMode 全件 2477/0、timeline PlayMode 22/22（オーケストレータの全件確認は 6.1 完了後にまとめて実施）
+
+### Task 6.1 — OK
+- Commit: f6c3b8e5 / Review: APPROVED（F1: SessionConflict 中に非所有 Mixer の毎フレーム Begin が文字列確保（エラー状態のみ）→ 6.4 で修正指示 / F2: Edit で BindingMissing Error が 1 回出る → 6.4 の Mixer 分岐で解消指示 / F3: controller 未初期化 + binding 未接続で Pending でなく Failed → 6.2 で修正指示 / F4: design の Postconditions が SessionConflict を Failed 扱いのまま（実装は Active 維持で状態図と整合）→ design 文言の後日修正）/ Verify: EditMode 全件 2491/0、PlayMode（timeline + inputsystem + core FacialControllerTests）115/115、check-test-sizes 差分 0
