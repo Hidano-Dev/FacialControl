@@ -165,6 +165,7 @@ namespace Hidano.FacialControl.Rec.Tests.PlayMode
                 },
                 new[] { new Expression("smile", "Smile", "emotion") });
             var expressionUseCase = new ExpressionUseCase(duplicateProfile);
+            GetLayerUseCase(controller).Dispose();
             var layerUseCase = new LayerUseCase(duplicateProfile, expressionUseCase, new[] { "Smile" });
             SetControllerPrivateField(controller, "_layerUseCase", layerUseCase);
             Assert.That(controller.WeightInjectionGate.LayerNamesAreUnique, Is.False);

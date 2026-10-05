@@ -97,7 +97,7 @@
   - Fake gate を使った Small テストで「gate 未解決は preflight 不合格・確立も副作用なし」「レイヤー名重複は preflight 不合格（理由に duplicate layer names）」「確立の呼出順（Suspend → Reset → Baseline）」「未知対象は warn-once で継続」「解放の冪等」が緑になる
   - _Requirements: 2.6, 4.4, 4.5, 4.6, 5.1, 5.5, 5.6, 6.1, 6.2, 6.5, 6.6, 9.7_
 
-- [ ] 4.3 基準捕捉とキャラクター binding を 5 ポートへ配線する
+- [x] 4.3 基準捕捉とキャラクター binding を 5 ポートへ配線する
   - 基準捕捉に weight gate 引数を追加し、全レイヤー weight と全スロット weight を基準エントリに写す（gate が null なら空）
   - キャラクター binding の再生セッション構築で weight 注入ポートを生成して 5 ポートで再生ユースケースを作り、録画開始時の基準捕捉に weight gate を渡す。gate が「レイヤー名が一意でない」と報告したら録画開始を Warning 付きで拒否する
   - Small テストで「weight gate ありの捕捉が全レイヤー・全スロットを含む」「gate なしは空」、既存の binding テストに「再生セッションが weight 注入ポートを構築する」「レイヤー名重複のプロファイルでは録画開始が Warning 付きで false」が緑になる
