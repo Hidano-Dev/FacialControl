@@ -82,3 +82,9 @@
 
 ### Task 1 — OK（2026-10-05）
 - Engine: spec-tdd-impl-agent / Review: 独立サブエージェント APPROVED（FYI: design.md D11 の「基底へ blendShapeCount: Count を渡す」は同文の「値を書かない」と矛盾。実装は blendShapeCount 0 維持 + ContributeMask override。設計文言を後日修正）/ Verify: EditMode 全件 2277 passed / 0 failed、check-test-sizes（PS5.1）差分 0 / Commit: 3e94637d
+
+### Task 2.1 / 2.2 — OK
+- Engine: spec-tdd-impl-agent / Review: APPROVED（所見: `IsLayerInputSourceBound` は前提違反時に Warning を出さない（意図的・XML doc 明記、警告スパム回避。spec 側の文言追従を推奨）/ `TryRegisterLayerStateSource` → `_layer2Provider` 反映の controller 経由テストは 5.5 で担保 / 接続済み id への再 Bind はスロットその場置換で重複防止は Connector 側 `IsLayerInputSourceBound` 判定に依存（D2 どおり））/ 配置の逸脱: `FacialControllerTests` は既存ファイルが無く LateUpdate を要するため PlayMode Medium に新設（許容）/ Verify: EditMode 全件 2288 passed / 0 failed、PlayMode `FacialControllerTests` 12/12、check-test-sizes（PS5.1）差分 0 / Commits: 3120239a（2.1）、8ee4328c（2.2）
+
+### Task 2.3 / 2.4 / 2.5 — 実装完了（レビュー・検証中）
+- Engine: spec-tdd-impl-agent / Commits: 718138a4（2.3）、400d8587（2.4）、7d539b8a（2.5）/ 実装者報告: core EditMode 1716/1716。`AnalogBlendShapeInputSourceTests` は tasks.md が Small と記載しているが既存 fixture は Medium（OSC 経路で AddComponent）のため属性は変更せず追記のみ
