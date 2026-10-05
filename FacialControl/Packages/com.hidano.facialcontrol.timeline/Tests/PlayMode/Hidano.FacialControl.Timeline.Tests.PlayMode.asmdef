@@ -11,6 +11,7 @@
         "Hidano.FacialControl.Timeline.Editor",
         "Hidano.FacialControl.Editor",
         "Hidano.FacialControl.Timeline.Tests.Shared",
+        "Hidano.FacialControl.Tests.Shared",
         "Unity.Timeline",
         "UnityEngine.TestRunner",
         "UnityEditor.TestRunner",

@@ -341,7 +341,7 @@
   - 完了条件: Export 時に Director / Receiver の指定欄が無く、上書き不可の行が表示されない
   - _Requirements: 10.1, 10.2, 10.5, 10.6_
 
-- [ ] 10.6 (P) 既存 PlayMode 3 件の fixture を自動導出前提へ本移行し、GC ゲートを維持する（timeline Tests/PlayMode）
+- [x] 10.6 (P) 既存 PlayMode 3 件の fixture を自動導出前提へ本移行し、GC ゲートを維持する（timeline Tests/PlayMode）
   - `TimelineLiveEquivalenceIntegrationTests` / `TimelineDegradationIntegrationTests` / `TimelineGcZeroGateTests` の fixture を、6.1 で最小撤去した reflection ヘルパーの残骸を含めて整理し、4.2 の導出 + 5.5 の Connector（または 8.1 の fixture）を直接組む形へ移行する。ログ文言一致のアサートは診断コードへ置換する
   - GC ゲートはセッション開始後の ProcessFrame で確保 0 を維持し、Pause / Resume（ReleaseAll → 再 Begin）で再確保しないことを追記する
   - 完了条件: 3 件に private への reflection が残らず、PlayMode 全件緑
