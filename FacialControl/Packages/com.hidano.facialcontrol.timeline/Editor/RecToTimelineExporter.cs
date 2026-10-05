@@ -39,7 +39,7 @@ namespace Hidano.FacialControl.Timeline.Editor
 
             return CreateTimelineAssetInternal(
                 sequence,
-                profileAsset.BuildFallbackProfile(),
+                TimelineProfileSource.Resolve(profileAsset),
                 CollectGazeSourceIds(profileAsset.GazeChannels),
                 null);
         }
@@ -166,7 +166,7 @@ namespace Hidano.FacialControl.Timeline.Editor
                 PopulateTimelineInternal(
                     targetTimeline,
                     sequence,
-                    profileAsset.BuildFallbackProfile(),
+                    TimelineProfileSource.Resolve(profileAsset),
                     gazeSourceIds,
                     sourceKindOverrides);
 
@@ -186,6 +186,9 @@ namespace Hidano.FacialControl.Timeline.Editor
                 }
 
                 TimelineBakeService.UpdateBakeAsset(targetTimeline, profileAsset, bakeAsset);
+                // UpdateBakeAsset でも適用済みだが、Export 直後の TimelineAsset だけで Runtime が Bake を解決できることを
+                // Exporter の責務として明示する（冪等）。
+                BakeReferenceWriter.Apply(targetTimeline, bakeAsset);
                 EditorUtility.SetDirty(targetTimeline);
                 EditorUtility.SetDirty(bakeAsset);
 

@@ -355,6 +355,32 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
         }
 
         [Test]
+        public void UpdateBakeAsset_WritesTargetBakeReferenceToAllFacialTracks()
+        {
+            var timeline = ScriptableObject.CreateInstance<TimelineAsset>();
+            FacialCharacterProfileSO profileAsset = CreateProfileAsset();
+            var target = ScriptableObject.CreateInstance<FacialTimelineBakeAsset>();
+
+            try
+            {
+                FacialExpressionTrack root = CreateExpressionTrack(timeline, start: 0.025d, duration: 0.50d);
+                FacialExpressionTrack child = timeline.CreateTrack<FacialExpressionTrack>(root, "Expressions Lane 1");
+                FacialValueTrack value = timeline.CreateTrack<FacialValueTrack>(null, "Analog");
+
+                Editor.TimelineBakeService.UpdateBakeAsset(timeline, profileAsset, target);
+
+                Assert.That(root.Bake, Is.SameAs(target));
+                Assert.That(child.Bake, Is.SameAs(target));
+                Assert.That(value.Bake, Is.SameAs(target));
+                Assert.That(FacialTimelineBakeLocator.Locate(timeline, null).Status, Is.EqualTo(BakeLocateStatus.Found));
+            }
+            finally
+            {
+                DestroyAll(target, profileAsset, timeline);
+            }
+        }
+
+        [Test]
         public void IsStale_ProfileAssetChangedOnly_ReturnsProfileChanged()
         {
             var timeline = ScriptableObject.CreateInstance<TimelineAsset>();

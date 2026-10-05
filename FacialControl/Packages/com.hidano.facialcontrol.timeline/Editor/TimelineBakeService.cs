@@ -61,6 +61,10 @@ namespace Hidano.FacialControl.Timeline.Editor
             return Bake(timeline, profile, Array.Empty<GazeChannel>(), sampleRate, string.Empty);
         }
 
+        /// <summary>
+        /// 既存の Bake サブアセット <paramref name="target"/> を焼き直し、全 Facial トラックへ同じ参照を書く
+        /// （<see cref="BakeReferenceWriter.Apply"/>）。通常のベイク経路（Exporter / 再ベイク）はこのメソッドを通る。
+        /// </summary>
         public static void UpdateBakeAsset(
             TimelineAsset timeline,
             FacialCharacterProfileSO profileAsset,
@@ -77,6 +81,7 @@ namespace Hidano.FacialControl.Timeline.Editor
             {
                 baked = Bake(timeline, profileAsset, sampleRate);
                 CopyBakeData(baked, target);
+                BakeReferenceWriter.Apply(timeline, target);
             }
             finally
             {

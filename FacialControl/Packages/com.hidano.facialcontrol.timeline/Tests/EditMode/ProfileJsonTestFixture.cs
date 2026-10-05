@@ -61,10 +61,44 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
             try
             {
                 AddContent(source, expressionIds);
-                string path = ProfileJsonPath;
-                Directory.CreateDirectory(Path.GetDirectoryName(path));
-                File.WriteAllText(path, new SystemTextJsonParser().SerializeProfile(source.BuildFallbackProfile()));
-                File.SetLastWriteTimeUtc(path, lastWriteTimeUtc);
+                WriteJson(source, lastWriteTimeUtc);
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(source);
+            }
+        }
+
+        private void WriteJson(FacialCharacterProfileSO source, DateTime lastWriteTimeUtc)
+        {
+            string path = ProfileJsonPath;
+            Directory.CreateDirectory(Path.GetDirectoryName(path));
+            File.WriteAllText(path, new SystemTextJsonParser().SerializeProfile(source.BuildFallbackProfile()));
+            File.SetLastWriteTimeUtc(path, lastWriteTimeUtc);
+        }
+
+        /// <summary>
+        /// SO と同じ内容（<see cref="LayerName"/> レイヤーと <paramref name="baseExpressionIds"/>）に、SO に無いレイヤー
+        /// <paramref name="extraLayerName"/> と Expression <paramref name="extraExpressionId"/> を足した profile.json を書く。
+        /// </summary>
+        public void WriteProfileJsonWithExtraLayer(
+            DateTime lastWriteTimeUtc,
+            string extraLayerName,
+            string extraExpressionId,
+            params string[] baseExpressionIds)
+        {
+            var source = ScriptableObject.CreateInstance<FacialCharacterProfileSO>();
+            try
+            {
+                AddContent(source, baseExpressionIds);
+                source.Layers.Add(new LayerDefinitionSerializable
+                {
+                    name = extraLayerName,
+                    priority = 1,
+                    exclusionMode = ExclusionMode.LastWins,
+                });
+                source.Expressions.Add(CreateExpression(extraExpressionId, extraLayerName));
+                WriteJson(source, lastWriteTimeUtc);
             }
             finally
             {
@@ -115,22 +149,27 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
 
             for (int i = 0; i < expressionIds.Length; i++)
             {
-                profileAsset.Expressions.Add(new ExpressionSerializable
-                {
-                    id = expressionIds[i],
-                    name = expressionIds[i],
-                    layer = LayerName,
-                    transitionDuration = 0.1f,
-                    blendShapeValues = new List<BlendShapeMappingSerializable>
-                    {
-                        new BlendShapeMappingSerializable
-                        {
-                            name = "Smile",
-                            value = 1f,
-                        },
-                    },
-                });
+                profileAsset.Expressions.Add(CreateExpression(expressionIds[i], LayerName));
             }
+        }
+
+        private static ExpressionSerializable CreateExpression(string id, string layerName)
+        {
+            return new ExpressionSerializable
+            {
+                id = id,
+                name = id,
+                layer = layerName,
+                transitionDuration = 0.1f,
+                blendShapeValues = new List<BlendShapeMappingSerializable>
+                {
+                    new BlendShapeMappingSerializable
+                    {
+                        name = "Smile",
+                        value = 1f,
+                    },
+                },
+            };
         }
     }
 }
