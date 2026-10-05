@@ -81,6 +81,13 @@ namespace Hidano.FacialControl.Adapters.Playable
             new Dictionary<string, ExpressionTriggerInputSourceBase>(StringComparer.Ordinal);
         private readonly HashSet<string> _gazeSubscriptionIds =
             new HashSet<string>(StringComparer.Ordinal);
+        // 宣言（Layer.inputSources）の無い後付け接続（TryBindLayerInputSource）と状態入力源登録
+        // （TryRegisterLayerStateSource）の追跡。解放時に _layer2Provider から同じインスタンスを取り除くために保持する。
+        // 宣言経路（registry 購読による解決・再束縛）とは独立しており、Cleanup で破棄する。
+        private readonly Dictionary<(string layer, string id), IInputSource> _lateBoundLayerSources =
+            new Dictionary<(string layer, string id), IInputSource>();
+        private readonly Dictionary<(string layer, string id), ExpressionTriggerInputSourceBase> _lateLayerStateSources =
+            new Dictionary<(string layer, string id), ExpressionTriggerInputSourceBase>();
         // 規約解決の gaze source が binding 起動後に登録される場合に備え、
         // child scope 構築時点の有効 binding slug を runtime で保持する。
         private readonly HashSet<string> _activeBindingSlugs =
@@ -1286,6 +1293,223 @@ namespace Hidano.FacialControl.Adapters.Playable
             return _layerUseCase.GetInputSourceWeightsSnapshot();
         }
 
+        // ================================================================
+        // 宣言の無い入力源の後付け接続 / 解放 / 判定（Timeline 等の実行時導出向け）
+        // ================================================================
+
+        /// <summary>
+        /// 宣言（<c>Layer.inputSources</c>）の無い入力源を指定レイヤーへ後付けで接続する。
+        /// <paramref name="weight"/> はレイヤー内加重の初期値として焼かれる。接続した入力源は
+        /// 操作イベント観測（系2 なら TriggerOn/Off）に登録され、系2 なら overlay suppress の active provider にも乗る。
+        /// 既存の宣言経路（registry 購読による解決・再束縛）には触れない。
+        /// </summary>
+        /// <param name="layerName">対象レイヤー名（<see cref="CurrentProfile"/> の layers に存在すること）。</param>
+        /// <param name="sourceId">スロット同定キー（<see cref="InputSourceId"/> 規約に従う id）。</param>
+        /// <param name="source">接続する入力源。</param>
+        /// <param name="weight">レイヤー内加重の初期値（0〜1）。</param>
+        /// <returns>接続した場合 true。未初期化・レイヤー名不一致・id 不正・null source は Warning を出して false。</returns>
+        public bool TryBindLayerInputSource(string layerName, string sourceId, IInputSource source, float weight)
+        {
+            if (!TryResolveLateBindTarget(nameof(TryBindLayerInputSource), layerName, sourceId, out int layerIdx))
+            {
+                return false;
+            }
+
+            if (source == null)
+            {
+                Debug.LogWarning(
+                    $"[FacialControl] FacialController.{nameof(TryBindLayerInputSource)}: source が null のため layer '{layerName}' / id '{sourceId}' の接続を無視します。");
+                return false;
+            }
+
+            _layerUseCase.BindLateInputSource(layerIdx, sourceId, source, weight);
+            if (!_layerUseCase.IsLateInputSourceBound(layerIdx, sourceId))
+            {
+                Debug.LogWarning(
+                    $"[FacialControl] FacialController.{nameof(TryBindLayerInputSource)}: layer '{layerName}' / id '{sourceId}' をレイヤー入力源へ登録できませんでした。");
+                return false;
+            }
+
+            var key = (layerName, sourceId);
+            if (_lateBoundLayerSources.TryGetValue(key, out IInputSource previous)
+                && !ReferenceEquals(previous, source)
+                && previous is ExpressionTriggerInputSourceBase previousTrigger)
+            {
+                _layer2Provider?.RemoveSource(layerName, previousTrigger);
+            }
+            _lateBoundLayerSources[key] = source;
+
+            var trigger = source as ExpressionTriggerInputSourceBase;
+            UpdateObservedTriggerSource(sourceId, trigger);
+            if (trigger != null)
+            {
+                _layer2Provider?.AddSource(layerName, trigger);
+            }
+
+            return true;
+        }
+
+        /// <summary>
+        /// <see cref="TryBindLayerInputSource"/> の逆操作。レイヤー入力源から外し、観測登録と
+        /// active provider への登録を解除する。
+        /// </summary>
+        /// <returns>解放した場合 true。未接続なら no-op で false。未初期化・レイヤー名不一致・id 不正は Warning を出して false。</returns>
+        public bool UnbindLayerInputSource(string layerName, string sourceId)
+        {
+            if (!TryResolveLateBindTarget(nameof(UnbindLayerInputSource), layerName, sourceId, out int layerIdx))
+            {
+                return false;
+            }
+
+            if (!_layerUseCase.IsLateInputSourceBound(layerIdx, sourceId))
+            {
+                return false;
+            }
+
+            _layerUseCase.UnbindLateInputSource(layerIdx, sourceId);
+            UpdateObservedTriggerSource(sourceId, null);
+
+            var key = (layerName, sourceId);
+            if (_lateBoundLayerSources.TryGetValue(key, out IInputSource bound))
+            {
+                if (bound is ExpressionTriggerInputSourceBase trigger)
+                {
+                    _layer2Provider?.RemoveSource(layerName, trigger);
+                }
+                _lateBoundLayerSources.Remove(key);
+            }
+
+            return true;
+        }
+
+        /// <summary>
+        /// 指定レイヤーに id <paramref name="sourceId"/> の入力源が接続済みかを返す。
+        /// 宣言経路で解決・後付けされたものと <see cref="TryBindLayerInputSource"/> によるものを区別しない。
+        /// 未初期化・レイヤー名不一致・id 不正は（判定 API のため Warning を出さず）false。
+        /// </summary>
+        public bool IsLayerInputSourceBound(string layerName, string sourceId)
+        {
+            if (!_isInitialized || _layerUseCase == null)
+            {
+                return false;
+            }
+
+            int layerIdx = FindLayerIndex(layerName);
+            if (layerIdx < 0)
+            {
+                return false;
+            }
+
+            return _layerUseCase.IsLateInputSourceBound(layerIdx, sourceId);
+        }
+
+        /// <summary>
+        /// 系2（<see cref="ExpressionTriggerInputSourceBase"/>）入力源を「レイヤーの状態入力源」として登録する。
+        /// overlay suppress の active provider と操作イベント観測にだけ登録し、レイヤー入力源（Aggregator）や
+        /// registry には触れない。値を持たない状態 sink（Timeline の state sink 等）向け。
+        /// </summary>
+        /// <returns>登録した場合 true。未初期化・レイヤー名不一致・id 不正・null source は Warning を出して false。</returns>
+        public bool TryRegisterLayerStateSource(string layerName, string sourceId, ExpressionTriggerInputSourceBase source)
+        {
+            if (!TryResolveLateBindTarget(nameof(TryRegisterLayerStateSource), layerName, sourceId, out _))
+            {
+                return false;
+            }
+
+            if (source == null)
+            {
+                Debug.LogWarning(
+                    $"[FacialControl] FacialController.{nameof(TryRegisterLayerStateSource)}: source が null のため layer '{layerName}' / id '{sourceId}' の登録を無視します。");
+                return false;
+            }
+
+            var key = (layerName, sourceId);
+            if (_lateLayerStateSources.TryGetValue(key, out ExpressionTriggerInputSourceBase previous)
+                && !ReferenceEquals(previous, source))
+            {
+                _layer2Provider?.RemoveSource(layerName, previous);
+            }
+            _lateLayerStateSources[key] = source;
+
+            _layer2Provider?.AddSource(layerName, source);
+            UpdateObservedTriggerSource(sourceId, source);
+            return true;
+        }
+
+        /// <summary>
+        /// <see cref="TryRegisterLayerStateSource"/> の逆操作。
+        /// </summary>
+        /// <returns>解除した場合 true。未登録なら no-op で false。未初期化・レイヤー名不一致・id 不正は Warning を出して false。</returns>
+        public bool UnregisterLayerStateSource(string layerName, string sourceId)
+        {
+            if (!TryResolveLateBindTarget(nameof(UnregisterLayerStateSource), layerName, sourceId, out _))
+            {
+                return false;
+            }
+
+            var key = (layerName, sourceId);
+            if (!_lateLayerStateSources.TryGetValue(key, out ExpressionTriggerInputSourceBase source))
+            {
+                return false;
+            }
+
+            _lateLayerStateSources.Remove(key);
+            _layer2Provider?.RemoveSource(layerName, source);
+            UpdateObservedTriggerSource(sourceId, null);
+            return true;
+        }
+
+        /// <summary>
+        /// 後付け接続 API 共通の前提確認。未初期化・レイヤー名不一致・id 不正は Warning を出して false。
+        /// </summary>
+        private bool TryResolveLateBindTarget(string apiName, string layerName, string sourceId, out int layerIdx)
+        {
+            layerIdx = -1;
+
+            if (!_isInitialized || _layerUseCase == null || !_currentProfile.HasValue)
+            {
+                Debug.LogWarning(
+                    $"[FacialControl] FacialController.{apiName}: 初期化されていないため layer '{layerName ?? "<null>"}' / id '{sourceId ?? "<null>"}' を無視します。");
+                return false;
+            }
+
+            layerIdx = FindLayerIndex(layerName);
+            if (layerIdx < 0)
+            {
+                Debug.LogWarning(
+                    $"[FacialControl] FacialController.{apiName}: レイヤー '{layerName ?? "<null>"}' は現在のプロファイルに存在しません（id '{sourceId ?? "<null>"}'）。");
+                return false;
+            }
+
+            if (!InputSourceId.TryParse(sourceId, out _))
+            {
+                Debug.LogWarning(
+                    $"[FacialControl] FacialController.{apiName}: id '{sourceId ?? "<null>"}' は InputSourceId の規約を満たしません（layer '{layerName}'）。");
+                return false;
+            }
+
+            return true;
+        }
+
+        private int FindLayerIndex(string layerName)
+        {
+            if (string.IsNullOrEmpty(layerName) || !_currentProfile.HasValue)
+            {
+                return -1;
+            }
+
+            var layers = _currentProfile.Value.Layers.Span;
+            for (int i = 0; i < layers.Length; i++)
+            {
+                if (string.Equals(layers[i].Name, layerName, StringComparison.Ordinal))
+                {
+                    return i;
+                }
+            }
+
+            return -1;
+        }
+
         /// <summary>
         /// プロファイルの <c>inputSources</c> 宣言から生成された Expression トリガー型
         /// 入力源 (<c>input</c> など) を id で検索する。
@@ -1454,12 +1678,23 @@ namespace Hidano.FacialControl.Adapters.Playable
             return builder.ToString();
         }
 
-        private string[] CollectBlendShapeNames(SkinnedMeshRenderer[] renderers)
+        /// <summary>
+        /// ホストの SkinnedMeshRenderer 群から BlendShape 名を出現順・重複なしで収集する。
+        /// FacialController の初期化で使うのと同じ規則で、Timeline の Edit プレビュー合成など
+        /// controller を初期化せずに同じ名前列が必要な呼び出し側からも使える。
+        /// null の renderer / sharedMesh は読み飛ばす。<paramref name="renderers"/> が null なら空配列。
+        /// </summary>
+        public static string[] CollectBlendShapeNames(IReadOnlyList<SkinnedMeshRenderer> renderers)
         {
+            if (renderers == null || renderers.Count == 0)
+            {
+                return Array.Empty<string>();
+            }
+
             var names = new List<string>();
             var nameSet = new HashSet<string>();
 
-            for (int i = 0; i < renderers.Length; i++)
+            for (int i = 0; i < renderers.Count; i++)
             {
                 var renderer = renderers[i];
                 if (renderer == null || renderer.sharedMesh == null)
@@ -1486,6 +1721,10 @@ namespace Hidano.FacialControl.Adapters.Playable
             FacialControllerRendererOwnership.Unregister(this);
 
             ClearObservedTriggerSources();
+            // LayerUseCase / _layer2Provider は再構築されるため、後付け接続の追跡もここで破棄する
+            // （呼び出し側は次のセッション開始時に再接続する）。
+            _lateBoundLayerSources.Clear();
+            _lateLayerStateSources.Clear();
             _analogObservationSampler = null;
             _valueProviderObservationSampler = null;
             _inputObservationHadObservers = false;

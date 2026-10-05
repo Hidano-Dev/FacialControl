@@ -28,7 +28,7 @@
   - 完了条件: 既存 API の挙動テストがすべて緑のまま、新規テストが緑
   - _Requirements: 3.8_
 
-- [ ] 2.2 FacialController に宣言の無い入力源を接続 / 解放 / 判定し、系2 入力源を active provider と観測へ登録する public API を追加する（core Adapters）
+- [x] 2.2 FacialController に宣言の無い入力源を接続 / 解放 / 判定し、系2 入力源を active provider と観測へ登録する public API を追加する（core Adapters）
   - 値入力源の接続（weight 指定）/ 解放 / 接続済み判定、状態入力源の登録 / 解除の 5 口を追加する。未初期化・レイヤー名不一致・id 不正は例外ではなく false + Warning
   - 接続時に観測登録と系2 provider への追加を行い、解放は逆操作にする。既存の宣言経路（registry 購読による解決・再束縛）は呼ばず変更しない
   - ホスト BlendShape 名の収集を public static に公開する（Edit プレビュー合成で再利用するため）
