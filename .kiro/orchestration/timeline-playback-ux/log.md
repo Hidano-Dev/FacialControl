@@ -114,3 +114,6 @@
 
 ### Task 7.1 / 7.2 / 7.3 — OK
 - Commits: 171c32d4 / 3865a217 / 18da73a5 / Review: APPROVED（P3: `TimelineProfileSource` のキャッシュは保存を伴わない SO の外部再インポート（VCS pull 等）を検知できずドメインリロードまで古い Profile を返し得る → backlog 候補）/ 逸脱: `IsStale` 戻り値 bool → `BakeStaleReason`（破壊的変更、CHANGELOG 対象）、JSON と SO の食い違い fixture は新規 Medium クラス、Export 後検証は `RecToTimelineExportWorkflowTests` に追記 / Verify: EditMode 全件 2540/0、timeline PlayMode 23/23、check-test-sizes 差分 0
+
+### Task 8.1 / 8.2 / 8.3 — OK（第 1 段完了）
+- Commits: eb945af0 / 6eae9b7a / 4585a508（e2e で発見した欠陥: Receiver のセッション資源再利用が in-place 再ベイクを検知せず古いカーブで再生 → `AcquireDerivation` に Bake 内容の比較を追加して修正）/ Review: APPROVED（要フォロー: Play 中に Profile を保存すると DirtyWatcher の保存フックが Play 中に再ベイクと `receiver.BakeAsset` 上書きを行い診断を変える潜在欠陥。e2e fixture は保存しない回避策でこれを避けている → 9.2 で必須対応・テスト固定を実装エージェントへ指示 / 非ブロッキング: Req 11.4 のうちトラック名不一致・Bake 解決不可・Receiver 未配置は e2e になく EditMode のみ / 軽微: SourceHashHex 比較は冗長）/ Verify: EditMode 全件 2540/0、**PlayMode 全件 486/486**、check-test-sizes 差分 0。第 1 段のロールバック基準（値 sink 宣言のみの旧 Profile は動き、`:state` 宣言ありは止まる）を e2e で確認
