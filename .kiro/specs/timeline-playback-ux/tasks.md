@@ -203,7 +203,7 @@
   - _Requirements: 1.4, 7.2, 8.6_
 
 - [ ] 7. Editor 系の Profile ソースを統一し、Export と Bake が全 Facial トラックへ同一の Bake 参照を書くようにする（timeline Editor）
-- [ ] 7.1 Editor 系が Runtime と同じ Profile 読込経路を使う統一入口をキャッシュ付きで実装する（timeline Editor）
+- [x] 7.1 Editor 系が Runtime と同じ Profile 読込経路を使う統一入口をキャッシュ付きで実装する（timeline Editor）
   - Profile SO から Runtime と同じ読込（StreamingAssets の profile.json 優先、無ければ SO）をそのまま呼んで返す統一入口を提供し、優先順位やパス規則を再実装しない。キャッシュキーは SO instanceID + profile.json の存在 / 最終更新時刻 + SO のダーティ状態。明示的な無効化を提供し、Profile SO / profile.json 保存時に無効化する
   - Timeline から Profile SO を解決する既存の順序（Bake の Profile GUID → Director にバインドされた Receiver の controller → 開いている Director）を 1 箇所にまとめる
   - 新規 `TimelineProfileSourceTests`（Medium）に JSON 有無で Runtime 読込と同じ Profile 内容ハッシュになる、JSON 更新（最終更新時刻変化）でキャッシュが無効化される、明示無効化、を書く
