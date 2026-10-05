@@ -24,18 +24,24 @@ namespace Hidano.FacialControl.Rec.Application.UseCases
         private FacialProfile? _profile;
         private string[] _missingExpressionIds = Array.Empty<string>();
 
+        // 確立順（weight → trigger → expression → analog → valueProvider）と
+        // 解放順（trigger → expression → analog → valueProvider → weight）。weight は最初に遮断し最後に戻す。
+        private readonly IInjectionPort[] _establishOrder;
+        private readonly string[] _establishOrderNames;
+        private readonly IInjectionPort[] _releaseOrder;
+
+        /// <summary>
+        /// Four-port compatibility constructor. Weight blocking / injection is not performed:
+        /// the weight port is delegated to a null port, so recorded weight events are ignored on playback.
+        /// Production playback uses the five-port constructor.
+        /// </summary>
         public PlaybackUseCase(
             ITriggerInjectionPort triggerPort,
             IExpressionInjectionPort expressionPort,
             IAnalogInjectionPort analogPort,
             IValueProviderInjectionPort valueProviderPort)
+            : this(NullWeightInjectionPort.Instance, triggerPort, expressionPort, analogPort, valueProviderPort)
         {
-            _triggerPort = triggerPort ?? throw new ArgumentNullException(nameof(triggerPort));
-            _expressionPort = expressionPort ?? throw new ArgumentNullException(nameof(expressionPort));
-            _analogPort = analogPort ?? throw new ArgumentNullException(nameof(analogPort));
-            _valueProviderPort = valueProviderPort ?? throw new ArgumentNullException(nameof(valueProviderPort));
-            _weightPort = NullWeightInjectionPort.Instance;
-            State = RecPlaybackState.Idle;
         }
 
         /// <summary>Five-port playback constructor; weight is established first and released last.</summary>
@@ -45,9 +51,16 @@ namespace Hidano.FacialControl.Rec.Application.UseCases
             IExpressionInjectionPort expressionPort,
             IAnalogInjectionPort analogPort,
             IValueProviderInjectionPort valueProviderPort)
-            : this(triggerPort, expressionPort, analogPort, valueProviderPort)
         {
             _weightPort = weightPort ?? throw new ArgumentNullException(nameof(weightPort));
+            _triggerPort = triggerPort ?? throw new ArgumentNullException(nameof(triggerPort));
+            _expressionPort = expressionPort ?? throw new ArgumentNullException(nameof(expressionPort));
+            _analogPort = analogPort ?? throw new ArgumentNullException(nameof(analogPort));
+            _valueProviderPort = valueProviderPort ?? throw new ArgumentNullException(nameof(valueProviderPort));
+            _establishOrder = new IInjectionPort[] { _weightPort, _triggerPort, _expressionPort, _analogPort, _valueProviderPort };
+            _establishOrderNames = new[] { "weight", "trigger", "expression", "analog", "valueProvider" };
+            _releaseOrder = new IInjectionPort[] { _triggerPort, _expressionPort, _analogPort, _valueProviderPort, _weightPort };
+            State = RecPlaybackState.Idle;
         }
 
         /// <summary>
@@ -127,9 +140,9 @@ namespace Hidano.FacialControl.Rec.Application.UseCases
             // 系1の畳み込みには Load で受け取った profile のレイヤー排他規則を使う（profile 無しだと最後の 1 件しか残らない）。
             RecBaselineState baseline = CreateFilteredBaseline(RecTimelineSeek.BuildBaselineAt(timeline, startOffsetSeconds, _profile));
 
-            IInjectionPort[] ports = { _weightPort, _triggerPort, _expressionPort, _analogPort, _valueProviderPort };
-            string[] portNames = { "weight", "trigger", "expression", "analog", "valueProvider" };
-            var failures = new List<string>(4);
+            IInjectionPort[] ports = _establishOrder;
+            string[] portNames = _establishOrderNames;
+            var failures = new List<string>(ports.Length);
             for (int i = 0; i < ports.Length; i++)
             {
                 if (!ports[i].CanBeginInjection(out string reason))
@@ -146,11 +159,7 @@ namespace Hidano.FacialControl.Rec.Application.UseCases
 
             if (State == RecPlaybackState.Completed)
             {
-                _triggerPort.EndInjection();
-                _expressionPort.EndInjection();
-                _analogPort.EndInjection();
-                _valueProviderPort.EndInjection();
-                _weightPort.EndInjection();
+                ReleaseAllPorts();
                 _scheduler.Reset();
                 State = RecPlaybackState.Idle;
             }
@@ -212,13 +221,17 @@ namespace Hidano.FacialControl.Rec.Application.UseCases
                 return;
             }
 
-            _triggerPort.EndInjection();
-            _expressionPort.EndInjection();
-            _analogPort.EndInjection();
-            _valueProviderPort.EndInjection();
-            _weightPort.EndInjection();
+            ReleaseAllPorts();
             _scheduler.Reset();
             State = RecPlaybackState.Idle;
+        }
+
+        private void ReleaseAllPorts()
+        {
+            for (int i = 0; i < _releaseOrder.Length; i++)
+            {
+                _releaseOrder[i].EndInjection();
+            }
         }
 
         public void VisitTriggerOn(string sourceId, string expressionId)
