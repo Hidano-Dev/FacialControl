@@ -121,7 +121,7 @@
   - 完了条件: 両トラックで Bake 参照が保存・復元され、Inspector には表示されない
   - _Requirements: 4.1, 1.6_
 
-- [ ] 5.2 TimelineAsset を Unity 非依存のトラック記述子列と実トラック列に写す Scanner を実装する（timeline Runtime Adapters）
+- [x] 5.2 TimelineAsset を Unity 非依存のトラック記述子列と実トラック列に写す Scanner を実装する（timeline Runtime Adapters）
   - root の出力トラック順に Facial トラック（Expression / Value）を列挙し、各 root の直後に子トラックを子フラグ + 親 index 付きで並べる。Facial 以外は含めない。Value の最大軸数は全 Clip の軸数の最大、bake 参照の有無と同一性キーは 5.1 の保持口から読む。null 入力は空結果
   - 記述子列と同じ index で実トラック列を返し、Adapters 側が逆引きできるようにする。アセットは変更しない
   - 新規 `TimelineAssetScannerTests`（Small。`CreateInstance<TimelineAsset>` + CreateTrack のみ）に root / 子の順序と親 index、Facial 以外の除外、最大軸数、bake 参照有無と同一性キー、null 入力、を書く
