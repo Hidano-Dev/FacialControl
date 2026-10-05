@@ -90,7 +90,7 @@
   - 完了条件: DTO と導出のソースに `using UnityEngine` が無く、全ケース緑
   - _Requirements: 2.3, 8.2, 10.4_
 
-- [ ] 4.3 (P) 診断コード・重大度・領域と、領域単位で置換できる診断状態モデルを実装する（timeline Runtime Domain）
+- [x] 4.3 (P) 診断コード・重大度・領域と、領域単位で置換できる診断状態モデルを実装する（timeline Runtime Domain）
   - 診断コード enum（Director / TrackBinding / Bake / Profile / ProfileBinding / LayerMatch / LayerConnection / Analog / Gaze / Placement / Session の各項目。design.md の一覧どおり）、重大度（Info / Ok / Warning / Error）、領域 enum、診断項目（領域・コード・重大度・件名・直し方）を定義する
   - 診断状態モデルは項目一覧・Revision・全体重大度（最大値、空なら Ok）・Error 有無・変更イベント・コード（+ 件名）での Contains を公開し、領域単位の置換と全消去で Revision を進めてイベントを発火する
   - 新規 `FacialTimelineDiagnosticsTests`（Small）に 領域置換で Revision 増加とイベント発火、他領域が残る、Overall の算出、Contains の真偽、Clear、を書く
