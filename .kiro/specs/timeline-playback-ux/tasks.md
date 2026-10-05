@@ -44,7 +44,7 @@
   - _Requirements: 2.5_
   - _Boundary: IAdapterBindingDynamicInputs, InvalidIdValidator_
 
-- [ ] 2.4 (P) Analog 消費者が registry の差し替えに追従する公開契約を定義し、Analog Expression 消費者で実装する（core Domain + core Adapters）
+- [x] 2.4 (P) Analog 消費者が registry の差し替えに追従する公開契約を定義し、Analog Expression 消費者で実装する（core Domain + core Adapters）
   - Domain に registry を後付けで接続 / 切断し接続状態を返す公開契約（`IRegistryAttachableAnalogConsumer`）を追加する。参照は Domain の registry 契約と slug のみ
   - AnalogExpressionInputSource が契約を実装する: 構築時に解決した binding ごとに `{slug}:{SourceId}` を購読し、通知 source が Analog なら読む先を差し替え、null なら構築時 source に戻し、Analog でない非 null は無視。切断は世代番号で旧 handler を no-op 化し全 source を元に戻す。コンストラクタ署名・値書き込み・ContributeMask は不変
   - 新規 `AnalogExpressionInputSourceTests`（Small。既存ファイルが無いため新規）に Attach → Replace で新 source の値を書く、Unregister（null）で元に戻る、非 Analog の Replace は無視、Attach 2 回で購読数不変、Detach 後は通知を無視、Attach 前は従来どおり、契約型を実装している、を書く
