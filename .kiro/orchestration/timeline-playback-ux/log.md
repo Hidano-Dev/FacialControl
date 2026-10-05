@@ -88,3 +88,9 @@
 
 ### Task 2.3 / 2.4 / 2.5 — 実装完了（レビュー・検証中）
 - Engine: spec-tdd-impl-agent / Commits: 718138a4（2.3）、400d8587（2.4）、7d539b8a（2.5）/ 実装者報告: core EditMode 1716/1716。`AnalogBlendShapeInputSourceTests` は tasks.md が Small と記載しているが既存 fixture は Medium（OSC 経路で AddComponent）のため属性は変更せず追記のみ
+
+### Task 2.3 / 2.4 / 2.5 — OK
+- Review: APPROVED（minor: `AttachRegistry` に同 registry・別 slug を渡すと no-op になる点が XML doc 未記載）/ Verify: 下記 Task 3 時点の全件で確認
+
+### Task 2.6 / 3 — OK
+- Engine: spec-tdd-impl-agent（以降モデル Opus 5.5）/ Review: APPROVED（minor: design.md の AutoExporter 節は「ExportProfileJson を呼ぶ」のままで実装（比較に使った JSON を直接書く。出力はバイト一致）と相違 / `ExportAll` の XML doc は「書き換えた SO 数」に意味が変わった / 書き込み失敗の Warning 文言の出所が ExportAll 側へ移動。Dispose で DetachRegistry しない件は registry と同寿命のため無害と判定）/ Verify: EditMode 全件 2322 passed / 0 failed、PlayMode（inputsystem + core FacialControllerTests）93/93、check-test-sizes（PS5.1）差分 0 / Commits: 0dce8d15（2.6）、5429d812（3）
