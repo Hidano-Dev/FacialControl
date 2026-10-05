@@ -135,7 +135,7 @@
   - 完了条件: 同一入力で決定的な状態が返り、Conflict では採用 Bake が null
   - _Requirements: 4.1, 4.2, 6.3, 8.3, 10.7_
 
-- [ ] 5.4 (P) Director の解決規則と Facial トラックの generic binding 自動設定を実装する（timeline Runtime Adapters）
+- [x] 5.4 (P) Director の解決規則と Facial トラックの generic binding 自動設定を実装する（timeline Runtime Adapters）
   - Director 解決は 上書き → 同 GameObject → 親階層 → シーン走査（Facial トラックを持つ TimelineAsset をバインドし、いずれかの Facial トラックの binding が自分を指す Director）の順。シーン走査で候補 2 つ以上は Ambiguous、無ければ NotFound
   - binding 書込口（Runtime は直接設定、Editor 実装は後続タスク）を抽象化し、binding が null の Facial トラック（root + 子）にだけ Receiver を設定、既に自分なら既存扱い、他オブジェクトなら触らず報告に記録する
   - 新規 `TimelineTrackBindingResolverTests`（Medium。Director / Receiver を GameObject に配置）に 解決順 4 段、Ambiguous、未設定のみ設定、他者設定を上書きしない、Facial トラック無しの Timeline、を書く
