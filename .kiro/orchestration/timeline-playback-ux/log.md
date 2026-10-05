@@ -108,3 +108,6 @@
 
 ### Task 6.1 — OK
 - Commit: f6c3b8e5 / Review: APPROVED（F1: SessionConflict 中に非所有 Mixer の毎フレーム Begin が文字列確保（エラー状態のみ）→ 6.4 で修正指示 / F2: Edit で BindingMissing Error が 1 回出る → 6.4 の Mixer 分岐で解消指示 / F3: controller 未初期化 + binding 未接続で Pending でなく Failed → 6.2 で修正指示 / F4: design の Postconditions が SessionConflict を Failed 扱いのまま（実装は Active 維持で状態図と整合）→ design 文言の後日修正）/ Verify: EditMode 全件 2491/0、PlayMode（timeline + inputsystem + core FacialControllerTests）115/115、check-test-sizes 差分 0
+
+### Task 6.2 / 6.3 / 6.4 — OK
+- Commits: bba3e0a4（6.2、6.1 レビュー F3 対応込み）/ 078571b1（6.3）/ 647464bf（6.4、6.1 レビュー F1 対応込み）/ Review: APPROVED（P2: `TimelineGcZeroGateTests` は同期 [Test] でフレームを進めずに ProfilerRecorder.LastValue を読むため確保を検出できない。F1 と 6.4 の「確保 0」はコード読みでしか確認できていない → backlog 登録（PR 作成前にオーケストレータが docs/backlog.md に追記）/ P3: 旧 Profile で binding の legacy 警告と Receiver Start の BindingLegacyFields が Console に 2 回出る（design の 2 節が二重に要求）/ P3: 競合 Director が 2 つ以上だと記録先が交互に入れ替わり名前文字列を作る（まれ））/ Verify: EditMode 全件 2513/0、PlayMode 116/116、check-test-sizes 差分 0
