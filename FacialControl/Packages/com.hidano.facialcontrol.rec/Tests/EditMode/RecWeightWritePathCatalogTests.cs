@@ -68,9 +68,12 @@ namespace Hidano.FacialControl.Rec.Tests.EditMode
             var entries = RecInputSourceCoverageCatalog.Entries;
             var overlay = entries.Single(entry => entry.TypeFullName.EndsWith(".InputSources.OverlayInputSource", StringComparison.Ordinal));
             var inputAction = entries.Single(entry => entry.TypeFullName.EndsWith("InputActionAnalogSource", StringComparison.Ordinal));
+            var inputActionReferrer = inputAction.AllowedDirectReferrers.Single(referrer =>
+                referrer.TypeFullName.EndsWith("InputSystemAdapterBinding", StringComparison.Ordinal));
 
-            Assert.That(overlay.Reason, Does.Contain("weight").IgnoreCase);
-            Assert.That(inputAction.Reason, Does.Contain("weight").IgnoreCase);
+            Assert.That(overlay.Reason, Does.Contain("rec-weight-coverage"));
+            Assert.That(inputActionReferrer.Reason,
+                Does.Contain("overlay layer weight 駆動（core の weight 遮断面に乗る）"));
         }
 
         private static IReadOnlyList<string> FindViolations(IEnumerable<RecWeightWritePathEntry> entries)
