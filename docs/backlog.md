@@ -72,12 +72,6 @@
 - **修正案**: キャッシュ判定に `GetSlotId(layerIdx, sourceIdx)` の変化を含める（数行）+ `LayerUseCaseTests` に再現テスト。
 - **トリガ**: 次に `LayerInputSourceAggregator` を触るとき（小さいので同乗で拾う）。
 
-### S-28: Timeline の Analog チャネル経由の出力が Edit プレビューに出ない
-- **出典**: 2026-10-05 `timeline-playback-ux`（HID-144）タスク 10.1〜10.3 のレビュー。
-- **背景**: Timeline の Analog Value トラックは Play では registry の乗っ取り → analog 消費者（InputSystem の analog expression 等）→ BlendShape と流れるが、Edit プレビューの `TimelinePreviewCompositor` は値 sink と state sink だけでオフライン合成するため、この経路を再現しない。REC Export した Timeline に Analog チャネルがあると、Play では表情が出るのに Edit では出ない。design.md D9 に既知制約として明記し、`TimelinePreviewCompositorTests` に不一致を示す特性テストがある。
-- **方針候補**: Profile の adapter binding が持つ analog 消費者構成を Editor でオフライン構築する仕組み、または Bake 時に analog → BlendShape の寄与をカーブ化する。
-- **トリガ**: Analog を含む REC の Edit プレビューで「Play と違う」という報告、または HID-144 の受け入れ確認でユーザーが必須と判断したとき。
-
 ### S-30: TimelineProfileSource のキャッシュが保存を伴わない外部再インポートを検知しない
 - **出典**: 2026-10-05 `timeline-playback-ux` タスク 7.1〜7.3 のレビュー（P3）。
 - **背景**: キャッシュキーは SO instanceID / profile.json の更新時刻 / SO のダーティ状態で、VCS pull などで SO がディスクから再インポートされた場合はドメインリロードまで古い Profile を返し得る。

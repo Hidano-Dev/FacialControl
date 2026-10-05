@@ -26,9 +26,8 @@ namespace Hidano.FacialControl.Timeline.Tests.PlayMode
     /// </summary>
     /// <remarks>
     /// 比較は「Timeline 以外の live 入力が無く、レイヤー weight が既定」の条件で行う。Analog チャネル経由の出力
-    /// （Analog Value トラック → registry 乗っ取り → analog 消費者 → BlendShape）は Edit プレビューで再現しない既知制約
-    /// （design.md D9。backlog 参照）のため、一致比較では記録の Analog 値を 0 にして比較する。既知制約そのものは
-    /// <see cref="Evaluate_AnalogChannelNonZero_IsNotReproducedInEditPreview_KnownLimitation"/> で特性として固定する。
+    /// （Analog Value トラック → analog 消費者 → BlendShape）も、Edit は Profile の binding 宣言から同じ消費者をオフラインに
+    /// 組んで再現する（HID-148）。<see cref="Evaluate_AnalogChannelNonZero_MatchesDirectorPlaybackAtComparisonTimes"/> で固定する。
     /// </remarks>
     [TestFixture]
     [MediumTest]
@@ -109,12 +108,11 @@ namespace Hidano.FacialControl.Timeline.Tests.PlayMode
         }
 
         /// <summary>
-        /// 既知制約の特性テスト: Analog 値が 0 でない記録では、Play は Analog 消費者経由で squint を出すが、
-        /// Edit プレビュー（Compositor）は Analog チャネル経由の出力を再現しないため squint が 0 のまま（Edit と Play が一致しない）。
-        /// この制約を解消したらこのテストは赤になるので、一致比較（Analog=0 の条件）と合わせて見直すこと。
+        /// Analog 値が 0 でない記録でも、Edit プレビュー（Compositor）は Profile の binding 宣言から Play と同じ analog 消費者を組み、
+        /// Analog Value トラックの値で駆動するため、squint を含めて比較時刻ごとに Play と一致する（HID-148）。
         /// </summary>
         [UnityTest]
-        public IEnumerator Evaluate_AnalogChannelNonZero_IsNotReproducedInEditPreview_KnownLimitation()
+        public IEnumerator Evaluate_AnalogChannelNonZero_MatchesDirectorPlaybackAtComparisonTimes()
         {
             _fixture = TimelineE2EFixture.Create(new RecFixtureWriter.Recording { AnalogValue = 0.5f });
             PrepareSameSnapshot(_fixture);
@@ -122,14 +120,10 @@ namespace Hidano.FacialControl.Timeline.Tests.PlayMode
             _compositor = CreateCompositor(character);
             Assert.That(_compositor.CanRender, Is.True, "前提: Bake を解決できる");
 
-            yield return character.EvaluateAt(MidTriggerSeconds);
-            float playedSquint = character.GetBlendShapeWeight(TimelineE2EFixture.SquintBlendShape);
+            var result = new ComparisonResult();
+            yield return AssertEditMatchesPlay(character, _compositor, result);
 
-            _compositor.Evaluate(MidTriggerSeconds);
-            float composedSquint = character.GetBlendShapeWeight(TimelineE2EFixture.SquintBlendShape);
-
-            Assert.That(playedSquint, Is.GreaterThan(1f), "Play は Analog 消費者経由で squint を出す");
-            Assert.That(composedSquint, Is.EqualTo(0f).Within(RendererTolerance), "Edit プレビューは Analog チャネル経由の出力を再現しない（既知制約）");
+            Assert.That(result.MaxSquint, Is.GreaterThan(1f), "前提: 比較時刻に Analog 消費者経由の squint が出ている時刻を含む");
         }
 
         [UnityTest]
@@ -277,6 +271,7 @@ namespace Hidano.FacialControl.Timeline.Tests.PlayMode
                 AssertRotation(playedRight, character.RightEye.localRotation, $"t={time:F4} RightEye");
 
                 result.MaxSmile = Math.Max(result.MaxSmile, played[0]);
+                result.MaxSquint = Math.Max(result.MaxSquint, played[1]);
                 result.SawGaze |= Quaternion.Angle(playedLeft, Quaternion.identity) > 1f;
             }
         }
@@ -356,6 +351,8 @@ namespace Hidano.FacialControl.Timeline.Tests.PlayMode
         private sealed class ComparisonResult
         {
             public float MaxSmile { get; set; }
+
+            public float MaxSquint { get; set; }
 
             public bool SawGaze { get; set; }
         }

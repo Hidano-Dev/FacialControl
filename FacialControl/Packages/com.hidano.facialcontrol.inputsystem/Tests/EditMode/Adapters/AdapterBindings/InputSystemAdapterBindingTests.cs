@@ -2,11 +2,13 @@ using System;
 using System.Linq;
 using System.Collections.Generic;
 using Hidano.FacialControl.Adapters.AdapterBindings.InputSystem;
+using Hidano.FacialControl.Adapters.InputSources;
 using Hidano.FacialControl.Domain.Adapters;
 using Hidano.FacialControl.Domain.Models;
 using Hidano.FacialControl.InputSystem.Adapters.ScriptableObject;
 using NUnit.Framework;
 using UnityEditor;
+using UnityEngine.InputSystem;
 
 using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.InputSystem.Tests.EditMode.Adapters.AdapterBindings
@@ -140,6 +142,81 @@ namespace Hidano.FacialControl.InputSystem.Tests.EditMode.Adapters.AdapterBindin
             Assert.That(declarations, Has.Length.EqualTo(1));
             Assert.That(declarations[0].ChannelId, Is.EqualTo("eye-look"));
             Assert.That(declarations[0].ProvidesLeftRightPair, Is.True);
+        }
+
+        [Test]
+        public void GetAnalogExpressionBindings_ConfiguredMap_ReturnsResolvableAnalogEntriesOnly()
+        {
+            InputActionAsset asset = CreateAssetWithActions("Expression", "LeftTrigger", "Button");
+            try
+            {
+                var binding = new InputSystemAdapterBinding { Slug = "input-system" };
+                binding.Configure(asset, "Expression", new[]
+                {
+                    new ExpressionBindingEntry { bindingMode = BindingMode.Analog, actionName = "LeftTrigger", expressionId = "smile" },
+                    new ExpressionBindingEntry { bindingMode = BindingMode.Normal, actionName = "Button", expressionId = "angry" },
+                    new ExpressionBindingEntry { bindingMode = BindingMode.Analog, actionName = "MissingAction", expressionId = "sad" },
+                    new ExpressionBindingEntry { bindingMode = BindingMode.Analog, actionName = " ", expressionId = "sad" },
+                    new ExpressionBindingEntry { bindingMode = BindingMode.Analog, actionName = "LeftTrigger", expressionId = "" },
+                });
+
+                IReadOnlyList<AnalogExpressionBinding> bindings =
+                    ((IAnalogExpressionBindingDeclaration)binding).GetAnalogExpressionBindings();
+
+                Assert.That(bindings, Has.Count.EqualTo(1), "ActionMap に実在する Analog 行で expression id があるものだけを宣言する");
+                Assert.That(bindings[0].SourceId, Is.EqualTo("LeftTrigger"));
+                Assert.That(bindings[0].SourceAxis, Is.EqualTo(0));
+                Assert.That(bindings[0].ExpressionId, Is.EqualTo("smile"));
+                Assert.That(bindings[0].Scale, Is.EqualTo(1f));
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(asset);
+            }
+        }
+
+        [Test]
+        public void GetAnalogExpressionBindings_ActionMapMissing_ReturnsEmpty()
+        {
+            InputActionAsset asset = CreateAssetWithActions("Other", "LeftTrigger");
+            try
+            {
+                var binding = new InputSystemAdapterBinding { Slug = "input-system" };
+                binding.Configure(asset, "Expression", new[]
+                {
+                    new ExpressionBindingEntry { bindingMode = BindingMode.Analog, actionName = "LeftTrigger", expressionId = "smile" },
+                });
+
+                Assert.That(binding.GetAnalogExpressionBindings(), Is.Empty, "OnStart が skip する構成（ActionMap なし）では消費者を宣言しない");
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(asset);
+            }
+        }
+
+        [Test]
+        public void GetAnalogExpressionBindings_NoInputActionAsset_ReturnsEmpty()
+        {
+            var binding = new InputSystemAdapterBinding { Slug = "input-system" };
+            binding.Configure(null, "Expression", new[]
+            {
+                new ExpressionBindingEntry { bindingMode = BindingMode.Analog, actionName = "LeftTrigger", expressionId = "smile" },
+            });
+
+            Assert.That(binding.GetAnalogExpressionBindings(), Is.Empty, "OnStart が skip する構成では消費者を宣言しない");
+        }
+
+        private static InputActionAsset CreateAssetWithActions(string mapName, params string[] actionNames)
+        {
+            var asset = UnityEngine.ScriptableObject.CreateInstance<InputActionAsset>();
+            InputActionMap map = asset.AddActionMap(mapName);
+            for (int i = 0; i < actionNames.Length; i++)
+            {
+                map.AddAction(actionNames[i], InputActionType.Value);
+            }
+
+            return asset;
         }
 
         [Test]

@@ -2,6 +2,12 @@
 
 [Keep a Changelog](https://keepachangelog.com/ja/1.1.0/) の形式に準拠し、[セマンティックバージョニング](https://semver.org/lang/ja/) に従う。
 
+## [Unreleased]
+
+### Added
+
+- `InputSystemAdapterBinding` が `IAnalogExpressionBindingDeclaration` を実装した。Analog モードのキーバインディング行を、`OnStart` と同じ規則（InputActionAsset と Slug が揃っているときだけ）で列挙する。Timeline の Edit プレビューで analog expression が反映される
+
 ## [1.0.0] - 2026-09-25
 
 初回リリース。

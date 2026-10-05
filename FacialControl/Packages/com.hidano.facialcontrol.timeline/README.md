@@ -82,7 +82,7 @@ Edit モードのスクラブは Play と同じレイヤー合成規則（オフ
 
 ## 既知の制約
 
-- **Analog チャネル経由の出力は Edit プレビューに出ない**。Edit のスクラブは Expression と Gaze だけを反映し、Analog Value トラックの値（アナログ消費者経由の BlendShape）は Play でのみ反映される
+- **Edit プレビューの Analog は analog expression 宣言のある binding だけ**。`IAnalogExpressionBindingDeclaration` を実装した binding（InputSystem）の消費者は Edit でも再現し、それ以外のアナログ消費者は Play でのみ反映される
 - **InputSystem 以外で registry を購読しない analog 消費者には Timeline の Analog が届かない場合がある**。Timeline は registry の `Replace` でアナログ入力源を乗っ取るため、core の `AnalogExpressionInputSource` / `AnalogBlendShapeInputSource`（`IRegistryAttachableAnalogConsumer` で registry に接続済みのもの）には届くが、構築時に入力源を直接掴んだまま registry を購読しない独自の消費者は差し替えを追えない
 
 ## 再生時の挙動

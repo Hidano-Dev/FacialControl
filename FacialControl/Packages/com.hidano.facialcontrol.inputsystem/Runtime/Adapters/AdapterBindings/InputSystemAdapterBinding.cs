@@ -32,7 +32,7 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings.InputSystem
     /// </remarks>
     [Serializable]
     [FacialAdapterBinding(displayName: "Input System")]
-    public sealed class InputSystemAdapterBinding : AdapterBindingBase, IAdapterBindingDeclaredInputs, IGazeChannelConsumer, IGazeSourceProvider
+    public sealed class InputSystemAdapterBinding : AdapterBindingBase, IAdapterBindingDeclaredInputs, IGazeChannelConsumer, IGazeSourceProvider, IAnalogExpressionBindingDeclaration
     {
         [Tooltip("キーアサインを定義する InputActionAsset。Project ウィンドウで作成した .inputactions をここに割り当てる。")]
         [SerializeField]
@@ -528,28 +528,42 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings.InputSystem
             registry.Register(slug, sub, new AnalogInputSourceWrapper(source));
         }
 
-        // bindingMode == Analog のエントリで AnalogExpressionInputSource を構築する。
-        private void BuildAnalogExpressionSink(
-            in AdapterBuildContext ctx,
-            AdapterSlug slug,
-            int blendShapeCount,
-            IReadOnlyList<string> blendShapeNames)
+        /// <inheritdoc />
+        /// <remarks>
+        /// <see cref="OnStart"/> と同じ規則で絞る: InputActionAsset・Slug・ActionMap が揃っていなければ空
+        /// （<see cref="OnStart"/> が skip し消費者を構築しない）。ActionMap に無い action や InputSourceId として不正な
+        /// action 名の行は、<see cref="OnStart"/> が analog source を作らず消費者がその binding を捨てるため除く。
+        /// InputActionAsset は複製・Enable しない。
+        /// </remarks>
+        public IReadOnlyList<AnalogExpressionBinding> GetAnalogExpressionBindings()
         {
-            if (_expressionBindings == null || _expressionBindings.Count == 0)
+            if (_inputActionAsset == null
+                || string.IsNullOrEmpty(_actionMapName)
+                || !AdapterSlug.TryParse(Slug, out _))
             {
-                return;
+                return Array.Empty<AnalogExpressionBinding>();
             }
 
-            var sources = new Dictionary<string, IAnalogInputSource>(StringComparer.Ordinal);
-            for (int i = 0; i < _analogSources.Count; i++)
+            InputActionMap map = _inputActionAsset.FindActionMap(_actionMapName);
+            if (map == null)
             {
-                var s = _analogSources[i];
-                if (s == null) continue;
-                sources[s.Id] = s;
+                return Array.Empty<AnalogExpressionBinding>();
             }
 
-            // Analog エントリのみ Domain 値型に変換する。scale は常に 1.0 として扱う。
+            List<AnalogExpressionBinding> bindings = CollectAnalogExpressionBindings();
+            bindings.RemoveAll(b => map.FindAction(b.SourceId) == null || !InputSourceId.TryParse(b.SourceId, out _));
+            return bindings;
+        }
+
+        // Analog エントリのみ Domain 値型に変換する。scale は常に 1.0 として扱う。
+        private List<AnalogExpressionBinding> CollectAnalogExpressionBindings()
+        {
             var bindings = new List<AnalogExpressionBinding>();
+            if (_expressionBindings == null)
+            {
+                return bindings;
+            }
+
             for (int i = 0; i < _expressionBindings.Count; i++)
             {
                 var entry = _expressionBindings[i];
@@ -568,9 +582,28 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings.InputSystem
                     scale: 1f));
             }
 
+            return bindings;
+        }
+
+        // bindingMode == Analog のエントリで AnalogExpressionInputSource を構築する。
+        private void BuildAnalogExpressionSink(
+            in AdapterBuildContext ctx,
+            AdapterSlug slug,
+            int blendShapeCount,
+            IReadOnlyList<string> blendShapeNames)
+        {
+            List<AnalogExpressionBinding> bindings = CollectAnalogExpressionBindings();
             if (bindings.Count == 0)
             {
                 return;
+            }
+
+            var sources = new Dictionary<string, IAnalogInputSource>(StringComparer.Ordinal);
+            for (int i = 0; i < _analogSources.Count; i++)
+            {
+                var s = _analogSources[i];
+                if (s == null) continue;
+                sources[s.Id] = s;
             }
 
             // 予約 id を slug の sub に組み合わせて registry に登録する。

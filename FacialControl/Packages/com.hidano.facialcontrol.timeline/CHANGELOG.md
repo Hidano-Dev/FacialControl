@@ -26,6 +26,7 @@ Timeline 再生の手順を「REC → Export → Director にセット → Recei
 - 診断モデル（`FacialTimelineDiagnostics` / `TimelineDiagnosticCode`）と UI Toolkit の Receiver Inspector。Play を待たずに Director / Track binding / Bake / Profile / binding / レイヤー一致 / 配置を検査し、直し方を表示する。Console への出力は同じ原因につき 1 回
 - Clip 編集・Undo・Profile 変更を 0.3 秒デバウンスで合流させる自動再ベイク
 - Edit プレビューを Play と同じレイヤー合成規則で描く `TimelinePreviewCompositor`。Gaze チャネルはトラック順ではなくチャネル id で解決する
+- Edit プレビューに Analog チャネル経由の出力（analog expression）を反映した。Profile の binding が `IAnalogExpressionBindingDeclaration` で宣言する構成から Play と同じ消費者をオフラインに組み、Analog Value トラックの値で駆動する（HID-148）
 - REC Export ウィンドウに、入力源 id ごとのチャネル種別の判定結果と理由、Export 後の残り手順を表示した
 - 4 手順の end-to-end PlayMode テスト。GC ゼロ gate の計測を「GC Allocated In Frame」カウンタに変え、計測器の自己検証テストを追加した（従来の計測は同期テストで確保を検出できていなかった）
 
@@ -36,7 +37,7 @@ Timeline 再生の手順を「REC → Export → Director にセット → Recei
 
 ### Known Issues
 
-- Analog チャネル経由の出力は Edit プレビューに出ない（Play でのみ反映される）
+- Edit プレビューの Analog は、`IAnalogExpressionBindingDeclaration` を実装した binding（InputSystem）の analog expression だけを反映する
 - InputSystem 以外で registry を購読しない独自の analog 消費者には、Timeline の Analog が届かない場合がある
 
 ### Fixed

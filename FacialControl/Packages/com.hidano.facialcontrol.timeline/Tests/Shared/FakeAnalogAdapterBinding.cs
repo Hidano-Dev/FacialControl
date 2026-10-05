@@ -19,11 +19,12 @@ namespace Hidano.FacialControl.Timeline.Tests.Shared
     ///   <item><c>{slug}:analog-expression</c> — core の実 <see cref="AnalogExpressionInputSource"/>（binding <c>lt</c> → Expression <see cref="AnalogExpressionId"/>）。
     ///     <see cref="IRegistryAttachableAnalogConsumer.AttachRegistry"/> で registry に接続し、<c>{slug}:lt</c> の Replace に追従する</item>
     /// </list>
+    /// <para><see cref="IAnalogExpressionBindingDeclaration"/> で同じ binding を宣言し、Edit プレビューが同じ消費者をオフラインに組めるようにする。</para>
     /// <para>Dispose で registry から切断する。テストアセンブリの型だが <c>[SerializeReference]</c> で
     /// Profile SO の AdapterBindings に保存できるよう <see cref="SerializableAttribute"/> を付ける。</para>
     /// </remarks>
     [Serializable]
-    public sealed class FakeAnalogAdapterBinding : AdapterBindingBase
+    public sealed class FakeAnalogAdapterBinding : AdapterBindingBase, IAnalogExpressionBindingDeclaration
     {
         public const string DefaultSlug = "osc";
         public const string AnalogSub = "lt";
@@ -68,6 +69,13 @@ namespace Hidano.FacialControl.Timeline.Tests.Shared
 
         public string AnalogExpressionSourceId => Slug + ":" + AnalogExpressionInputSource.ReservedId;
 
+        /// <inheritdoc />
+        /// <remarks>OnStart で <see cref="AnalogExpressionInputSource"/> へ渡すものと同じ binding（<c>lt</c> → <see cref="AnalogExpressionId"/>）。</remarks>
+        public IReadOnlyList<AnalogExpressionBinding> GetAnalogExpressionBindings()
+        {
+            return new[] { CreateAnalogExpressionBinding() };
+        }
+
         public override void OnStart(in AdapterBuildContext ctx)
         {
             ReleaseRegistrations();
@@ -93,10 +101,7 @@ namespace Hidano.FacialControl.Timeline.Tests.Shared
                 {
                     { AnalogSub, _analogSource },
                 },
-                new[]
-                {
-                    new AnalogExpressionBinding(AnalogSub, 0, analogExpressionId, 1f),
-                });
+                new[] { CreateAnalogExpressionBinding() });
 
             // InputSystemAdapterBinding.BuildAnalogExpressionSink と同じ順序（Register → AttachRegistry）。
             _registry.Register(_slug, AnalogExpressionInputSource.ReservedId, _analogExpressionSink);
@@ -106,6 +111,11 @@ namespace Hidano.FacialControl.Timeline.Tests.Shared
         public override void Dispose()
         {
             ReleaseRegistrations();
+        }
+
+        private AnalogExpressionBinding CreateAnalogExpressionBinding()
+        {
+            return new AnalogExpressionBinding(AnalogSub, 0, analogExpressionId, 1f);
         }
 
         private void ReleaseRegistrations()

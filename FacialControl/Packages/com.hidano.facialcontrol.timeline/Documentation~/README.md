@@ -64,7 +64,7 @@ Analog の乗っ取りが消費者に届くのは、registry の差し替えを�
 
 ## Edit プレビュー
 
-`TimelinePreviewCompositor` が controller / Profile / Bake からオフラインの `LayerUseCase` を構築し、Play と同じ合成規則で SkinnedMeshRenderer と目ボーンへ書く。Gaze チャネルは Bake の値チャネルの sub（REC の入力源 id）を、`GazeSourceIdConvention` のチャネル id または GazeChannel の明示 source id（左 / 右）との完全一致で解決する（トラック順に依存しない）。Analog チャネル経由の出力は Edit プレビューに出ない（既知の制約）。
+`TimelinePreviewCompositor` が controller / Profile / Bake からオフラインの `LayerUseCase` を構築し、Play と同じ合成規則で SkinnedMeshRenderer と目ボーンへ書く。Gaze チャネルは Bake の値チャネルの sub（REC の入力源 id）を、`GazeSourceIdConvention` のチャネル id または GazeChannel の明示 source id（左 / 右）との完全一致で解決する（トラック順に依存しない）。Analog チャネルは、Profile の binding が `IAnalogExpressionBindingDeclaration` で宣言する analog expression の構成から Play と同じ消費者をオフラインに組み、同じ id の Analog Value トラックの値で駆動する（宣言の無い消費者は Play でのみ反映）。
 
 ## REC → Timeline 変換
 
