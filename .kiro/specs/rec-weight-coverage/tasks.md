@@ -78,7 +78,7 @@
   - Small テストで「オフセット前の weight イベントが最終値に畳まれる」「weight イベントが訪問者へ配信される」が緑になる
   - _Requirements: 6.2, 7.6_
 
-- [ ] 3.4 weight 注入ポート契約と 5 ポートの再生ユースケースを実装する
+- [x] 3.4 weight 注入ポート契約と 5 ポートの再生ユースケースを実装する
   - 共通ライフサイクル契約を継承する weight 注入ポート契約（レイヤー weight / 入力源 weight の注入メソッド）を追加する
   - 再生ユースケースに 5 ポートコンストラクタを追加し、確立順（weight → trigger → expression → analog → valueProvider）と解放順（trigger → expression → analog → valueProvider → weight）の 2 配列で preflight・確立・ロールバック・解放を回す。ロールバックは確立済みの逆順。`Completed` からの再開時の全解放も解放順。既存 4 ポート / 2 ポートコンストラクタは Null weight ポートへ委譲する。weight イベントの訪問で weight ポートへ注入し、欠落 expressionId のフィルタは weight 基準を無加工で引き継ぐ
   - 既存 4 ポート / 2 ポートコンストラクタは残し、weight 遮断・注入を行わない互換（Null weight ポート委譲）であることを XML doc に明記する
