@@ -235,6 +235,25 @@ namespace Hidano.FacialControl.Domain.Services
         }
 
         /// <summary>
+        /// (layerIdx, sourceIdx) の最新の書込値（次回 <see cref="SwapIfDirty"/> で読取側になる writeBuffer の値）を返す。
+        /// copy-forward により writeBuffer は常に「現行 readBuffer + 最新の書込」を保つため、
+        /// 最初の消費より前や同フレーム内の未消費の書込も含めた現在値になる。範囲外は 0 を返す。
+        /// REC の基準捕捉のような低頻度の読取用。
+        /// </summary>
+        public float GetPendingWeight(int layerIdx, int sourceIdx)
+        {
+            if ((uint)layerIdx >= (uint)LayerCount ||
+                (uint)sourceIdx >= (uint)MaxSourcesPerLayer)
+            {
+                return 0f;
+            }
+
+            int flatIdx = (layerIdx * MaxSourcesPerLayer) + sourceIdx;
+            var writeBuffer = Volatile.Read(ref _writeIndex) == 0 ? _bufferA : _bufferB;
+            return writeBuffer[flatIdx];
+        }
+
+        /// <summary>
         /// <see cref="MaxSourcesPerLayer"/> を <paramref name="newMax"/> まで拡張する（縮小・現状維持は no-op）。
         /// late-bind（LayerUseCase.BindLateInputSource）で
         /// <see cref="LayerInputSourceRegistry"/> がスロットを増やした際、weight バッファを追随させて

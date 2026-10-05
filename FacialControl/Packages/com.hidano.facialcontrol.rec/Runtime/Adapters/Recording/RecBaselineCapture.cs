@@ -24,15 +24,15 @@ namespace Hidano.FacialControl.Rec.Adapters.Recording
             IExpressionActivationGate expressionGate,
             int blendShapeCount)
         {
-            return Capture(registry, expressionGate, blendShapeCount, null);
+            return Capture(registry, expressionGate, null, blendShapeCount);
         }
 
         /// <param name="weightGate">現在のレイヤー / 入力源 weight。null なら weight 基準は空。</param>
         public static RecBaselineState Capture(
             IInputSourceRegistry registry,
             IExpressionActivationGate expressionGate,
-            int blendShapeCount,
-            IWeightInjectionGate weightGate)
+            IWeightInjectionGate weightGate,
+            int blendShapeCount)
         {
             if (registry == null)
             {

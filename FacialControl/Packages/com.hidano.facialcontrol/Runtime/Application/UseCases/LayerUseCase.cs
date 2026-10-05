@@ -409,8 +409,10 @@ namespace Hidano.FacialControl.Application.UseCases
                 for (int s = 0; s < count; s++)
                 {
                     string slotId = s == 0 ? WeightSlotIds.ExpressionSlotId : _registry.GetSlotId(l, s);
+                    // 基準捕捉は最新の書込値を読む。読取側（GetWeight）は最初の UpdateWeights まで 0 のため、
+                    // 初期化直後に録画を開始すると全スロット weight 0 の基準になってしまう。
                     if (_registry.GetSource(l, s) != null && !string.IsNullOrEmpty(slotId))
-                        buffer.Add(new InputSourceWeightEntry(layers[l].Name, slotId, _weightBuffer.GetWeight(l, s)));
+                        buffer.Add(new InputSourceWeightEntry(layers[l].Name, slotId, _weightBuffer.GetPendingWeight(l, s)));
                 }
             }
         }

@@ -200,7 +200,7 @@ namespace Hidano.FacialControl.Rec.Adapters.Playable
             IWeightInjectionGate weightGate = controller.WeightInjectionGate;
             if (weightGate != null && !weightGate.LayerNamesAreUnique)
             {
-                UnityEngine.Debug.LogWarning("REC recording start was ignored because the profile has duplicate layer names.");
+                UnityEngine.Debug.LogWarning("REC recording was ignored because the profile has duplicate layer names.");
                 return false;
             }
 
@@ -221,8 +221,8 @@ namespace Hidano.FacialControl.Rec.Adapters.Playable
             RecBaselineState baseline = RecBaselineCapture.Capture(
                 controller.InputSourceRegistry,
                 controller.ExpressionActivationGate,
-                controller.BlendShapeCount,
-                weightGate);
+                weightGate,
+                controller.BlendShapeCount);
             _requestedRecordingPath = requestedFilePath;
             _recordingStartedUtc = DateTime.UtcNow;
             GetQueueCapacities(controller.BlendShapeCount, out int floatCapacity, out int byteCapacity);

@@ -39,6 +39,29 @@ namespace Hidano.FacialControl.Tests.EditMode.Domain
         }
 
         [Test]
+        public void GetPendingWeight_BeforeSwap_ReturnsLatestWrittenValue()
+        {
+            using var buffer = new LayerInputSourceWeightBuffer(layerCount: 2, maxSourcesPerLayer: 2);
+
+            buffer.SetWeight(1, 0, 0.5f);
+
+            Assert.AreEqual(0f, buffer.GetWeight(1, 0));
+            Assert.AreEqual(0.5f, buffer.GetPendingWeight(1, 0));
+            Assert.AreEqual(0f, buffer.GetPendingWeight(5, 0));
+        }
+
+        [Test]
+        public void GetPendingWeight_AfterSwap_KeepsCopiedForwardValue()
+        {
+            using var buffer = new LayerInputSourceWeightBuffer(layerCount: 2, maxSourcesPerLayer: 2);
+
+            buffer.SetWeight(0, 1, 0.25f);
+            buffer.SwapIfDirty();
+
+            Assert.AreEqual(0.25f, buffer.GetPendingWeight(0, 1));
+        }
+
+        [Test]
         public void SetWeight_WithinRange_IsObservableAfterSwap()
         {
             using var buffer = new LayerInputSourceWeightBuffer(layerCount: 2, maxSourcesPerLayer: 2);

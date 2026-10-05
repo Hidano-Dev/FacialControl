@@ -152,6 +152,52 @@ namespace Hidano.FacialControl.Rec.Tests.PlayMode
             Assert.That(restored, Is.SameAs(valueProvider));
         }
 
+        [Test]
+        public void StartRecording_DuplicateLayerNames_WarnsAndReturnsFalse()
+        {
+            SetupHarness(out FacialController controller, out RecCharacterBinding binding, out _, out _, out _, out _);
+            var duplicateProfile = new FacialProfile(
+                "1.0.0",
+                new[]
+                {
+                    new LayerDefinition("emotion", 0, ExclusionMode.LastWins),
+                    new LayerDefinition("emotion", 1, ExclusionMode.Blend),
+                },
+                new[] { new Expression("smile", "Smile", "emotion") });
+            var expressionUseCase = new ExpressionUseCase(duplicateProfile);
+            var layerUseCase = new LayerUseCase(duplicateProfile, expressionUseCase, new[] { "Smile" });
+            SetControllerPrivateField(controller, "_layerUseCase", layerUseCase);
+            Assert.That(controller.WeightInjectionGate.LayerNamesAreUnique, Is.False);
+
+            LogAssert.Expect(LogType.Warning, new Regex("REC recording was ignored because the profile has duplicate layer names"));
+            Assert.That(binding.StartRecording("duplicate"), Is.False);
+
+            Assert.That(binding.IsRecording, Is.False);
+            LogAssert.NoUnexpectedReceived();
+        }
+
+        [UnityTest]
+        public IEnumerator StartPlayback_BuildsFivePortSessionWithWeightInjector()
+        {
+            SetupHarness(out FacialController controller, out RecCharacterBinding binding, out FakeObservationBus bus,
+                out _, out TestTriggerSource triggerSource, out _);
+            Assert.That(binding.StartRecording("five-port"), Is.True);
+            bus.PublishTriggerOn(triggerSource.Id, "smile");
+            binding.StopRecording();
+            Assert.That(binding.LoadRecording("five-port"), Is.True);
+
+            Assert.That(binding.StartPlayback(), Is.True);
+            yield return null;
+
+            FieldInfo field = typeof(RecCharacterBinding).GetField("_weightInjector", BindingFlags.Instance | BindingFlags.NonPublic);
+            Assert.That(field, Is.Not.Null);
+            Assert.That(field.GetValue(binding), Is.InstanceOf<RecWeightInjector>());
+            Assert.That(controller.WeightInjectionGate.IsLiveWeightSuspended, Is.True);
+
+            binding.StopPlayback();
+            Assert.That(controller.WeightInjectionGate.IsLiveWeightSuspended, Is.False);
+        }
+
         [UnityTest]
         public IEnumerator StartPlayback_AfterControllerRegistryIsReplaced_InjectsIntoTheNewRegistry()
         {
@@ -691,11 +737,14 @@ namespace Hidano.FacialControl.Rec.Tests.PlayMode
             // の準備も要求するため、初期化済みコントローラと同じ面を揃える。
             var expressionUseCase = new ExpressionUseCase(profile);
             expressionUseCase.SetActivationObserver(bus);
+            // 5 ポート確立は weight gate（FacialController.WeightInjectionGate = LayerUseCase）の解決も要求する。
+            var layerUseCase = new LayerUseCase(profile, expressionUseCase, new[] { "Smile" });
 
             SetControllerPrivateField(controller, "_isInitialized", true);
             SetControllerPrivateField(controller, "_currentProfile", (FacialProfile?)profile);
             SetControllerPrivateField(controller, "_blendShapeNames", new[] { "Smile" });
             SetControllerPrivateField(controller, "_expressionUseCase", expressionUseCase);
+            SetControllerPrivateField(controller, "_layerUseCase", layerUseCase);
             SetControllerPrivateField(controller, "_inputObservationBus", bus);
             SetControllerPrivateField(controller, "_inputSourceRegistry", registry);
         }

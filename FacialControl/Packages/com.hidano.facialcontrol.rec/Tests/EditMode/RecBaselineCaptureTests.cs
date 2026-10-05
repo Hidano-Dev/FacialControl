@@ -76,7 +76,7 @@ namespace Hidano.FacialControl.Rec.Tests.EditMode
             gate.LayerWeights.Add(new LayerWeightEntry("emotion", 0.25f));
             gate.InputSourceWeights.Add(new InputSourceWeightEntry("emotion", "input:osc", 0.75f));
 
-            RecBaselineState baseline = RecBaselineCapture.Capture(registry, null, 0, gate);
+            RecBaselineState baseline = RecBaselineCapture.Capture(registry, null, gate, 0);
 
             Assert.That(baseline.LayerWeightEntries, Is.EqualTo(new[] { new LayerWeightEntry("emotion", 0.25f) }));
             Assert.That(baseline.InputSourceWeightEntries, Is.EqualTo(new[] { new InputSourceWeightEntry("emotion", "input:osc", 0.75f) }));
@@ -85,7 +85,7 @@ namespace Hidano.FacialControl.Rec.Tests.EditMode
         [Test]
         public void Capture_NullWeightGate_HasEmptyWeightEntries()
         {
-            var baseline = RecBaselineCapture.Capture(new InputSourceRegistry(), null, 0, null);
+            var baseline = RecBaselineCapture.Capture(new InputSourceRegistry(), null, (IWeightInjectionGate)null, 0);
 
             Assert.That(baseline.LayerWeightEntries, Is.Empty);
             Assert.That(baseline.InputSourceWeightEntries, Is.Empty);

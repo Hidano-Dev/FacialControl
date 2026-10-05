@@ -217,6 +217,40 @@ namespace Hidano.FacialControl.Tests.EditMode.Application
         }
 
         [Test]
+        public void CollectInputSourceWeights_BeforeFirstUpdateWeights_ReturnsDeclaredWeights()
+        {
+            // 初期化直後（最初の UpdateWeights より前）に録画を開始しても、基準が 0 にならず宣言 weight を捕捉する。
+            var source = new FakeValueWritingSource("declared", CreateBlendShapeNames().Length, 1f);
+            using var useCase = new LayerUseCase(
+                _profile, _expressionUseCase, CreateBlendShapeNames(),
+                new[] { (0, (IInputSource)source, 0.4f) }, new[] { "declared-slot" });
+            var gate = (IWeightInjectionGate)useCase;
+
+            var slots = new List<InputSourceWeightEntry>();
+            gate.CollectInputSourceWeights(slots);
+
+            Assert.AreEqual(1f, slots[0].Weight, 1e-6f);
+            Assert.AreEqual(0.4f, slots[1].Weight, 1e-6f);
+        }
+
+        [Test]
+        public void CollectInputSourceWeights_PendingLiveWriteInSameFrame_ReturnsLatestWrittenValue()
+        {
+            var source = new FakeValueWritingSource("declared", CreateBlendShapeNames().Length, 1f);
+            using var useCase = new LayerUseCase(
+                _profile, _expressionUseCase, CreateBlendShapeNames(),
+                new[] { (0, (IInputSource)source, 0.4f) }, new[] { "declared-slot" });
+            var gate = (IWeightInjectionGate)useCase;
+            useCase.UpdateWeights(0f);
+
+            useCase.SetInputSourceWeight(0, 1, 0.7f);
+            var slots = new List<InputSourceWeightEntry>();
+            gate.CollectInputSourceWeights(slots);
+
+            Assert.AreEqual(0.7f, slots[1].Weight, 1e-6f);
+        }
+
+        [Test]
         public void TrySetBaselineAndInject_UsesStableKeysAndUnknownKeysReturnFalse()
         {
             var gate = (IWeightInjectionGate)_useCase;
