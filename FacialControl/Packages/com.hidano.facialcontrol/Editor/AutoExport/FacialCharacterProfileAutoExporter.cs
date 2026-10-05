@@ -1,4 +1,7 @@
 using System;
+using System.IO;
+using System.Text;
+using Hidano.FacialControl.Adapters.Json;
 using Hidano.FacialControl.Adapters.ScriptableObject.Serializable;
 using Hidano.FacialControl.Editor.Sampling;
 using UnityEditor;
@@ -18,8 +21,8 @@ namespace Hidano.FacialControl.Editor.AutoExport
     /// ケースで profile.json が古いまま Play / ビルドに進み得る。本フックがその穴を塞ぐ。
     /// </para>
     /// <para>
-    /// エクスポートは冪等（内容が既に最新なら同一バイトを書くだけ）なので、データが正しければ
-    /// ファイル差分は出ない。SO の <c>cachedSnapshot</c> はインメモリで再サンプリングするのみで
+    /// エクスポートは冪等（生成 JSON が既存 profile.json と同一なら書き込み自体を省き、最終更新時刻も変えない）。
+    /// SO 単位の入口 <see cref="ExportIfEnabled"/> と完了イベント <see cref="Exported"/> を公開する。SO の <c>cachedSnapshot</c> はインメモリで再サンプリングするのみで
     /// アセットを dirty にしない（profile.json の最新化だけを目的とし、余計な保存・再インポートを避ける）。
     /// ただし既に dirty な（未保存編集を持つ）SO は、編集消失を防ぐためエクスポート前に .asset へ保存する。
     /// </para>
@@ -60,7 +63,6 @@ namespace Hidano.FacialControl.Editor.AutoExport
                 return 0;
             }
 
-            var sampler = new AnimationClipExpressionSampler();
             int exported = 0;
 
             for (int i = 0; i < guids.Length; i++)
@@ -79,15 +81,7 @@ namespace Hidano.FacialControl.Editor.AutoExport
 
                 try
                 {
-                    // 未保存の編集（Inspector 破棄で自動保存 delayCall が失われた場合等）を
-                    // Play / ビルド前に .asset へ確定する。メモリ上の SO とディスクの .asset が
-                    // 不整合のままだと、以後ディスクへ書かれる契機がなく編集が失われ得る。
-                    // 再サンプリング（下記）より前に呼ぶことで、保存対象をユーザー編集分に限定する。
-                    AssetDatabase.SaveAssetIfDirty(so);
-
-                    // クリップを ÷100 正規化して cachedSnapshot に焼き直し（インメモリ）、その値で JSON を書き出す。
-                    FacialCharacterProfileExporter.SampleAnimationClipsIntoCachedSnapshots(so, sampler);
-                    if (FacialCharacterProfileExporter.ExportProfileJson(so))
+                    if (ExportIfEnabled(so))
                     {
                         exported++;
                     }
@@ -100,6 +94,83 @@ namespace Hidano.FacialControl.Editor.AutoExport
             }
 
             return exported;
+        }
+
+        /// <summary>
+        /// <see cref="ExportIfEnabled"/> が profile.json を実際に書き換えた直後に同期発火する（1 回）。
+        /// 購読者の例外は <see cref="Debug.LogException(Exception)"/> に流し、書き出し処理は継続する。
+        /// </summary>
+        public static event Action<FacialCharacterProfileSO> Exported;
+
+        /// <summary>
+        /// 有効な SO（<see cref="FacialCharacterProfileSO.CharacterAssetName"/> 非空白）1 つについて、
+        /// 未保存編集の保存 → AnimationClip の再サンプリング → JSON 生成 → 既存 profile.json との文字列比較を行い、
+        /// 内容が異なる（ファイル無しを含む）ときだけ書き出す冪等入口。
+        /// </summary>
+        /// <param name="so">対象 SO。null / 名前空は何もせず false。</param>
+        /// <returns>profile.json を書き換えたとき true（このとき <see cref="Exported"/> が 1 回発火する）。
+        /// 同一内容で書き込みを省いた場合や無効な SO は false（ファイルの最終更新時刻は不変）。</returns>
+        /// <remarks>
+        /// 書き込み失敗などの例外は呼び出し側（<see cref="ExportAll"/> 等）へ伝播する。
+        /// </remarks>
+        public static bool ExportIfEnabled(FacialCharacterProfileSO so)
+        {
+            if (so == null)
+            {
+                return false;
+            }
+
+            string profilePath = FacialCharacterProfileSO.GetStreamingAssetsProfilePath(so.CharacterAssetName);
+            if (string.IsNullOrEmpty(profilePath))
+            {
+                return false;
+            }
+
+            // 未保存の編集（Inspector 破棄で自動保存 delayCall が失われた場合等）を
+            // Play / ビルド前に .asset へ確定する。メモリ上の SO とディスクの .asset が
+            // 不整合のままだと、以後ディスクへ書かれる契機がなく編集が失われ得る。
+            // 再サンプリング（下記）より前に呼ぶことで、保存対象をユーザー編集分に限定する。
+            AssetDatabase.SaveAssetIfDirty(so);
+
+            // クリップを ÷100 正規化して cachedSnapshot に焼き直し（インメモリ）、その値で JSON を生成する。
+            FacialCharacterProfileExporter.SampleAnimationClipsIntoCachedSnapshots(so, new AnimationClipExpressionSampler());
+            var dto = FacialCharacterProfileExporter.BuildProfileSnapshotDto(so);
+            string json = new SystemTextJsonParser().SerializeProfileSnapshot(dto);
+
+            // 内容が同一なら書き込みを省き、最終更新時刻を変えない。
+            if (File.Exists(profilePath) && string.Equals(File.ReadAllText(profilePath, Encoding.UTF8), json, StringComparison.Ordinal))
+            {
+                return false;
+            }
+
+            FacialCharacterProfileExporter.EnsureParentDirectory(profilePath);
+            File.WriteAllText(profilePath, json, Encoding.UTF8);
+
+            RaiseExported(so);
+            return true;
+        }
+
+        private static void RaiseExported(FacialCharacterProfileSO so)
+        {
+            var handlers = Exported;
+            if (handlers == null)
+            {
+                return;
+            }
+
+            // 購読者 1 つの例外が他の購読者・後続 SO の書き出しを止めないよう個別に呼ぶ。
+            var invocationList = handlers.GetInvocationList();
+            for (int i = 0; i < invocationList.Length; i++)
+            {
+                try
+                {
+                    ((Action<FacialCharacterProfileSO>)invocationList[i])(so);
+                }
+                catch (Exception ex)
+                {
+                    Debug.LogException(ex);
+                }
+            }
         }
     }
 

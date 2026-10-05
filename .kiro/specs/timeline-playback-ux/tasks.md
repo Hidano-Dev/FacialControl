@@ -20,7 +20,7 @@
   - 完了条件: 再現テストが修正前に赤・修正後に緑、`ContributeMask.Length == BlendShape 数` のアサートが緑、timeline EditMode 全件緑
   - _Requirements: 8.8_
 
-- [ ] 2. core の後付け接続 API・Analog 消費者の registry 再解決・Profile 書き出しの冪等入口を追加する（core パッケージ）
+- [x] 2. core の後付け接続 API・Analog 消費者の registry 再解決・Profile 書き出しの冪等入口を追加する（core パッケージ）
 - [x] 2.1 レイヤー入力源の後付け接続済み判定と系2 provider の増減 API を追加する（core Application）
   - LayerUseCase に「指定レイヤーに指定 id の後付け入力源が接続済みか」を返す判定を追加する
   - Layer2ActiveExpressionProvider に単一 source の追加（同 (layer, source) は重複追加しない）と削除を追加し、既存の一括設定は維持する
@@ -59,7 +59,7 @@
   - 2.4 の契約定義に依存するため並列不可
   - _Requirements: 3.4, 3.5_
 
-- [ ] 2.6 (P) Profile JSON 書き出しに SO 単位の冪等入口と完了イベントを追加する（core Editor）
+- [x] 2.6 (P) Profile JSON 書き出しに SO 単位の冪等入口と完了イベントを追加する（core Editor）
   - AutoExporter に「有効な SO（CharacterAssetName 非空）に対し、保存 → スナップショット採取 → JSON 生成 → 既存 profile.json と文字列比較 → 異なるときだけ書く」入口を追加し、書いたときだけ true を返して完了イベントを 1 回発火する。購読者の例外は LogException にして継続
   - 既存の全件書き出しはループ本体をこの入口に委譲し、契機（ExitingEditMode / ビルド前）・件数集計・例外時 Warning は不変にする
   - 既存 `FacialCharacterProfileAutoExporterTests`（Medium）に 初回 true + 発火 1 回 + ファイル生成、同内容 2 回目 false + 不発火 + LastWriteTimeUtc 不変、内容変更後 true + 発火、CharacterAssetName 空で false + ファイル無し、全件書き出しの戻り値 = true 件数、全件 → 単体 / 逆順どちらでも 2 回目 no-op、を追記する
