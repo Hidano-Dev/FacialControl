@@ -111,3 +111,6 @@
 
 ### Task 6.2 / 6.3 / 6.4 — OK
 - Commits: bba3e0a4（6.2、6.1 レビュー F3 対応込み）/ 078571b1（6.3）/ 647464bf（6.4、6.1 レビュー F1 対応込み）/ Review: APPROVED（P2: `TimelineGcZeroGateTests` は同期 [Test] でフレームを進めずに ProfilerRecorder.LastValue を読むため確保を検出できない。F1 と 6.4 の「確保 0」はコード読みでしか確認できていない → backlog 登録（PR 作成前にオーケストレータが docs/backlog.md に追記）/ P3: 旧 Profile で binding の legacy 警告と Receiver Start の BindingLegacyFields が Console に 2 回出る（design の 2 節が二重に要求）/ P3: 競合 Director が 2 つ以上だと記録先が交互に入れ替わり名前文字列を作る（まれ））/ Verify: EditMode 全件 2513/0、PlayMode 116/116、check-test-sizes 差分 0
+
+### Task 7.1 / 7.2 / 7.3 — OK
+- Commits: 171c32d4 / 3865a217 / 18da73a5 / Review: APPROVED（P3: `TimelineProfileSource` のキャッシュは保存を伴わない SO の外部再インポート（VCS pull 等）を検知できずドメインリロードまで古い Profile を返し得る → backlog 候補）/ 逸脱: `IsStale` 戻り値 bool → `BakeStaleReason`（破壊的変更、CHANGELOG 対象）、JSON と SO の食い違い fixture は新規 Medium クラス、Export 後検証は `RecToTimelineExportWorkflowTests` に追記 / Verify: EditMode 全件 2540/0、timeline PlayMode 23/23、check-test-sizes 差分 0
