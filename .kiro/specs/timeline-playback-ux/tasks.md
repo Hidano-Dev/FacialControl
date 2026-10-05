@@ -225,7 +225,7 @@
   - _Requirements: 1.2, 4.1, 4.4, 4.7_
 
 - [ ] 8. REC Export の出力をそのまま使う PlayMode end-to-end テストで受け入れ条件を固定する（timeline Tests）
-- [ ] 8.1 e2e 用の共有 fixture（.fcrec 生成・Fake Analog binding・配置ヘルパー）とテスト asmdef の参照を用意する（timeline Tests/Shared + asmdef）
+- [x] 8.1 e2e 用の共有 fixture（.fcrec 生成・Fake Analog binding・配置ヘルパー）とテスト asmdef の参照を用意する（timeline Tests/Shared + asmdef）
   - Tests/Shared の asmdef に core Domain / Application / Adapters と Rec Domain / Rec Adapters の参照を、Tests/PlayMode の asmdef に Rec / Application の参照を追加する。inputsystem は参照しない
   - `.fcrec` を trigger（smile）/ analog（`osc:lt` 1 軸）/ gaze（`osc:gaze` 2 軸）で書き出すヘルパー、外から値を設定できる Fake analog source、Fake analog source を `osc:lt` に登録し core の Analog Expression 消費者（binding `lt` → `squint`）を構築して 2.4 の契約で registry に接続し `osc:analog-expression` で登録する Fake binding（InputSystem の構成と同形、Dispose で切断）、BlendShape 3 個以上のメッシュ + 明示目ボーン + Profile SO（emotion / overlay レイヤー、smile / squint、GazeChannels 既定、AdapterBindings に Timeline binding と Fake binding、emotion の inputSources に `osc:analog-expression`）を `Assets/<guid>/` に保存し Export → FacialController / Receiver / Director 配置までを束ねる fixture を実装する。生成物は TearDown で削除
   - Fake 類は `[SmallTest]` 等の対象外だが、fixture を使う smoke（Export が成功し Locator が Found）を 8.2 の最初のケースとして書けることを確認する

@@ -2,7 +2,12 @@
     "name": "Hidano.FacialControl.Timeline.Tests.Shared",
     "rootNamespace": "Hidano.FacialControl.Timeline.Tests.Shared",
     "references": [
-        "Hidano.FacialControl.Timeline"
+        "Hidano.FacialControl.Timeline",
+        "Hidano.FacialControl.Domain",
+        "Hidano.FacialControl.Application",
+        "Hidano.FacialControl.Adapters",
+        "Hidano.FacialControl.Rec.Domain",
+        "Hidano.FacialControl.Rec.Adapters"
     ],
     "includePlatforms": [],
     "excludePlatforms": [],
