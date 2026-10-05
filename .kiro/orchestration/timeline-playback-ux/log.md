@@ -130,3 +130,12 @@
 - Commits: 2984fd10 / 367affcb / 7de25e7a / 実装者報告: EditMode 2642/0、timeline PlayMode 37/37。core 変更なし
 - Review: REJECTED。[Important] Edit/Play 一致テストが Analog を 0 にして不一致を隠している（Analog Value トラックは Timeline の sink で Req 7.1 の除外条件に当たらない）。原因は design D9 の構成が analog 消費者の経路を含まない仕様の欠落で、直すには adapter binding の analog 消費者のオフライン再現が要り 10.x の範囲外 / [Important] Compositor 静的キャッシュがドメインリロード・終了時に Dispose されず NativeArray がリーク / [Suggestion] Watcher 未初期化時に購読が無言スキップ / [FYI] Gaze を Clip から倍精度評価する逸脱は妥当
 - オーケストレータ判断（ユーザー不在）: Analog の Edit プレビューは **既知制約** とし、design D9 に明記・テストの正当化コメント修正・不一致を示す特性テスト追加・docs/backlog.md 登録・PR 本文で人間の判断事項として提示する。NativeArray リークと Watcher 初期化は是正コミットで修正（実行中の実装エージェントに (D) として追加指示）
+
+### 是正 d1f19971（9.6/9.7）・Task 10.4 de165de0・Task 10.5 58d3e4d9・是正 14655ffd（10.1〜10.3）
+- Verify（実装者報告）: EditMode 全件 2662/0、timeline PlayMode 38/38
+- Review: REJECTED。[Important] Edit の Inspector で Undo すると `OnUndoRedoPerformed` → 再評価 → `EnsureTrackBindings` が Undo 記録付きで binding を書き直し、自動設定の Undo が効かず Redo が消え、それ以前の操作にも戻れない → 是正 (E) を実装エージェントへ指示（Undo 起点の評価では書かない + 自動設定は Inspector × Director/Timeline ごとに 1 回）。旧 Exporter 署名の残存なし、Export はシーンを書き換えない、Source Overrides の死にコードなしを確認。Analog の Edit プレビュー既知制約は D9 と backlog S-28 に記録済み
+
+### Task 10.6 / 10.7 / 是正 (E) — OK
+- Commits: 16f2b043（10.6: 既存 PlayMode 3 件を `TimelinePlayModeRig` で実 registry 構成へ移行。旧 GC ゲートは同期 [Test] で何も計測できていなかったことを自己検証テストで確認し、`GC Allocated In Frame` 計測に置換。実計測でも既存の確保ゼロゲートは全て緑）/ 74386397（10.7: README / Documentation~ / CHANGELOG）/ e8855b18（(E): Undo 起点の評価では書かない + 自動設定は Inspector × Director/Timeline ごとに 1 回）
+- backlog: S-28（Analog の Edit プレビュー既知制約）/ S-30（ProfileSource キャッシュの外部再インポート）/ S-31（小さな後始末の束）を追加。GC ゲートの件は 10.6 で解消したため登録しない
+- Verify（実装者報告）: EditMode 全件 2667/0、PlayMode 全件 493/493
