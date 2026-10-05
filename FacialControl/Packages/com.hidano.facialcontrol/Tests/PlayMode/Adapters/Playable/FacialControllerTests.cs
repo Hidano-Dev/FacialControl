@@ -403,6 +403,8 @@ namespace Hidano.FacialControl.Tests.PlayMode.Adapters.Playable
             public void OnValueProviderSample(string sourceId, in ValueProviderSample sample) { }
             public void OnExpressionActivated(string sourceId, string expressionId) { }
             public void OnExpressionDeactivated(string sourceId, string expressionId) { }
+            public void OnLayerWeightSample(string layerName, float weight) { }
+            public void OnInputSourceWeightSample(string layerName, string slotId, float weight) { }
         }
     }
 }

@@ -120,3 +120,16 @@
   - 要件カバレッジ 74 項目中 72。未達 2 項目はどちらも directive が禁止した timeline パッケージ内
 - Gate D: **ESCALATED（ユーザー判断）**。NO-GO の理由は directive の制約で意図的に skip した 2 項目のみで、本 spec が変更した core / rec / inputsystem 側の指摘は無い。coordinator の指示どおり push と PR 作成までは進め、マージ前に timeline 側の追随（Track A マージ後の別 PR、または本 PR への追加）をユーザーが判断する旨を PR 本文に明記する
 - Branch/PR: `feature/hid-80-rec-weight-coverage` を push し PR #48 を作成（https://github.com/Hidano-Dev/FacialControl/pull/48）。PR #47 には #48 が包含する旨のコメントを投稿（閉じていない）。マージはしない
+
+## Follow-up: task 5.1（timeline REC Export の契約追随）
+
+- Branch: `fix/hid-80-timeline-rec-export-weight`（PR #49 `feature/hid-144-timeline-playback-ux` に PR #48 をマージした状態から分岐。両 PR のマージ後に差分が本対応のみになる）
+- 実装（TDD）: 先に EditMode テストを追加し、変更前の `RecEventSequenceAdapter` が `InvalidOperationException: Unsupported REC event kind 'LayerWeightSample'` で赤になることを確認（2 件 failed）してから修正
+  - `RecEventSequenceAdapter`: 時刻付き weight（kind 12 / 13）を Export 対象外として読み捨て、件数を `SkippedWeightEventCount` に保持。基準エントリ（kind 14 / 15）は `RecBaselineState` 側にあり、従来どおりイベント列に入らない
+  - `RecToTimelineExporter.TryExportTimelineAsset`: 読み捨て件数が 1 以上なら Export 1 回につき 1 回だけ件数付き Warning を出す（無言で捨てない）。`DetectChannels`（Export ウィンドウの判定表示）では出さない
+  - 判断: Req 7.7 は「Export 対象としない kind は無視してよい」とだけ定めトラック化を求めていない。Timeline には weight を表すトラックが無く、Timeline 再生中の weight はプロファイルの宣言値とライブ書込に従うため、トラック化は本 spec のスコープ外とし「無視 + 警告 1 回」を採用
+  - テスト: `RecToTimelineExporterTests`（Small。weight kind の読み捨てと件数、weight 無しで 0）、`RecToTimelineExportWorkflowTests.TryExportTimelineAsset_RecWithWeightRecords_ExportsConvertibleRecordsAndWarnsOnce`（Medium。weight の基準エントリと時刻付き weight を含む `.fcrec` をファイルに書いて Export し、トリガー / アナログだけが Export され Warning が 1 回だけ出る）
+- 文書（Req 11.7）: timeline README の「REC からの書き出し」に weight kind（12〜15）を無視する旨と Warning を追記、timeline CHANGELOG の Fixed に追記。rec README / Documentation~ / CHANGELOG の「timeline REC Export は kind 12〜15 未対応（follow-up）」を現状に更新
+- マージ由来のコンパイルエラー修正: PR #49 側で追加された `FacialControllerTests.RecordingInputObserver`（core PlayMode Tests）が PR #48 の `ILayerWeightObserver` の 2 メソッドを実装しておらず、マージ後に Tests.PlayMode がコンパイルできなかった。no-op 実装を追加
+- 検証（Unity 6000.3.19f1 batchmode）: EditMode 全件 2753（passed 2750・skipped 3・failed 0）/ PlayMode 全件 503（failed 0）。`ProjectVersion.txt` 変更なし
+- 結果: Req 7.7 / 11.7 を充足。tasks.md 5.1 を完了に更新

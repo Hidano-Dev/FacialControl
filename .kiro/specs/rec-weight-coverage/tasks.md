@@ -111,7 +111,7 @@
   - _Depends: 2.2, 2.3, 2.5_
 
 - [ ] 5. 統合・受け入れ・文書
-- [ ] 5.1 (P) timeline REC Export の契約追随
+- [x] 5.1 (P) timeline REC Export の契約追随
   - REC Export の変換で weight の時刻付き kind を Export 対象外としてスキップし例外を投げないようにする。timeline README の REC Export 節に weight kind を無視する旨を追記する
   - EditMode テストで「weight kind を含む REC が読め、変換可能なレコードだけが Export される」が緑になる
   - _Requirements: 7.7, 11.7_

@@ -174,6 +174,7 @@ namespace Hidano.FacialControl.Timeline.Editor
                     TimelineProfileSource.Resolve(profileAsset),
                     gazeContext,
                     sourceKindOverrides);
+                WarnSkippedWeightRecords(sequence, recordingPath);
 
                 if (createdTimeline)
                 {
@@ -215,6 +216,28 @@ namespace Hidano.FacialControl.Timeline.Editor
 
                 throw;
             }
+        }
+
+        /// <summary>
+        /// 時刻付き weight レコードを Export 対象外として読み捨てたことを、Export 1 回につき 1 回だけ警告する。
+        /// </summary>
+        /// <remarks>
+        /// rec-weight-coverage Req 7.7 は「Export 対象としない kind は無視してよい」とするが、weight の変化は REC 再生では
+        /// 再現される一方、Export した Timeline の再生では再現されない（Timeline 再生中のレイヤー / 入力源 weight は
+        /// プロファイルの宣言値とライブの書込に従う）。再生に必要な情報が失われることを利用者が気付けるよう、無言では捨てない。
+        /// 件数は 1 行にまとめ、レコードごとには出さない（Console を埋めないため）。
+        /// </remarks>
+        private static void WarnSkippedWeightRecords(RecEventSequenceAdapter sequence, string recordingPath)
+        {
+            if (sequence.SkippedWeightEventCount <= 0)
+            {
+                return;
+            }
+
+            Debug.LogWarning(
+                $"[RecToTimelineExporter] '{recordingPath}' contains {sequence.SkippedWeightEventCount} weight record(s) " +
+                "(layer weight / input source weight changes). Timeline has no track for weights, so they are not exported " +
+                "and the exported Timeline does not reproduce weight changes made during recording.");
         }
 
         /// <summary>

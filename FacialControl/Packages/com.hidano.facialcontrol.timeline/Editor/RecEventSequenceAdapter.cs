@@ -18,8 +18,18 @@ namespace Hidano.FacialControl.Timeline.Editor
 
             DurationSeconds = timeline.DurationSeconds;
             var events = new List<RecordedEvent>(timeline.Events.Count);
+            int skippedWeightEvents = 0;
             for (int i = 0; i < timeline.Events.Count; i++)
             {
+                RecEventKind kind = timeline.Events[i].Kind;
+                if (kind == RecEventKind.LayerWeightSample || kind == RecEventKind.InputSourceWeightSample)
+                {
+                    // weight（レイヤー / 入力源）は Timeline に表現するトラックが無いため Export 対象外（rec-weight-coverage Req 7.7）。
+                    // 無言で捨てないよう件数だけ数え、Export 時に RecToTimelineExporter が 1 回だけ警告する。
+                    skippedWeightEvents++;
+                    continue;
+                }
+
                 if (TryConvertEvent(timeline, i, out RecordedEvent recordedEvent))
                 {
                     events.Add(recordedEvent);
@@ -27,11 +37,18 @@ namespace Hidano.FacialControl.Timeline.Editor
             }
 
             _events = events.ToArray();
+            SkippedWeightEventCount = skippedWeightEvents;
         }
 
         public double DurationSeconds { get; }
 
         public int Count => _events.Length;
+
+        /// <summary>
+        /// Export 対象外として読み捨てた時刻付き weight レコード（<see cref="RecEventKind.LayerWeightSample"/> /
+        /// <see cref="RecEventKind.InputSourceWeightSample"/>）の件数。weight の基準エントリはイベント列に含まれないため数えない。
+        /// </summary>
+        public int SkippedWeightEventCount { get; }
 
         public RecordedEvent this[int index] => _events[index];
 
