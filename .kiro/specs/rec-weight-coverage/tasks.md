@@ -66,7 +66,7 @@
   - _Requirements: 4.1, 4.2, 7.1, 7.3_
   - _Boundary: rec Domain Models（RecEvent / RecEventKind / RecHeaderFlags / RecBaselineState / RecIdTable）_
 
-- [ ] 3.2 `.fcrec` の weight レコード読み書きとヘッダ必須ビットを実装する
+- [x] 3.2 `.fcrec` の weight レコード読み書きとヘッダ必須ビットを実装する
   - タイムラインモデルにレイヤー id 一覧と weight イベントの index 検証を追加する（既存コンストラクタは空で委譲）
   - バイナリ形式に weight の 4 種と `Layer` id 定義の serialize / deserialize、サイズ計算、基準先行不変条件への包含、同一対象の基準重複拒否を実装する。必須ヘッダ flags を bit0 | bit1 にし、writer は常に書き、reader は欠落をレコード走査前に読込エラーにする。未知 kind はエラーのまま
   - Small テストで「weight 基準と時刻付きイベントのビット一致ラウンドトリップ」「ヘッダに bit1 が無いファイルはレコード内容に関わらず拒否」「weight 基準が時刻付きより後なら拒否」「同一対象の基準重複は拒否」「未知レイヤー index は拒否」が緑になる
