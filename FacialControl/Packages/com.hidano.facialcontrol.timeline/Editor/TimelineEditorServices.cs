@@ -94,6 +94,9 @@ namespace Hidano.FacialControl.Timeline.Editor
 
             _tickRefCount = 0;
             UnsubscribeUpdate();
+
+            // Edit プレビューの Compositor は LayerUseCase（NativeArray）を持つため、ドメインリロード / 終了の前に破棄する。
+            FacialTimelineEditorPreview.ClearCache();
         }
 
         /// <summary>Watcher: 最初の pending で update を購読する（参照カウント）。</summary>

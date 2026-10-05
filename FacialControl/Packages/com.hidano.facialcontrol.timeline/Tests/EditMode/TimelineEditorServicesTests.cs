@@ -4,6 +4,7 @@ using System.IO;
 using Hidano.FacialControl.Adapters.ScriptableObject.Serializable;
 using Hidano.FacialControl.Editor.AutoExport;
 using Hidano.FacialControl.Testing;
+using Hidano.FacialControl.Timeline.Adapters;
 using Hidano.FacialControl.Timeline.Adapters.Assets;
 using Hidano.FacialControl.Timeline.Clips;
 using Hidano.FacialControl.Timeline.Editor;
@@ -85,6 +86,53 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
 
             _exportDirs.Clear();
             AssetDatabase.Refresh();
+        }
+
+        // ================================================================
+        // Edit プレビューの Compositor キャッシュ（10.1〜10.3 レビュー指摘）
+        // ================================================================
+
+        [Test]
+        public void Shutdown_ClearsEditPreviewCompositorCache()
+        {
+            FacialTimelineEditorPreview.ClearCache();
+            (FacialTimelineReceiver receiver, TimelineAsset timeline) = CreatePreviewTarget();
+            FacialTimelineEditorPreview.ApplyPreview(receiver, timeline, 0d);
+            Assert.That(FacialTimelineEditorPreview.CompositorCount, Is.EqualTo(1), "前提: Compositor がキャッシュされる");
+
+            TimelineEditorServices.Shutdown();
+
+            Assert.That(FacialTimelineEditorPreview.CompositorCount, Is.EqualTo(0),
+                "ドメインリロード / 終了の経路で Compositor（LayerUseCase の NativeArray）を破棄する");
+        }
+
+        [Test]
+        public void EditPreview_AfterShutdown_ReinitializesServicesBeforeSubscribing()
+        {
+            (FacialTimelineReceiver receiver, TimelineAsset timeline) = CreatePreviewTarget();
+            TimelineEditorServices.Shutdown();
+            Assert.That(TimelineEditorServices.ChangeWatcher, Is.Null);
+
+            FacialTimelineEditorPreview.ApplyPreview(receiver, timeline, 0d);
+
+            Assert.That(TimelineEditorServices.IsInitialized, Is.True, "ChangeWatcher が無ければ初期化してから購読する");
+            Assert.That(TimelineEditorServices.ChangeWatcher, Is.Not.Null);
+            FacialTimelineEditorPreview.ClearCache();
+        }
+
+        private (FacialTimelineReceiver Receiver, TimelineAsset Timeline) CreatePreviewTarget()
+        {
+            var host = new GameObject("PreviewCacheHost");
+            _transient.Add(host);
+            host.AddComponent<Animator>();
+            var controller = host.AddComponent<Hidano.FacialControl.Adapters.Playable.FacialController>();
+            var receiver = host.AddComponent<Hidano.FacialControl.Timeline.Adapters.FacialTimelineReceiver>();
+            var profile = ScriptableObject.CreateInstance<FacialCharacterProfileSO>();
+            _transient.Add(profile);
+            controller.CharacterSO = profile;
+            var timeline = ScriptableObject.CreateInstance<TimelineAsset>();
+            _transient.Add(timeline);
+            return (receiver, timeline);
         }
 
         [Test]

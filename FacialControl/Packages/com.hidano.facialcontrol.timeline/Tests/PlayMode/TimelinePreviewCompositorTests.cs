@@ -25,8 +25,10 @@ namespace Hidano.FacialControl.Timeline.Tests.PlayMode
     /// renderer と目ボーンへ出すことを、D9 の比較時刻集合と許容誤差で固定する（Req 7.1 / 7.6 / 11.5）。
     /// </summary>
     /// <remarks>
-    /// 比較は「Timeline 以外の live 入力が無く、レイヤー weight が既定」の条件で行う。Compositor は Analog チャネル →
-    /// analog 消費者（Fake binding）の経路を再現しないため、記録の Analog 値は 0 にする。
+    /// 比較は「Timeline 以外の live 入力が無く、レイヤー weight が既定」の条件で行う。Analog チャネル経由の出力
+    /// （Analog Value トラック → registry 乗っ取り → analog 消費者 → BlendShape）は Edit プレビューで再現しない既知制約
+    /// （design.md D9。backlog 参照）のため、一致比較では記録の Analog 値を 0 にして比較する。既知制約そのものは
+    /// <see cref="Evaluate_AnalogChannelNonZero_IsNotReproducedInEditPreview_KnownLimitation"/> で特性として固定する。
     /// </remarks>
     [TestFixture]
     [MediumTest]
@@ -104,6 +106,30 @@ namespace Hidano.FacialControl.Timeline.Tests.PlayMode
 
             Assert.That(result.MaxSmile, Is.GreaterThan(50f), "前提: 比較時刻に smile が出ている時刻を含む");
             Assert.That(result.SawGaze, Is.True, "前提: 比較時刻に Gaze が出ている時刻を含む");
+        }
+
+        /// <summary>
+        /// 既知制約の特性テスト: Analog 値が 0 でない記録では、Play は Analog 消費者経由で squint を出すが、
+        /// Edit プレビュー（Compositor）は Analog チャネル経由の出力を再現しないため squint が 0 のまま（Edit と Play が一致しない）。
+        /// この制約を解消したらこのテストは赤になるので、一致比較（Analog=0 の条件）と合わせて見直すこと。
+        /// </summary>
+        [UnityTest]
+        public IEnumerator Evaluate_AnalogChannelNonZero_IsNotReproducedInEditPreview_KnownLimitation()
+        {
+            _fixture = TimelineE2EFixture.Create(new RecFixtureWriter.Recording { AnalogValue = 0.5f });
+            PrepareSameSnapshot(_fixture);
+            TimelineE2ECharacter character = _fixture.Spawn(TimelineE2EPlacement.SameObject);
+            _compositor = CreateCompositor(character);
+            Assert.That(_compositor.CanRender, Is.True, "前提: Bake を解決できる");
+
+            yield return character.EvaluateAt(MidTriggerSeconds);
+            float playedSquint = character.GetBlendShapeWeight(TimelineE2EFixture.SquintBlendShape);
+
+            _compositor.Evaluate(MidTriggerSeconds);
+            float composedSquint = character.GetBlendShapeWeight(TimelineE2EFixture.SquintBlendShape);
+
+            Assert.That(playedSquint, Is.GreaterThan(1f), "Play は Analog 消費者経由で squint を出す");
+            Assert.That(composedSquint, Is.EqualTo(0f).Within(RendererTolerance), "Edit プレビューは Analog チャネル経由の出力を再現しない（既知制約）");
         }
 
         [UnityTest]

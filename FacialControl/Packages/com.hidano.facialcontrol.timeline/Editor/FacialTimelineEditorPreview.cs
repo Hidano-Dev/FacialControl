@@ -68,6 +68,9 @@ namespace Hidano.FacialControl.Timeline.Editor
             FacialTimelineEditorPreviewBridge.GatherProperties = GatherProperties;
         }
 
+        /// <summary>テスト用: キャッシュ中の Compositor 数。</summary>
+        internal static int CompositorCount => Compositors.Count;
+
         /// <summary>キャッシュ中の Compositor を全て破棄する（テスト / ドメインリロード相当）。</summary>
         internal static void ClearCache()
         {
@@ -244,6 +247,12 @@ namespace Hidano.FacialControl.Timeline.Editor
 
         private static void EnsureWatcherSubscription()
         {
+            if (TimelineEditorServices.ChangeWatcher == null)
+            {
+                // Shutdown 後（ドメインリロード直前など）でも、再ベイク通知を受け取れるよう Services を先に初期化する。
+                TimelineEditorServices.EnsureInitialized();
+            }
+
             TimelineEditChangeWatcher watcher = TimelineEditorServices.ChangeWatcher;
             if (ReferenceEquals(watcher, _subscribedWatcher))
             {
