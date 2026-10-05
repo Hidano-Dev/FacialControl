@@ -124,7 +124,7 @@
   - 上記すべてと既存の rec / core PlayMode スイートが緑になる
   - _Requirements: 10.1, 10.3, 10.4, 10.5, 10.6, 10.7, 10.8, 10.10, 7.4, 9.5_
 
-- [ ] 5.3 inputsystem Overlay の受け入れテストを追加する
+- [x] 5.3 inputsystem Overlay の受け入れテストを追加する
   - inputsystem の PlayMode テスト asmdef に rec の Domain / Application / Adapters 参照を追加し、`com.hidano.facialcontrol.rec` 存在時に定義されるシンボルを `versionDefines` に登録する。テストファイルはそのシンボルで囲む
   - 実 `FacialController`（Overlay モードの `InputSystemAdapterBinding` を持つテスト用 SO）+ 仮想 Gamepad + `RecCharacterBinding` で、「トリガー操作を含む記録→再生でレイヤー weight とブレンド出力が記録どおり再現される」「再生中にトリガーを引いても overlay レイヤー weight と出力が変わらない」「停止後はトリガーに追従する」を Medium PlayMode テストとして追加する（HID-137 の受け入れ条件）
   - テストが緑になり、既存の `InputSystemAdapterBindingIntegrationTests` が緑のまま（inputsystem Runtime は無改修のまま overlay 駆動が遮断される）
