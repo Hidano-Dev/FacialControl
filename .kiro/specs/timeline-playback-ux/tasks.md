@@ -248,7 +248,7 @@
 ## 第 2 段: Editor の変更検知・自動再ベイク・Receiver Inspector（受け入れ条件 2 の「次の Play」と Inspector 表示）
 
 - [ ] 9. Editor イベント購読を一元化し、Clip 編集の自動再ベイクと Receiver Inspector の診断表示を実装する（timeline Editor）
-- [ ] 9.1 変更検知を合流させデバウンス後に再ベイクを 1 回だけ実行するインスタンス型 Watcher を実装する（timeline Editor）
+- [x] 9.1 変更検知を合流させデバウンス後に再ベイクを 1 回だけ実行するインスタンス型 Watcher を実装する（timeline Editor）
   - 再ベイク実行口の抽象（結果: NoChange / ReferencesRepaired / Rebaked / Failed）と時計を注入でき、tick の要求 / 解放はコールバックで差し替えられる形にする（既定は後続の Services に接続）。デバウンス既定 0.3 秒、テストから短縮可
   - MarkDirty は 理由（ClipEdit / UndoRedo / ObjectChange / ProfileChanged / BakeReferenceInconsistent / ProfileMismatch）を受け、未保存（アセットパス空）の Timeline は UnsavedTimeline を返して予約せず、Play 遷移中は Ignored、同一 Timeline の連続は Coalesced。再ベイク中の MarkDirty は完了後に 1 回だけ再実行。実行前に 7.1 のキャッシュを無効化し、成功で BakeUpdated + Timeline ウィンドウの Refresh、失敗で RebakeFailed + Warning（前回 Bake 保持）。Pending が 0 → 1 で tick 要求、1 → 0 で解放。Timeline が解決した Profile SO の追跡（SO → Timeline の逆引き）を提供する
   - 新規 `TimelineEditChangeWatcherTests`（Medium。Fake 実行口 + Fake 時計）に MarkDirty → デバウンス経過 Tick で再ベイク 1 回、ハッシュ一致で no-op、連続 10 回で 1 回、再ベイク中の MarkDirty で完了後 1 回、失敗で RebakeFailed + 前回保持、ProfileChanged で再ベイク、BakeReferenceInconsistent でハッシュ一致でも参照修復と BakeUpdated、未保存 Timeline で UnsavedTimeline + PendingCount 不変、tick 要求 / 解放の回数、Dispose で pending 破棄、を書く
