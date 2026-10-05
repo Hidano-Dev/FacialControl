@@ -269,9 +269,33 @@ namespace Hidano.FacialControl.Rec.Application.UseCases
             AppendEvent(RecEvent.CreateExpressionDeactivate(SampleClock(), sourceIndex, expressionIndex), ReadOnlySpan<float>.Empty, ReadOnlySpan<byte>.Empty);
         }
 
-        public void OnLayerWeightSample(string layerName, float weight) { }
+        public void OnLayerWeightSample(string layerName, float weight)
+        {
+            if (!IsRecording || string.IsNullOrWhiteSpace(layerName))
+            {
+                return;
+            }
 
-        public void OnInputSourceWeightSample(string layerName, string slotId, float weight) { }
+            ushort layerIndex = EnsureLayerIdDefined(layerName);
+            Span<float> payload = stackalloc float[1];
+            payload[0] = weight;
+            AppendEvent(RecEvent.CreateLayerWeightSample(SampleClock(), layerIndex), payload, ReadOnlySpan<byte>.Empty);
+        }
+
+        public void OnInputSourceWeightSample(string layerName, string slotId, float weight)
+        {
+            if (!IsRecording || string.IsNullOrWhiteSpace(layerName) || string.IsNullOrWhiteSpace(slotId))
+            {
+                return;
+            }
+
+            ushort layerIndex = EnsureLayerIdDefined(layerName);
+            ushort sourceIndex = EnsureSourceIdDefined(slotId);
+            Span<float> payload = stackalloc float[1];
+            payload[0] = weight;
+            AppendEvent(RecEvent.CreateInputSourceWeightSample(SampleClock(), layerIndex, sourceIndex), payload,
+                ReadOnlySpan<byte>.Empty);
+        }
 
         public void Dispose()
         {
@@ -364,6 +388,19 @@ namespace Hidano.FacialControl.Rec.Application.UseCases
             if (!existed)
             {
                 AppendEvent(RecEvent.CreateIdDefine(index, RecEvent.IdDefinitionKind.Source), ReadOnlySpan<float>.Empty, ReadOnlySpan<byte>.Empty, sourceId);
+            }
+
+            return index;
+        }
+
+        private ushort EnsureLayerIdDefined(string layerName)
+        {
+            bool existed = _idTable.TryGetLayerIndex(layerName, out ushort index);
+            index = _idTable.GetOrAddLayerId(layerName);
+            if (!existed)
+            {
+                AppendEvent(RecEvent.CreateIdDefine(index, RecEvent.IdDefinitionKind.Layer), ReadOnlySpan<float>.Empty,
+                    ReadOnlySpan<byte>.Empty, layerName);
             }
 
             return index;

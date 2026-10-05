@@ -3,6 +3,7 @@ using System.Collections;
 using System.Collections.Generic;
 using System.Text.RegularExpressions;
 using Hidano.FacialControl.Domain.Adapters;
+using Hidano.FacialControl.Domain.Models;
 using Hidano.FacialControl.Rec.Application.UseCases;
 using Hidano.FacialControl.Rec.Domain.Interfaces;
 using Hidano.FacialControl.Rec.Domain.Models;
@@ -128,6 +129,39 @@ namespace Hidano.FacialControl.Rec.Tests.EditMode
             Assert.That(sink.AppendedEvents[5].payload, Is.EqualTo(new[] { 0.25f, -0.5f }));
             Assert.That(sink.CompletedEventCount, Is.EqualTo(6));
             Assert.That(sink.CompletedDurationSeconds, Is.EqualTo(0.75d));
+        }
+
+        [Test]
+        public void WeightSamples_WhenRecording_EmitLayerDefinitionAndWeightEvents()
+        {
+            var bus = new FakeObservationBus();
+            var clock = new FakeClock { ElapsedSeconds = 0.25d };
+            var sink = new FakeRecEventSink();
+            var baseline = new RecBaselineState(
+                Array.Empty<RecBaselineState.TriggerEntry>(),
+                Array.Empty<RecBaselineState.AnalogEntry>(),
+                Array.Empty<RecBaselineState.ValueProviderEntry>(),
+                Array.Empty<string>(),
+                new[] { new LayerWeightEntry("face", 0.5f) },
+                new[] { new InputSourceWeightEntry("face", "input", 0.75f) });
+            using var useCase = new RecordingUseCase(bus, clock, sink);
+            useCase.StartRecording(baseline);
+
+            useCase.OnLayerWeightSample("runtime", 0.25f);
+            useCase.OnInputSourceWeightSample("face", "runtime-input", 0.4f);
+
+            Assert.That(sink.AppendedEvents.Count, Is.EqualTo(4));
+            Assert.That(sink.AppendedEvents[0].evt.DefinedIdKind, Is.EqualTo(RecEvent.IdDefinitionKind.Layer));
+            Assert.That(sink.AppendedEvents[0].idValue, Is.EqualTo("runtime"));
+            Assert.That(sink.AppendedEvents[1].evt.Kind, Is.EqualTo(RecEventKind.LayerWeightSample));
+            Assert.That(sink.AppendedEvents[1].evt.LayerIdIndex, Is.EqualTo(1));
+            Assert.That(sink.AppendedEvents[1].payload, Is.EqualTo(new[] { 0.25f }));
+            Assert.That(sink.AppendedEvents[2].evt.DefinedIdKind, Is.EqualTo(RecEvent.IdDefinitionKind.Source));
+            Assert.That(sink.AppendedEvents[2].idValue, Is.EqualTo("runtime-input"));
+            Assert.That(sink.AppendedEvents[3].evt.Kind, Is.EqualTo(RecEventKind.InputSourceWeightSample));
+            Assert.That(sink.AppendedEvents[3].evt.LayerIdIndex, Is.EqualTo(0));
+            Assert.That(sink.AppendedEvents[3].evt.SourceIdIndex, Is.EqualTo(2));
+            Assert.That(sink.AppendedEvents[3].payload, Is.EqualTo(new[] { 0.4f }));
         }
 
         [Test]
