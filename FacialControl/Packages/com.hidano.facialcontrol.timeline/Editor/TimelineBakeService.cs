@@ -14,6 +14,22 @@ using UnityEngine.Timeline;
 
 namespace Hidano.FacialControl.Timeline.Editor
 {
+    /// <summary>
+    /// <see cref="TimelineBakeService.IsStale(TimelineAsset, FacialCharacterProfileSO, FacialTimelineBakeAsset)"/> の結果。
+    /// Profile 内容ハッシュ → Source ハッシュの順に比較し、最初に不一致になった種別を返す（D6）。
+    /// </summary>
+    public enum BakeStaleReason
+    {
+        /// <summary>Bake は最新（Profile 内容ハッシュと Source ハッシュの両方が一致）。</summary>
+        None = 0,
+
+        /// <summary>Profile 内容ハッシュが不一致（空文字・Bake 無しを含む）。</summary>
+        ProfileChanged = 1,
+
+        /// <summary>Profile 内容ハッシュは一致し、Timeline 構造（または sampleRate）による Source ハッシュのみ不一致。</summary>
+        TimelineChanged = 2,
+    }
+
     public static class TimelineBakeService
     {
         public static FacialTimelineBakeAsset Bake(
@@ -28,7 +44,7 @@ namespace Hidano.FacialControl.Timeline.Editor
 
             return Bake(
                 timeline,
-                profileAsset.BuildFallbackProfile(),
+                TimelineProfileSource.Resolve(profileAsset),
                 FacialTimelineHashCalculator.ToGazeChannelArray(profileAsset.GazeChannels),
                 sampleRate,
                 AssetDatabase.AssetPathToGUID(AssetDatabase.GetAssetPath(profileAsset)));
@@ -131,7 +147,7 @@ namespace Hidano.FacialControl.Timeline.Editor
         /// <summary>
         /// Profile SO（Profile + GazeChannels）に対して Bake が古いかを返す。SO から焼いた Bake の鮮度判定に使う。
         /// </summary>
-        public static bool IsStale(
+        public static BakeStaleReason IsStale(
             TimelineAsset timeline,
             FacialCharacterProfileSO profileAsset,
             FacialTimelineBakeAsset bake)
@@ -143,7 +159,7 @@ namespace Hidano.FacialControl.Timeline.Editor
 
             return IsStale(
                 timeline,
-                profileAsset.BuildFallbackProfile(),
+                TimelineProfileSource.Resolve(profileAsset),
                 FacialTimelineHashCalculator.ToGazeChannelArray(profileAsset.GazeChannels),
                 bake);
         }
@@ -151,7 +167,7 @@ namespace Hidano.FacialControl.Timeline.Editor
         /// <summary>
         /// Profile 単体（GazeChannels は空）に対して Bake が古いかを返す。
         /// </summary>
-        public static bool IsStale(
+        public static BakeStaleReason IsStale(
             TimelineAsset timeline,
             FacialProfile profile,
             FacialTimelineBakeAsset bake)
@@ -159,7 +175,7 @@ namespace Hidano.FacialControl.Timeline.Editor
             return IsStale(timeline, profile, Array.Empty<GazeChannel>(), bake);
         }
 
-        private static bool IsStale(
+        private static BakeStaleReason IsStale(
             TimelineAsset timeline,
             FacialProfile profile,
             GazeChannel[] gazeChannels,
@@ -172,7 +188,13 @@ namespace Hidano.FacialControl.Timeline.Editor
 
             if (bake == null)
             {
-                return true;
+                return BakeStaleReason.ProfileChanged;
+            }
+
+            string expectedProfileHash = FacialTimelineHashCalculator.ComputeProfileContentHashHex(profile, gazeChannels);
+            if (!string.Equals(expectedProfileHash, bake.ProfileContentHashHex, StringComparison.Ordinal))
+            {
+                return BakeStaleReason.ProfileChanged;
             }
 
             float sampleRate = bake.SampleRate > 0f
@@ -180,7 +202,9 @@ namespace Hidano.FacialControl.Timeline.Editor
                 : FacialTimelineHashCalculator.DefaultSampleRate;
 
             string expected = FacialTimelineHashCalculator.ComputeHashHex(timeline, profile, gazeChannels, sampleRate);
-            return !string.Equals(expected, bake.SourceHashHex, StringComparison.Ordinal);
+            return string.Equals(expected, bake.SourceHashHex, StringComparison.Ordinal)
+                ? BakeStaleReason.None
+                : BakeStaleReason.TimelineChanged;
         }
 
         private static ValueChannelBake BakeValueTrack(FacialValueTrack track, float sampleRate)

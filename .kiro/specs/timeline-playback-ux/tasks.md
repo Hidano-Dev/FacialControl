@@ -210,7 +210,7 @@
   - 完了条件: Editor 側で Profile を SO から直接構築する経路が本入口に置き換え可能な状態になっている
   - _Requirements: 4.5, 7.5_
 
-- [ ] 7.2 Bake サービスと Validator が統一 Profile 入口を使い、鮮度判定が不一致の種別を返すようにする（timeline Editor）
+- [x] 7.2 Bake サービスと Validator が統一 Profile 入口を使い、鮮度判定が不一致の種別を返すようにする（timeline Editor）
   - Bake サービスの SO overload と鮮度判定を 7.1 経由に変更し、鮮度判定は Profile 内容ハッシュ → Source ハッシュの順に比較して不一致種別（None / ProfileChanged / TimelineChanged）を返す
   - Validator の Profile 解決を 7.1 経由に変更する
   - 既存 `TimelineBakeServiceTests` / `FacialTimelineValidatorTests`（該当する既存 `{Target}Tests`）に Profile のみ変更で ProfileChanged、Timeline のみ変更で TimelineChanged、JSON と SO が食い違う fixture で JSON 側の Profile が使われる、を追記する

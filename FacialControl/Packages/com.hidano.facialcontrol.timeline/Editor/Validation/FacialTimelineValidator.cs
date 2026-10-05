@@ -1,14 +1,10 @@
 using System;
 using System.Collections.Generic;
 using System.Text;
-using Hidano.FacialControl.Adapters.Playable;
 using Hidano.FacialControl.Domain.Models;
-using Hidano.FacialControl.Timeline.Adapters;
 using Hidano.FacialControl.Timeline.Clips;
 using Hidano.FacialControl.Timeline.Tracks;
-using UnityEditor.Timeline;
 using UnityEngine;
-using UnityEngine.Playables;
 using UnityEngine.Timeline;
 
 namespace Hidano.FacialControl.Timeline.Editor.Validation
@@ -365,36 +361,7 @@ namespace Hidano.FacialControl.Timeline.Editor.Validation
 
         private static bool TryResolveProfile(TimelineAsset timeline, out FacialProfile profile)
         {
-            profile = default;
-            if (timeline == null)
-            {
-                return false;
-            }
-
-            PlayableDirector director = TimelineEditor.inspectedDirector;
-            if (director == null || !ReferenceEquals(director.playableAsset, timeline))
-            {
-                return false;
-            }
-
-            foreach (TrackAsset outputTrack in timeline.GetOutputTracks())
-            {
-                if (!(director.GetGenericBinding(outputTrack) is FacialTimelineReceiver receiver))
-                {
-                    continue;
-                }
-
-                FacialController controller = receiver.GetComponent<FacialController>();
-                if (controller == null || controller.CharacterSO == null)
-                {
-                    continue;
-                }
-
-                profile = controller.CharacterSO.BuildFallbackProfile();
-                return true;
-            }
-
-            return false;
+            return TimelineProfileSource.TryResolveForTimeline(timeline, out _, out profile);
         }
     }
 }

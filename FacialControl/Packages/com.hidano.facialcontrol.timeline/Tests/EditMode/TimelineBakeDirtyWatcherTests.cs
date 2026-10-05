@@ -38,7 +38,7 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
 
                 TimelineBakeDirtyWatcher.ProcessTrackedAssetPathsNow(new[] { fixture.TimelinePath });
 
-                Assert.That(TimelineBakeService.IsStale(fixture.Timeline, fixture.Profile, fixture.Bake), Is.False);
+                Assert.That(TimelineBakeService.IsStale(fixture.Timeline, fixture.Profile, fixture.Bake), Is.EqualTo(BakeStaleReason.None));
                 Assert.That(fixture.Bake.SourceHashHex, Is.Not.EqualTo(originalHash));
             }
             finally
@@ -60,7 +60,7 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
 
                 TimelineBakeDirtyWatcher.ProcessTrackedAssetPathsNow(new[] { fixture.ProfilePath });
 
-                Assert.That(TimelineBakeService.IsStale(fixture.Timeline, fixture.Profile, fixture.Bake), Is.False);
+                Assert.That(TimelineBakeService.IsStale(fixture.Timeline, fixture.Profile, fixture.Bake), Is.EqualTo(BakeStaleReason.None));
                 Assert.That(fixture.Bake.SourceHashHex, Is.Not.EqualTo(originalHash));
             }
             finally
@@ -114,7 +114,7 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
 
                 Assert.That(result.Succeeded, Is.EqualTo(1));
                 Assert.That(result.Failed, Is.EqualTo(0));
-                Assert.That(TimelineBakeService.IsStale(fixture.Timeline, fixture.Profile, fixture.Bake), Is.False);
+                Assert.That(TimelineBakeService.IsStale(fixture.Timeline, fixture.Profile, fixture.Bake), Is.EqualTo(BakeStaleReason.None));
                 Assert.That(dialogTitle, Is.EqualTo("Timeline Bake Repair"));
                 StringAssert.Contains("Auto-rebaked 1 timeline bake asset(s)", dialogMessage);
             }

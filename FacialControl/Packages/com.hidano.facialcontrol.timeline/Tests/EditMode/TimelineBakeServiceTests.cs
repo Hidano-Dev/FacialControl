@@ -235,14 +235,14 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
                 };
 
                 bake = Editor.TimelineBakeService.Bake(timeline, profile);
-                Assert.That(Editor.TimelineBakeService.IsStale(timeline, profile, bake), Is.False);
+                Assert.That(Editor.TimelineBakeService.IsStale(timeline, profile, bake), Is.EqualTo(Editor.BakeStaleReason.None));
 
                 ((FacialValueClip)clip.asset).Axes = new[]
                 {
                     AnimationCurve.Linear(0f, 0f, 0.25f, 0.75f),
                 };
 
-                Assert.That(Editor.TimelineBakeService.IsStale(timeline, profile, bake), Is.True);
+                Assert.That(Editor.TimelineBakeService.IsStale(timeline, profile, bake), Is.EqualTo(Editor.BakeStaleReason.TimelineChanged));
             }
             finally
             {
@@ -309,11 +309,11 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
                 Assert.That(
                     bake.SourceHashHex,
                     Is.EqualTo(FacialTimelineHashCalculator.ComputeHashHex(timeline, profile, gazeChannels, bake.SampleRate)));
-                Assert.That(Editor.TimelineBakeService.IsStale(timeline, profileAsset, bake), Is.False);
+                Assert.That(Editor.TimelineBakeService.IsStale(timeline, profileAsset, bake), Is.EqualTo(Editor.BakeStaleReason.None));
 
                 profileAsset.GazeChannels[0].sourceIdLeft = "osc:gaze.changed";
 
-                Assert.That(Editor.TimelineBakeService.IsStale(timeline, profileAsset, bake), Is.True);
+                Assert.That(Editor.TimelineBakeService.IsStale(timeline, profileAsset, bake), Is.EqualTo(Editor.BakeStaleReason.ProfileChanged));
             }
             finally
             {
@@ -351,6 +351,139 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
                 UnityEngine.Object.DestroyImmediate(target);
                 UnityEngine.Object.DestroyImmediate(profileAsset);
                 UnityEngine.Object.DestroyImmediate(timeline);
+            }
+        }
+
+        [Test]
+        public void IsStale_ProfileAssetChangedOnly_ReturnsProfileChanged()
+        {
+            var timeline = ScriptableObject.CreateInstance<TimelineAsset>();
+            FacialCharacterProfileSO profileAsset = CreateProfileAsset();
+            FacialTimelineBakeAsset bake = null;
+
+            try
+            {
+                CreateExpressionTrack(timeline, start: 0.025d, duration: 0.50d);
+                bake = Editor.TimelineBakeService.Bake(timeline, profileAsset);
+
+                profileAsset.Expressions[0].transitionDuration = 0.4f;
+
+                Assert.That(
+                    Editor.TimelineBakeService.IsStale(timeline, profileAsset, bake),
+                    Is.EqualTo(Editor.BakeStaleReason.ProfileChanged));
+            }
+            finally
+            {
+                DestroyAll(bake, profileAsset, timeline);
+            }
+        }
+
+        [Test]
+        public void IsStale_TimelineChangedOnly_ReturnsTimelineChanged()
+        {
+            var timeline = ScriptableObject.CreateInstance<TimelineAsset>();
+            FacialCharacterProfileSO profileAsset = CreateProfileAsset();
+            FacialTimelineBakeAsset bake = null;
+
+            try
+            {
+                FacialExpressionTrack track = CreateExpressionTrack(timeline, start: 0.025d, duration: 0.50d);
+                bake = Editor.TimelineBakeService.Bake(timeline, profileAsset);
+
+                foreach (TimelineClip clip in track.GetClips())
+                {
+                    clip.start = 0.2d;
+                }
+
+                Assert.That(
+                    Editor.TimelineBakeService.IsStale(timeline, profileAsset, bake),
+                    Is.EqualTo(Editor.BakeStaleReason.TimelineChanged));
+            }
+            finally
+            {
+                DestroyAll(bake, profileAsset, timeline);
+            }
+        }
+
+        [Test]
+        public void IsStale_ProfileAndTimelineBothChanged_ReturnsProfileChangedFirst()
+        {
+            var timeline = ScriptableObject.CreateInstance<TimelineAsset>();
+            FacialCharacterProfileSO profileAsset = CreateProfileAsset();
+            FacialTimelineBakeAsset bake = null;
+
+            try
+            {
+                FacialExpressionTrack track = CreateExpressionTrack(timeline, start: 0.025d, duration: 0.50d);
+                bake = Editor.TimelineBakeService.Bake(timeline, profileAsset);
+
+                profileAsset.Expressions[0].transitionDuration = 0.4f;
+                foreach (TimelineClip clip in track.GetClips())
+                {
+                    clip.start = 0.2d;
+                }
+
+                Assert.That(
+                    Editor.TimelineBakeService.IsStale(timeline, profileAsset, bake),
+                    Is.EqualTo(Editor.BakeStaleReason.ProfileChanged));
+            }
+            finally
+            {
+                DestroyAll(bake, profileAsset, timeline);
+            }
+        }
+
+        [Test]
+        public void IsStale_BakeWithoutProfileContentHash_ReturnsProfileChanged()
+        {
+            var timeline = ScriptableObject.CreateInstance<TimelineAsset>();
+            FacialCharacterProfileSO profileAsset = CreateProfileAsset();
+            FacialTimelineBakeAsset bake = null;
+
+            try
+            {
+                CreateExpressionTrack(timeline, start: 0.025d, duration: 0.50d);
+                bake = Editor.TimelineBakeService.Bake(timeline, profileAsset);
+                bake.ProfileContentHashHex = string.Empty;
+
+                Assert.That(
+                    Editor.TimelineBakeService.IsStale(timeline, profileAsset, bake),
+                    Is.EqualTo(Editor.BakeStaleReason.ProfileChanged));
+            }
+            finally
+            {
+                DestroyAll(bake, profileAsset, timeline);
+            }
+        }
+
+        [Test]
+        public void IsStale_NullBake_ReturnsProfileChanged()
+        {
+            var timeline = ScriptableObject.CreateInstance<TimelineAsset>();
+            FacialCharacterProfileSO profileAsset = CreateProfileAsset();
+
+            try
+            {
+                CreateExpressionTrack(timeline, start: 0.025d, duration: 0.50d);
+
+                Assert.That(
+                    Editor.TimelineBakeService.IsStale(timeline, profileAsset, null),
+                    Is.EqualTo(Editor.BakeStaleReason.ProfileChanged));
+            }
+            finally
+            {
+                DestroyAll(null, profileAsset, timeline);
+            }
+        }
+
+        private static void DestroyAll(params UnityEngine.Object[] objects)
+        {
+            for (int i = 0; i < objects.Length; i++)
+            {
+                if (objects[i] != null)
+                {
+                    UnityEngine.Object.DestroyImmediate(objects[i]);
+                }
             }
         }
 
