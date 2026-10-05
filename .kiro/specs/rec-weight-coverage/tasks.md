@@ -118,7 +118,7 @@
   - _Boundary: timeline Editor RecEventSequenceAdapter_
   - _Depends: 3.2_
 
-- [ ] 5.2 rec の PlayMode 受け入れテストを追加する
+- [x] 5.2 rec の PlayMode 受け入れテストを追加する
   - 実 `FacialController` + `RecCharacterBinding` で「レイヤー weight と入力源 weight を変える操作列の記録→停止→読込→再生でブレンド出力がフレーム 0 から一致」「再生中のスクリプト `SetLayerWeight` / `SetInputSourceWeight` / バルクが出力に影響しない」「停止後は停止時点の weight が維持され以後のライブ書込が反映される」「記録開始時に既定値以外の weight がある構成で基準が確立されライブ値を引き継がない」「値提供型の Replace と原本復元の前後でスロット weight が変わらない」「途中再生で畳み込んだ weight が確立される」「本 spec 以前の構造のファイルが読込拒否される」「weight gate 未解決では部分的排他が残らない」を Medium PlayMode テストとして追加する
   - GC ゲートに「全レイヤー・全スロット weight を毎フレーム変化させる記録・再生の定常フレームで確保ゼロ」を追加し、Fake ポートに Null weight ポートを追加する。`RecFileReaderTests` に weight 基準ビット欠落ファイルの拒否を追加する
   - 上記すべてと既存の rec / core PlayMode スイートが緑になる
