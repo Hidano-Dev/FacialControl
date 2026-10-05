@@ -89,7 +89,7 @@ REC は次の 5 系統を、入力源の消費点で記録します。
 
 ## 構成
 
-`Runtime/` に Domain / Application / Adapters、`Editor/` に Inspector、`Tests/` に EditMode / PlayMode テスト、`Documentation~/` に詳細ドキュメントを配置しています。Timeline への書き出しは `com.hidano.facialcontrol.timeline` の **Tools → FacialControl → Timeline → REC Export** を使用します。ただし、現在の timeline REC Export は weight kind 12〜15 に未対応であり、timeline トラック側の合流後に follow-up として対応します。
+`Runtime/` に Domain / Application / Adapters、`Editor/` に Inspector、`Tests/` に EditMode / PlayMode テスト、`Documentation~/` に詳細ドキュメントを配置しています。Timeline への書き出しは `com.hidano.facialcontrol.timeline` の **Tools → FacialControl → Timeline → REC Export** を使用します。REC Export は weight kind 12〜15 を含む `.fcrec` も読み込めますが、weight は Timeline に表現するトラックが無いため Export 対象外として無視します（時刻付き weight イベントがあれば Export 時に 1 回 Warning を出します）。録画中の weight 変化まで再現したい場合は REC の再生を使ってください。
 
 ## ライセンス
 

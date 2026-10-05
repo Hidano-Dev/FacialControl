@@ -264,6 +264,63 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
             }
         }
 
+        [Test]
+        public void TryExportTimelineAsset_RecWithWeightRecords_ExportsConvertibleRecordsAndWarnsOnce()
+        {
+            // rec-weight-coverage Req 7.7: weight の基準エントリ（kind 14 / 15）と時刻付き weight（kind 12 / 13）を含む
+            // 現行形式の .fcrec を、例外なく読んで Export できる。weight は Timeline の表現を持たないため
+            // Export 対象外として読み捨て、その旨を Export 1 回につき 1 回だけ警告する（無言で捨てない）。
+            ExportFixture fixture = ExportFixture.Create(includeWeightRecords: true);
+
+            try
+            {
+                LogAssert.Expect(
+                    LogType.Warning,
+                    new System.Text.RegularExpressions.Regex(@"\[RecToTimelineExporter\].*2 weight record"));
+
+                bool success = RecToTimelineExporter.TryExportTimelineAsset(
+                    fixture.RecordingAbsolutePath,
+                    fixture.Profile,
+                    fixture.TimelinePath,
+                    out RecToTimelineExporter.ExportResult result);
+
+                Assert.That(success, Is.True);
+                Assert.That(result.Success, Is.True);
+                Assert.That(result.Timeline, Is.Not.Null);
+
+                var expressionTracks = new List<FacialExpressionTrack>();
+                var valueTracks = new List<FacialValueTrack>();
+                foreach (TrackAsset track in result.Timeline.GetRootTracks())
+                {
+                    if (track is FacialExpressionTrack expressionTrack)
+                    {
+                        expressionTracks.Add(expressionTrack);
+                    }
+                    else if (track is FacialValueTrack valueTrack)
+                    {
+                        valueTracks.Add(valueTrack);
+                    }
+                }
+
+                Assert.That(expressionTracks, Has.Count.EqualTo(1));
+                TimelineClip[] clips = ToArray(expressionTracks[0].GetClips());
+                Assert.That(clips, Has.Length.EqualTo(1));
+                Assert.That(((FacialExpressionClip)clips[0].asset).ExpressionId, Is.EqualTo("smile"));
+                Assert.That(clips[0].start, Is.EqualTo(0.10d).Within(1e-6));
+                Assert.That(clips[0].end, Is.EqualTo(0.60d).Within(1e-6));
+
+                Assert.That(valueTracks, Has.Count.EqualTo(1), "weight は値トラックにならない");
+                Assert.That(valueTracks[0].ChannelSubId, Is.EqualTo("live:gaze"));
+
+                // 警告は 1 回だけ（LogAssert.Expect で 1 件消費済み。2 件目があれば未期待ログとして失敗する）。
+                LogAssert.NoUnexpectedReceived();
+            }
+            finally
+            {
+                fixture.Dispose();
+            }
+        }
+
         private static RecTimeline CreateSingleTriggerRecording(string expressionId)
         {
             return new RecTimeline(
@@ -353,7 +410,7 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
 
             public string RecordingAbsolutePath { get; }
 
-            public static ExportFixture Create(bool overlappingTriggers = false)
+            public static ExportFixture Create(bool overlappingTriggers = false, bool includeWeightRecords = false)
             {
                 string folderName = "RecToTimelineExportWorkflowTests_" + Guid.NewGuid().ToString("N");
                 string folderPath = "Assets/" + folderName;
@@ -403,9 +460,11 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
                 });
                 AssetDatabase.CreateAsset(profile, profilePath);
 
-                RecTimeline timeline = overlappingTriggers
-                    ? CreateOverlappingRecordingTimeline()
-                    : CreateRecordingTimeline();
+                RecTimeline timeline = includeWeightRecords
+                    ? CreateRecordingTimelineWithWeights()
+                    : overlappingTriggers
+                        ? CreateOverlappingRecordingTimeline()
+                        : CreateRecordingTimeline();
                 File.WriteAllBytes(recordingPath, RecBinaryFormat.Serialize(timeline, 123L));
                 AssetDatabase.Refresh();
 
@@ -454,6 +513,52 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
                         Array.Empty<float>(),
                         new[] { 0.25f, -0.25f },
                         Array.Empty<float>(),
+                        Array.Empty<float>(),
+                    });
+            }
+
+            /// <summary>
+            /// weight の基準エントリ（レイヤー / 入力源）と時刻付き weight を含む、rec-weight-coverage 以降の形式の記録。
+            /// </summary>
+            private static RecTimeline CreateRecordingTimelineWithWeights()
+            {
+                var baseline = new RecBaselineState(
+                    null,
+                    null,
+                    null,
+                    null,
+                    new[] { new LayerWeightEntry("emotion", 1f) },
+                    new[] { new InputSourceWeightEntry("emotion", "input:trigger", 1f) });
+                return new RecTimeline(
+                    baseline,
+                    new[]
+                    {
+                        RecEvent.CreateTriggerOn(0.10d, 0, 0),
+                        RecEvent.CreateLayerWeightSample(0.15d, 0),
+                        RecEvent.CreateAnalogSample(0.20d, 1, 2),
+                        RecEvent.CreateInputSourceWeightSample(0.30d, 0, 0),
+                        RecEvent.CreateTriggerOff(0.60d, 0, 0),
+                    },
+                    new[]
+                    {
+                        "input:trigger",
+                        "live:gaze",
+                    },
+                    new[]
+                    {
+                        "smile",
+                    },
+                    new[]
+                    {
+                        "emotion",
+                    },
+                    1.0d,
+                    new IReadOnlyList<float>[]
+                    {
+                        Array.Empty<float>(),
+                        new[] { 0.5f },
+                        new[] { 0.25f, -0.25f },
+                        new[] { 0.75f },
                         Array.Empty<float>(),
                     });
             }

@@ -58,6 +58,67 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
         }
 
         [Test]
+        public void RecEventSequenceAdapter_WeightKinds_AreSkippedAndCountedWithoutThrowing()
+        {
+            // rec-weight-coverage Req 7.7: weight の時刻付き kind（12 / 13）を含む REC でも例外にせず、
+            // Export 対象のレコードだけを残す。読み捨てた件数は Export 時の警告用に保持する。
+            var baseline = new RecBaselineState(
+                null, null, null, null,
+                new[] { new LayerWeightEntry("emotion", 1f) },
+                new[] { new InputSourceWeightEntry("emotion", "input:trigger", 1f) });
+            var timeline = new RecTimeline(
+                baseline,
+                new[]
+                {
+                    RecEvent.CreateTriggerOn(0.10d, 0, 0),
+                    RecEvent.CreateLayerWeightSample(0.20d, 0),
+                    RecEvent.CreateAnalogSample(0.30d, 1, 2),
+                    RecEvent.CreateInputSourceWeightSample(0.40d, 0, 0),
+                    RecEvent.CreateTriggerOff(0.60d, 0, 0),
+                },
+                new[] { "input:trigger", "analog:mouth" },
+                new[] { "smile" },
+                new[] { "emotion" },
+                1.0d,
+                new IReadOnlyList<float>[]
+                {
+                    Array.Empty<float>(),
+                    new[] { 0.5f },
+                    new[] { 0.25f, -0.25f },
+                    new[] { 0.75f },
+                    Array.Empty<float>(),
+                });
+
+            var sequence = new RecEventSequenceAdapter(timeline);
+
+            Assert.That(sequence.Count, Is.EqualTo(3));
+            Assert.That(sequence[0].Kind, Is.EqualTo(RecordedEventKind.TriggerOn));
+            Assert.That(sequence[1].Kind, Is.EqualTo(RecordedEventKind.AnalogValue));
+            Assert.That(sequence[1].SourceId, Is.EqualTo("analog:mouth"));
+            Assert.That(sequence[2].Kind, Is.EqualTo(RecordedEventKind.TriggerOff));
+            Assert.That(sequence.SkippedWeightEventCount, Is.EqualTo(2));
+        }
+
+        [Test]
+        public void RecEventSequenceAdapter_NoWeightKinds_ReportsZeroSkippedWeightEvents()
+        {
+            var timeline = new RecTimeline(
+                RecBaselineState.Empty,
+                new[]
+                {
+                    RecEvent.CreateTriggerOn(0.10d, 0, 0),
+                    RecEvent.CreateTriggerOff(0.60d, 0, 0),
+                },
+                new[] { "input:trigger" },
+                new[] { "smile" },
+                1.0d);
+
+            var sequence = new RecEventSequenceAdapter(timeline);
+
+            Assert.That(sequence.SkippedWeightEventCount, Is.EqualTo(0));
+        }
+
+        [Test]
         public void CreateTimelineAsset_BuildsExpressionLanes_ClosesDanglingOnAtDuration_AndWarnsForMissingExpressions()
         {
             var sequence = new FakeRecordedEventSequence(

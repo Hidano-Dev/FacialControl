@@ -42,6 +42,7 @@ Timeline 再生の手順を「REC → Export → Director にセット → Recei
 ### Fixed
 
 - State sink の ContributeMask 長が 0 で、レイヤー入力源に接続すると Aggregator が `ArgumentException` を投げていた
+- weight のレコード kind（12〜15。`com.hidano.facialcontrol.rec` の HID-80 で追加）を含む `.fcrec` を REC Export に通すと `InvalidOperationException`（Unsupported REC event kind）で失敗していた。weight は Export 対象外として読み捨て、時刻付き weight イベントがあれば Export 1 回につき 1 回だけ件数付きの Warning を出す（HID-80）
 
 - 目ボーン path が空の Gaze チャネルで、Timeline のスクラブプレビュー中に目が動かなかった。path が空の側は Humanoid Avatar の `LeftEye` / `RightEye` を使い、rest 回転と yaw / pitch 軸はプレビュー開始時の姿勢から導出する。fallback を使うのは目ごとに先頭の（ベイク値のある）channel だけで、path 指定の channel が同じボーンを指せば path 側を優先する（HID-41 のランタイム fallback と同じ規則）
 - スクラブプレビューの目ボーン path の解決をランタイムと同じ `BoneTransformResolver` にした（ボーン名だけの指定・末尾一致も解決する。従来は root からの相対 path のみ）

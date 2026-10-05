@@ -100,8 +100,9 @@ Edit モードのスクラブは Play と同じレイヤー合成規則（オフ
 - Gaze かどうかは自動で判定し、ウィンドウに入力源 id ごとの判定結果と理由を読み取り専用で表示する（判定順: GazeChannel の明示 source id と一致 → 規約 id が GazeChannels にある → binding の gaze 宣言 → 2 軸でなければ Analog → 既定 Analog）。トリガー専用の入力源は表示しない
 - Export 完了後、ウィンドウに残りの手順（Director へのセット、Receiver の追加）を表示する
 - 値提供型・系1 のレコード kind（7 / 9 / 10）は Export 対象外として無視される。これらの kind が含まれていても読み込みは失敗せず、変換可能なレコードの Export を継続する
+- weight のレコード kind（レイヤー weight / 入力源 weight の時刻付きイベント 12 / 13、基準エントリ 14 / 15）も Export 対象外として無視される。weight を含む `.fcrec` も読み込みは失敗せず、トリガーとアナログ / Gaze だけが Export される。Timeline には weight を表すトラックが無いため、書き出した Timeline の再生では録画中の weight 変化は再現されない（再生中の weight はプロファイルの宣言値とライブの書込に従う）。時刻付き weight イベントを読み捨てたときは、Export 1 回につき 1 回だけ件数付きの Warning（`[RecToTimelineExporter] ... weight record(s) ...`）を出す。weight 変化まで含めて再現したい場合は REC の再生を使う
 - 出力先は `Assets/` または `Packages/` 配下。既存アセットの上書きは確認ダイアログを出す
-- REC の baseline とトリガーの入力源 id は Timeline には変換されない
+- REC の baseline（weight の基準エントリを含む）とトリガーの入力源 id は Timeline には変換されない
 
 ## 検証
 
