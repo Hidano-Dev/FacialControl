@@ -102,3 +102,6 @@
 
 ### Task 5.1〜5.4 — OK
 - Commits: e5a7723e / 937ed39f / 6171661f / b1ca8b28 / Review: APPROVED（minor: `EnsureBindings` は Unity の == により破棄済み・Missing の binding も未設定扱いで上書きする点を XML doc に明記推奨。逸脱（Scanner の namespace `Adapters.Scanning`、孫トラックの ParentIndex は直接の親、`ResolveDirector` は上書き Director を引数で受ける）は妥当）/ Verify: EditMode 全件 2443/0、timeline PlayMode 10/10
+
+### Task 5.5〜5.7 — OK
+- Commits: abee4e83 / b1e0cf37 / 9292fdb2 / Review: APPROVED（Suggestion: Disconnect の「他入力源の slot 順・weight 復元」を既存入力源ありの構成で検証していない / Takeover で同一呼び出し内の ChannelSubId 重複が NotFound として記録される。FYI: ControllerMissing（Error）/ ControllerNotInitialized（Info）/ LayerConnectionFailed（Warning）は design の重大度表に未記載、Release の占有 Warning はゲート非経由）/ 逸脱: Connector テストは PlayMode Medium（app LifetimeScope が PlayMode でのみ生成されるため）/ Verify: 実装者報告 EditMode 全件 2477/0、timeline PlayMode 22/22（オーケストレータの全件確認は 6.1 完了後にまとめて実施）
