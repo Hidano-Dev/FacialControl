@@ -12,6 +12,8 @@ namespace Hidano.FacialControl.Timeline.Domain.Services
     /// 名前優先・index フォールバック（design.md D1）: レイヤー名が <c>[a-zA-Z0-9_.-]</c> のみで構成され、
     /// <c>{slug}:{name}:state</c> が 64 文字以内なら <c>{slug}:{name}</c>、それ以外は
     /// <c>{slug}:layer{index}</c>（index は Profile のレイヤー index）を合成する。
+    /// フォールバック形と同じ見た目の名前（<c>layer</c> + 数字のみ）も、他レイヤーの id と衝突しないよう
+    /// 名前形には使わず自分の index 形へ回す。
     /// state sink の id は値 sink の id に <see cref="StateSuffix"/> を付けたもの。
     /// </para>
     /// <para>
@@ -141,6 +143,13 @@ namespace Hidano.FacialControl.Timeline.Domain.Services
                 return false;
             }
 
+            // index フォールバック形（layer{数字}）と同じ見た目の名前は名前形に使わない。
+            // 使うと別レイヤーのフォールバック id と衝突するため、この形の名前も自分の index 形へ回す。
+            if (IsIndexFallbackShape(layerName))
+            {
+                return false;
+            }
+
             int stateFormLength = slugValue.Length + 1 + layerName.Length + StateSuffix.Length;
             if (stateFormLength > MaxIdLength)
             {
@@ -150,6 +159,27 @@ namespace Hidano.FacialControl.Timeline.Domain.Services
             for (int i = 0; i < layerName.Length; i++)
             {
                 if (!IsAllowedNameChar(layerName[i]))
+                {
+                    return false;
+                }
+            }
+
+            return true;
+        }
+
+        private static bool IsIndexFallbackShape(string layerName)
+        {
+            int prefixLength = IndexFallbackPrefix.Length;
+            if (layerName.Length <= prefixLength
+                || !layerName.StartsWith(IndexFallbackPrefix, StringComparison.Ordinal))
+            {
+                return false;
+            }
+
+            for (int i = prefixLength; i < layerName.Length; i++)
+            {
+                char c = layerName[i];
+                if (c < '0' || c > '9')
                 {
                     return false;
                 }

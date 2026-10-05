@@ -39,6 +39,36 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
         }
 
         [Test]
+        public void ComposeValueId_LayerNameShapedLikeIndexFallback_FallsBackToOwnIndex()
+        {
+            InputSourceId id = TimelineSinkIdConvention.ComposeValueId(TimelineSlug, "layer0", 3, out bool usedIndexFallback);
+
+            Assert.That(id.Value, Is.EqualTo("timeline:layer3"));
+            Assert.That(usedIndexFallback, Is.True);
+        }
+
+        [Test]
+        public void ComposeValueId_NonAsciiAtIndex0AndLayerNamedLayer0_DoNotCollide()
+        {
+            InputSourceId nonAscii = TimelineSinkIdConvention.ComposeValueId(TimelineSlug, "感情", 0, out _);
+            InputSourceId named = TimelineSinkIdConvention.ComposeValueId(TimelineSlug, "layer0", 1, out _);
+            InputSourceId nonAsciiState = TimelineSinkIdConvention.ComposeStateId(TimelineSlug, "感情", 0, out _);
+            InputSourceId namedState = TimelineSinkIdConvention.ComposeStateId(TimelineSlug, "layer0", 1, out _);
+
+            Assert.That(nonAscii, Is.Not.EqualTo(named));
+            Assert.That(nonAsciiState, Is.Not.EqualTo(namedState));
+        }
+
+        [TestCase("layers")]
+        [TestCase("layer")]
+        [TestCase("layer1a")]
+        [TestCase("Layer0")]
+        public void IsNameAddressable_NamesNotShapedLikeIndexFallback_AreAddressable(string layerName)
+        {
+            Assert.That(TimelineSinkIdConvention.IsNameAddressable(layerName), Is.True);
+        }
+
+        [Test]
         public void ComposeValueId_DistinctNonAsciiLayerNames_DoNotCollide()
         {
             InputSourceId first = TimelineSinkIdConvention.ComposeValueId(TimelineSlug, "感情", 0, out _);
