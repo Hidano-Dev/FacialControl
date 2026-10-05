@@ -120,3 +120,8 @@
 
 ### Task 9.1 / 9.2 / 9.3 — OK
 - Commits: d723d884 / 99fe24f3（8.x レビューの必須対応込み: Play 中の保存フックは記録のみで Edit 復帰時に無言修復、Receiver.BakeAsset はユーザーが明示設定した場合のみ追従。e2e fixture の「保存しない」回避策は通常保存へ戻した）/ bf8a12c0 / Review: APPROVED（Suggestion: 同一 Timeline への MarkDirty 重複で PendingEntry.Reason が最後の理由で上書きされ Info が欠けることがある / 再ベイク後の SetDirty が ObjectChange 経由で NoChange の空振り照合を 1 回起こす（停止は確認済み、回帰テストなし）。FYI: TrackProfile の登録は Watcher 経由の再ベイク時のみ）/ Verify: EditMode 全件 2578/0、timeline PlayMode 33/33、check-test-sizes 差分 0
+
+### Task 9.4 / 9.5 / 9.6 / 9.7 — 実装完了、レビュー REJECTED → 是正予定
+- Commits: 1ecbde41 / 86d99ebe / 2f45be29 / dfbd7e09 / Verify: EditMode 全件 2635/0、timeline PlayMode 33/33、check-test-sizes 差分 0
+- Review: REJECTED。[Important] Req 1.6 の Edit 節と D7「Inspector 評価時に Undo 付きで EnsureBindings」を、実装は「Edit では自動設定せずボタンを有効化」に差し替えた / [Important] Edit で未設定トラックがあっても診断行が出ず直し方が表示されない（Req 5.2 / HID-144）/ [Suggestion] Inspector root の再 attach で購読が戻らない / [Suggestion] Drawer の消去ボタンと Req 2.4「読み取り専用で残す」の表現の整合
+- オーケストレータ判断: 仕様（Req 1.6 / D7）の方が HID-144 の確定方針「Receiver を追加するだけ」に合うため仕様は改訂せず、実装を仕様へ寄せる是正を行う。ただし「見るだけで dirty」を最小化するため、未設定の Facial トラックがあるときだけ Undo 付きで設定し（既に設定済みなら何も書かない）、TrackBindingAutoAssigned / 未設定件数を TrackBinding 領域に表示する。Inspector の AttachToPanelEvent 再購読も同時に入れる。Drawer の消去ボタンは「ユーザー操作による明示消去」として design に一文追記
