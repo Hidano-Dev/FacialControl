@@ -17,6 +17,7 @@ namespace Hidano.FacialControl.Rec.Application.UseCases
         private readonly IExpressionInjectionPort _expressionPort;
         private readonly IAnalogInjectionPort _analogPort;
         private readonly IValueProviderInjectionPort _valueProviderPort;
+        private readonly IWeightInjectionPort _weightPort;
         private readonly RecPlaybackScheduler _scheduler = new RecPlaybackScheduler();
 
         private RecLoadResult _loadResult;
@@ -33,11 +34,26 @@ namespace Hidano.FacialControl.Rec.Application.UseCases
             _expressionPort = expressionPort ?? throw new ArgumentNullException(nameof(expressionPort));
             _analogPort = analogPort ?? throw new ArgumentNullException(nameof(analogPort));
             _valueProviderPort = valueProviderPort ?? throw new ArgumentNullException(nameof(valueProviderPort));
+            _weightPort = NullWeightInjectionPort.Instance;
             State = RecPlaybackState.Idle;
         }
 
-        // Kept for source compatibility with the pre-four-port API. The production
-        // binding uses the four-port constructor below.
+        /// <summary>Five-port playback constructor; weight is established first and released last.</summary>
+        public PlaybackUseCase(
+            IWeightInjectionPort weightPort,
+            ITriggerInjectionPort triggerPort,
+            IExpressionInjectionPort expressionPort,
+            IAnalogInjectionPort analogPort,
+            IValueProviderInjectionPort valueProviderPort)
+            : this(triggerPort, expressionPort, analogPort, valueProviderPort)
+        {
+            _weightPort = weightPort ?? throw new ArgumentNullException(nameof(weightPort));
+        }
+
+        /// <summary>
+        /// Compatibility constructor that does not perform weight blocking or injection;
+        /// it delegates to a null weight port. Production playback uses the five-port constructor.
+        /// </summary>
         public PlaybackUseCase(ITriggerInjectionPort triggerPort, IAnalogInjectionPort analogPort)
             : this(triggerPort, NullExpressionInjectionPort.Instance, analogPort, NullValueProviderInjectionPort.Instance)
         {
@@ -111,8 +127,8 @@ namespace Hidano.FacialControl.Rec.Application.UseCases
             // 系1の畳み込みには Load で受け取った profile のレイヤー排他規則を使う（profile 無しだと最後の 1 件しか残らない）。
             RecBaselineState baseline = CreateFilteredBaseline(RecTimelineSeek.BuildBaselineAt(timeline, startOffsetSeconds, _profile));
 
-            IInjectionPort[] ports = { _triggerPort, _expressionPort, _analogPort, _valueProviderPort };
-            string[] portNames = { "trigger", "expression", "analog", "valueProvider" };
+            IInjectionPort[] ports = { _weightPort, _triggerPort, _expressionPort, _analogPort, _valueProviderPort };
+            string[] portNames = { "weight", "trigger", "expression", "analog", "valueProvider" };
             var failures = new List<string>(4);
             for (int i = 0; i < ports.Length; i++)
             {
@@ -134,6 +150,7 @@ namespace Hidano.FacialControl.Rec.Application.UseCases
                 _expressionPort.EndInjection();
                 _analogPort.EndInjection();
                 _valueProviderPort.EndInjection();
+                _weightPort.EndInjection();
                 _scheduler.Reset();
                 State = RecPlaybackState.Idle;
             }
@@ -199,6 +216,7 @@ namespace Hidano.FacialControl.Rec.Application.UseCases
             _expressionPort.EndInjection();
             _analogPort.EndInjection();
             _valueProviderPort.EndInjection();
+            _weightPort.EndInjection();
             _scheduler.Reset();
             State = RecPlaybackState.Idle;
         }
@@ -255,10 +273,12 @@ namespace Hidano.FacialControl.Rec.Application.UseCases
 
         public void VisitLayerWeightSample(string layerName, float weight)
         {
+            _weightPort.InjectLayerWeight(layerName, weight);
         }
 
         public void VisitInputSourceWeightSample(string layerName, string slotId, float weight)
         {
+            _weightPort.InjectInputSourceWeight(layerName, slotId, weight);
         }
 
         private void LogMissingExpressionIdsOnce()
@@ -326,7 +346,8 @@ namespace Hidano.FacialControl.Rec.Application.UseCases
                 }
             }
 
-            return new RecBaselineState(filteredTriggers, copiedAnalogs, baseline.ValueProviderEntries, filteredExpressions);
+            return new RecBaselineState(filteredTriggers, copiedAnalogs, baseline.ValueProviderEntries, filteredExpressions,
+                baseline.LayerWeightEntries, baseline.InputSourceWeightEntries);
         }
 
         private static string[] CopyMissingExpressionIds(IReadOnlyList<string> missingExpressionIds)
@@ -361,6 +382,16 @@ namespace Hidano.FacialControl.Rec.Application.UseCases
             public bool CanBeginInjection(out string reason) { reason = string.Empty; return true; }
             public bool TryBeginInjection(RecBaselineState baseline) { return true; }
             public void InjectValueProviderState(string sourceId, bool isValid, ReadOnlySpan<byte> maskBytes, ReadOnlySpan<float> values) { }
+            public void EndInjection() { }
+        }
+
+        private sealed class NullWeightInjectionPort : IWeightInjectionPort
+        {
+            public static readonly NullWeightInjectionPort Instance = new NullWeightInjectionPort();
+            public bool CanBeginInjection(out string reason) { reason = string.Empty; return true; }
+            public bool TryBeginInjection(RecBaselineState baseline) { return true; }
+            public void InjectLayerWeight(string layerName, float weight) { }
+            public void InjectInputSourceWeight(string layerName, string slotId, float weight) { }
             public void EndInjection() { }
         }
     }
