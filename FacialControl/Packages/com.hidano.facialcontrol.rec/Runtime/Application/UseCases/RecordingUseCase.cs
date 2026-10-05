@@ -27,6 +27,8 @@ namespace Hidano.FacialControl.Rec.Application.UseCases
         private bool _disposed;
         private byte[] _maskScratch = Array.Empty<byte>();
         private float[] _valueScratch = Array.Empty<float>();
+        // weight サンプル（1 float）の事前確保スクラッチ。毎フレームの確保をしない（design: RecordingUseCase 節）
+        private readonly float[] _weightScratch = new float[1];
 
         /// <param name="startOffsetSeconds">
         /// 記録タイムスタンプと録画長に加算する開始オフセット（秒、有限かつ 0 以上）。
@@ -277,9 +279,8 @@ namespace Hidano.FacialControl.Rec.Application.UseCases
             }
 
             ushort layerIndex = EnsureLayerIdDefined(layerName);
-            Span<float> payload = stackalloc float[1];
-            payload[0] = weight;
-            AppendEvent(RecEvent.CreateLayerWeightSample(SampleClock(), layerIndex), payload, ReadOnlySpan<byte>.Empty);
+            _weightScratch[0] = weight;
+            AppendEvent(RecEvent.CreateLayerWeightSample(SampleClock(), layerIndex), _weightScratch, ReadOnlySpan<byte>.Empty);
         }
 
         public void OnInputSourceWeightSample(string layerName, string slotId, float weight)
@@ -291,9 +292,8 @@ namespace Hidano.FacialControl.Rec.Application.UseCases
 
             ushort layerIndex = EnsureLayerIdDefined(layerName);
             ushort sourceIndex = EnsureSourceIdDefined(slotId);
-            Span<float> payload = stackalloc float[1];
-            payload[0] = weight;
-            AppendEvent(RecEvent.CreateInputSourceWeightSample(SampleClock(), layerIndex, sourceIndex), payload,
+            _weightScratch[0] = weight;
+            AppendEvent(RecEvent.CreateInputSourceWeightSample(SampleClock(), layerIndex, sourceIndex), _weightScratch,
                 ReadOnlySpan<byte>.Empty);
         }
 

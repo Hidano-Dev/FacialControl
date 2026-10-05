@@ -107,6 +107,44 @@ namespace Hidano.FacialControl.Rec.Tests.PlayMode
         }
 
         [Test]
+        public void RecordingUseCase_WeightSteadyState_AfterWarmup_AllocatesZeroGC()
+        {
+            var observationBus = new FacialInputObservationBus();
+            var clock = new ManualRecClock();
+            var sink = new NullRecEventSink();
+            using var useCase = new RecordingUseCase(observationBus, clock, sink);
+
+            // 全レイヤー weight と全スロット weight を毎フレーム変化させる（Req 9.5）。
+            // 基準に無いレイヤー / スロットは最初の 1 フレームで IdDefine が追記され、以後は定常状態になる。
+            string[] layers = { "emotion", "lipsync", "eyes" };
+            string[] slots = { "@expression", "input:osc", "input:gamepad" };
+            RecBaselineState baseline = new RecBaselineState(
+                null, null, null, null,
+                new[] { new Hidano.FacialControl.Domain.Models.LayerWeightEntry(layers[0], 1f) },
+                new[] { new Hidano.FacialControl.Domain.Models.InputSourceWeightEntry(layers[0], slots[0], 1f) });
+
+            useCase.StartRecording(baseline);
+
+            for (int i = 0; i < WarmupFrames; i++)
+            {
+                PublishWeightFrame(useCase, clock, layers, slots, i);
+            }
+
+            ForceFullCollection();
+            using var recorder = StartGcRecorder();
+
+            for (int i = 0; i < MeasurementFrames; i++)
+            {
+                PublishWeightFrame(useCase, clock, layers, slots, WarmupFrames + i);
+            }
+
+            Assert.That(recorder.LastValue, Is.EqualTo(0L),
+                "RecordingUseCase weight steady-state hot path must not allocate GC.");
+
+            useCase.StopRecording();
+        }
+
+        [Test]
         public void PlaybackUseCase_SteadyState_AfterWarmup_AllocatesZeroGC()
         {
             var triggerPort = new NullTriggerInjectionPort();
@@ -201,6 +239,25 @@ namespace Hidano.FacialControl.Rec.Tests.PlayMode
             useCase.OnTriggerOn("input:trigger", "smile");
             useCase.OnTriggerOff("input:trigger", "smile");
             useCase.OnAnalogSample("input:gaze", axes);
+        }
+
+        private static void PublishWeightFrame(
+            RecordingUseCase useCase,
+            ManualRecClock clock,
+            string[] layers,
+            string[] slots,
+            int frameIndex)
+        {
+            clock.SetElapsedSeconds(frameIndex * DeltaTime);
+            float weight = (frameIndex % 100) / 100f;
+            for (int l = 0; l < layers.Length; l++)
+            {
+                useCase.OnLayerWeightSample(layers[l], weight);
+                for (int s = 0; s < slots.Length; s++)
+                {
+                    useCase.OnInputSourceWeightSample(layers[l], slots[s], 1f - weight);
+                }
+            }
         }
 
         private static void PublishLargeValueProviderFrame(
