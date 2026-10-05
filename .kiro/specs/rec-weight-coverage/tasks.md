@@ -130,13 +130,13 @@
   - テストが緑になり、既存の `InputSystemAdapterBindingIntegrationTests` が緑のまま（inputsystem Runtime は無改修のまま overlay 駆動が遮断される）
   - _Requirements: 10.2, 5.4, 9.4_
 
-- [ ] 5.4 既存 spec 文書と rec / timeline ドキュメントの整合を更新する
+- [x] 5.4 既存 spec 文書と rec / timeline ドキュメントの整合を更新する
   - rec-full-input-coverage の design（Non-Goals / Out of Boundary / 直参照経路 / 分類表の前提文と #4・#17 / 既知制限 1）と requirements（Out of scope / Req 1.3 / Req 10.7）、rec-recording-playback の design（overlay weight 未到達の 2 箇所）に、本 spec で上書きされた旨の注記を付ける（削除せず注記）
   - rec の README / Documentation~ から HID-80 の既知制限を削除し、記録内容の表に weight 系統、kind 表に 12〜15、ヘッダ flags bit1、再生中の遮断節に weight（遮断 → 宣言値リセット → 基準 → 注入、停止時は値維持）、既知制限に「再生開始後の新規スロットは遮断対象外」「レイヤー名はプロファイル内で一意が前提」を追加する。CHANGELOG に変更を記載する
   - 文書に「weight はライブのまま残る」旨の記述が残っていないことを grep で確認できる
   - _Requirements: 11.1, 11.2, 11.3, 11.4, 11.5, 11.6_
 
-- [ ] 5.5 全体回帰を実行して weight 経路の 5 点成立を確認する
+- [x] 5.5 全体回帰を実行して weight 経路の 5 点成立を確認する
   - `pwsh ./scripts/check-test-sizes.ps1`、EditMode 全件、PlayMode 全件を batchmode で実行し、結果 XML で failed = 0 を確認する（既存の GC ゲート・rec 系 3 spec の受け入れテスト・inputsystem 統合テストを含む）
   - 設計書の分類表の Gated 経路すべてについて、記録・基準・遮断・注入・ラウンドトリップを固定するテストが存在することを一覧で確認する
   - _Requirements: 1.4, 10.10, 9.6_
