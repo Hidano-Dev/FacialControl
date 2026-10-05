@@ -1,9 +1,12 @@
 using System;
 using System.Collections.Generic;
 using Hidano.FacialControl.Adapters.Bone;
+using Hidano.FacialControl.Adapters.InputSources;
 using Hidano.FacialControl.Adapters.Playable;
 using Hidano.FacialControl.Adapters.ScriptableObject.Serializable;
 using Hidano.FacialControl.Application.UseCases;
+using Hidano.FacialControl.Domain.Adapters;
+using Hidano.FacialControl.Domain.Interfaces;
 using Hidano.FacialControl.Domain.Models;
 using Hidano.FacialControl.Timeline.Adapters.Assets;
 using Hidano.FacialControl.Timeline.Adapters.InputSources;
@@ -30,12 +33,18 @@ namespace Hidano.FacialControl.Timeline.Editor
     /// レイヤー包含の規則は <see cref="LayerUseCase"/> をそのまま使い、Editor 側で合成規則を再実装しない（Req 7.6）。</para>
     /// <para>Bake は <see cref="FacialTimelineBakeLocator"/> で解決し、Found / OverrideUsed のときだけ描画する（<see cref="CanRender"/>）。
     /// Profile 内容ハッシュの照合結果（<see cref="ProfileCheck"/>）は描画可否に使わず、stale 表示と再ベイク予約の契機にする。</para>
-    /// <para>Analog チャネル → Analog 消費者（InputSystem の analog expression 等）の経路は再現しない（Timeline 以外の
-    /// live 入力が無い条件で Play と一致する）。Editor 専用・メインスレッド専用。</para>
+    /// <para>Analog チャネルは、Profile の AdapterBinding のうち <see cref="IAnalogExpressionBindingDeclaration"/> を実装するものから
+    /// Play と同じ <see cref="AnalogExpressionInputSource"/> をオフラインに組み（OnStart は呼ばない）、レイヤー宣言
+    /// （<c>{slug}:analog-expression</c>）どおりの weight で接続する。消費者が読む <c>{slug}:{SourceId}</c> は、Play の乗っ取りと
+    /// 同じ id の Analog Value トラックの値で駆動する（Req 7.1）。Timeline 以外の live 入力が無い条件で Play と一致する。
+    /// Editor 専用・メインスレッド専用。</para>
     /// </remarks>
     internal sealed class TimelinePreviewCompositor : IDisposable
     {
         private static readonly AdapterSlug PreviewSlug = AdapterSlug.Parse(TimelineSinkIdConvention.DefaultSlug);
+
+        // 対応する Analog トラックが無い source の代役（値を書かないので常に無効 = live 入力なし）。
+        private static readonly InputSourceId IdleAnalogSourceId = InputSourceId.Parse("timeline-preview-idle");
 
         private readonly FacialController _controller;
         private readonly FacialCharacterProfileSO _profileAsset;
@@ -54,6 +63,7 @@ namespace Hidano.FacialControl.Timeline.Editor
         private SkinnedMeshRendererBlendShapeWriter _writer;
         private LayerPlayback[] _layers = Array.Empty<LayerPlayback>();
         private GazeTrackPlayback[] _gazeTracks = Array.Empty<GazeTrackPlayback>();
+        private AnalogTrackPlayback[] _analogTracks = Array.Empty<AnalogTrackPlayback>();
 
         // _gazeTracks と同じ並びの駆動用 source id（値の無いトラックは null にして一致させない）。
         private string[] _gazeSourceIds = Array.Empty<string>();
@@ -185,6 +195,11 @@ namespace Hidano.FacialControl.Timeline.Editor
                 layer.Reconstructor.JumpTo(timeSeconds, layer.StateSink);
             }
 
+            for (int i = 0; i < _analogTracks.Length; i++)
+            {
+                _analogTracks[i].Evaluate(timeSeconds);
+            }
+
             _layerUseCase.UpdateWeights(0f);
             _writer?.Write(_layerUseCase.BlendedOutputSpan);
         }
@@ -236,6 +251,7 @@ namespace Hidano.FacialControl.Timeline.Editor
             _writer = null;
             _expressionUseCase = null;
             _layers = Array.Empty<LayerPlayback>();
+            _analogTracks = Array.Empty<AnalogTrackPlayback>();
         }
 
         private void BuildPipeline()
@@ -244,10 +260,16 @@ namespace Hidano.FacialControl.Timeline.Editor
             string[] blendShapeNames = FacialController.CollectBlendShapeNames(renderers);
 
             _expressionUseCase = new ExpressionUseCase(_profile);
-            _layerUseCase = new LayerUseCase(_profile, _expressionUseCase, blendShapeNames);
+            TimelineScanResult scan = TimelineAssetScanner.Scan(_timeline);
+            TimelineDerivation derivation = TimelineChannelDeriver.Derive(scan.Tracks, _profile);
+            _analogTracks = CollectAnalogTracks(scan, derivation.Channels);
+            List<(int layerIdx, IInputSource source, float weight)> analogConsumers =
+                BuildAnalogConsumerSources(blendShapeNames, out List<string> analogConsumerIds);
+
+            // Play の FacialController と同じく、レイヤー宣言の入力源を構築時に組み込み、Timeline の sink を後付けする。
+            _layerUseCase = new LayerUseCase(_profile, _expressionUseCase, blendShapeNames, analogConsumers, analogConsumerIds);
             _writer = new SkinnedMeshRendererBlendShapeWriter(renderers, blendShapeNames);
 
-            TimelineDerivation derivation = TimelineChannelDeriver.Derive(TimelineAssetScanner.Scan(_timeline).Tracks, _profile);
             ReadOnlySpan<LayerDefinition> profileLayers = _profile.Layers.Span;
             IReadOnlyList<TimelineLayerDescriptor> layers = derivation.Layers;
             var playbacks = new List<LayerPlayback>(layers.Count);
@@ -298,6 +320,191 @@ namespace Hidano.FacialControl.Timeline.Editor
             {
                 _gazeSourceIds[i] = _gazeTracks[i].HasAnyAxis ? _gazeTracks[i].ChannelSubId : null;
             }
+        }
+
+        /// <summary>
+        /// Profile の AdapterBinding の Analog Expression 宣言から Play と同じ消費者をオフラインに組み、
+        /// レイヤー宣言（Play の <c>FacialController</c> がレジストリで解決する順序）どおりの (layer, source, weight) 列にする。
+        /// 消費者が読む source は同じ id の Analog Value トラック（無ければ常に無効の source = live 入力なし）。
+        /// </summary>
+        private List<(int layerIdx, IInputSource source, float weight)> BuildAnalogConsumerSources(
+            string[] blendShapeNames,
+            out List<string> declaredIds)
+        {
+            var result = new List<(int layerIdx, IInputSource source, float weight)>();
+            declaredIds = new List<string>();
+
+            IReadOnlyList<AdapterBindingBase> bindings = _profileAsset.AdapterBindings;
+            if (bindings == null || bindings.Count == 0)
+            {
+                return result;
+            }
+
+            var consumers = new Dictionary<string, IInputSource>(StringComparer.Ordinal);
+            for (int i = 0; i < bindings.Count; i++)
+            {
+                if (!(bindings[i] is IAnalogExpressionBindingDeclaration declaration)
+                    || !AdapterSlug.TryParse(bindings[i].Slug, out AdapterSlug slug))
+                {
+                    continue;
+                }
+
+                string consumerId = slug.Value + ":" + AnalogExpressionInputSource.ReservedId;
+                if (consumers.ContainsKey(consumerId))
+                {
+                    continue;
+                }
+
+                // Play の消費者が警告して捨てる binding（Expression が Profile に無い等）は先に除く。
+                // Compositor は Profile 変更のたびに作り直されるため、構築時の警告を繰り返さない。
+                IReadOnlyList<AnalogExpressionBinding> declared = declaration.GetAnalogExpressionBindings();
+                var usable = new List<AnalogExpressionBinding>();
+                var sources = new Dictionary<string, IAnalogInputSource>(StringComparer.Ordinal);
+                for (int b = 0; declared != null && b < declared.Count; b++)
+                {
+                    AnalogExpressionBinding binding = declared[b];
+                    if (string.IsNullOrEmpty(binding.SourceId)
+                        || string.IsNullOrEmpty(binding.ExpressionId)
+                        || !_profile.FindExpressionById(binding.ExpressionId).HasValue)
+                    {
+                        continue;
+                    }
+
+                    usable.Add(binding);
+                    if (!sources.ContainsKey(binding.SourceId))
+                    {
+                        sources[binding.SourceId] = FindAnalogTrackSink(slug.Value + ":" + binding.SourceId)
+                            ?? new TimelineAnalogInputSource(IdleAnalogSourceId, 1);
+                    }
+                }
+
+                if (usable.Count == 0)
+                {
+                    continue;
+                }
+
+                consumers[consumerId] = new AnalogExpressionInputSource(
+                    InputSourceId.Parse(AnalogExpressionInputSource.ReservedId),
+                    blendShapeNames.Length,
+                    blendShapeNames,
+                    _profile,
+                    sources,
+                    usable);
+            }
+
+            if (consumers.Count == 0)
+            {
+                return result;
+            }
+
+            ReadOnlySpan<InputSourceDeclaration[]> layerDeclarations = _profile.LayerInputSources.Span;
+            int upper = Math.Min(_profile.Layers.Length, layerDeclarations.Length);
+            for (int l = 0; l < upper; l++)
+            {
+                InputSourceDeclaration[] declarations = layerDeclarations[l];
+                if (declarations == null)
+                {
+                    continue;
+                }
+
+                for (int d = 0; d < declarations.Length; d++)
+                {
+                    string id = declarations[d].Id;
+                    if (id != null && consumers.TryGetValue(id, out IInputSource consumer))
+                    {
+                        result.Add((l, consumer, declarations[d].Weight));
+                        declaredIds.Add(id);
+                    }
+                }
+            }
+
+            return result;
+        }
+
+        private TimelineAnalogInputSource FindAnalogTrackSink(string channelSubId)
+        {
+            for (int i = 0; i < _analogTracks.Length; i++)
+            {
+                if (string.Equals(_analogTracks[i].ChannelSubId, channelSubId, StringComparison.Ordinal))
+                {
+                    return _analogTracks[i].Sink;
+                }
+            }
+
+            return null;
+        }
+
+        /// <summary>
+        /// 導出で採用された Analog チャネル（Play の乗っ取り対象と同じ集合。id 不正・軸数 0・重複 id は導出が除外済み）ごとに、
+        /// 走査結果の同じトラック（<see cref="TimelineChannelDescriptor.TrackIndex"/>。Group 内のトラックを含む）の Clip を集める。
+        /// </summary>
+        private static AnalogTrackPlayback[] CollectAnalogTracks(
+            TimelineScanResult scan,
+            IReadOnlyList<TimelineChannelDescriptor> channels)
+        {
+            if (channels == null || channels.Count == 0)
+            {
+                return Array.Empty<AnalogTrackPlayback>();
+            }
+
+            IReadOnlyList<TrackAsset> trackAssets = scan.TrackAssets;
+            var tracks = new List<AnalogTrackPlayback>();
+            for (int i = 0; i < channels.Count; i++)
+            {
+                TimelineChannelDescriptor channel = channels[i];
+                if (channel.Kind != FacialValueChannelKind.Analog
+                    || channel.AxisCount <= 0
+                    || (uint)channel.TrackIndex >= (uint)trackAssets.Count
+                    || !(trackAssets[channel.TrackIndex] is FacialValueTrack valueTrack)
+                    || !InputSourceId.TryParse(channel.ChannelSubId, out InputSourceId sinkId))
+                {
+                    continue;
+                }
+
+                tracks.Add(new AnalogTrackPlayback(
+                    channel.ChannelSubId,
+                    new TimelineAnalogInputSource(sinkId, channel.AxisCount),
+                    CollectValueClipSamples(valueTrack)));
+            }
+
+            return tracks.ToArray();
+        }
+
+        private static ValueClipSample[] CollectValueClipSamples(FacialValueTrack valueTrack)
+        {
+            var clips = new List<ValueClipSample>();
+            foreach (TimelineClip clip in valueTrack.GetClips())
+            {
+                if (clip.asset is FacialValueClip valueClip)
+                {
+                    clips.Add(new ValueClipSample(clip.start, clip.end, valueClip.Axes));
+                }
+            }
+
+            return clips.ToArray();
+        }
+
+        /// <summary>
+        /// Play の Value Mixer と同じ規則（後勝ちで <c>start &lt;= t &lt; end</c> の Clip）で有効な Clip と Clip 内時刻を返す。
+        /// </summary>
+        private static bool TryFindActiveClip(ValueClipSample[] clips, double timeSeconds, out ValueClipSample active, out float clipTime)
+        {
+            for (int i = clips.Length - 1; i >= 0; i--)
+            {
+                ValueClipSample clip = clips[i];
+                if (timeSeconds < clip.StartTime || timeSeconds >= clip.EndTime)
+                {
+                    continue;
+                }
+
+                active = clip;
+                clipTime = (float)(timeSeconds - clip.StartTime);
+                return true;
+            }
+
+            active = default;
+            clipTime = 0f;
+            return false;
         }
 
         private static SkinnedMeshRenderer[] ResolveRenderers(FacialController controller)
@@ -413,16 +620,7 @@ namespace Hidano.FacialControl.Timeline.Editor
                     continue;
                 }
 
-                var clips = new List<GazeClipSample>();
-                foreach (TimelineClip clip in valueTrack.GetClips())
-                {
-                    if (clip.asset is FacialValueClip valueClip)
-                    {
-                        clips.Add(new GazeClipSample(clip.start, clip.end, valueClip.Axes));
-                    }
-                }
-
-                tracks.Add(new GazeTrackPlayback(valueTrack.ChannelSubId, clips.ToArray()));
+                tracks.Add(new GazeTrackPlayback(valueTrack.ChannelSubId, CollectValueClipSamples(valueTrack)));
             }
 
             return tracks.ToArray();
@@ -449,9 +647,9 @@ namespace Hidano.FacialControl.Timeline.Editor
             public AnimationCurve Curve { get; }
         }
 
-        private readonly struct GazeClipSample
+        private readonly struct ValueClipSample
         {
-            public GazeClipSample(double startTime, double endTime, AnimationCurve[] axes)
+            public ValueClipSample(double startTime, double endTime, AnimationCurve[] axes)
             {
                 StartTime = startTime;
                 EndTime = endTime;
@@ -467,12 +665,12 @@ namespace Hidano.FacialControl.Timeline.Editor
 
         private sealed class GazeTrackPlayback
         {
-            private readonly GazeClipSample[] _clips;
+            private readonly ValueClipSample[] _clips;
 
-            public GazeTrackPlayback(string channelSubId, GazeClipSample[] clips)
+            public GazeTrackPlayback(string channelSubId, ValueClipSample[] clips)
             {
                 ChannelSubId = channelSubId ?? string.Empty;
-                _clips = clips ?? Array.Empty<GazeClipSample>();
+                _clips = clips ?? Array.Empty<ValueClipSample>();
                 for (int i = 0; i < _clips.Length && !HasAnyAxis; i++)
                 {
                     AnimationCurve[] axes = _clips[i].Axes;
@@ -498,23 +696,61 @@ namespace Hidano.FacialControl.Timeline.Editor
             /// </summary>
             public void Evaluate(double timeSeconds, out float x, out float y)
             {
-                for (int i = _clips.Length - 1; i >= 0; i--)
+                if (!TryFindActiveClip(_clips, timeSeconds, out ValueClipSample clip, out float clipTime))
                 {
-                    GazeClipSample clip = _clips[i];
-                    if (timeSeconds < clip.StartTime || timeSeconds >= clip.EndTime)
-                    {
-                        continue;
-                    }
-
-                    float clipTime = (float)(timeSeconds - clip.StartTime);
-                    AnimationCurve[] axes = clip.Axes;
-                    x = axes.Length > 0 && axes[0] != null ? Mathf.Clamp(axes[0].Evaluate(clipTime), -1f, 1f) : 0f;
-                    y = axes.Length > 1 && axes[1] != null ? Mathf.Clamp(axes[1].Evaluate(clipTime), -1f, 1f) : 0f;
+                    x = 0f;
+                    y = 0f;
                     return;
                 }
 
-                x = 0f;
-                y = 0f;
+                AnimationCurve[] axes = clip.Axes;
+                x = axes.Length > 0 && axes[0] != null ? Mathf.Clamp(axes[0].Evaluate(clipTime), -1f, 1f) : 0f;
+                y = axes.Length > 1 && axes[1] != null ? Mathf.Clamp(axes[1].Evaluate(clipTime), -1f, 1f) : 0f;
+            }
+        }
+
+        private sealed class AnalogTrackPlayback
+        {
+            private readonly ValueClipSample[] _clips;
+            private readonly float[] _axisBuffer;
+
+            public AnalogTrackPlayback(string channelSubId, TimelineAnalogInputSource sink, ValueClipSample[] clips)
+            {
+                ChannelSubId = channelSubId;
+                Sink = sink;
+                _clips = clips ?? Array.Empty<ValueClipSample>();
+                _axisBuffer = new float[sink.AxisCount];
+            }
+
+            /// <summary>Value トラックの ChannelSubId（REC の source id。Play の乗っ取り先 id）。</summary>
+            public string ChannelSubId { get; }
+
+            /// <summary>消費者が読むプレビュー用の sink（Play の乗っ取り sink と同じ型）。</summary>
+            public TimelineAnalogInputSource Sink { get; }
+
+            /// <summary>
+            /// Play の Value Mixer と同じ規則（後勝ちで <c>start &lt;= t &lt; end</c> の Clip を Clip 内時刻で評価し、軸ごとにカーブ値。
+            /// 無ければ無効化）で sink を更新する。
+            /// </summary>
+            public void Evaluate(double timeSeconds)
+            {
+                if (!TryFindActiveClip(_clips, timeSeconds, out ValueClipSample clip, out float clipTime))
+                {
+                    Sink.Invalidate();
+                    return;
+                }
+
+                AnimationCurve[] axes = clip.Axes;
+                for (int a = 0; a < _axisBuffer.Length; a++)
+                {
+                    AnimationCurve curve = a < axes.Length ? axes[a] : null;
+                    _axisBuffer[a] = curve != null ? curve.Evaluate(clipTime) : 0f;
+                }
+
+                if (!Sink.SetAxes(_axisBuffer))
+                {
+                    Sink.Invalidate();
+                }
             }
         }
 
