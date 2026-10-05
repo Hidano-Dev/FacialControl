@@ -1,27 +1,35 @@
 using System;
-using System.Collections.Generic;
-using System.Reflection;
 using Hidano.FacialControl.Adapters.InputSources;
-using Hidano.FacialControl.Domain.Adapters;
 using Hidano.FacialControl.Domain.Interfaces;
 using Hidano.FacialControl.Domain.Models;
 using Hidano.FacialControl.Domain.Services;
+using Hidano.FacialControl.Testing;
+using Hidano.FacialControl.Tests.Shared;
 using Hidano.FacialControl.Timeline.Adapters;
 using Hidano.FacialControl.Timeline.Adapters.Assets;
-using Hidano.FacialControl.Timeline.Adapters.AdapterBindings;
 using Hidano.FacialControl.Timeline.Adapters.InputSources;
 using Hidano.FacialControl.Timeline.Clips;
+using Hidano.FacialControl.Timeline.Domain.Diagnostics;
 using Hidano.FacialControl.Timeline.Editor;
 using Hidano.FacialControl.Timeline.Tracks;
 using NUnit.Framework;
-using Unity.Profiling;
 using UnityEngine;
 using UnityEngine.Playables;
+using UnityEngine.TestTools;
 using UnityEngine.Timeline;
 
-using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.Timeline.Tests.PlayMode
 {
+    /// <summary>
+    /// Timeline 再生のセッション開始後の毎フレーム経路（Mixer の ProcessFrame / SampleExpressionValues / Aggregate）が
+    /// GC 確保しないことを固定する。
+    /// </summary>
+    /// <remarks>
+    /// 計測は Memory カウンタ「GC Allocated In Frame」の <c>CurrentValue</c> 差分（<see cref="ManagedAllocationProbe"/>）で、
+    /// 同期 [Test] の 1 フレーム内に閉じる。旧実装の <c>GC.Alloc</c> マーカーの <c>LastValue</c> は
+    /// 完了済みフレームの値しか返さず、同期テストの窓内の確保を検出できなかった（空振りの 0 ゲート）。
+    /// 計測器が確保を検出できることは <see cref="AllocationProbe_DeliberateAllocationInWindow_IsDetected"/> で自己検証する。
+    /// </remarks>
     [TestFixture]
     [MediumTest]
     public sealed class TimelineGcZeroGateTests : SizedTestFixture
@@ -31,26 +39,33 @@ namespace Hidano.FacialControl.Timeline.Tests.PlayMode
         private const float FrameDeltaTime = 1f / 60f;
         private const string ExpressionLayerName = "Expressions";
         private const string ExpressionId = "smile";
+        private static readonly string[] BlendShapeNames = { "Smile" };
+
+        private static object s_allocationSink;
+
+        [Test]
+        public void AllocationProbe_DeliberateAllocationInWindow_IsDetected()
+        {
+            // 計測器の自己検証（positive control）: 窓内で意図的に確保すれば 0 にならないこと（小さな確保も含む）。
+            long large = ManagedAllocationProbe.MeasureAllocatedBytes(
+                () => s_allocationSink = new byte[256], iterations: MeasurementFrames, warmupIterations: 0);
+            long small = ManagedAllocationProbe.MeasureAllocatedBytes(
+                () => s_allocationSink = new object(), iterations: 1, warmupIterations: 0);
+            s_allocationSink = null;
+
+            Assert.That(large, Is.GreaterThanOrEqualTo(256L * MeasurementFrames),
+                "計測器が窓内の確保を検出できない（空振りの 0 ゲートになっている）。");
+            Assert.That(small, Is.GreaterThan(0L), "1 オブジェクトの小さな確保も検出できること");
+        }
 
         [Test]
         public void TimelinePlayback_SteadyState_AfterWarmup_AllocatesZeroGC()
         {
             using var fixture = new TimelinePlaybackFixture();
 
-            for (int i = 0; i < WarmupFrames; i++)
-            {
-                fixture.AdvanceLinearly(FrameDeltaTime);
-            }
+            long allocated = MeasureFrames(() => fixture.AdvanceLinearly(FrameDeltaTime));
 
-            ForceFullCollection();
-            using var recorder = StartGcRecorder();
-
-            for (int i = 0; i < MeasurementFrames; i++)
-            {
-                fixture.AdvanceLinearly(FrameDeltaTime);
-            }
-
-            Assert.That(recorder.LastValue, Is.EqualTo(0L),
+            Assert.That(allocated, Is.EqualTo(0L),
                 "Timeline steady-state playback hot path must not allocate GC.");
         }
 
@@ -63,16 +78,65 @@ namespace Hidano.FacialControl.Timeline.Tests.PlayMode
             fixture.JumpTo(0.25d);
             fixture.JumpTo(1.25d);
 
-            ForceFullCollection();
-            using var recorder = StartGcRecorder();
+            int frame = 0;
+            long allocated = ManagedAllocationProbe.MeasureAllocatedBytes(
+                () => fixture.JumpTo((frame++ & 1) == 0 ? 0.25d : 1.25d),
+                iterations: MeasurementFrames,
+                warmupIterations: WarmupFrames);
 
-            for (int i = 0; i < MeasurementFrames; i++)
-            {
-                fixture.JumpTo((i & 1) == 0 ? 0.25d : 1.25d);
-            }
-
-            Assert.That(recorder.LastValue, Is.EqualTo(0L),
+            Assert.That(allocated, Is.EqualTo(0L),
                 "Timeline jump evaluation must remain zero-alloc after scratch buffers are warmed.");
+        }
+
+        [Test]
+        public void TimelinePlayback_PauseResume_ReusesSessionResourcesAndStaysZeroAlloc()
+        {
+            using var fixture = new TimelinePlaybackFixture();
+            fixture.AdvanceLinearly(FrameDeltaTime);
+            TimelineBakedValueSink valueSinkBefore = fixture.Rig.GetValueSink(ExpressionLayerName);
+            TimelineExpressionStateSink stateSinkBefore = fixture.Rig.GetStateSink(ExpressionLayerName);
+
+            // Pause 相当: Mixer の OnBehaviourPause / OnGraphStop が呼ぶ ReleaseAll でセッションは Idle に戻る
+            // （Manual 更新の Director では Pause() が同期的に OnBehaviourPause を発火しないため直接呼ぶ）。
+            fixture.Rig.Receiver.ReleaseAll();
+            Assert.That(fixture.Rig.Receiver.SessionState, Is.EqualTo(TimelineSessionState.Idle), "ReleaseAll で Idle に戻る");
+
+            // Resume: 次の ProcessFrame で再 Begin。セッション資源（sink）はプールから再利用され作り直されない。
+            fixture.AdvanceLinearly(FrameDeltaTime);
+            Assert.That(fixture.Rig.Receiver.SessionState, Is.EqualTo(TimelineSessionState.Active));
+            Assert.That(fixture.Rig.GetValueSink(ExpressionLayerName), Is.SameAs(valueSinkBefore), "値 sink を再確保しない");
+            Assert.That(fixture.Rig.GetStateSink(ExpressionLayerName), Is.SameAs(stateSinkBefore), "state sink を再確保しない");
+            Assert.That(fixture.Rig.Receiver.Diagnostics.Contains(TimelineDiagnosticCode.LayerConnected, ExpressionLayerName), Is.True);
+
+            long allocated = MeasureFrames(() => fixture.AdvanceLinearly(FrameDeltaTime));
+
+            Assert.That(allocated, Is.EqualTo(0L), "Resume 後の ProcessFrame も確保しない。");
+        }
+
+        [Test]
+        public void TimelinePlayback_SessionConflictWithSecondDirector_AfterWarmup_AllocatesZeroGC()
+        {
+            // 6.1 レビュー F1: 所有者でない Director の Mixer が毎フレーム Begin を呼んでも、記録済みの競合では確保しない。
+            // 競合は Error として Console に 1 回出る（判定は文言ではなく診断コードで行う）。
+            bool previousIgnore = LogAssert.ignoreFailingMessages;
+            LogAssert.ignoreFailingMessages = true;
+            try
+            {
+                using var fixture = new TimelinePlaybackFixture(withConflictingDirector: true);
+                fixture.AdvanceLinearly(FrameDeltaTime);
+
+                Assert.That(fixture.Rig.Receiver.Diagnostics.Contains(TimelineDiagnosticCode.SessionConflict),
+                    Is.True, "fixture: 2 つ目の Director が競合として記録されている");
+                Assert.That(fixture.Rig.Receiver.IsSessionOwnedBy(fixture.Rig.Director), Is.True, "所有者は最初の Director のまま");
+
+                long allocated = MeasureFrames(() => fixture.AdvanceLinearly(FrameDeltaTime));
+
+                Assert.That(allocated, Is.EqualTo(0L), "SessionConflict 中の ProcessFrame も確保しない。");
+            }
+            finally
+            {
+                LogAssert.ignoreFailingMessages = previousIgnore;
+            }
         }
 
         [Test]
@@ -81,38 +145,19 @@ namespace Hidano.FacialControl.Timeline.Tests.PlayMode
             FacialProfile profile = CreateProfile();
             using var sink = new TimelineBakedValueAggregationFixture(profile);
 
-            for (int i = 0; i < WarmupFrames; i++)
-            {
-                sink.AggregateFrame(0.25f + (i * 0.01f));
-            }
+            int frame = 0;
+            long allocated = ManagedAllocationProbe.MeasureAllocatedBytes(
+                () => sink.AggregateFrame(0.25f + ((frame++ & 7) * 0.02f)),
+                iterations: MeasurementFrames,
+                warmupIterations: WarmupFrames);
 
-            ForceFullCollection();
-            using var recorder = StartGcRecorder();
-
-            for (int i = 0; i < MeasurementFrames; i++)
-            {
-                sink.AggregateFrame(0.25f + ((i & 7) * 0.02f));
-            }
-
-            Assert.That(recorder.LastValue, Is.EqualTo(0L),
+            Assert.That(allocated, Is.EqualTo(0L),
                 "LayerInputSourceAggregator must stay zero-alloc when no observer is attached.");
         }
 
-        private static ProfilerRecorder StartGcRecorder()
+        private static long MeasureFrames(Action frame)
         {
-            return ProfilerRecorder.StartNew(
-                ProfilerCategory.Memory,
-                "GC.Alloc",
-                1,
-                ProfilerRecorderOptions.SumAllSamplesInFrame
-                | ProfilerRecorderOptions.CollectOnlyOnCurrentThread);
-        }
-
-        private static void ForceFullCollection()
-        {
-            GC.Collect();
-            GC.WaitForPendingFinalizers();
-            GC.Collect();
+            return ManagedAllocationProbe.MeasureAllocatedBytes(frame, iterations: MeasurementFrames, warmupIterations: WarmupFrames);
         }
 
         private static FacialProfile CreateProfile()
@@ -138,10 +183,24 @@ namespace Hidano.FacialControl.Timeline.Tests.PlayMode
                 });
         }
 
+        private static TimelineAsset CreateTimeline()
+        {
+            var timeline = ScriptableObject.CreateInstance<TimelineAsset>();
+            FacialExpressionTrack track = timeline.CreateTrack<FacialExpressionTrack>(null, ExpressionLayerName);
+            TimelineClip clip = track.CreateClip<FacialExpressionClip>();
+            clip.start = 0d;
+            clip.duration = 2d;
+            ((FacialExpressionClip)clip.asset).ExpressionId = ExpressionId;
+            return timeline;
+        }
+
+        /// <summary>
+        /// 再生リグ（Receiver の自動導出 + Connector 接続）に、値 sink を読む Aggregator を足して 1 フレーム分の合成まで回す。
+        /// </summary>
         private sealed class TimelinePlaybackFixture : IDisposable
         {
-            private readonly FacialProfile _profile;
-            private readonly TimelineAdapterBinding _binding;
+            private readonly TimelineAsset _timeline;
+            private readonly FacialTimelineBakeAsset _bake;
             private readonly TimelineBakedValueSink _valueSink;
             private readonly LayerInputSourceRegistry _registry;
             private readonly LayerInputSourceWeightBuffer _weightBuffer;
@@ -149,103 +208,86 @@ namespace Hidano.FacialControl.Timeline.Tests.PlayMode
             private readonly int[] _priorities = { 0 };
             private readonly float[] _layerWeights = { 1f };
             private readonly float[] _output = new float[1];
-            private readonly GameObject _directorObject;
-            private readonly GameObject _receiverObject;
-            private readonly PlayableDirector _director;
-            private readonly FacialTimelineReceiver _receiver;
-            private float _currentTime;
+            private readonly GameObject _conflictObject;
+            private readonly PlayableDirector _conflictDirector;
 
-            public TimelinePlaybackFixture()
+            public TimelinePlaybackFixture(bool withConflictingDirector = false)
             {
-                _profile = CreateProfile();
-                Timeline = CreateTimeline();
-                Bake = TimelineBakeService.Bake(Timeline, _profile);
+                FacialProfile profile = CreateProfile();
+                _timeline = CreateTimeline();
+                _bake = TimelineBakeService.Bake(_timeline, profile);
+                Rig = TimelinePlayModeRig.CreateActive("TimelineGcZeroGateTests", profile, BlendShapeNames, _timeline, _bake);
+                _valueSink = Rig.GetValueSink(ExpressionLayerName);
 
-                _binding = new TimelineAdapterBinding();
-                MutableTargetLayerNames(_binding).Add(ExpressionLayerName);
-
-                _receiverObject = new GameObject("TimelineGcZeroGateTests_Receiver");
-                _receiver = _receiverObject.AddComponent<FacialTimelineReceiver>();
-                _receiver.BakeAsset = Bake;
-                _binding.OnStart(new AdapterBuildContext(
-                    _profile,
-                    new[] { "Smile" },
-                    new NoopInputSourceRegistry(),
-                    new FacialOutputBus(),
-                    new NoopTimeProvider(),
-                    _receiverObject,
-                    lipSyncProvider: null));
-                Assert.That(_receiver.TryGetExpressionValueSink(ExpressionLayerName, out _valueSink), Is.True);
+                if (withConflictingDirector)
+                {
+                    // 同じ Receiver を binding する 2 つ目の Director（所有者ではないので SessionConflict になる）。
+                    _conflictObject = new GameObject("TimelineGcZeroGateTests_ConflictDirector");
+                    _conflictDirector = _conflictObject.AddComponent<PlayableDirector>();
+                    _conflictDirector.playOnAwake = false;
+                    _conflictDirector.playableAsset = _timeline;
+                    _conflictDirector.timeUpdateMode = DirectorUpdateMode.Manual;
+                    _conflictDirector.extrapolationMode = DirectorWrapMode.None;
+                    TimelinePlayModeRig.BindAllFacialTracks(_conflictDirector, _timeline, Rig.Receiver);
+                    _conflictDirector.Play();
+                    _conflictDirector.playableGraph.Evaluate(0f);
+                }
 
                 _registry = new LayerInputSourceRegistry(
-                    _profile,
+                    profile,
                     blendShapeCount: 1,
                     new[] { (0, 0, (IInputSource)_valueSink) });
                 _weightBuffer = new LayerInputSourceWeightBuffer(_registry.LayerCount, _registry.MaxSourcesPerLayer);
                 _weightBuffer.SetWeight(0, 0, 1f);
                 _aggregator = new LayerInputSourceAggregator(_registry, _weightBuffer, blendShapeCount: 1);
 
-                _directorObject = new GameObject("TimelineGcZeroGateTests_Director");
-                _director = _directorObject.AddComponent<PlayableDirector>();
-
-                _director.playableAsset = Timeline;
-                _director.timeUpdateMode = DirectorUpdateMode.Manual;
-                _director.extrapolationMode = DirectorWrapMode.None;
-                _director.SetGenericBinding(Timeline.GetOutputTrack(0), _receiver);
-                _director.RebuildGraph();
-                _director.playableGraph.Evaluate(0f);
-
                 AggregateCurrentValues();
             }
 
-            public TimelineAsset Timeline { get; }
-
-            public FacialTimelineBakeAsset Bake { get; }
+            public TimelinePlayModeRig Rig { get; }
 
             public void AdvanceLinearly(float deltaTime)
             {
-                _director.playableGraph.Evaluate(deltaTime);
-                _currentTime += deltaTime;
+                Rig.Director.playableGraph.Evaluate(deltaTime);
+                if (_conflictDirector != null)
+                {
+                    _conflictDirector.playableGraph.Evaluate(deltaTime);
+                }
+
                 AggregateCurrentValues();
             }
 
             public void JumpTo(double targetTime)
             {
-                _director.time = targetTime;
-                _director.Evaluate();
-                _currentTime = (float)targetTime;
+                Rig.Director.time = targetTime;
+                Rig.Director.Evaluate();
                 AggregateCurrentValues();
             }
 
             public void Dispose()
             {
-                if (_director != null && _director.playableGraph.IsValid())
+                if (_conflictDirector != null && _conflictDirector.playableGraph.IsValid())
                 {
-                    _director.playableGraph.Destroy();
+                    _conflictDirector.playableGraph.Destroy();
+                }
+
+                if (_conflictObject != null)
+                {
+                    UnityEngine.Object.DestroyImmediate(_conflictObject);
                 }
 
                 _registry.Dispose();
                 _weightBuffer.Dispose();
-                _binding.Dispose();
+                Rig.Dispose();
 
-                if (Bake != null)
+                if (_bake != null)
                 {
-                    UnityEngine.Object.DestroyImmediate(Bake);
+                    UnityEngine.Object.DestroyImmediate(_bake);
                 }
 
-                if (Timeline != null)
+                if (_timeline != null)
                 {
-                    UnityEngine.Object.DestroyImmediate(Timeline);
-                }
-
-                if (_directorObject != null)
-                {
-                    UnityEngine.Object.DestroyImmediate(_directorObject);
-                }
-
-                if (_receiverObject != null)
-                {
-                    UnityEngine.Object.DestroyImmediate(_receiverObject);
+                    UnityEngine.Object.DestroyImmediate(_timeline);
                 }
             }
 
@@ -269,8 +311,8 @@ namespace Hidano.FacialControl.Timeline.Tests.PlayMode
             {
                 _valueSink = new TimelineBakedValueSink(
                     InputSourceId.Parse("timeline:bake"),
-                    new[] { "Smile" },
-                    new[] { "Smile" });
+                    BlendShapeNames,
+                    BlendShapeNames);
                 _registry = new LayerInputSourceRegistry(
                     profile,
                     blendShapeCount: 1,
@@ -282,7 +324,12 @@ namespace Hidano.FacialControl.Timeline.Tests.PlayMode
 
             public void AggregateFrame(float value)
             {
-                Assert.That(_valueSink.SetValue(0, value), Is.True);
+                // Assert.That は constraint 生成で確保するため、計測窓の中では使わない。
+                if (!_valueSink.SetValue(0, value))
+                {
+                    throw new InvalidOperationException("SetValue failed.");
+                }
+
                 _aggregator.AggregateAndBlend(0f, _priorities, _layerWeights, _output);
             }
 
@@ -291,101 +338,6 @@ namespace Hidano.FacialControl.Timeline.Tests.PlayMode
                 _registry.Dispose();
                 _weightBuffer.Dispose();
             }
-        }
-
-        private sealed class NoopInputSourceRegistry : IInputSourceRegistry
-        {
-            private static readonly string[] EmptyRegisteredIds = Array.Empty<string>();
-
-            public IReadOnlyList<string> RegisteredIds => EmptyRegisteredIds;
-
-            public void Register(AdapterSlug slug, IInputSource source)
-            {
-            }
-
-            public void Replace(AdapterSlug slug, IInputSource source)
-            {
-            }
-
-            public void Register(AdapterSlug slug, string sub, IInputSource source)
-            {
-            }
-
-            public void Replace(AdapterSlug slug, string sub, IInputSource source)
-            {
-            }
-
-            public void Unregister(AdapterSlug slug)
-            {
-            }
-
-            public void Unregister(AdapterSlug slug, string sub)
-            {
-            }
-
-            public bool TryResolve(string layerInputSourceId, out IInputSource source)
-            {
-                source = null;
-                return false;
-            }
-
-            public void Subscribe(string id, Action<IInputSource> handler)
-            {
-            }
-        }
-
-        private sealed class NoopTimeProvider : ITimeProvider
-        {
-            public double UnscaledTimeSeconds => 0d;
-        }
-
-        private static List<string> MutableTargetLayerNames(TimelineAdapterBinding binding)
-        {
-            FieldInfo field = typeof(TimelineAdapterBinding).GetField(
-                "targetLayerNames",
-                BindingFlags.Instance | BindingFlags.NonPublic);
-            Assert.That(field, Is.Not.Null);
-            return (List<string>)field.GetValue(binding);
-        }
-
-        private static TimelineAsset CreateTimeline()
-        {
-            var timeline = ScriptableObject.CreateInstance<TimelineAsset>();
-            FacialExpressionTrack track = timeline.CreateTrack<FacialExpressionTrack>(null, ExpressionLayerName);
-            TimelineClip clip = track.CreateClip<FacialExpressionClip>();
-            clip.start = 0d;
-            clip.duration = 2d;
-            ((FacialExpressionClip)clip.asset).ExpressionId = ExpressionId;
-            return timeline;
-        }
-
-        private static string[] CollectBakedBlendShapeNames(BlendShapeCurve[] curves)
-        {
-            var names = new string[curves.Length];
-            for (int i = 0; i < curves.Length; i++)
-            {
-                names[i] = curves[i].BlendShapeName;
-            }
-
-            return names;
-        }
-
-        private static BlendShapeCurve[] FindExpressionBakeCurves(FacialTimelineBakeAsset bake, string layerName)
-        {
-            Assert.That(bake, Is.Not.Null);
-            Assert.That(bake.ExpressionBakes, Is.Not.Null);
-
-            for (int i = 0; i < bake.ExpressionBakes.Length; i++)
-            {
-                ExpressionSourceBake expressionBake = bake.ExpressionBakes[i];
-                if (string.Equals(expressionBake.LayerName, layerName, StringComparison.Ordinal))
-                {
-                    return expressionBake.Curves ?? Array.Empty<BlendShapeCurve>();
-                }
-            }
-
-            Assert.Fail($"Expression bake for layer '{layerName}' was not found.");
-            return Array.Empty<BlendShapeCurve>();
         }
     }
 }

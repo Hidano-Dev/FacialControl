@@ -1,22 +1,19 @@
 using System;
-using System.Collections;
 using System.Collections.Generic;
 using Hidano.FacialControl.Adapters.InputSources;
-using Hidano.FacialControl.Domain.Adapters;
+using Hidano.FacialControl.Adapters.Playable;
 using Hidano.FacialControl.Domain.Interfaces;
 using Hidano.FacialControl.Domain.Models;
 using Hidano.FacialControl.Domain.Services;
 using Hidano.FacialControl.Timeline.Adapters;
 using Hidano.FacialControl.Timeline.Adapters.Assets;
-using Hidano.FacialControl.Timeline.Adapters.AdapterBindings;
 using Hidano.FacialControl.Timeline.Adapters.InputSources;
 using Hidano.FacialControl.Timeline.Clips;
+using Hidano.FacialControl.Timeline.Domain.Diagnostics;
 using Hidano.FacialControl.Timeline.Editor;
 using Hidano.FacialControl.Timeline.Tracks;
 using NUnit.Framework;
 using UnityEngine;
-using UnityEngine.Playables;
-using UnityEngine.TestTools;
 using UnityEngine.Timeline;
 
 using Hidano.FacialControl.Testing;
@@ -71,10 +68,16 @@ namespace Hidano.FacialControl.Timeline.Tests.PlayMode
             Assert.That(fixture.ExpressionSink.ActiveExpressionIds, Is.EquivalentTo(new[] { "smile" }));
             Assert.That(fixture.ValueSink.IsValid, Is.True);
 
+            Assert.That(fixture.Controller.IsLayerInputSourceBound(ExpressionLayer, "timeline:" + ExpressionLayer), Is.True);
+
             fixture.ReleaseAll();
 
+            Assert.That(fixture.Receiver.SessionState, Is.EqualTo(TimelineSessionState.Idle));
             Assert.That(fixture.ExpressionSink.ActiveExpressionIds, Is.Empty);
             Assert.That(fixture.ValueSink.IsValid, Is.False);
+            Assert.That(fixture.Controller.IsLayerInputSourceBound(ExpressionLayer, "timeline:" + ExpressionLayer), Is.False,
+                "ReleaseAll で後付け接続が外れ、レイヤー構成が復元される");
+            Assert.That(fixture.Receiver.ConnectedLayerNames, Is.Empty);
         }
 
         [Test]
@@ -88,15 +91,16 @@ namespace Hidano.FacialControl.Timeline.Tests.PlayMode
                 profile,
                 timeline,
                 blendShapeNames,
-                attachBakeAsset: false,
-                bakedBlendShapeNames: new[] { "Smile" });
+                attachBakeAsset: false);
             using var overlayHarness = new OverlayAggregationHarness(profile, fixture.ExpressionSink, fixture.ValueSink, blendShapeNames);
-
-            LogAssert.Expect(LogType.Warning, new System.Text.RegularExpressions.Regex(@"\[FacialTimelineReceiver\].*BakeAsset"));
 
             fixture.AdvanceTo(0.25f);
             overlayHarness.Aggregate();
 
+            // 値カーブを持たない（Profile 内容ハッシュも空の）Bake は再生を止めず、Warning の診断で知らせて state のみで続ける。
+            Assert.That(fixture.Receiver.SessionState, Is.EqualTo(TimelineSessionState.Active));
+            Assert.That(fixture.Receiver.Diagnostics.Contains(TimelineDiagnosticCode.ProfileMismatch), Is.True);
+            Assert.That(fixture.Receiver.Diagnostics.HasErrors, Is.False);
             Assert.That(fixture.ExpressionSink.ActiveExpressionIds, Is.EquivalentTo(new[] { "smile_suppress" }));
             Assert.That(overlayHarness.ActiveProvider.TryGetTopActiveExpression(ExpressionLayer)?.Id, Is.EqualTo("smile_suppress"));
             Assert.That(fixture.ValueSink.IsValid, Is.False);
@@ -186,58 +190,34 @@ namespace Hidano.FacialControl.Timeline.Tests.PlayMode
 
         private sealed class TimelinePlaybackFixture : IDisposable
         {
-            private readonly TimelineAdapterBinding _binding;
-            private readonly GameObject _directorObject;
-            private readonly GameObject _receiverObject;
-            private readonly PlayableDirector _director;
-            private readonly FacialTimelineReceiver _receiver;
+            private readonly TimelinePlayModeRig _rig;
             private float _currentTime;
 
             public TimelinePlaybackFixture(
                 FacialProfile profile,
                 TimelineAsset timeline,
                 IReadOnlyList<string> blendShapeNames,
-                bool attachBakeAsset,
-                IReadOnlyList<string> bakedBlendShapeNames = null)
+                bool attachBakeAsset)
             {
-                Profile = profile;
                 Timeline = timeline;
-                Bake = attachBakeAsset ? TimelineBakeService.Bake(timeline, profile) : null;
-                _binding = new TimelineAdapterBinding();
-                MutableTargetLayerNames(_binding).Add(ExpressionLayer);
+                // Bake 無しの縮退は「このレイヤーの値カーブを持たない Bake」で表す（Bake 参照の欠落は Failed になるため）。
+                Bake = attachBakeAsset
+                    ? TimelineBakeService.Bake(timeline, profile)
+                    : ScriptableObject.CreateInstance<FacialTimelineBakeAsset>();
 
-                _receiverObject = new GameObject("TimelineDegradation_Receiver");
-                _receiver = _receiverObject.AddComponent<FacialTimelineReceiver>();
-                _receiver.BakeAsset = Bake;
-                _binding.OnStart(new AdapterBuildContext(
-                    profile,
-                    blendShapeNames,
-                    new NoopInputSourceRegistry(),
-                    new FacialOutputBus(),
-                    new NoopTimeProvider(),
-                    _receiverObject,
-                    lipSyncProvider: null));
-                Assert.That(_receiver.TryGetExpressionSink(ExpressionLayer, out TimelineExpressionStateSink expressionSink), Is.True);
-                Assert.That(_receiver.TryGetExpressionValueSink(ExpressionLayer, out TimelineBakedValueSink valueSink), Is.True);
-                ExpressionSink = expressionSink;
-                ValueSink = valueSink;
-
-                _directorObject = new GameObject("TimelineDegradation_Director");
-                _director = _directorObject.AddComponent<PlayableDirector>();
-
-                _director.playableAsset = timeline;
-                _director.timeUpdateMode = DirectorUpdateMode.Manual;
-                _director.extrapolationMode = DirectorWrapMode.None;
-                _director.SetGenericBinding(timeline.GetOutputTrack(0), _receiver);
-                _director.Play();
-                _director.playableGraph.Evaluate(0f);
+                // レイヤーはトラック名から自動導出され、Receiver 内の Connector が接続する（Target Layer Names の設定は不要）。
+                _rig = TimelinePlayModeRig.CreateActive("TimelineDegradation", profile, blendShapeNames, timeline, Bake);
+                ExpressionSink = _rig.GetStateSink(ExpressionLayer);
+                ValueSink = _rig.GetValueSink(ExpressionLayer);
             }
-
-            public FacialProfile Profile { get; }
 
             public TimelineAsset Timeline { get; }
 
             public FacialTimelineBakeAsset Bake { get; }
+
+            public FacialTimelineReceiver Receiver => _rig.Receiver;
+
+            public FacialController Controller => _rig.Controller;
 
             public TimelineExpressionStateSink ExpressionSink { get; }
 
@@ -253,7 +233,7 @@ namespace Hidano.FacialControl.Timeline.Tests.PlayMode
                 float deltaTime = targetTime - _currentTime;
                 if (deltaTime > 0f)
                 {
-                    _director.playableGraph.Evaluate(deltaTime);
+                    _rig.Director.playableGraph.Evaluate(deltaTime);
                 }
 
                 _currentTime = targetTime;
@@ -261,17 +241,12 @@ namespace Hidano.FacialControl.Timeline.Tests.PlayMode
 
             public void ReleaseAll()
             {
-                _receiver.ReleaseAll();
+                _rig.Receiver.ReleaseAll();
             }
 
             public void Dispose()
             {
-                if (_director != null && _director.playableGraph.IsValid())
-                {
-                    _director.playableGraph.Destroy();
-                }
-
-                _binding.Dispose();
+                _rig.Dispose();
 
                 if (Bake != null)
                 {
@@ -281,16 +256,6 @@ namespace Hidano.FacialControl.Timeline.Tests.PlayMode
                 if (Timeline != null)
                 {
                     UnityEngine.Object.DestroyImmediate(Timeline);
-                }
-
-                if (_directorObject != null)
-                {
-                    UnityEngine.Object.DestroyImmediate(_directorObject);
-                }
-
-                if (_receiverObject != null)
-                {
-                    UnityEngine.Object.DestroyImmediate(_receiverObject);
                 }
             }
         }
@@ -484,88 +449,5 @@ namespace Hidano.FacialControl.Timeline.Tests.PlayMode
             }
         }
 
-        private sealed class NoopInputSourceRegistry : IInputSourceRegistry
-        {
-            private static readonly string[] EmptyRegisteredIds = Array.Empty<string>();
-
-            public IReadOnlyList<string> RegisteredIds => EmptyRegisteredIds;
-
-            public void Register(AdapterSlug slug, IInputSource source)
-            {
-            }
-
-            public void Replace(AdapterSlug slug, IInputSource source)
-            {
-            }
-
-            public void Register(AdapterSlug slug, string sub, IInputSource source)
-            {
-            }
-
-            public void Replace(AdapterSlug slug, string sub, IInputSource source)
-            {
-            }
-
-            public void Unregister(AdapterSlug slug)
-            {
-            }
-
-            public void Unregister(AdapterSlug slug, string sub)
-            {
-            }
-
-            public bool TryResolve(string layerInputSourceId, out IInputSource source)
-            {
-                source = null;
-                return false;
-            }
-
-            public void Subscribe(string id, Action<IInputSource> handler)
-            {
-            }
-        }
-
-        private sealed class NoopTimeProvider : ITimeProvider
-        {
-            public double UnscaledTimeSeconds => 0d;
-        }
-
-        private static List<string> MutableTargetLayerNames(TimelineAdapterBinding binding)
-        {
-            System.Reflection.FieldInfo field = typeof(TimelineAdapterBinding).GetField(
-                "targetLayerNames",
-                System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
-            Assert.That(field, Is.Not.Null);
-            return (List<string>)field.GetValue(binding);
-        }
-
-        private static string[] CollectBakedBlendShapeNames(BlendShapeCurve[] curves)
-        {
-            var names = new string[curves.Length];
-            for (int i = 0; i < curves.Length; i++)
-            {
-                names[i] = curves[i].BlendShapeName;
-            }
-
-            return names;
-        }
-
-        private static BlendShapeCurve[] FindExpressionBakeCurves(FacialTimelineBakeAsset bake, string layerName)
-        {
-            Assert.That(bake, Is.Not.Null);
-            Assert.That(bake.ExpressionBakes, Is.Not.Null);
-
-            for (int i = 0; i < bake.ExpressionBakes.Length; i++)
-            {
-                ExpressionSourceBake expressionBake = bake.ExpressionBakes[i];
-                if (string.Equals(expressionBake.LayerName, layerName, StringComparison.Ordinal))
-                {
-                    return expressionBake.Curves ?? Array.Empty<BlendShapeCurve>();
-                }
-            }
-
-            Assert.Fail($"Expression bake for layer '{layerName}' was not found.");
-            return Array.Empty<BlendShapeCurve>();
-        }
     }
 }

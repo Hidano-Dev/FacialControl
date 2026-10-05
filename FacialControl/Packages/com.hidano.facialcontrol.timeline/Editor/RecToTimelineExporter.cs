@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using Hidano.FacialControl.Adapters.ScriptableObject;
 using Hidano.FacialControl.Adapters.ScriptableObject.Serializable;
+using Hidano.FacialControl.Domain.Adapters;
 using Hidano.FacialControl.Domain.Models;
 using Hidano.FacialControl.Rec.Adapters.FileSystem;
 using Hidano.FacialControl.Rec.Domain.Services;
@@ -13,7 +14,6 @@ using Hidano.FacialControl.Timeline.Domain.Models;
 using Hidano.FacialControl.Timeline.Tracks;
 using UnityEditor;
 using UnityEngine;
-using UnityEngine.Playables;
 using UnityEngine.Timeline;
 
 namespace Hidano.FacialControl.Timeline.Editor
@@ -39,8 +39,8 @@ namespace Hidano.FacialControl.Timeline.Editor
 
             return CreateTimelineAssetInternal(
                 sequence,
-                profileAsset.BuildFallbackProfile(),
-                CollectGazeSourceIds(profileAsset.GazeChannels),
+                TimelineProfileSource.Resolve(profileAsset),
+                CollectGazeDetectionContext(profileAsset),
                 null);
         }
 
@@ -53,20 +53,20 @@ namespace Hidano.FacialControl.Timeline.Editor
             return CreateTimelineAssetInternal(
                 sequence,
                 profile,
-                CreateExplicitGazeSourceIds(gazeSourceIds),
+                CreateExplicitGazeContext(gazeSourceIds),
                 sourceKindOverrides);
         }
 
         private static TimelineAsset CreateTimelineAssetInternal(
             IRecordedEventSequence sequence,
             FacialProfile profile,
-            GazeSourceIdSet gazeSourceIds,
+            GazeDetectionContext gazeContext,
             IReadOnlyDictionary<string, FacialValueChannelKind> sourceKindOverrides = null)
         {
             ValidateSequence(sequence);
 
             var timeline = ScriptableObject.CreateInstance<TimelineAsset>();
-            PopulateTimelineInternal(timeline, sequence, profile, gazeSourceIds, sourceKindOverrides);
+            PopulateTimelineInternal(timeline, sequence, profile, gazeContext, sourceKindOverrides);
             return timeline;
         }
 
@@ -81,15 +81,15 @@ namespace Hidano.FacialControl.Timeline.Editor
                 timeline,
                 sequence,
                 profile,
-                CreateExplicitGazeSourceIds(gazeSourceIds),
+                CreateExplicitGazeContext(gazeSourceIds),
                 sourceKindOverrides);
         }
 
-        private static void PopulateTimelineInternal(
+        private static List<ChannelDetection> PopulateTimelineInternal(
             TimelineAsset timeline,
             IRecordedEventSequence sequence,
             FacialProfile profile,
-            GazeSourceIdSet gazeSourceIds,
+            GazeDetectionContext gazeContext,
             IReadOnlyDictionary<string, FacialValueChannelKind> sourceKindOverrides = null)
         {
             if (timeline == null)
@@ -102,18 +102,23 @@ namespace Hidano.FacialControl.Timeline.Editor
             List<ExpressionClipInfo> expressionClips = BuildExpressionClips(sequence, profile);
             CreateExpressionTracks(timeline, expressionClips);
 
-            List<AnalogTrackInfo> analogTracks = BuildAnalogTracks(sequence, gazeSourceIds, sourceKindOverrides);
+            List<AnalogTrackInfo> analogTracks = BuildAnalogTracks(
+                sequence, gazeContext, sourceKindOverrides, out List<ChannelDetection> detections);
             CreateAnalogTracks(timeline, analogTracks, sequence.DurationSeconds);
+            return detections;
         }
 
+        /// <summary>
+        /// REC を TimelineAsset として書き出す。出力は TimelineAsset 1 つ（Bake サブアセットと全 Facial トラックの Bake 参照を含む）で完結し、
+        /// シーン上の PlayableDirector / FacialTimelineReceiver には触れない（Req 10.5。配線は Receiver が再生開始時と Edit 評価時に自動で行う）。
+        /// </summary>
+        /// <param name="sourceKindOverrides">チャネル種別の上書き（プログラム・テスト用途。Export ウィンドウは渡さない）。</param>
         public static bool TryExportTimelineAsset(
             string recordingPath,
             FacialCharacterProfileSO profileAsset,
             string outputAssetPath,
             out ExportResult result,
             TimelineAsset existingTimeline = null,
-            PlayableDirector director = null,
-            FacialTimelineReceiver receiver = null,
             IReadOnlyDictionary<string, FacialValueChannelKind> sourceKindOverrides = null)
         {
             result = null;
@@ -135,7 +140,7 @@ namespace Hidano.FacialControl.Timeline.Editor
             }
 
             var sequence = new RecEventSequenceAdapter(readResult.Timeline);
-            GazeSourceIdSet gazeSourceIds = CollectGazeSourceIds(profileAsset.GazeChannels);
+            GazeDetectionContext gazeContext = CollectGazeDetectionContext(profileAsset);
 
             string normalizedPath = NormalizeAssetPath(outputAssetPath);
             TimelineAsset targetTimeline = ResolveOrCreateTimelineAsset(
@@ -163,11 +168,11 @@ namespace Hidano.FacialControl.Timeline.Editor
             try
             {
                 ClearTimeline(targetTimeline);
-                PopulateTimelineInternal(
+                List<ChannelDetection> detections = PopulateTimelineInternal(
                     targetTimeline,
                     sequence,
-                    profileAsset.BuildFallbackProfile(),
-                    gazeSourceIds,
+                    TimelineProfileSource.Resolve(profileAsset),
+                    gazeContext,
                     sourceKindOverrides);
 
                 if (createdTimeline)
@@ -186,28 +191,18 @@ namespace Hidano.FacialControl.Timeline.Editor
                 }
 
                 TimelineBakeService.UpdateBakeAsset(targetTimeline, profileAsset, bakeAsset);
+                // UpdateBakeAsset でも適用済みだが、Export 直後の TimelineAsset だけで Runtime が Bake を解決できることを
+                // Exporter の責務として明示する（冪等）。
+                BakeReferenceWriter.Apply(targetTimeline, bakeAsset);
                 EditorUtility.SetDirty(targetTimeline);
                 EditorUtility.SetDirty(bakeAsset);
-
-                if (director != null)
-                {
-                    director.playableAsset = targetTimeline;
-                }
-
-                if (receiver != null)
-                {
-                    receiver.BakeAsset = bakeAsset;
-                    if (director != null)
-                    {
-                        BindReceiverToTimelineTracks(director, targetTimeline, receiver);
-                    }
-                }
 
                 AssetDatabase.SaveAssetIfDirty(bakeAsset);
                 AssetDatabase.SaveAssetIfDirty(targetTimeline);
                 AssetDatabase.ImportAsset(normalizedPath);
 
-                result = ExportResult.Succeeded(recordingPath, normalizedPath, targetTimeline, bakeAsset, createdTimeline, createdBake);
+                result = ExportResult.Succeeded(
+                    recordingPath, normalizedPath, targetTimeline, bakeAsset, createdTimeline, createdBake, detections);
                 Selection.activeObject = targetTimeline;
                 return true;
             }
@@ -220,6 +215,144 @@ namespace Hidano.FacialControl.Timeline.Editor
 
                 throw;
             }
+        }
+
+        /// <summary>
+        /// REC の Analog イベントを持つ source ごとに、Export で使うチャネル種別と判定理由・軸数を返す（source id 昇順）。
+        /// トリガー専用（Analog イベントを持たない）source は含めない。
+        /// </summary>
+        public static IReadOnlyList<ChannelDetection> DetectChannels(
+            RecBinaryFormat.ReadResult readResult,
+            FacialCharacterProfileSO profileAsset)
+        {
+            if (readResult.Timeline == null)
+            {
+                throw new ArgumentException("REC timeline is missing.", nameof(readResult));
+            }
+
+            return DetectChannels(new RecEventSequenceAdapter(readResult.Timeline), profileAsset);
+        }
+
+        /// <summary>
+        /// <see cref="DetectChannels(RecBinaryFormat.ReadResult, FacialCharacterProfileSO)"/> の記録列版。
+        /// <paramref name="sourceKindOverrides"/> はプログラム・テスト用途の種別上書き。
+        /// </summary>
+        /// <remarks>
+        /// Gaze 判定順: (1) GazeChannel の明示 source id と完全一致 → (2) 規約 id のチャネル id が GazeChannels にある →
+        /// (3) Profile の binding の gaze 宣言（slug + チャネル id、またはワイルドカード宣言の slug）→
+        /// (4) Gaze 候補でも 2 軸でないサンプルを含めば Analog（Warning を出して継続）→ (5) それ以外は Analog。
+        /// </remarks>
+        public static IReadOnlyList<ChannelDetection> DetectChannels(
+            IRecordedEventSequence sequence,
+            FacialCharacterProfileSO profileAsset,
+            IReadOnlyDictionary<string, FacialValueChannelKind> sourceKindOverrides = null)
+        {
+            if (sequence == null)
+            {
+                throw new ArgumentNullException(nameof(sequence));
+            }
+
+            List<SourceSamples> sources = GroupAnalogEventsBySource(sequence);
+            GazeDetectionContext context = profileAsset != null
+                ? CollectGazeDetectionContext(profileAsset)
+                : GazeDetectionContext.Empty();
+            var detections = new List<ChannelDetection>(sources.Count);
+            for (int i = 0; i < sources.Count; i++)
+            {
+                detections.Add(Detect(sources[i], context, sourceKindOverrides));
+            }
+
+            return detections;
+        }
+
+        private static ChannelDetection Detect(
+            SourceSamples source,
+            GazeDetectionContext context,
+            IReadOnlyDictionary<string, FacialValueChannelKind> sourceKindOverrides)
+        {
+            string sourceId = source.SourceId;
+            int maxAxisCount = 0;
+            bool hasNonGazeAxisCount = false;
+            for (int i = 0; i < source.Events.Count; i++)
+            {
+                int axisCount = source.Events[i].Axes.Length;
+                maxAxisCount = Math.Max(maxAxisCount, axisCount);
+                hasNonGazeAxisCount |= axisCount != 2;
+            }
+
+            ChannelDetectionReason gazeReason;
+            bool wantsGaze;
+            if (TryGetSourceKindOverride(sourceKindOverrides, sourceId, out FacialValueChannelKind overrideKind))
+            {
+                if (overrideKind != FacialValueChannelKind.Gaze)
+                {
+                    return new ChannelDetection(sourceId, overrideKind, ChannelDetectionReason.Overridden, maxAxisCount);
+                }
+
+                wantsGaze = true;
+                gazeReason = ChannelDetectionReason.Overridden;
+            }
+            else
+            {
+                wantsGaze = TryDetectGaze(sourceId, context, out gazeReason);
+            }
+
+            if (!wantsGaze)
+            {
+                return new ChannelDetection(sourceId, FacialValueChannelKind.Analog, ChannelDetectionReason.DefaultAnalog, maxAxisCount);
+            }
+
+            if (hasNonGazeAxisCount)
+            {
+                Debug.LogWarning(
+                    $"[RecToTimelineExporter] Gaze source '{sourceId}' has non-2D samples. It is exported as Analog instead.");
+                return new ChannelDetection(sourceId, FacialValueChannelKind.Analog, ChannelDetectionReason.NonTwoAxisSamples, maxAxisCount);
+            }
+
+            return new ChannelDetection(sourceId, FacialValueChannelKind.Gaze, gazeReason, maxAxisCount);
+        }
+
+        private static bool TryDetectGaze(string sourceId, GazeDetectionContext context, out ChannelDetectionReason reason)
+        {
+            if (context.ExplicitSourceIds.Contains(sourceId))
+            {
+                reason = ChannelDetectionReason.ExplicitGazeSourceId;
+                return true;
+            }
+
+            bool parsed = GazeSourceIdConvention.TryParse(sourceId, out string slug, out string channelId, out _);
+            if (parsed && context.ChannelIds.Contains(channelId))
+            {
+                reason = ChannelDetectionReason.ConventionGazeChannel;
+                return true;
+            }
+
+            string sourceSlug = parsed ? slug : ExtractSlug(sourceId);
+            if (!string.IsNullOrEmpty(sourceSlug))
+            {
+                if (context.WildcardSlugs.Contains(sourceSlug)
+                    || (parsed
+                        && context.DeclaredChannels.TryGetValue(sourceSlug, out HashSet<string> declared)
+                        && declared.Contains(channelId)))
+                {
+                    reason = ChannelDetectionReason.GazeProviderDeclaration;
+                    return true;
+                }
+            }
+
+            reason = ChannelDetectionReason.DefaultAnalog;
+            return false;
+        }
+
+        private static string ExtractSlug(string sourceId)
+        {
+            if (string.IsNullOrEmpty(sourceId))
+            {
+                return null;
+            }
+
+            int colon = sourceId.IndexOf(':');
+            return colon > 0 ? sourceId.Substring(0, colon) : null;
         }
 
         private static void ValidateSequence(IRecordedEventSequence sequence)
@@ -393,13 +526,10 @@ namespace Hidano.FacialControl.Timeline.Editor
             return -1;
         }
 
-        private static List<AnalogTrackInfo> BuildAnalogTracks(
-            IRecordedEventSequence sequence,
-            GazeSourceIdSet gazeSourceIds,
-            IReadOnlyDictionary<string, FacialValueChannelKind> sourceKindOverrides)
+        /// <summary>Analog イベントを source ごとにまとめる（source id 昇順）。</summary>
+        private static List<SourceSamples> GroupAnalogEventsBySource(IRecordedEventSequence sequence)
         {
             var analogEventsBySource = new Dictionary<string, List<AnalogEventInfo>>(StringComparer.Ordinal);
-
             for (int i = 0; i < sequence.Count; i++)
             {
                 RecordedEvent evt = sequence[i];
@@ -417,41 +547,32 @@ namespace Hidano.FacialControl.Timeline.Editor
                 sourceEvents.Add(new AnalogEventInfo(evt.TimeSeconds, evt.Axes));
             }
 
-            var tracks = new List<AnalogTrackInfo>(analogEventsBySource.Count);
+            var sources = new List<SourceSamples>(analogEventsBySource.Count);
             foreach (KeyValuePair<string, List<AnalogEventInfo>> pair in analogEventsBySource)
             {
-                bool isConfiguredAsGaze = gazeSourceIds != null
-                    && (ContainsSourceId(gazeSourceIds.ExplicitSourceIds, pair.Key)
-                        || IsConventionGazeSource(gazeSourceIds.ChannelIds, pair.Key));
-                bool hasOverride = TryGetSourceKindOverride(sourceKindOverrides, pair.Key, out FacialValueChannelKind overrideKind);
-                int maxAxisCount = 0;
-                bool hasNonGazeAxisCount = false;
-                for (int i = 0; i < pair.Value.Count; i++)
-                {
-                    int axisCount = pair.Value[i].Axes.Length;
-                    maxAxisCount = Math.Max(maxAxisCount, axisCount);
-                    hasNonGazeAxisCount |= axisCount != 2;
-                }
-
-                FacialValueChannelKind channelKind = FacialValueChannelKind.Analog;
-                bool wantsGaze = hasOverride
-                    ? overrideKind == FacialValueChannelKind.Gaze
-                    : isConfiguredAsGaze;
-
-                if (wantsGaze && !hasNonGazeAxisCount)
-                {
-                    channelKind = FacialValueChannelKind.Gaze;
-                }
-                else if (wantsGaze && hasNonGazeAxisCount)
-                {
-                    Debug.LogWarning(
-                        $"[RecToTimelineExporter] Gaze source '{pair.Key}' has non-2D samples. It is exported as Analog instead.");
-                }
-
-                tracks.Add(new AnalogTrackInfo(pair.Key, channelKind, maxAxisCount, pair.Value));
+                sources.Add(new SourceSamples(pair.Key, pair.Value));
             }
 
-            tracks.Sort((left, right) => string.CompareOrdinal(left.SourceId, right.SourceId));
+            sources.Sort((left, right) => string.CompareOrdinal(left.SourceId, right.SourceId));
+            return sources;
+        }
+
+        private static List<AnalogTrackInfo> BuildAnalogTracks(
+            IRecordedEventSequence sequence,
+            GazeDetectionContext gazeContext,
+            IReadOnlyDictionary<string, FacialValueChannelKind> sourceKindOverrides,
+            out List<ChannelDetection> detections)
+        {
+            List<SourceSamples> sources = GroupAnalogEventsBySource(sequence);
+            var tracks = new List<AnalogTrackInfo>(sources.Count);
+            detections = new List<ChannelDetection>(sources.Count);
+            for (int i = 0; i < sources.Count; i++)
+            {
+                ChannelDetection detection = Detect(sources[i], gazeContext, sourceKindOverrides);
+                detections.Add(detection);
+                tracks.Add(new AnalogTrackInfo(sources[i].SourceId, detection.Kind, detection.AxisCount, sources[i].Events));
+            }
+
             return tracks;
         }
 
@@ -509,36 +630,6 @@ namespace Hidano.FacialControl.Timeline.Editor
             }
         }
 
-        private static bool ContainsSourceId(IReadOnlyCollection<string> sourceIds, string sourceId)
-        {
-            if (sourceIds == null || string.IsNullOrEmpty(sourceId))
-            {
-                return false;
-            }
-
-            foreach (string candidate in sourceIds)
-            {
-                if (string.Equals(candidate, sourceId, StringComparison.Ordinal))
-                {
-                    return true;
-                }
-            }
-
-            return false;
-        }
-
-        private static bool IsConventionGazeSource(
-            IReadOnlyCollection<string> channelIds,
-            string sourceId)
-        {
-            return GazeSourceIdConvention.TryParse(
-                       sourceId,
-                       out _,
-                       out string channelId,
-                       out _)
-                && ContainsSourceId(channelIds, channelId);
-        }
-
         private static string ResolveFallbackLayerName(FacialProfile profile)
         {
             LayerDefinition? emotionLayer = profile.FindLayerByName("emotion");
@@ -551,68 +642,127 @@ namespace Hidano.FacialControl.Timeline.Editor
             return layers.Length > 0 ? layers[0].Name : DefaultFallbackLayerName;
         }
 
-        private static GazeSourceIdSet CollectGazeSourceIds(IReadOnlyList<GazeChannel> gazeChannels)
+        /// <summary>Profile SO の GazeChannels と binding の gaze 宣言から Gaze 判定の手がかりを集める。</summary>
+        private static GazeDetectionContext CollectGazeDetectionContext(FacialCharacterProfileSO profileAsset)
         {
-            var channelIds = new HashSet<string>(StringComparer.Ordinal);
-            var explicitSourceIds = new HashSet<string>(StringComparer.Ordinal);
-            if (gazeChannels == null)
+            GazeDetectionContext context = GazeDetectionContext.Empty();
+            IReadOnlyList<GazeChannel> gazeChannels = profileAsset.GazeChannels;
+            if (gazeChannels != null)
             {
-                return new GazeSourceIdSet(channelIds, explicitSourceIds);
+                for (int i = 0; i < gazeChannels.Count; i++)
+                {
+                    GazeChannel channel = gazeChannels[i];
+                    if (channel == null || !GazeSourceIdConvention.IsValidChannelId(channel.id))
+                    {
+                        continue;
+                    }
+
+                    context.ChannelIds.Add(channel.id);
+                    if (!string.IsNullOrWhiteSpace(channel.sourceIdLeft))
+                    {
+                        context.ExplicitSourceIds.Add(channel.sourceIdLeft);
+                    }
+
+                    if (!string.IsNullOrWhiteSpace(channel.sourceIdRight))
+                    {
+                        context.ExplicitSourceIds.Add(channel.sourceIdRight);
+                    }
+                }
             }
 
-            for (int i = 0; i < gazeChannels.Count; i++)
+            IReadOnlyList<AdapterBindingBase> bindings = profileAsset.AdapterBindings;
+            if (bindings == null)
             {
-                GazeChannel channel = gazeChannels[i];
-                if (channel == null || !GazeSourceIdConvention.IsValidChannelId(channel.id))
+                return context;
+            }
+
+            for (int i = 0; i < bindings.Count; i++)
+            {
+                if (!(bindings[i] is IGazeSourceProvider provider) || string.IsNullOrWhiteSpace(bindings[i].Slug))
                 {
                     continue;
                 }
 
-                channelIds.Add(channel.id);
-                if (!string.IsNullOrWhiteSpace(channel.sourceIdLeft))
+                string slug = bindings[i].Slug;
+                IEnumerable<GazeSourceDeclaration> declarations = provider.GetGazeSourceDeclarations();
+                if (declarations == null)
                 {
-                    explicitSourceIds.Add(channel.sourceIdLeft);
+                    continue;
                 }
 
-                if (!string.IsNullOrWhiteSpace(channel.sourceIdRight))
+                foreach (GazeSourceDeclaration declaration in declarations)
                 {
-                    explicitSourceIds.Add(channel.sourceIdRight);
+                    if (string.IsNullOrEmpty(declaration.ChannelId))
+                    {
+                        context.WildcardSlugs.Add(slug);
+                        continue;
+                    }
+
+                    if (!context.DeclaredChannels.TryGetValue(slug, out HashSet<string> channels))
+                    {
+                        channels = new HashSet<string>(StringComparer.Ordinal);
+                        context.DeclaredChannels.Add(slug, channels);
+                    }
+
+                    channels.Add(declaration.ChannelId);
                 }
             }
 
-            return new GazeSourceIdSet(channelIds, explicitSourceIds);
+            return context;
         }
 
-        private static GazeSourceIdSet CreateExplicitGazeSourceIds(IReadOnlyCollection<string> sourceIds)
+        private static GazeDetectionContext CreateExplicitGazeContext(IReadOnlyCollection<string> sourceIds)
         {
-            var explicitSourceIds = new HashSet<string>(StringComparer.Ordinal);
+            GazeDetectionContext context = GazeDetectionContext.Empty();
             if (sourceIds != null)
             {
                 foreach (string sourceId in sourceIds)
                 {
                     if (!string.IsNullOrWhiteSpace(sourceId))
                     {
-                        explicitSourceIds.Add(sourceId);
+                        context.ExplicitSourceIds.Add(sourceId);
                     }
                 }
             }
 
-            return new GazeSourceIdSet(new HashSet<string>(StringComparer.Ordinal), explicitSourceIds);
+            return context;
         }
 
-        private sealed class GazeSourceIdSet
+        /// <summary>Gaze 判定の手がかり（明示 source id / GazeChannels のチャネル id / binding の gaze 宣言）。</summary>
+        private sealed class GazeDetectionContext
         {
-            public GazeSourceIdSet(
-                HashSet<string> channelIds,
-                HashSet<string> explicitSourceIds)
+            private GazeDetectionContext()
             {
-                ChannelIds = channelIds;
-                ExplicitSourceIds = explicitSourceIds;
             }
 
-            public HashSet<string> ChannelIds { get; }
+            public HashSet<string> ExplicitSourceIds { get; } = new HashSet<string>(StringComparer.Ordinal);
 
-            public HashSet<string> ExplicitSourceIds { get; }
+            public HashSet<string> ChannelIds { get; } = new HashSet<string>(StringComparer.Ordinal);
+
+            /// <summary>slug → 宣言されたチャネル id。</summary>
+            public Dictionary<string, HashSet<string>> DeclaredChannels { get; } =
+                new Dictionary<string, HashSet<string>>(StringComparer.Ordinal);
+
+            /// <summary>ワイルドカード宣言（チャネル id 空）を持つ binding の slug。</summary>
+            public HashSet<string> WildcardSlugs { get; } = new HashSet<string>(StringComparer.Ordinal);
+
+            public static GazeDetectionContext Empty()
+            {
+                return new GazeDetectionContext();
+            }
+        }
+
+        private readonly struct SourceSamples
+        {
+            public SourceSamples(string sourceId, List<AnalogEventInfo> events)
+            {
+                SourceId = sourceId;
+                Events = events;
+            }
+
+            public string SourceId { get; }
+
+            public List<AnalogEventInfo> Events { get; }
         }
 
         private static TimelineAsset ResolveOrCreateTimelineAsset(
@@ -655,17 +805,6 @@ namespace Hidano.FacialControl.Timeline.Editor
             for (int i = 0; i < outputTracks.Length; i++)
             {
                 timeline.DeleteTrack(outputTracks[i]);
-            }
-        }
-
-        private static void BindReceiverToTimelineTracks(
-            PlayableDirector director,
-            TimelineAsset timeline,
-            FacialTimelineReceiver receiver)
-        {
-            foreach (TrackAsset track in timeline.GetOutputTracks())
-            {
-                director.SetGenericBinding(track, receiver);
             }
         }
 
@@ -838,7 +977,8 @@ namespace Hidano.FacialControl.Timeline.Editor
                 TimelineAsset timeline,
                 FacialTimelineBakeAsset bakeAsset,
                 bool createdTimeline,
-                bool createdBake)
+                bool createdBake,
+                IReadOnlyList<ChannelDetection> channelDetections)
             {
                 Success = success;
                 Cancelled = cancelled;
@@ -848,6 +988,7 @@ namespace Hidano.FacialControl.Timeline.Editor
                 BakeAsset = bakeAsset;
                 CreatedTimeline = createdTimeline;
                 CreatedBake = createdBake;
+                ChannelDetections = channelDetections ?? Array.Empty<ChannelDetection>();
             }
 
             public bool Success { get; }
@@ -866,25 +1007,30 @@ namespace Hidano.FacialControl.Timeline.Editor
 
             public bool CreatedBake { get; }
 
+            /// <summary>各値チャネルの種別と判定理由（source id 昇順。トリガー専用 source は含まない）。</summary>
+            public IReadOnlyList<ChannelDetection> ChannelDetections { get; }
+
             public static ExportResult Succeeded(
                 string recordingPath,
                 string outputAssetPath,
                 TimelineAsset timeline,
                 FacialTimelineBakeAsset bakeAsset,
                 bool createdTimeline,
-                bool createdBake)
+                bool createdBake,
+                IReadOnlyList<ChannelDetection> channelDetections = null)
             {
-                return new ExportResult(true, false, recordingPath, outputAssetPath, timeline, bakeAsset, createdTimeline, createdBake);
+                return new ExportResult(
+                    true, false, recordingPath, outputAssetPath, timeline, bakeAsset, createdTimeline, createdBake, channelDetections);
             }
 
             public static ExportResult CreateCancelled(string recordingPath, string outputAssetPath)
             {
-                return new ExportResult(false, true, recordingPath, outputAssetPath, null, null, false, false);
+                return new ExportResult(false, true, recordingPath, outputAssetPath, null, null, false, false, null);
             }
 
             public static ExportResult CreateFailed(string recordingPath, string outputAssetPath)
             {
-                return new ExportResult(false, false, recordingPath, outputAssetPath, null, null, false, false);
+                return new ExportResult(false, false, recordingPath, outputAssetPath, null, null, false, false, null);
             }
         }
     }

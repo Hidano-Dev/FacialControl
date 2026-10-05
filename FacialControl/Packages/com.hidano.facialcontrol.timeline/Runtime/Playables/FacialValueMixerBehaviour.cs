@@ -18,6 +18,13 @@ namespace Hidano.FacialControl.Timeline.Playables
         private TimelineAnalogInputSource _analogSink;
         private TimelineGazeInputSource _gazeSink;
         private float[] _axisBuffer = Array.Empty<float>();
+        private bool _isPlaying;
+
+        public override void OnPlayableCreate(Playable playable)
+        {
+            // Edit / Play の判定は playable 生成時に 1 回だけ読む（Play 遷移時は graph が作り直される）。
+            _isPlaying = FacialTimelinePlayMode.IsPlaying;
+        }
 
         public void Configure(string channelSubId, FacialValueChannelKind channelKind, ClipSample[] clips)
         {
@@ -36,13 +43,21 @@ namespace Hidano.FacialControl.Timeline.Playables
                 return;
             }
 
-            TimelineAsset timeline = ResolveTimeline(playable);
-            if (!UnityEngine.Application.isPlaying)
+            PlayableDirector director = ResolveDirector(playable);
+            TimelineAsset timeline = director != null ? director.playableAsset as TimelineAsset : null;
+            if (!_isPlaying)
             {
+                // Edit はプレビューのみ。セッションは開始しない（乗っ取りも行わない）。
                 FacialTimelineEditorPreviewBridge.ApplyPreview?.Invoke(receiver, timeline, playable.GetTime());
+                return;
             }
 
-            receiver.BeginPlaybackSession(timeline);
+            // Play: 冪等なセッション開始。Active 以外（Pending / Failed / 他 Director の所有）は戻る。Mixer はログを出さない。
+            receiver.BeginPlaybackSession(timeline, director);
+            if (!receiver.IsSessionOwnedBy(director))
+            {
+                return;
+            }
 
             if (!TryResolveSink(receiver))
             {
@@ -97,12 +112,13 @@ namespace Hidano.FacialControl.Timeline.Playables
                 _gazeSink = null;
             }
 
+            // 乗っ取り sink はセッションごとに作り直されるため、毎回 Receiver から引く（線形探索のみで確保なし）。
             if (_channelKind == FacialValueChannelKind.Gaze)
             {
-                return _gazeSink != null || receiver.TryGetGazeSink(_channelSubId, out _gazeSink);
+                return receiver.TryGetGazeSink(_channelSubId, out _gazeSink);
             }
 
-            return _analogSink != null || receiver.TryGetAnalogSink(_channelSubId, out _analogSink);
+            return receiver.TryGetAnalogSink(_channelSubId, out _analogSink);
         }
 
         private bool TryGetActiveClip(double evaluatedTrackTime, out ClipSample clip, out float clipTime)
@@ -197,15 +213,9 @@ namespace Hidano.FacialControl.Timeline.Playables
             }
         }
 
-        private static TimelineAsset ResolveTimeline(Playable playable)
+        private static PlayableDirector ResolveDirector(Playable playable)
         {
-            var resolver = playable.GetGraph().GetResolver();
-            if (resolver is PlayableDirector director)
-            {
-                return director.playableAsset as TimelineAsset;
-            }
-
-            return null;
+            return playable.GetGraph().GetResolver() as PlayableDirector;
         }
 
         private void ReleaseReceiver()

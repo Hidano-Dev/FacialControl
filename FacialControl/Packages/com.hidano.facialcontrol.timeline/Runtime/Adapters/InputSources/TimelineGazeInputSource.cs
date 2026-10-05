@@ -8,23 +8,12 @@ namespace Hidano.FacialControl.Timeline.Adapters.InputSources
     /// <summary>
     /// Timeline-owned gaze sink. Values remain unclamped and are invalid outside active playback.
     /// </summary>
-    public sealed class TimelineGazeInputSource : TimelineAnalogInputSource, IInjectedInputSource
+    /// <remarks>差し替え元の退避 / 解除と占有規則（<see cref="IInjectedInputSource"/>）は基底 <see cref="TimelineAnalogInputSource"/> が持つ。</remarks>
+    public sealed class TimelineGazeInputSource : TimelineAnalogInputSource
     {
         public TimelineGazeInputSource(InputSourceId id)
             : base(id, axisCount: 2)
         {
-        }
-
-        public IInputSource ReplacedSource { get; private set; }
-
-        public void AttachReplacement(IInputSource replacedSource)
-        {
-            ReplacedSource = replacedSource;
-        }
-
-        public void ClearReplacement()
-        {
-            ReplacedSource = null;
         }
 
         public void Publish(Vector2 value)

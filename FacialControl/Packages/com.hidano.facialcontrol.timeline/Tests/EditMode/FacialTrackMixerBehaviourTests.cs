@@ -1,231 +1,202 @@
 using System;
-using System.Collections.Generic;
-using Hidano.FacialControl.Adapters.InputSources;
-using Hidano.FacialControl.Domain.Interfaces;
 using Hidano.FacialControl.Domain.Models;
 using Hidano.FacialControl.Timeline.Adapters;
 using Hidano.FacialControl.Timeline.Adapters.Assets;
 using Hidano.FacialControl.Timeline.Adapters.InputSources;
+using Hidano.FacialControl.Domain.Interfaces;
 using Hidano.FacialControl.Timeline.Clips;
-using Hidano.FacialControl.Timeline.Domain.Services;
+using Hidano.FacialControl.Timeline.EditorPreview;
+using Hidano.FacialControl.Timeline.Playables;
 using Hidano.FacialControl.Timeline.Tracks;
 using NUnit.Framework;
 using UnityEngine;
-using UnityEngine.Playables;
 using UnityEngine.Timeline;
 
 using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.Timeline.Tests.EditMode
 {
+    /// <summary>
+    /// Expression / Value Mixer の振る舞い。EditMode で graph を評価するため、Play 相当のケースは
+    /// <see cref="FacialTimelinePlayMode.OverrideIsPlaying"/> で Play 判定を固定する。
+    /// </summary>
     [MediumTest]
     public sealed class FacialTrackMixerBehaviourTests : SizedTestFixture
     {
+        private FacialTimelineEditorPreviewBridge.ApplyPreviewDelegate _previousPreview;
+        private int _previewCalls;
+
+        [SetUp]
+        public void SetUp()
+        {
+            FacialTimelinePlayMode.OverrideIsPlaying = true;
+            _previousPreview = FacialTimelineEditorPreviewBridge.ApplyPreview;
+            _previewCalls = 0;
+        }
+
+        [TearDown]
+        public void TearDown()
+        {
+            FacialTimelinePlayMode.OverrideIsPlaying = null;
+            FacialTimelineEditorPreviewBridge.ApplyPreview = _previousPreview;
+        }
+
+        // ================================================================
+        // Edit 相当（プレビュー bridge のみ。セッションを開始しない）
+        // ================================================================
+
+        [Test]
+        public void ExpressionMixer_EditEquivalent_CallsPreviewOnlyAndKeepsSessionIdleWithoutLog()
+        {
+            FacialTimelinePlayMode.OverrideIsPlaying = false;
+            FacialTimelineEditorPreviewBridge.ApplyPreview = (receiver, timeline, time) => _previewCalls++;
+            // binding 未接続（Play なら BindingMissing の Error になる構成）でも Edit ではセッションに触れない。
+            using TimelineReceiverTestHost host = CreateHost(CreateTimeline, attach: false);
+            using var logs = new TimelineLogCounter();
+
+            host.Director.RebuildGraph();
+            host.Director.time = 0.25d;
+            host.Director.Evaluate();
+
+            Assert.That(_previewCalls, Is.GreaterThan(0), "Edit ではプレビュー bridge を呼ぶ");
+            Assert.That(host.Receiver.SessionState, Is.EqualTo(TimelineSessionState.Idle));
+            Assert.That(host.Receiver.Diagnostics.Items, Is.Empty, "Edit 相当の呼び出しは診断状態を変えない");
+            Assert.That(logs.Errors + logs.Warnings, Is.EqualTo(0), "Edit 相当の呼び出しで Console に出さない");
+        }
+
+        [Test]
+        public void ValueMixer_EditEquivalent_CallsPreviewOnlyAndDoesNotTakeOverRegistry()
+        {
+            FacialTimelinePlayMode.OverrideIsPlaying = false;
+            FacialTimelineEditorPreviewBridge.ApplyPreview = (receiver, timeline, time) => _previewCalls++;
+            using TimelineReceiverTestHost host = CreateHost(CreateAnalogTimeline);
+            var original = new TestAnalogSource("osc:analog", 3);
+            host.Registry.Register(AdapterSlug.Parse("osc"), "analog", original);
+            using var logs = new TimelineLogCounter();
+
+            host.Director.RebuildGraph();
+            host.Director.time = 0.25d;
+            host.Director.Evaluate();
+
+            Assert.That(_previewCalls, Is.GreaterThan(0));
+            Assert.That(host.Receiver.SessionState, Is.EqualTo(TimelineSessionState.Idle));
+            Assert.That(host.Registry.TryResolve("osc:analog", out IInputSource current), Is.True);
+            Assert.That(current, Is.SameAs(original), "Edit では乗っ取らない");
+            Assert.That(logs.Errors + logs.Warnings, Is.EqualTo(0));
+        }
+
+        [Test]
+        public void ExpressionMixer_PlayWithFailedSession_DoesNotWriteSinks()
+        {
+            using TimelineReceiverTestHost host = CreateHost(CreateTimeline, attach: false);
+            using var logs = new TimelineLogCounter();
+
+            host.Director.RebuildGraph();
+            host.Director.time = 0.25d;
+            host.Director.Evaluate();
+            host.Director.time = 0.5d;
+            host.Director.Evaluate();
+
+            Assert.That(host.Receiver.SessionState, Is.EqualTo(TimelineSessionState.Failed));
+            Assert.That(host.Receiver.TryGetExpressionSink("Expressions", out _), Is.False);
+            Assert.That(logs.Errors, Is.EqualTo(1), "Mixer 自身はログを出さず、Receiver の最初の Error 1 件のみ");
+        }
+
+        // ================================================================
+        // Play 相当
+        // ================================================================
+
         [Test]
         public void ExpressionMixer_CollectsParentAndChildLaneEvents_AndAdvancesLinearly()
         {
-            var timeline = ScriptableObject.CreateInstance<TimelineAsset>();
-            var directorObject = new GameObject("FacialTrackMixerBehaviourTests_Director");
-            var receiverObject = new GameObject("FacialTrackMixerBehaviourTests_Receiver");
-            var director = directorObject.AddComponent<PlayableDirector>();
-            var receiver = receiverObject.AddComponent<FacialTimelineReceiver>();
-            FacialTimelineBakeAsset bake = null;
+            using TimelineReceiverTestHost host = CreateHost(CreateTimeline);
 
-            try
-            {
-                FacialProfile profile = CreateProfile();
-                TimelineExpressionStateSink expressionSink = CreateExpressionSink(profile);
-                TimelineAsset configuredTimeline = CreateTimeline(timeline);
-                receiver.Configure(
-                    profile,
-                    new FakeInputSourceRegistry(),
-                    new[] { ("Expressions", expressionSink) },
-                    Array.Empty<(string sub, TimelineBakedValueSink sink)>(),
-                    Array.Empty<(string sub, TimelineAnalogInputSource sink)>(),
-                    Array.Empty<(string sub, TimelineGazeInputSource sink, string takeoverSourceId)>());
+            host.Director.Play();
+            host.Director.playableGraph.Evaluate(0f);
+            Assert.That(host.Receiver.SessionState, Is.EqualTo(TimelineSessionState.Active));
+            Assert.That(host.Receiver.TryGetExpressionSink("Expressions", out TimelineExpressionStateSink expressionSink), Is.True);
 
-                bake = ScriptableObject.CreateInstance<FacialTimelineBakeAsset>();
-                bake.SampleRate = 60f;
-                bake.SourceHashHex = FacialTimelineHashCalculator.ComputeHashHex(configuredTimeline, profile, bake.SampleRate);
-                receiver.BakeAsset = bake;
+            host.Director.playableGraph.Evaluate(0.75f);
+            CollectionAssert.AreEqual(new[] { "smile", "angry" }, expressionSink.ActiveExpressionIds);
 
-                director.playableAsset = configuredTimeline;
-                director.timeUpdateMode = DirectorUpdateMode.Manual;
-                director.extrapolationMode = DirectorWrapMode.None;
-                director.SetGenericBinding(configuredTimeline.GetOutputTrack(0), receiver);
-                director.Play();
-                director.playableGraph.Evaluate(0f);
-
-                director.playableGraph.Evaluate(0.75f);
-                CollectionAssert.AreEqual(new[] { "smile", "angry" }, expressionSink.ActiveExpressionIds);
-
-                director.playableGraph.Evaluate(0.5f);
-                CollectionAssert.AreEqual(new[] { "angry" }, expressionSink.ActiveExpressionIds);
-            }
-            finally
-            {
-                DestroyGraph(director);
-                UnityEngine.Object.DestroyImmediate(directorObject);
-                UnityEngine.Object.DestroyImmediate(receiverObject);
-                UnityEngine.Object.DestroyImmediate(timeline);
-                if (bake != null)
-                {
-                    UnityEngine.Object.DestroyImmediate(bake);
-                }
-            }
+            host.Director.playableGraph.Evaluate(0.5f);
+            CollectionAssert.AreEqual(new[] { "angry" }, expressionSink.ActiveExpressionIds);
         }
 
         [Test]
         public void ExpressionMixer_WhenScrubbedBackward_ReconstructsTargetStackByJump()
         {
-            var timeline = ScriptableObject.CreateInstance<TimelineAsset>();
-            var directorObject = new GameObject("FacialTrackMixerBehaviourTests_ScrubDirector");
-            var receiverObject = new GameObject("FacialTrackMixerBehaviourTests_ScrubReceiver");
-            var director = directorObject.AddComponent<PlayableDirector>();
-            var receiver = receiverObject.AddComponent<FacialTimelineReceiver>();
-            FacialTimelineBakeAsset bake = null;
+            using TimelineReceiverTestHost host = CreateHost(CreateTimeline);
 
-            try
-            {
-                FacialProfile profile = CreateProfile();
-                TimelineExpressionStateSink expressionSink = CreateExpressionSink(profile);
-                TimelineAsset configuredTimeline = CreateTimeline(timeline);
-                receiver.Configure(
-                    profile,
-                    new FakeInputSourceRegistry(),
-                    new[] { ("Expressions", expressionSink) },
-                    Array.Empty<(string sub, TimelineBakedValueSink sink)>(),
-                    Array.Empty<(string sub, TimelineAnalogInputSource sink)>(),
-                    Array.Empty<(string sub, TimelineGazeInputSource sink, string takeoverSourceId)>());
+            host.Director.Play();
+            host.Director.playableGraph.Evaluate(0f);
+            Assert.That(host.Receiver.TryGetExpressionSink("Expressions", out TimelineExpressionStateSink expressionSink), Is.True);
 
-                bake = ScriptableObject.CreateInstance<FacialTimelineBakeAsset>();
-                bake.SampleRate = 60f;
-                bake.SourceHashHex = FacialTimelineHashCalculator.ComputeHashHex(configuredTimeline, profile, bake.SampleRate);
-                receiver.BakeAsset = bake;
+            host.Director.playableGraph.Evaluate(1.25f);
+            CollectionAssert.AreEqual(new[] { "angry" }, expressionSink.ActiveExpressionIds);
 
-                director.playableAsset = configuredTimeline;
-                director.timeUpdateMode = DirectorUpdateMode.Manual;
-                director.extrapolationMode = DirectorWrapMode.None;
-                director.SetGenericBinding(configuredTimeline.GetOutputTrack(0), receiver);
-                director.Play();
-                director.playableGraph.Evaluate(0f);
-
-                director.playableGraph.Evaluate(1.25f);
-                CollectionAssert.AreEqual(new[] { "angry" }, expressionSink.ActiveExpressionIds);
-
-                director.time = 0.25d;
-                director.Evaluate();
-                CollectionAssert.AreEqual(new[] { "smile" }, expressionSink.ActiveExpressionIds);
-            }
-            finally
-            {
-                DestroyGraph(director);
-                UnityEngine.Object.DestroyImmediate(directorObject);
-                UnityEngine.Object.DestroyImmediate(receiverObject);
-                UnityEngine.Object.DestroyImmediate(timeline);
-                if (bake != null)
-                {
-                    UnityEngine.Object.DestroyImmediate(bake);
-                }
-            }
+            host.Director.time = 0.25d;
+            host.Director.Evaluate();
+            CollectionAssert.AreEqual(new[] { "smile" }, expressionSink.ActiveExpressionIds);
         }
 
         [Test]
-        public void ValueMixer_SamplesAnalogCurvesIntoSink()
+        public void ValueMixer_SamplesAnalogCurvesIntoTakenOverSink()
         {
-            var timeline = ScriptableObject.CreateInstance<TimelineAsset>();
-            var directorObject = new GameObject("FacialTrackMixerBehaviourTests_ValueDirector");
-            var receiverObject = new GameObject("FacialTrackMixerBehaviourTests_ValueReceiver");
-            var director = directorObject.AddComponent<PlayableDirector>();
-            var receiver = receiverObject.AddComponent<FacialTimelineReceiver>();
-            var analogSink = new TimelineAnalogInputSource(InputSourceId.Parse("timeline:analog-main"), axisCount: 3);
+            using TimelineReceiverTestHost host = CreateHost(CreateAnalogTimeline);
+            host.Registry.Register(AdapterSlug.Parse("osc"), "analog", new TestAnalogSource("osc:analog", 3));
+            host.Director.RebuildGraph();
 
-            try
-            {
-                receiver.Configure(
-                    CreateProfile(),
-                    new FakeInputSourceRegistry(),
-                    Array.Empty<(string layer, TimelineExpressionStateSink sink)>(),
-                    Array.Empty<(string sub, TimelineBakedValueSink sink)>(),
-                    new[] { ("analog-main", analogSink) },
-                    Array.Empty<(string sub, TimelineGazeInputSource sink, string takeoverSourceId)>());
+            host.Director.time = 0.25d;
+            host.Director.Evaluate();
 
-                TimelineAsset configuredTimeline = CreateAnalogTimeline(timeline);
-                director.playableAsset = configuredTimeline;
-                director.SetGenericBinding(configuredTimeline.GetOutputTrack(0), receiver);
-                director.RebuildGraph();
-
-                director.time = 0.25d;
-                director.Evaluate();
-
-                Span<float> axes = stackalloc float[3];
-                Assert.That(analogSink.IsValid, Is.True);
-                Assert.That(analogSink.TryReadAxes(axes), Is.True);
-                Assert.That(axes.ToArray(), Is.EqualTo(new[] { 0.25f, 0.5f, -0.25f }).Within(0.0001f));
-            }
-            finally
-            {
-                DestroyGraph(director);
-                UnityEngine.Object.DestroyImmediate(directorObject);
-                UnityEngine.Object.DestroyImmediate(receiverObject);
-                UnityEngine.Object.DestroyImmediate(timeline);
-            }
+            Assert.That(host.Receiver.TryGetAnalogSink("osc:analog", out TimelineAnalogInputSource analogSink), Is.True);
+            Span<float> axes = stackalloc float[3];
+            Assert.That(analogSink.IsValid, Is.True);
+            Assert.That(analogSink.TryReadAxes(axes), Is.True);
+            Assert.That(axes.ToArray(), Is.EqualTo(new[] { 0.25f, 0.5f, -0.25f }).Within(0.0001f));
         }
 
         [Test]
         public void ValueMixer_SamplesGazeCurvesAndInvalidatesOutsideClip()
         {
-            var timeline = ScriptableObject.CreateInstance<TimelineAsset>();
-            var directorObject = new GameObject("FacialTrackMixerBehaviourTests_GazeDirector");
-            var receiverObject = new GameObject("FacialTrackMixerBehaviourTests_GazeReceiver");
-            var director = directorObject.AddComponent<PlayableDirector>();
-            var receiver = receiverObject.AddComponent<FacialTimelineReceiver>();
-            var gazeSink = new TimelineGazeInputSource(InputSourceId.Parse("timeline:gaze-0"));
+            using TimelineReceiverTestHost host = CreateHost(CreateGazeTimeline);
+            host.Registry.Register(AdapterSlug.Parse("osc"), "gaze", new TestAnalogSource("osc:gaze", 2));
+            host.Director.RebuildGraph();
 
-            try
-            {
-                receiver.Configure(
-                    CreateProfile(),
-                    new FakeInputSourceRegistry(),
-                    Array.Empty<(string layer, TimelineExpressionStateSink sink)>(),
-                    Array.Empty<(string sub, TimelineBakedValueSink sink)>(),
-                    Array.Empty<(string sub, TimelineAnalogInputSource sink)>(),
-                    new[] { ("gaze-main", gazeSink, string.Empty) });
+            host.Director.time = 0.25d;
+            host.Director.Evaluate();
 
-                TimelineAsset configuredTimeline = CreateGazeTimeline(timeline);
-                director.playableAsset = configuredTimeline;
-                director.SetGenericBinding(configuredTimeline.GetOutputTrack(0), receiver);
-                director.RebuildGraph();
+            Assert.That(host.Receiver.TryGetGazeSink("osc:gaze", out TimelineGazeInputSource gazeSink), Is.True);
+            Assert.That(gazeSink.IsValid, Is.True);
+            Assert.That(gazeSink.TryReadVector2(out float x, out float y), Is.True);
+            Assert.That(x, Is.EqualTo(-0.5f).Within(0.0001f));
+            Assert.That(y, Is.EqualTo(0.5f).Within(0.0001f));
 
-                director.time = 0.25d;
-                director.Evaluate();
+            host.Director.time = 0.75d;
+            host.Director.Evaluate();
 
-                Assert.That(gazeSink.IsValid, Is.True);
-                Assert.That(gazeSink.TryReadVector2(out float x, out float y), Is.True);
-                Assert.That(x, Is.EqualTo(-0.5f).Within(0.0001f));
-                Assert.That(y, Is.EqualTo(0.5f).Within(0.0001f));
-
-                director.time = 0.75d;
-                director.Evaluate();
-
-                Assert.That(gazeSink.IsValid, Is.False);
-                Assert.That(gazeSink.TryReadVector2(out _, out _), Is.False);
-            }
-            finally
-            {
-                DestroyGraph(director);
-                UnityEngine.Object.DestroyImmediate(directorObject);
-                UnityEngine.Object.DestroyImmediate(receiverObject);
-                UnityEngine.Object.DestroyImmediate(timeline);
-            }
+            Assert.That(gazeSink.IsValid, Is.False);
+            Assert.That(gazeSink.TryReadVector2(out _, out _), Is.False);
         }
 
-        private static TimelineExpressionStateSink CreateExpressionSink(FacialProfile profile)
+        /// <summary>
+        /// 初期化済み FacialController + Receiver + Director を組み、全 Facial トラックへ同じ Bake 参照を書いて
+        /// Director にバインドし、接続コンテキストを Receiver に渡す。
+        /// </summary>
+        private static TimelineReceiverTestHost CreateHost(Func<TimelineAsset, TimelineAsset> build, bool attach = true)
         {
-            return new TimelineExpressionStateSink(
-                InputSourceId.Parse("timeline:Expressions"),
-                maxStackDepth: 8,
-                exclusionMode: ExclusionMode.LastWins,
-                profile);
+            TimelineReceiverTestHost host = TimelineReceiverTestHost.Create(CreateProfile(), new[] { "Smile", "Angry" });
+            TimelineAsset timeline = build(host.CreateTimeline());
+            FacialTimelineBakeAsset bake = host.CreateBake(timeline);
+            TimelineReceiverTestHost.AssignBakeToAllTracks(timeline, bake);
+            host.StampHashes(timeline, bake);
+            host.BindDirector(timeline);
+            if (attach)
+            {
+                host.Attach();
+            }
+
+            return host;
         }
 
         private static TimelineAsset CreateTimeline(TimelineAsset timeline)
@@ -248,7 +219,7 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
         private static TimelineAsset CreateAnalogTimeline(TimelineAsset timeline)
         {
             var track = timeline.CreateTrack<FacialValueTrack>(null, "Analog");
-            track.ChannelSubId = "analog-main";
+            track.ChannelSubId = "osc:analog";
             track.ChannelKind = FacialValueChannelKind.Analog;
 
             TimelineClip clip = track.CreateClip<FacialValueClip>();
@@ -267,7 +238,7 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
         private static TimelineAsset CreateGazeTimeline(TimelineAsset timeline)
         {
             var track = timeline.CreateTrack<FacialValueTrack>(null, "Gaze");
-            track.ChannelSubId = "gaze-main";
+            track.ChannelSubId = "osc:gaze";
             track.ChannelKind = FacialValueChannelKind.Gaze;
 
             TimelineClip clip = track.CreateClip<FacialValueClip>();
@@ -318,82 +289,6 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
                 {
                     new BlendShapeMapping(name, 1.0f),
                 });
-        }
-
-        private static void DestroyGraph(PlayableDirector director)
-        {
-            if (director != null && director.playableGraph.IsValid())
-            {
-                director.playableGraph.Destroy();
-            }
-        }
-
-        private sealed class FakeInputSourceRegistry : IInputSourceRegistry
-        {
-            private readonly Dictionary<string, IInputSource> _entries =
-                new Dictionary<string, IInputSource>(StringComparer.Ordinal);
-            private readonly List<string> _registeredIds = new List<string>();
-
-            public IReadOnlyList<string> RegisteredIds => _registeredIds;
-
-            public void Register(AdapterSlug slug, IInputSource source)
-            {
-                RegisterInternal(slug.Value, source);
-            }
-
-            public void Replace(AdapterSlug slug, IInputSource source)
-            {
-                RegisterInternal(slug.Value, source);
-            }
-
-            public void Register(AdapterSlug slug, string sub, IInputSource source)
-            {
-                RegisterInternal(Compose(slug, sub), source);
-            }
-
-            public void Replace(AdapterSlug slug, string sub, IInputSource source)
-            {
-                RegisterInternal(Compose(slug, sub), source);
-            }
-
-            public void Unregister(AdapterSlug slug)
-            {
-                UnregisterInternal(slug.Value);
-            }
-
-            public void Unregister(AdapterSlug slug, string sub)
-            {
-                UnregisterInternal(Compose(slug, sub));
-            }
-
-            public bool TryResolve(string layerInputSourceId, out IInputSource source)
-            {
-                return _entries.TryGetValue(layerInputSourceId, out source);
-            }
-
-            public void Subscribe(string id, Action<IInputSource> handler)
-            {
-            }
-
-            private void RegisterInternal(string id, IInputSource source)
-            {
-                _entries[id] = source;
-                if (!_registeredIds.Contains(id))
-                {
-                    _registeredIds.Add(id);
-                }
-            }
-
-            private void UnregisterInternal(string id)
-            {
-                _entries.Remove(id);
-                _registeredIds.Remove(id);
-            }
-
-            private static string Compose(AdapterSlug slug, string sub)
-            {
-                return string.IsNullOrEmpty(sub) ? slug.Value : slug.Value + ":" + sub;
-            }
         }
     }
 }

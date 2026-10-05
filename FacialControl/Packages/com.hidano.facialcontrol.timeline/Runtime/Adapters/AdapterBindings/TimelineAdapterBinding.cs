@@ -1,224 +1,141 @@
 using System;
 using System.Collections.Generic;
 using Hidano.FacialControl.Adapters.InputSources;
+using Hidano.FacialControl.Adapters.Playable;
 using Hidano.FacialControl.Domain.Adapters;
 using Hidano.FacialControl.Domain.Models;
 using Hidano.FacialControl.Timeline.Adapters;
-using Hidano.FacialControl.Timeline.Adapters.Assets;
-using Hidano.FacialControl.Timeline.Adapters.InputSources;
+using Hidano.FacialControl.Timeline.Adapters.Session;
 using UnityEngine;
 
 namespace Hidano.FacialControl.Timeline.Adapters.AdapterBindings
 {
+    /// <summary>
+    /// 「Timeline からの受信を有効にする」フラグ（Slug + 有効フラグ）。Receiver の取得 / 生成と所有管理だけを行う。
+    /// </summary>
+    /// <remarks>
+    /// <para>レイヤー / チャネルは再生セッション開始時に TimelineAsset のトラックから導出するため、binding は設定を持たない。
+    /// 旧フィールド（Target Layer Names / Channel Definitions）は旧 Profile のデシリアライズのためだけに残し、再生には使わない。</para>
+    /// <para><c>timeline:*</c> の id を実行時に導出するため <see cref="IAdapterBindingDynamicInputs"/> を実装する。
+    /// Analog / Gaze は registry の乗っ取りで再生するため Gaze 提供者 interface は実装しない。</para>
+    /// </remarks>
     [Serializable]
     [FacialAdapterBinding(displayName: "Timeline")]
-    public sealed class TimelineAdapterBinding : AdapterBindingBase, IGazeSourceProvider
+    public sealed class TimelineAdapterBinding : AdapterBindingBase, IAdapterBindingDynamicInputs
     {
         private const string DefaultSlug = "timeline";
-        private const int DefaultMaxStackDepth = 16;
-        private const string StateSinkSuffix = ":state";
+        private const string LogPrefix = "[TimelineAdapterBinding] ";
 
-        [SerializeField] private List<string> targetLayerNames = new List<string>();
-        [SerializeField] private List<TimelineValueChannelConfig> channelDefinitions = new List<TimelineValueChannelConfig>();
+        [SerializeField] private bool enabled = true;
+
+        // legacy: 再生には使わない（レイヤー / チャネルは TimelineAsset のトラックから導出する）。旧 Profile のデシリアライズ用。
+        [SerializeField, HideInInspector] private List<string> targetLayerNames = new List<string>();
+        [SerializeField, HideInInspector] private List<TimelineValueChannelConfig> channelDefinitions = new List<TimelineValueChannelConfig>();
 
         [NonSerialized] private FacialTimelineReceiver _receiver;
+        [NonSerialized] private bool _ownsReceiver;
+        [NonSerialized] private bool _legacyWarningIssued;
 
         public TimelineAdapterBinding()
         {
             Slug = DefaultSlug;
         }
 
-        public IReadOnlyList<string> TargetLayerNames => targetLayerNames;
+        /// <summary>Timeline からの受信を許可するか（既定 true）。</summary>
+        public bool Enabled
+        {
+            get => enabled;
+            set => enabled = value;
+        }
 
-        public IReadOnlyList<TimelineValueChannelConfig> ChannelDefinitions => channelDefinitions;
+        /// <summary>旧フィールド（Target Layer Names / Channel Definitions）のどちらかに値が残っているか。</summary>
+        public bool HasLegacyFields =>
+            (targetLayerNames != null && targetLayerNames.Count > 0)
+            || (channelDefinitions != null && channelDefinitions.Count > 0);
 
+        /// <summary>接続中の Receiver（無効時に既存 Receiver が無ければ null）。</summary>
         public FacialTimelineReceiver Receiver => _receiver;
+
+        /// <summary>Receiver を本 binding が AddComponent したか（Dispose で破棄するのはこの場合のみ）。</summary>
+        public bool OwnsReceiver => _ownsReceiver;
 
         public override void OnStart(in AdapterBuildContext ctx)
         {
             string slugText = string.IsNullOrWhiteSpace(Slug) ? DefaultSlug : Slug;
             if (!AdapterSlug.TryParse(slugText, out AdapterSlug slug))
             {
-                Debug.LogError(
-                    $"[TimelineAdapterBinding] Slug '{slugText}' is invalid. Timeline sinks were not registered.");
+                Debug.LogError(LogPrefix + $"Slug '{slugText}' is invalid. Timeline からの受信を開始できません。");
                 return;
             }
 
             Slug = slug.Value;
 
-            _receiver = ctx.HostGameObject.GetComponent<FacialTimelineReceiver>();
-            if (_receiver == null)
+            if (HasLegacyFields && !_legacyWarningIssued)
             {
-                _receiver = ctx.HostGameObject.AddComponent<FacialTimelineReceiver>();
+                _legacyWarningIssued = true;
+                Debug.LogWarning(LogPrefix
+                    + "旧フィールド（Target Layer Names / Channel Definitions）は再生に使われません。"
+                    + "レイヤーとチャネルは TimelineAsset のトラックから自動で導出されます（再生は継続します）。");
             }
 
-            var expressionSinks = new List<(string layer, TimelineExpressionStateSink sink)>();
-            var valueSinks = new List<(string layer, TimelineBakedValueSink sink)>();
-            var analogSinks = new List<(string sub, TimelineAnalogInputSource sink)>();
-            var gazeSinks = new List<(string sub, TimelineGazeInputSource sink, string takeoverSourceId)>();
-            var seenLayers = new HashSet<string>(StringComparer.Ordinal);
-            var seenChannels = new HashSet<string>(StringComparer.Ordinal);
-            int gazeDiagnosticIndex = 0;
-
-            if (targetLayerNames != null)
+            GameObject host = ctx.HostGameObject;
+            FacialTimelineReceiver existing = host.GetComponent<FacialTimelineReceiver>();
+            if (!enabled)
             {
-                for (int i = 0; i < targetLayerNames.Count; i++)
-                {
-                    string layerName = targetLayerNames[i];
-                    if (string.IsNullOrWhiteSpace(layerName) || !seenLayers.Add(layerName))
-                    {
-                        continue;
-                    }
-
-                    LayerDefinition? layer = ctx.Profile.FindLayerByName(layerName);
-                    if (!layer.HasValue)
-                    {
-                        Debug.LogWarning(
-                            $"[TimelineAdapterBinding] Layer '{layerName}' was not found in profile. The state sink is skipped.");
-                        continue;
-                    }
-
-                    var stateSink = new TimelineExpressionStateSink(
-                        InputSourceId.Parse(slug.Value + ":" + layerName + StateSinkSuffix),
-                        DefaultMaxStackDepth,
-                        layer.Value.ExclusionMode,
-                        ctx.Profile);
-                    var valueSink = new TimelineBakedValueSink(
-                        InputSourceId.Parse(slug.Value + ":" + layerName),
-                        ctx.BlendShapeNames,
-                        CollectBakedBlendShapeNames(_receiver.BakeAsset, layerName));
-
-                    ctx.InputSourceRegistry.Register(slug, layerName, valueSink);
-                    ctx.InputSourceRegistry.Register(slug, layerName + StateSinkSuffix, stateSink);
-                    expressionSinks.Add((layerName, stateSink));
-                    valueSinks.Add((layerName, valueSink));
-                }
+                // 無効時は Receiver を生成しない。既存 Receiver には無効の接続コンテキストだけ渡し、BindingDisabled を診断できるようにする。
+                _receiver = existing;
+                _ownsReceiver = false;
+            }
+            else if (existing != null)
+            {
+                _receiver = existing;
+                _ownsReceiver = false;
+            }
+            else
+            {
+                _receiver = host.AddComponent<FacialTimelineReceiver>();
+                _ownsReceiver = true;
             }
 
-            if (channelDefinitions != null)
-            {
-                for (int i = 0; i < channelDefinitions.Count; i++)
-                {
-                    TimelineValueChannelConfig channel = channelDefinitions[i];
-                    if (channel == null || string.IsNullOrWhiteSpace(channel.Sub) || !seenChannels.Add(channel.Sub))
-                    {
-                        continue;
-                    }
-
-                    if (channel.IsGaze)
-                    {
-                        if (!GazeSourceIdConvention.IsValidChannelId(channel.Sub))
-                        {
-                            Debug.LogWarning(
-                                $"[TimelineAdapterBinding] Gaze channel '{channel.Sub}' is not a valid channel id. The gaze source declaration is skipped.");
-                        }
-
-                        if (!string.IsNullOrWhiteSpace(channel.TakeoverSourceId)
-                            && !GazeSourceIdConvention.TryParse(channel.TakeoverSourceId, out _, out _, out _))
-                        {
-                            Debug.LogWarning(
-                                $"[TimelineAdapterBinding] Gaze takeover source id '{channel.TakeoverSourceId}' does not follow the gaze source id convention.");
-                        }
-
-                        string diagnosticSub = "gaze-" + gazeDiagnosticIndex++;
-                        var gazeSink = new TimelineGazeInputSource(
-                            InputSourceId.Parse(slug.Value + ":" + diagnosticSub));
-                        ctx.InputSourceRegistry.Register(slug, diagnosticSub, gazeSink);
-                        gazeSinks.Add((channel.Sub, gazeSink, channel.TakeoverSourceId));
-                        continue;
-                    }
-
-                    if (channel.AxisCount <= 0)
-                    {
-                        Debug.LogWarning(
-                            $"[TimelineAdapterBinding] Channel '{channel.Sub}' has AxisCount={channel.AxisCount}. The analog sink is skipped.");
-                        continue;
-                    }
-
-                    var analogSink = new TimelineAnalogInputSource(
-                        InputSourceId.Parse(slug.Value + ":" + channel.Sub),
-                        channel.AxisCount);
-                    ctx.InputSourceRegistry.Register(slug, channel.Sub, analogSink);
-                    analogSinks.Add((channel.Sub, analogSink));
-                }
-            }
-
-            _receiver.Configure(
-                ctx.Profile,
-                ctx.InputSourceRegistry,
-                expressionSinks,
-                valueSinks,
-                analogSinks,
-                gazeSinks);
-        }
-
-        public IEnumerable<GazeSourceDeclaration> GetGazeSourceDeclarations()
-        {
-            if (channelDefinitions == null)
-            {
-                yield break;
-            }
-
-            for (int i = 0; i < channelDefinitions.Count; i++)
-            {
-                TimelineValueChannelConfig channel = channelDefinitions[i];
-                if (channel == null || !channel.IsGaze
-                    || !GazeSourceIdConvention.IsValidChannelId(channel.Sub))
-                {
-                    continue;
-                }
-
-                yield return new GazeSourceDeclaration(channel.Sub, providesLeftRightPair: false);
-            }
-        }
-
-        public override void Dispose()
-        {
             if (_receiver == null)
             {
                 return;
             }
 
-            _receiver.ReleaseAll();
+            _receiver.AttachBinding(new TimelineBindingContext(
+                slug,
+                ctx.Profile,
+                ctx.BlendShapeNames,
+                ctx.InputSourceRegistry,
+                host.GetComponent<FacialController>(),
+                enabled));
+        }
+
+        public override void Dispose()
+        {
+            FacialTimelineReceiver receiver = _receiver;
+            bool owns = _ownsReceiver;
+            _receiver = null;
+            _ownsReceiver = false;
+            if (receiver == null)
+            {
+                return;
+            }
+
+            receiver.DetachBinding();
+            if (!owns)
+            {
+                return;
+            }
 
             if (UnityEngine.Application.isPlaying)
             {
-                UnityEngine.Object.Destroy(_receiver);
+                UnityEngine.Object.Destroy(receiver);
             }
             else
             {
-                UnityEngine.Object.DestroyImmediate(_receiver);
+                UnityEngine.Object.DestroyImmediate(receiver);
             }
-
-            _receiver = null;
-        }
-
-        private static string[] CollectBakedBlendShapeNames(FacialTimelineBakeAsset bakeAsset, string layerName)
-        {
-            if (bakeAsset == null || bakeAsset.ExpressionBakes == null || string.IsNullOrEmpty(layerName))
-            {
-                return Array.Empty<string>();
-            }
-
-            for (int bakeIndex = 0; bakeIndex < bakeAsset.ExpressionBakes.Length; bakeIndex++)
-            {
-                ExpressionSourceBake expressionBake = bakeAsset.ExpressionBakes[bakeIndex];
-                if (expressionBake == null || !string.Equals(expressionBake.LayerName, layerName, StringComparison.Ordinal))
-                {
-                    continue;
-                }
-
-                BlendShapeCurve[] curves = expressionBake.Curves ?? Array.Empty<BlendShapeCurve>();
-                var names = new string[curves.Length];
-                for (int curveIndex = 0; curveIndex < curves.Length; curveIndex++)
-                {
-                    names[curveIndex] = curves[curveIndex]?.BlendShapeName ?? string.Empty;
-                }
-
-                return names;
-            }
-
-            return Array.Empty<string>();
         }
     }
 

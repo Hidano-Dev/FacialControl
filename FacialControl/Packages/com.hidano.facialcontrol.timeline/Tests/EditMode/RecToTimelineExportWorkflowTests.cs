@@ -8,6 +8,7 @@ using Hidano.FacialControl.Rec.Domain.Models;
 using Hidano.FacialControl.Rec.Domain.Services;
 using Hidano.FacialControl.Timeline.Adapters;
 using Hidano.FacialControl.Timeline.Adapters.Assets;
+using Hidano.FacialControl.Timeline.Adapters.Scanning;
 using Hidano.FacialControl.Timeline.Clips;
 using Hidano.FacialControl.Timeline.Editor;
 using Hidano.FacialControl.Timeline.Tracks;
@@ -25,7 +26,7 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
     public sealed class RecToTimelineExportWorkflowTests : SizedTestFixture
     {
         [Test]
-        public void TryExportTimelineAsset_NewAsset_CreatesTimelineBakeAndBindings()
+        public void TryExportTimelineAsset_NewAsset_CreatesTimelineAndBakeWithoutTouchingSceneObjects()
         {
             ExportFixture fixture = ExportFixture.Create();
             var host = new GameObject("RecTimelineExportHost");
@@ -38,26 +39,57 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
                     fixture.RecordingAbsolutePath,
                     fixture.Profile,
                     fixture.TimelinePath,
-                    out RecToTimelineExporter.ExportResult result,
-                    director: director,
-                    receiver: receiver);
+                    out RecToTimelineExporter.ExportResult result);
 
                 Assert.That(success, Is.True);
                 Assert.That(result.Success, Is.True);
                 Assert.That(result.Timeline, Is.Not.Null);
                 Assert.That(result.BakeAsset, Is.Not.Null);
                 Assert.That(AssetDatabase.LoadAssetAtPath<TimelineAsset>(fixture.TimelinePath), Is.Not.Null);
-                Assert.That(receiver.BakeAsset, Is.SameAs(result.BakeAsset));
-                Assert.That(AssetDatabase.GetAssetPath(director.playableAsset), Is.EqualTo(fixture.TimelinePath));
 
+                // Export は TimelineAsset 1 つで完結し、シーン上の Director / Receiver に副作用を持たない（Req 10.5）。
+                Assert.That(director.playableAsset, Is.Null);
+                Assert.That(receiver.BakeAsset, Is.Null);
                 foreach (TrackAsset track in result.Timeline.GetOutputTracks())
                 {
-                    Assert.That(director.GetGenericBinding(track), Is.SameAs(receiver));
+                    Assert.That(director.GetGenericBinding(track), Is.Null);
                 }
             }
             finally
             {
                 UnityEngine.Object.DestroyImmediate(host);
+                fixture.Dispose();
+            }
+        }
+
+        [Test]
+        public void TryExportTimelineAsset_ReturnsDetectionsAndChannelSubIdsAreValidForPlayback()
+        {
+            ExportFixture fixture = ExportFixture.Create();
+
+            try
+            {
+                bool success = RecToTimelineExporter.TryExportTimelineAsset(
+                    fixture.RecordingAbsolutePath,
+                    fixture.Profile,
+                    fixture.TimelinePath,
+                    out RecToTimelineExporter.ExportResult result);
+
+                Assert.That(success, Is.True);
+                Assert.That(result.ChannelDetections, Has.Count.EqualTo(1), "Analog イベントを持つ source だけが検出される");
+                Assert.That(result.ChannelDetections[0].SourceId, Is.EqualTo("live:gaze"));
+                Assert.That(result.ChannelDetections[0].Kind, Is.EqualTo(FacialValueChannelKind.Gaze));
+                Assert.That(result.ChannelDetections[0].Reason, Is.EqualTo(ChannelDetectionReason.ConventionGazeChannel));
+
+                FacialProfile profile = TimelineProfileSource.Resolve(fixture.Profile);
+                var derivation = Hidano.FacialControl.Timeline.Domain.Services.TimelineChannelDeriver.Derive(
+                    TimelineAssetScanner.Scan(result.Timeline).Tracks, profile);
+                Assert.That(derivation.InvalidChannelSubIds, Is.Empty, "Export した ChannelSubId を再生側が不正扱いしない");
+                Assert.That(derivation.Channels, Has.Count.EqualTo(1));
+                Assert.That(derivation.Channels[0].ChannelSubId, Is.EqualTo("live:gaze"));
+            }
+            finally
+            {
                 fixture.Dispose();
             }
         }
@@ -126,6 +158,137 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
             }
         }
 
+        [Test]
+        public void TryExportTimelineAsset_WithChildLanes_WritesSameBakeToAllFacialTracksAndLocatorFindsIt()
+        {
+            ExportFixture fixture = ExportFixture.Create(overlappingTriggers: true);
+
+            try
+            {
+                bool success = RecToTimelineExporter.TryExportTimelineAsset(
+                    fixture.RecordingAbsolutePath,
+                    fixture.Profile,
+                    fixture.TimelinePath,
+                    out RecToTimelineExporter.ExportResult result);
+
+                Assert.That(success, Is.True);
+                TimelineAsset exported = AssetDatabase.LoadAssetAtPath<TimelineAsset>(fixture.TimelinePath);
+                IReadOnlyList<TrackAsset> facialTracks = TimelineAssetScanner.Scan(exported).TrackAssets;
+
+                int childCount = 0;
+                for (int i = 0; i < facialTracks.Count; i++)
+                {
+                    if (facialTracks[i].parent is TrackAsset)
+                    {
+                        childCount++;
+                    }
+
+                    Assert.That(
+                        ((IFacialTimelineBakeHolder)facialTracks[i]).Bake,
+                        Is.SameAs(result.BakeAsset),
+                        $"track '{facialTracks[i].name}'");
+                }
+
+                Assert.That(childCount, Is.GreaterThan(0), "前提: 重なる Trigger から子レーンが生成される");
+                Assert.That(facialTracks.Count, Is.GreaterThanOrEqualTo(3), "前提: root / 子 / Value トラックを含む");
+
+                BakeLocateResult located = FacialTimelineBakeLocator.Locate(exported, null);
+                Assert.That(located.Status, Is.EqualTo(BakeLocateStatus.Found));
+                Assert.That(located.Bake, Is.SameAs(result.BakeAsset));
+            }
+            finally
+            {
+                fixture.Dispose();
+            }
+        }
+
+        [Test]
+        public void TryExportTimelineAsset_BakeSubAsset_IsHiddenInHierarchy()
+        {
+            ExportFixture fixture = ExportFixture.Create();
+
+            try
+            {
+                bool success = RecToTimelineExporter.TryExportTimelineAsset(
+                    fixture.RecordingAbsolutePath,
+                    fixture.Profile,
+                    fixture.TimelinePath,
+                    out _);
+
+                Assert.That(success, Is.True);
+                FacialTimelineBakeAsset bake = FindBakeAsset(fixture.TimelinePath);
+                Assert.That(bake, Is.Not.Null);
+                Assert.That(bake.hideFlags & HideFlags.HideInHierarchy, Is.EqualTo(HideFlags.HideInHierarchy));
+            }
+            finally
+            {
+                fixture.Dispose();
+            }
+        }
+
+        [Test]
+        public void TryExportTimelineAsset_ProfileJsonDiffersFromSo_UsesJsonProfile()
+        {
+            using (ProfileJsonTestFixture json = ProfileJsonTestFixture.Create("RecToTimelineExportWorkflowJsonTests", "smile"))
+            {
+                // SO に無い overlay レイヤーと wink を JSON 側にだけ置く。
+                json.WriteProfileJsonWithExtraLayer(
+                    new DateTime(2001, 1, 1, 0, 0, 0, DateTimeKind.Utc),
+                    "overlay",
+                    "wink",
+                    "smile");
+                string recordingPath = json.FolderPath + "/wink.rec";
+                File.WriteAllBytes(recordingPath, RecBinaryFormat.Serialize(CreateSingleTriggerRecording("wink"), 123L));
+                AssetDatabase.Refresh();
+
+                bool success = RecToTimelineExporter.TryExportTimelineAsset(
+                    Path.GetFullPath(recordingPath),
+                    json.ProfileAsset,
+                    json.FolderPath + "/Exported.playable",
+                    out RecToTimelineExporter.ExportResult result);
+
+                Assert.That(success, Is.True);
+                var rootExpressionTrackNames = new List<string>();
+                foreach (TrackAsset track in result.Timeline.GetRootTracks())
+                {
+                    if (track is FacialExpressionTrack)
+                    {
+                        rootExpressionTrackNames.Add(track.name);
+                    }
+                }
+
+                Assert.That(rootExpressionTrackNames, Is.EquivalentTo(new[] { "overlay" }), "wink は JSON 側のレイヤーへ出力される");
+                Assert.That(
+                    result.BakeAsset.ProfileContentHashHex,
+                    Is.EqualTo(json.ContentHash(json.ProfileAsset.LoadProfile())));
+            }
+        }
+
+        private static RecTimeline CreateSingleTriggerRecording(string expressionId)
+        {
+            return new RecTimeline(
+                RecBaselineState.Empty,
+                new[]
+                {
+                    RecEvent.CreateTriggerOn(0.10d, 0, 0),
+                    RecEvent.CreateTriggerOff(0.60d, 0, 0),
+                },
+                new[]
+                {
+                    "input:trigger",
+                },
+                new[]
+                {
+                    expressionId,
+                },
+                1.0d,
+                new IReadOnlyList<float>[]
+                {
+                    Array.Empty<float>(),
+                    Array.Empty<float>(),
+                });
+        }
+
         private static TimelineAsset CreateExistingTimeline(string timelinePath)
         {
             var timeline = ScriptableObject.CreateInstance<TimelineAsset>();
@@ -190,7 +353,7 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
 
             public string RecordingAbsolutePath { get; }
 
-            public static ExportFixture Create()
+            public static ExportFixture Create(bool overlappingTriggers = false)
             {
                 string folderName = "RecToTimelineExportWorkflowTests_" + Guid.NewGuid().ToString("N");
                 string folderPath = "Assets/" + folderName;
@@ -223,9 +386,26 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
                         },
                     },
                 });
+                profile.Expressions.Add(new ExpressionSerializable
+                {
+                    id = "wink",
+                    name = "Wink",
+                    layer = "emotion",
+                    transitionDuration = 0.1f,
+                    blendShapeValues = new List<BlendShapeMappingSerializable>
+                    {
+                        new BlendShapeMappingSerializable
+                        {
+                            name = "Wink",
+                            value = 1f,
+                        },
+                    },
+                });
                 AssetDatabase.CreateAsset(profile, profilePath);
 
-                RecTimeline timeline = CreateRecordingTimeline();
+                RecTimeline timeline = overlappingTriggers
+                    ? CreateOverlappingRecordingTimeline()
+                    : CreateRecordingTimeline();
                 File.WriteAllBytes(recordingPath, RecBinaryFormat.Serialize(timeline, 123L));
                 AssetDatabase.Refresh();
 
@@ -240,6 +420,42 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
             {
                 AssetDatabase.DeleteAsset(_folderPath);
                 AssetDatabase.Refresh();
+            }
+
+            /// <summary>
+            /// 同一レイヤーで smile と wink が重なる（子レーンが生成される）記録と、2 軸のアナログ記録。
+            /// </summary>
+            private static RecTimeline CreateOverlappingRecordingTimeline()
+            {
+                return new RecTimeline(
+                    RecBaselineState.Empty,
+                    new[]
+                    {
+                        RecEvent.CreateTriggerOn(0.10d, 0, 0),
+                        RecEvent.CreateTriggerOn(0.20d, 0, 1),
+                        RecEvent.CreateAnalogSample(0.25d, 1, 2),
+                        RecEvent.CreateTriggerOff(0.40d, 0, 1),
+                        RecEvent.CreateTriggerOff(0.60d, 0, 0),
+                    },
+                    new[]
+                    {
+                        "input:trigger",
+                        "live:gaze",
+                    },
+                    new[]
+                    {
+                        "smile",
+                        "wink",
+                    },
+                    1.0d,
+                    new IReadOnlyList<float>[]
+                    {
+                        Array.Empty<float>(),
+                        Array.Empty<float>(),
+                        new[] { 0.25f, -0.25f },
+                        Array.Empty<float>(),
+                        Array.Empty<float>(),
+                    });
             }
 
             private static RecTimeline CreateRecordingTimeline()

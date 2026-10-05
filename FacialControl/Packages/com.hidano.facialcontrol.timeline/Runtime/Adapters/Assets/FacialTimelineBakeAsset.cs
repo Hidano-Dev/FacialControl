@@ -13,6 +13,7 @@ namespace Hidano.FacialControl.Timeline.Adapters.Assets
         [SerializeField] private ExpressionSourceBake[] expressionBakes = Array.Empty<ExpressionSourceBake>();
         [SerializeField] private ValueChannelBake[] valueBakes = Array.Empty<ValueChannelBake>();
         [SerializeField] private TimelineStateEvent[] stateEvents = Array.Empty<TimelineStateEvent>();
+        [SerializeField] private string profileContentHashHex = string.Empty;
 
         public string SourceHashHex
         {
@@ -24,6 +25,16 @@ namespace Hidano.FacialControl.Timeline.Adapters.Assets
         {
             get => profileAssetGuid;
             set => profileAssetGuid = value ?? string.Empty;
+        }
+
+        /// <summary>
+        /// 焼いたときの Profile スナップショットの内容ハッシュ（<see cref="FacialTimelineHashCalculator.ComputeProfileContentHashHex"/>）。
+        /// 本フィールド導入前に焼いた Bake では空文字。
+        /// </summary>
+        public string ProfileContentHashHex
+        {
+            get => profileContentHashHex;
+            set => profileContentHashHex = value ?? string.Empty;
         }
 
         public float SampleRate

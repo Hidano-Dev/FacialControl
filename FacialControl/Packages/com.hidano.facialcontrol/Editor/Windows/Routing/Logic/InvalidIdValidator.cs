@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
 using Hidano.FacialControl.Adapters.ScriptableObject.Serializable;
+using Hidano.FacialControl.Domain.Adapters;
+using Hidano.FacialControl.Domain.Models;
 
 namespace Hidano.FacialControl.Editor.Windows.Routing.Logic
 {
@@ -50,6 +52,14 @@ namespace Hidano.FacialControl.Editor.Windows.Routing.Logic
             ISet<string> validCanonicalIds);
     }
 
+    /// <summary>
+    /// Profile の各レイヤー inputSources 宣言のうち、既知の canonical id に一致しないものを列挙する。
+    /// </summary>
+    /// <remarks>
+    /// <see cref="IAdapterBindingDynamicInputs"/> を実装する binding（Timeline 等、実行時に id を導出する binding）
+    /// については、その <c>{Slug}:</c> prefix に一致する宣言 id を有効扱いにする。
+    /// prefix の後ろに sub が無い id（<c>timeline:</c>）は従来どおり不正扱い。
+    /// </remarks>
     public sealed class InvalidIdValidator : IInvalidIdValidator
     {
         public IReadOnlyList<InvalidDeclarationRef> Validate(
@@ -73,6 +83,8 @@ namespace Hidano.FacialControl.Editor.Windows.Routing.Logic
                 return invalidDeclarations;
             }
 
+            List<string> dynamicPrefixes = CollectDynamicInputPrefixes(profile.AdapterBindings);
+
             for (int layerIndex = 0; layerIndex < layers.Count; layerIndex++)
             {
                 LayerDefinitionSerializable layer = layers[layerIndex];
@@ -90,11 +102,60 @@ namespace Hidano.FacialControl.Editor.Windows.Routing.Logic
                         continue;
                     }
 
+                    if (MatchesDynamicPrefix(id, dynamicPrefixes))
+                    {
+                        continue;
+                    }
+
                     invalidDeclarations.Add(new InvalidDeclarationRef(layerIndex, declarationIndex, id));
                 }
             }
 
             return invalidDeclarations;
+        }
+
+        /// <summary>
+        /// <see cref="IAdapterBindingDynamicInputs"/> を実装し、有効な slug を持つ binding の <c>{Slug}:</c> prefix を集める。
+        /// </summary>
+        private static List<string> CollectDynamicInputPrefixes(IReadOnlyList<AdapterBindingBase> bindings)
+        {
+            var prefixes = new List<string>();
+            if (bindings == null)
+            {
+                return prefixes;
+            }
+
+            for (int i = 0; i < bindings.Count; i++)
+            {
+                AdapterBindingBase binding = bindings[i];
+                if (!(binding is IAdapterBindingDynamicInputs))
+                {
+                    continue;
+                }
+
+                if (!AdapterSlug.TryParse(binding.Slug, out AdapterSlug slug))
+                {
+                    continue;
+                }
+
+                prefixes.Add(slug.Value + ":");
+            }
+
+            return prefixes;
+        }
+
+        private static bool MatchesDynamicPrefix(string id, List<string> prefixes)
+        {
+            for (int i = 0; i < prefixes.Count; i++)
+            {
+                string prefix = prefixes[i];
+                if (id.Length > prefix.Length && id.StartsWith(prefix, StringComparison.Ordinal))
+                {
+                    return true;
+                }
+            }
+
+            return false;
         }
     }
 }

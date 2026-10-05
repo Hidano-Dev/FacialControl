@@ -3,8 +3,10 @@ using System.Collections.Generic;
 using Hidano.FacialControl.Adapters.Bone;
 using Hidano.FacialControl.Adapters.Playable;
 using Hidano.FacialControl.Adapters.ScriptableObject.Serializable;
+using Hidano.FacialControl.Domain.Models;
 using Hidano.FacialControl.Timeline.Adapters;
 using Hidano.FacialControl.Timeline.Adapters.Assets;
+using Hidano.FacialControl.Timeline.Domain.Diagnostics;
 using Hidano.FacialControl.Timeline.EditorPreview;
 using UnityEditor;
 using UnityEngine;
@@ -14,13 +16,32 @@ using GazeChannel = Hidano.FacialControl.Adapters.ScriptableObject.GazeChannel;
 
 namespace Hidano.FacialControl.Timeline.Editor
 {
+    /// <summary>
+    /// Timeline の Edit プレビュー（スクラブ）。Mixer から bridge 経由で呼ばれ、Play と同じ合成規則
+    /// （<see cref="TimelinePreviewCompositor"/>）で renderer と目ボーンを描く。再生セッションは開始しない（Req 7.2）。
+    /// </summary>
+    /// <remarks>
+    /// <para>Bake は <see cref="FacialTimelineBakeLocator"/> で解決し、Compositor は FacialController ごとにキャッシュする
+    /// （入力が変われば作り直し、再ベイク完了 <see cref="TimelineEditChangeWatcher.BakeUpdated"/> で破棄）。</para>
+    /// <para>構成の欠落（FacialController / Profile SO / Bake が無い）は例外にせず、警告ゲートで 1 エポック 1 回だけ警告して
+    /// プレビューを継続する（Req 7.3）。Bake 参照が Conflict / LegacyExport のときは描かずに再ベイクを予約し、
+    /// Profile 内容ハッシュ不一致（ProfileMismatch）は描画を続けつつ Receiver の診断に Warning を書いて再ベイクを予約する。</para>
+    /// </remarks>
     [InitializeOnLoad]
     internal static class FacialTimelineEditorPreview
     {
-        private const string MissingBakeMessage =
-            "[FacialTimelineEditorPreview] BakeAsset is missing. Scrub preview is disabled.";
-
-        private static readonly HashSet<int> MissingBakeWarnings = new HashSet<int>();
+        private const string LogPrefix = "[FacialTimelineEditorPreview] ";
+        private const string ControllerMissingMessage =
+            "FacialController が見つからないためプレビューできません。FacialTimelineReceiver と同じ GameObject に FacialController を置いてください。";
+        private const string ProfileAssetMissingMessage =
+            "FacialController に Character SO（Profile SO）が設定されていないためプレビューできません。";
+        private const string TimelineMissingMessage =
+            "PlayableDirector に TimelineAsset がセットされていないためプレビューできません。";
+        private const string BakeMissingMessage =
+            "Facial トラックに Bake がありません。Timeline を保存するか REC Export し直してください。プレビューは Bake ができるまで描画しません。";
+        private const string ProfileMismatchDetail =
+            "Bake が現在の Profile（profile.json / SO）と異なるスナップショットから作られています。自動再ベイク中です（それまでは Bake の値でプレビューします）。";
+        private const string ProfileMatchedDetail = "Bake は現在の Profile と同じスナップショットから作られています。";
 
         // path 未指定の目に使う Humanoid の目ボーンと rest 回転・軸、および path 解決用の resolver
         // (FacialController の instanceID ごと)。
@@ -34,10 +55,31 @@ namespace Hidano.FacialControl.Timeline.Editor
         private static readonly List<FacialTimelinePreviewEyeTarget> GazeTargetBuffer =
             new List<FacialTimelinePreviewEyeTarget>();
 
+        // FacialController の instanceID → Compositor。
+        private static readonly Dictionary<int, CompositorEntry> Compositors = new Dictionary<int, CompositorEntry>();
+
+        private static readonly List<int> StaleCompositorKeys = new List<int>();
+
+        private static TimelineEditChangeWatcher _subscribedWatcher;
+
         static FacialTimelineEditorPreview()
         {
             FacialTimelineEditorPreviewBridge.ApplyPreview = ApplyPreview;
             FacialTimelineEditorPreviewBridge.GatherProperties = GatherProperties;
+        }
+
+        /// <summary>テスト用: キャッシュ中の Compositor 数。</summary>
+        internal static int CompositorCount => Compositors.Count;
+
+        /// <summary>キャッシュ中の Compositor を全て破棄する（テスト / ドメインリロード相当）。</summary>
+        internal static void ClearCache()
+        {
+            foreach (KeyValuePair<int, CompositorEntry> pair in Compositors)
+            {
+                pair.Value.Compositor.Dispose();
+            }
+
+            Compositors.Clear();
         }
 
         internal static void ApplyPreview(FacialTimelineReceiver receiver, TimelineAsset timeline, double timeSeconds)
@@ -47,23 +89,61 @@ namespace Hidano.FacialControl.Timeline.Editor
                 return;
             }
 
-            FacialTimelineBakeAsset bakeAsset = receiver.BakeAsset;
-            if (bakeAsset == null)
-            {
-                WarnMissingBake(receiver);
-                return;
-            }
-
-            MissingBakeWarnings.Remove(receiver.GetInstanceID());
+            EnsureWatcherSubscription();
 
             FacialController controller = ResolveController(receiver);
             if (controller == null)
             {
+                WarnOnce(receiver, TimelineDiagnosticCode.ControllerMissing, receiver.name, ControllerMissingMessage);
                 return;
             }
 
-            ApplyBlendShapes(controller, bakeAsset, timeSeconds);
-            ApplyGaze(controller, bakeAsset, timeSeconds);
+            FacialCharacterProfileSO profileAsset = controller.CharacterSO;
+            if (profileAsset == null)
+            {
+                WarnOnce(receiver, TimelineDiagnosticCode.ControllerNotInitialized, controller.name, ProfileAssetMissingMessage);
+                return;
+            }
+
+            if (timeline == null)
+            {
+                WarnOnce(receiver, TimelineDiagnosticCode.TimelineNotBound, receiver.name, TimelineMissingMessage);
+                return;
+            }
+
+            FacialProfile profile = TimelineProfileSource.Resolve(profileAsset);
+            CompositorEntry entry = AcquireCompositor(receiver, controller, profileAsset, profile, timeline);
+            TimelinePreviewCompositor compositor = entry.Compositor;
+
+            if (!compositor.CanRender)
+            {
+                BakeLocateStatus status = compositor.BakeLocate.Status;
+                if (status == BakeLocateStatus.Conflict || status == BakeLocateStatus.LegacyExport)
+                {
+                    // Bake が一意に決まらないので描かない（前フレームの値も上書きしない）。再ベイクで全トラックの参照を揃える。
+                    MarkDirtyOnce(entry, timeline, TimelineDirtyReason.BakeReferenceInconsistent);
+                }
+                else
+                {
+                    WarnOnce(receiver, TimelineDiagnosticCode.BakeMissing, timeline.name, BakeMissingMessage);
+                }
+
+                return;
+            }
+
+            if (compositor.ProfileCheck == TimelineDiagnosticCode.ProfileMismatch)
+            {
+                MarkDirtyOnce(entry, timeline, TimelineDirtyReason.ProfileMismatch);
+            }
+
+            compositor.Evaluate(timeSeconds);
+
+            IReadOnlyList<GazeChannel> gazeConfigs = profileAsset.GazeChannels;
+            if (gazeConfigs != null && gazeConfigs.Count > 0)
+            {
+                CachedGazeEyeFallback cached = GetGazeEyeFallback(controller);
+                compositor.EvaluateGaze(timeSeconds, gazeConfigs, cached.Resolver, cached.Fallback, GazeTargetBuffer);
+            }
         }
 
         internal static void GatherProperties(PlayableDirector director, TrackAsset track, IPropertyCollector collector)
@@ -89,146 +169,158 @@ namespace Hidano.FacialControl.Timeline.Editor
             RegisterGazeProperties(controller, collector);
         }
 
-        private static void ApplyBlendShapes(FacialController controller, FacialTimelineBakeAsset bakeAsset, double timeSeconds)
+        private static CompositorEntry AcquireCompositor(
+            FacialTimelineReceiver receiver,
+            FacialController controller,
+            FacialCharacterProfileSO profileAsset,
+            FacialProfile profile,
+            TimelineAsset timeline)
         {
-            SkinnedMeshRenderer[] renderers = controller.SkinnedMeshRenderers;
-            if (renderers == null || renderers.Length == 0)
+            int key = controller.GetInstanceID();
+            if (Compositors.TryGetValue(key, out CompositorEntry cached))
+            {
+                if (cached.Compositor.Matches(controller, profileAsset, profile, receiver.BakeAsset, timeline))
+                {
+                    return cached;
+                }
+
+                cached.Compositor.Dispose();
+                Compositors.Remove(key);
+            }
+
+            PruneDestroyedCompositors();
+
+            var compositor = new TimelinePreviewCompositor(controller, profileAsset, profile, receiver.BakeAsset, timeline);
+            var entry = new CompositorEntry(compositor, controller, timeline);
+            Compositors[key] = entry;
+            WriteProfileDiagnostic(receiver, profileAsset, compositor);
+            return entry;
+        }
+
+        /// <summary>
+        /// Compositor を作り直したときだけ Receiver の診断（Profile 領域）を書き換える（毎フレーム Revision を進めない）。
+        /// </summary>
+        private static void WriteProfileDiagnostic(
+            FacialTimelineReceiver receiver,
+            FacialCharacterProfileSO profileAsset,
+            TimelinePreviewCompositor compositor)
+        {
+            if (compositor.BakeLocate.Bake == null)
             {
                 return;
             }
 
-            var sampledWeights = new Dictionary<string, float>(StringComparer.Ordinal);
-            ExpressionSourceBake[] expressionBakes = bakeAsset.ExpressionBakes ?? Array.Empty<ExpressionSourceBake>();
-            for (int i = 0; i < expressionBakes.Length; i++)
-            {
-                BlendShapeCurve[] curves = expressionBakes[i]?.Curves ?? Array.Empty<BlendShapeCurve>();
-                for (int j = 0; j < curves.Length; j++)
-                {
-                    BlendShapeCurve curve = curves[j];
-                    if (curve == null || string.IsNullOrEmpty(curve.BlendShapeName) || curve.Curve == null)
-                    {
-                        continue;
-                    }
-
-                    float value = curve.Curve.Evaluate((float)timeSeconds);
-                    if (sampledWeights.TryGetValue(curve.BlendShapeName, out float existing))
-                    {
-                        sampledWeights[curve.BlendShapeName] = existing + value;
-                    }
-                    else
-                    {
-                        sampledWeights[curve.BlendShapeName] = value;
-                    }
-                }
-            }
-
-            for (int i = 0; i < renderers.Length; i++)
-            {
-                SkinnedMeshRenderer renderer = renderers[i];
-                Mesh mesh = renderer != null ? renderer.sharedMesh : null;
-                if (renderer == null || mesh == null)
-                {
-                    continue;
-                }
-
-                for (int shapeIndex = 0; shapeIndex < mesh.blendShapeCount; shapeIndex++)
-                {
-                    string blendShapeName = mesh.GetBlendShapeName(shapeIndex);
-                    sampledWeights.TryGetValue(blendShapeName, out float weight);
-                    renderer.SetBlendShapeWeight(shapeIndex, Mathf.Clamp01(weight) * 100f);
-                }
-            }
+            TimelineDiagnosticItem item = compositor.ProfileCheck == TimelineDiagnosticCode.ProfileMismatch
+                ? new TimelineDiagnosticItem(
+                    TimelineDiagnosticArea.Profile,
+                    TimelineDiagnosticCode.ProfileMismatch,
+                    TimelineDiagnosticSeverity.Warning,
+                    profileAsset.name,
+                    ProfileMismatchDetail)
+                : new TimelineDiagnosticItem(
+                    TimelineDiagnosticArea.Profile,
+                    TimelineDiagnosticCode.ProfileMatched,
+                    TimelineDiagnosticSeverity.Ok,
+                    profileAsset.name,
+                    ProfileMatchedDetail);
+            receiver.Diagnostics.ReplaceArea(TimelineDiagnosticArea.Profile, new[] { item });
         }
 
-        private static void ApplyGaze(FacialController controller, FacialTimelineBakeAsset bakeAsset, double timeSeconds)
+        private static void MarkDirtyOnce(CompositorEntry entry, TimelineAsset timeline, TimelineDirtyReason reason)
         {
-            IReadOnlyList<GazeChannel> gazeConfigs = controller.CharacterSO != null
-                ? controller.CharacterSO.GazeChannels
-                : Array.Empty<GazeChannel>();
-            if (gazeConfigs == null || gazeConfigs.Count == 0)
+            if (entry.MarkedDirty)
             {
                 return;
             }
 
-            ValueChannelBake[] gazeChannels = CollectGazeChannels(bakeAsset);
-            if (gazeChannels.Length == 0)
+            TimelineEditChangeWatcher watcher = TimelineEditorServices.ChangeWatcher;
+            if (watcher == null)
             {
                 return;
             }
 
-            // ランタイムは入力源の無い channel を駆動しない。プレビューではベイク値の無い channel がそれに当たる。
-            CachedGazeEyeFallback cached = GetGazeEyeFallback(controller);
-            GazeTargetBuffer.Clear();
-            FacialTimelinePreviewGazeTargets.Resolve(
-                cached.Resolver,
-                gazeConfigs,
-                index => index < gazeChannels.Length && HasAnyAxis(gazeChannels[index]),
-                cached.Fallback,
-                GazeTargetBuffer);
-
-            for (int i = 0; i < GazeTargetBuffer.Count; i++)
-            {
-                FacialTimelinePreviewEyeTarget target = GazeTargetBuffer[i];
-                ValueChannelBake bake = gazeChannels[target.ChannelIndex];
-                float x = EvaluateAxis(bake.Axes, 0, timeSeconds);
-                float y = EvaluateAxis(bake.Axes, 1, timeSeconds);
-                target.Bone.localRotation = FacialTimelinePreviewGazeTargets.ComputeLocalRotation(
-                    target,
-                    gazeConfigs[target.ChannelIndex],
-                    x,
-                    y);
-            }
-
-            GazeTargetBuffer.Clear();
+            // 予約は Compositor 1 つにつき 1 回（スクラブ中に毎フレーム呼んでデバウンスを延ばし続けない）。
+            // Play 遷移中などで Ignored になった場合は次の評価で再試行する。
+            MarkDirtyResult result = watcher.MarkDirty(timeline, reason);
+            entry.MarkedDirty = result != MarkDirtyResult.Ignored;
         }
 
-        private static bool HasAnyAxis(ValueChannelBake bake)
+        private static void EnsureWatcherSubscription()
         {
-            AnimationCurve[] axes = bake.Axes;
-            if (axes == null)
+            if (TimelineEditorServices.ChangeWatcher == null)
             {
-                return false;
+                // Shutdown 後（ドメインリロード直前など）でも、再ベイク通知を受け取れるよう Services を先に初期化する。
+                TimelineEditorServices.EnsureInitialized();
             }
 
-            for (int i = 0; i < axes.Length; i++)
+            TimelineEditChangeWatcher watcher = TimelineEditorServices.ChangeWatcher;
+            if (ReferenceEquals(watcher, _subscribedWatcher))
             {
-                if (axes[i] != null)
+                return;
+            }
+
+            if (_subscribedWatcher != null)
+            {
+                _subscribedWatcher.BakeUpdated -= OnBakeUpdated;
+            }
+
+            _subscribedWatcher = watcher;
+            if (watcher != null)
+            {
+                watcher.BakeUpdated += OnBakeUpdated;
+            }
+        }
+
+        private static void OnBakeUpdated(TimelineAsset timeline, FacialTimelineBakeAsset bake, TimelineDirtyReason reason)
+        {
+            StaleCompositorKeys.Clear();
+            foreach (KeyValuePair<int, CompositorEntry> pair in Compositors)
+            {
+                if (timeline == null || ReferenceEquals(pair.Value.Timeline, timeline))
                 {
-                    return true;
+                    StaleCompositorKeys.Add(pair.Key);
                 }
             }
 
-            return false;
+            RemoveCompositors(StaleCompositorKeys);
         }
 
-        private static ValueChannelBake[] CollectGazeChannels(FacialTimelineBakeAsset bakeAsset)
+        private static void PruneDestroyedCompositors()
         {
-            ValueChannelBake[] channels = bakeAsset.ValueBakes ?? Array.Empty<ValueChannelBake>();
-            if (channels.Length == 0)
+            StaleCompositorKeys.Clear();
+            foreach (KeyValuePair<int, CompositorEntry> pair in Compositors)
             {
-                return Array.Empty<ValueChannelBake>();
-            }
-
-            var gazeChannels = new List<ValueChannelBake>(channels.Length);
-            for (int i = 0; i < channels.Length; i++)
-            {
-                if (channels[i] != null && channels[i].IsGaze)
+                if (pair.Value.Controller == null || pair.Value.Timeline == null)
                 {
-                    gazeChannels.Add(channels[i]);
+                    StaleCompositorKeys.Add(pair.Key);
                 }
             }
 
-            return gazeChannels.Count == 0 ? Array.Empty<ValueChannelBake>() : gazeChannels.ToArray();
+            RemoveCompositors(StaleCompositorKeys);
         }
 
-        private static float EvaluateAxis(AnimationCurve[] axes, int axisIndex, double timeSeconds)
+        private static void RemoveCompositors(List<int> keys)
         {
-            if (axes == null || axisIndex >= axes.Length || axes[axisIndex] == null)
+            for (int i = 0; i < keys.Count; i++)
             {
-                return 0f;
+                if (Compositors.TryGetValue(keys[i], out CompositorEntry entry))
+                {
+                    entry.Compositor.Dispose();
+                    Compositors.Remove(keys[i]);
+                }
             }
 
-            return Mathf.Clamp(axes[axisIndex].Evaluate((float)timeSeconds), -1f, 1f);
+            keys.Clear();
+        }
+
+        private static void WarnOnce(FacialTimelineReceiver receiver, TimelineDiagnosticCode code, string subject, string message)
+        {
+            if (!TimelineEditorServices.EditWarningGate.TryPass(receiver.GetInstanceID(), code, subject ?? string.Empty))
+            {
+                return;
+            }
+
+            Debug.LogWarning(LogPrefix + code + ": " + message, receiver);
         }
 
         private static void RegisterBlendShapeProperties(FacialController controller, IPropertyCollector collector)
@@ -384,14 +476,23 @@ namespace Hidano.FacialControl.Timeline.Editor
             public GazeEyeBoneFallback Fallback { get; }
         }
 
-        private static void WarnMissingBake(FacialTimelineReceiver receiver)
+        private sealed class CompositorEntry
         {
-            if (receiver == null || !MissingBakeWarnings.Add(receiver.GetInstanceID()))
+            public CompositorEntry(TimelinePreviewCompositor compositor, FacialController controller, TimelineAsset timeline)
             {
-                return;
+                Compositor = compositor;
+                Controller = controller;
+                Timeline = timeline;
             }
 
-            Debug.LogWarning(MissingBakeMessage, receiver);
+            public TimelinePreviewCompositor Compositor { get; }
+
+            public FacialController Controller { get; }
+
+            public TimelineAsset Timeline { get; }
+
+            /// <summary>この Compositor の不整合（Conflict / ProfileMismatch）で再ベイクを予約済みか。</summary>
+            public bool MarkedDirty { get; set; }
         }
     }
 }

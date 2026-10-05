@@ -1,5 +1,7 @@
 using System;
+using System.Collections.Generic;
 using System.Text;
+using Hidano.FacialControl.Adapters.ScriptableObject;
 using Hidano.FacialControl.Domain.Models;
 using Hidano.FacialControl.Timeline.Clips;
 using Hidano.FacialControl.Timeline.Tracks;
@@ -15,9 +17,37 @@ namespace Hidano.FacialControl.Timeline.Domain.Services
         private const ulong FnvOffsetBasis = 14695981039346656037UL;
         private const ulong FnvPrime = 1099511628211UL;
 
+        /// <summary>
+        /// Profile スナップショットの内容ハッシュ。Timeline 構造には依存しない。
+        /// </summary>
+        /// <remarks>
+        /// 対象: SchemaVersion / Layers（順序込み）/ LayerInputSources（id と weight、レイヤー順）/
+        /// Expressions（id 順ソート）/ Slots / DefaultOverlays / BaseExpression /
+        /// GazeChannels（id / sourceIdLeft / sourceIdRight / 目ボーンパス、順序込み）。
+        /// </remarks>
+        public static ulong ComputeProfileContentHash(in FacialProfile profile, ReadOnlySpan<GazeChannel> gazeChannels)
+        {
+            Fnv1A64Writer writer = Fnv1A64Writer.Create();
+            writer.WriteString("facial-profile-content-hash/v1");
+
+            WriteProfile(ref writer, profile);
+            WriteGazeChannels(ref writer, gazeChannels);
+
+            return writer.Hash;
+        }
+
+        public static string ComputeProfileContentHashHex(in FacialProfile profile, ReadOnlySpan<GazeChannel> gazeChannels)
+        {
+            return ComputeProfileContentHash(profile, gazeChannels).ToString("x16");
+        }
+
+        /// <summary>
+        /// Bake の Source ハッシュ（Timeline 構造 + Profile 内容ハッシュ + sampleRate）。
+        /// </summary>
         public static ulong ComputeHash(
             TimelineAsset timeline,
-            FacialProfile profile,
+            in FacialProfile profile,
+            ReadOnlySpan<GazeChannel> gazeChannels,
             float sampleRate = DefaultSampleRate)
         {
             if (timeline == null)
@@ -26,10 +56,10 @@ namespace Hidano.FacialControl.Timeline.Domain.Services
             }
 
             Fnv1A64Writer writer = Fnv1A64Writer.Create();
-            writer.WriteString("facial-timeline-hash/v1");
+            writer.WriteString("facial-timeline-hash/v2");
 
             WriteTimeline(ref writer, timeline);
-            WriteProfile(ref writer, profile);
+            writer.WriteUInt64(ComputeProfileContentHash(profile, gazeChannels));
             writer.WriteSingle(sampleRate);
 
             return writer.Hash;
@@ -37,10 +67,52 @@ namespace Hidano.FacialControl.Timeline.Domain.Services
 
         public static string ComputeHashHex(
             TimelineAsset timeline,
+            in FacialProfile profile,
+            ReadOnlySpan<GazeChannel> gazeChannels,
+            float sampleRate = DefaultSampleRate)
+        {
+            return ComputeHash(timeline, profile, gazeChannels, sampleRate).ToString("x16");
+        }
+
+        /// <summary>
+        /// GazeChannels を持たない（空として扱う）Source ハッシュ。
+        /// </summary>
+        public static ulong ComputeHash(
+            TimelineAsset timeline,
+            FacialProfile profile,
+            float sampleRate = DefaultSampleRate)
+        {
+            return ComputeHash(timeline, profile, ReadOnlySpan<GazeChannel>.Empty, sampleRate);
+        }
+
+        /// <summary>
+        /// GazeChannels を持たない（空として扱う）Source ハッシュの hex。
+        /// </summary>
+        public static string ComputeHashHex(
+            TimelineAsset timeline,
             FacialProfile profile,
             float sampleRate = DefaultSampleRate)
         {
             return ComputeHash(timeline, profile, sampleRate).ToString("x16");
+        }
+
+        /// <summary>
+        /// GazeChannel の読み取り専用リストを配列へ写す（null は空配列）。呼び出し側が span へ渡すための補助。
+        /// </summary>
+        public static GazeChannel[] ToGazeChannelArray(IReadOnlyList<GazeChannel> gazeChannels)
+        {
+            if (gazeChannels == null || gazeChannels.Count == 0)
+            {
+                return Array.Empty<GazeChannel>();
+            }
+
+            var copy = new GazeChannel[gazeChannels.Count];
+            for (int i = 0; i < copy.Length; i++)
+            {
+                copy[i] = gazeChannels[i];
+            }
+
+            return copy;
         }
 
         private static void WriteTimeline(ref Fnv1A64Writer writer, TimelineAsset timeline)
@@ -130,10 +202,146 @@ namespace Hidano.FacialControl.Timeline.Domain.Services
             }
         }
 
-        private static void WriteProfile(ref Fnv1A64Writer writer, FacialProfile profile)
+        private static void WriteProfile(ref Fnv1A64Writer writer, in FacialProfile profile)
         {
             writer.WriteString("profile");
             writer.WriteString(profile.SchemaVersion);
+
+            WriteLayers(ref writer, profile);
+            WriteExpressions(ref writer, profile);
+
+            ReadOnlySpan<string> slots = profile.Slots.Span;
+            writer.WriteString("slots");
+            writer.WriteInt32(slots.Length);
+            for (int i = 0; i < slots.Length; i++)
+            {
+                writer.WriteString(slots[i]);
+            }
+
+            writer.WriteString("default-overlays");
+            WriteOverlays(ref writer, profile.DefaultOverlays.Span);
+
+            ReadOnlySpan<BlendShapeSnapshot> baseExpression = profile.BaseExpression.Span;
+            writer.WriteString("base-expression");
+            writer.WriteInt32(baseExpression.Length);
+            for (int i = 0; i < baseExpression.Length; i++)
+            {
+                WriteBlendShapeSnapshot(ref writer, baseExpression[i]);
+            }
+        }
+
+        private static void WriteLayers(ref Fnv1A64Writer writer, in FacialProfile profile)
+        {
+            ReadOnlySpan<LayerDefinition> layers = profile.Layers.Span;
+            writer.WriteString("layers");
+            writer.WriteInt32(layers.Length);
+            for (int i = 0; i < layers.Length; i++)
+            {
+                writer.WriteString(layers[i].Name);
+                writer.WriteInt32(layers[i].Priority);
+                writer.WriteInt32((int)layers[i].ExclusionMode);
+            }
+
+            ReadOnlySpan<InputSourceDeclaration[]> layerInputSources = profile.LayerInputSources.Span;
+            writer.WriteString("layer-input-sources");
+            writer.WriteInt32(layerInputSources.Length);
+            for (int layerIndex = 0; layerIndex < layerInputSources.Length; layerIndex++)
+            {
+                InputSourceDeclaration[] declarations = layerInputSources[layerIndex] ?? Array.Empty<InputSourceDeclaration>();
+                writer.WriteInt32(declarations.Length);
+                for (int i = 0; i < declarations.Length; i++)
+                {
+                    writer.WriteString(declarations[i].Id);
+                    writer.WriteSingle(declarations[i].Weight);
+                }
+            }
+        }
+
+        private static void WriteOverlays(ref Fnv1A64Writer writer, ReadOnlySpan<OverlaySlotBinding> overlays)
+        {
+            writer.WriteInt32(overlays.Length);
+            for (int i = 0; i < overlays.Length; i++)
+            {
+                OverlaySlotBinding overlay = overlays[i];
+                writer.WriteString(overlay.Slot);
+                writer.WriteBoolean(overlay.Suppress);
+                writer.WriteBoolean(overlay.Snapshot.HasValue);
+                if (overlay.Snapshot.HasValue)
+                {
+                    WriteExpressionSnapshot(ref writer, overlay.Snapshot.Value);
+                }
+            }
+        }
+
+        private static void WriteExpressionSnapshot(ref Fnv1A64Writer writer, ExpressionSnapshot snapshot)
+        {
+            writer.WriteString(snapshot.Id);
+            writer.WriteSingle(snapshot.TransitionDuration);
+            writer.WriteInt32((int)snapshot.TransitionCurvePreset);
+
+            ReadOnlySpan<BlendShapeSnapshot> blendShapes = snapshot.BlendShapes.Span;
+            writer.WriteInt32(blendShapes.Length);
+            for (int i = 0; i < blendShapes.Length; i++)
+            {
+                WriteBlendShapeSnapshot(ref writer, blendShapes[i]);
+            }
+
+            ReadOnlySpan<BoneSnapshot> bones = snapshot.Bones.Span;
+            writer.WriteInt32(bones.Length);
+            for (int i = 0; i < bones.Length; i++)
+            {
+                BoneSnapshot bone = bones[i];
+                writer.WriteString(bone.BonePath);
+                writer.WriteSingle(bone.PositionX);
+                writer.WriteSingle(bone.PositionY);
+                writer.WriteSingle(bone.PositionZ);
+                writer.WriteSingle(bone.EulerX);
+                writer.WriteSingle(bone.EulerY);
+                writer.WriteSingle(bone.EulerZ);
+                writer.WriteSingle(bone.ScaleX);
+                writer.WriteSingle(bone.ScaleY);
+                writer.WriteSingle(bone.ScaleZ);
+            }
+
+            ReadOnlySpan<string> rendererPaths = snapshot.RendererPaths.Span;
+            writer.WriteInt32(rendererPaths.Length);
+            for (int i = 0; i < rendererPaths.Length; i++)
+            {
+                writer.WriteString(rendererPaths[i]);
+            }
+        }
+
+        private static void WriteBlendShapeSnapshot(ref Fnv1A64Writer writer, BlendShapeSnapshot snapshot)
+        {
+            writer.WriteString(snapshot.RendererPath);
+            writer.WriteString(snapshot.Name);
+            writer.WriteSingle(snapshot.Value);
+        }
+
+        private static void WriteGazeChannels(ref Fnv1A64Writer writer, ReadOnlySpan<GazeChannel> gazeChannels)
+        {
+            writer.WriteString("gaze-channels");
+            writer.WriteInt32(gazeChannels.Length);
+            for (int i = 0; i < gazeChannels.Length; i++)
+            {
+                GazeChannel channel = gazeChannels[i];
+                writer.WriteBoolean(channel != null);
+                if (channel == null)
+                {
+                    continue;
+                }
+
+                writer.WriteString(channel.id);
+                writer.WriteString(channel.sourceIdLeft);
+                writer.WriteString(channel.sourceIdRight);
+                writer.WriteString(channel.leftEyeBonePath);
+                writer.WriteString(channel.rightEyeBonePath);
+            }
+        }
+
+        private static void WriteExpressions(ref Fnv1A64Writer writer, in FacialProfile profile)
+        {
+            writer.WriteString("expressions");
 
             Expression[] expressions = Copy(profile.Expressions);
             Array.Sort(expressions, CompareExpressionById);
@@ -171,6 +379,8 @@ namespace Hidano.FacialControl.Timeline.Domain.Services
                     writer.WriteSingle(mapping.Value);
                     writer.WriteString(mapping.Renderer);
                 }
+
+                WriteOverlays(ref writer, expression.Overlays.Span);
             }
         }
 
@@ -266,6 +476,11 @@ namespace Hidano.FacialControl.Timeline.Domain.Services
             }
 
             public void WriteInt32(int value)
+            {
+                WriteBytes(BitConverter.GetBytes(value));
+            }
+
+            public void WriteUInt64(ulong value)
             {
                 WriteBytes(BitConverter.GetBytes(value));
             }

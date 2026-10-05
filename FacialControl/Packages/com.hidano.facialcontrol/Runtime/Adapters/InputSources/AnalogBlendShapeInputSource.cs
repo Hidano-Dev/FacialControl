@@ -1,6 +1,7 @@
 using System;
 using System.Collections;
 using System.Collections.Generic;
+using Hidano.FacialControl.Domain.Adapters;
 using Hidano.FacialControl.Domain.Interfaces;
 using Hidano.FacialControl.Domain.Models;
 using Hidano.FacialControl.Domain.Services;
@@ -29,8 +30,13 @@ namespace Hidano.FacialControl.Adapters.InputSources
     /// <see cref="TryWriteValues"/> は false を返し <c>output</c> を変更しない（IInputSource 契約）。
     /// 1 件でも書込が発生した場合は true を返す。
     /// </para>
+    /// <para>
+    /// <see cref="IRegistryAttachableAnalogConsumer"/> を実装し、<see cref="AttachRegistry"/> で渡された registry の
+    /// <c>{slug}:{SourceId}</c> を購読して、Replace / Unregister 通知に追従して読む先の source を差し替える
+    /// （<see cref="AnalogExpressionInputSource"/> と同じ規則）。Attach しない限り従来どおり構築時の source を読む。
+    /// </para>
     /// </remarks>
-    public sealed class AnalogBlendShapeInputSource : ValueProviderInputSourceBase
+    public sealed class AnalogBlendShapeInputSource : ValueProviderInputSourceBase, IRegistryAttachableAnalogConsumer
     {
         /// <summary>本アダプタの予約識別子。</summary>
         public const string ReservedId = "analog-blendshape";
@@ -39,6 +45,9 @@ namespace Hidano.FacialControl.Adapters.InputSources
         private readonly ResolvedBinding[] _resolvedBindings;
         private readonly BitArray _contributeMask;
         private readonly float[] _outputCache;
+
+        private IInputSourceRegistry _attachedRegistry;
+        private int _attachGeneration;
 
         /// <summary>
         /// <see cref="AnalogBlendShapeInputSource"/> を構築する。
@@ -115,7 +124,7 @@ namespace Hidano.FacialControl.Adapters.InputSources
                     continue;
                 }
 
-                resolvedList.Add(new ResolvedBinding(source, entry.SourceAxis, bsIndex, entry.Scale, entry.Direction));
+                resolvedList.Add(new ResolvedBinding(entry.SourceId, source, entry.SourceAxis, bsIndex, entry.Scale, entry.Direction));
                 _contributeMask[bsIndex] = true;
             }
 
@@ -126,6 +135,78 @@ namespace Hidano.FacialControl.Adapters.InputSources
 
         /// <inheritdoc />
         public override BitArray ContributeMask => _contributeMask;
+
+        /// <inheritdoc />
+        public bool IsRegistryAttached => _attachedRegistry != null;
+
+        /// <inheritdoc />
+        public void AttachRegistry(IInputSourceRegistry registry, AdapterSlug slug)
+        {
+            if (registry == null)
+            {
+                throw new ArgumentNullException(nameof(registry));
+            }
+            if (slug.Value == null)
+            {
+                throw new ArgumentException("slug must be initialized.", nameof(slug));
+            }
+
+            if (ReferenceEquals(_attachedRegistry, registry))
+            {
+                return;
+            }
+
+            if (_attachedRegistry != null)
+            {
+                DetachRegistry();
+            }
+
+            _attachedRegistry = registry;
+            int generation = ++_attachGeneration;
+
+            for (int i = 0; i < _resolvedBindings.Length; i++)
+            {
+                ResolvedBinding binding = _resolvedBindings[i];
+                string key = slug.Value + ":" + binding.SourceId;
+                registry.Subscribe(key, notified =>
+                {
+                    // Detach / 再 Attach 後に届く旧世代の通知は無視する（Unsubscribe が無いため世代番号で no-op 化）。
+                    if (generation != _attachGeneration)
+                    {
+                        return;
+                    }
+
+                    if (notified == null)
+                    {
+                        binding.Source = binding.OriginalSource;
+                        return;
+                    }
+
+                    if (notified is IAnalogInputSource analog)
+                    {
+                        binding.Source = analog;
+                    }
+                });
+            }
+        }
+
+        /// <inheritdoc />
+        public void DetachRegistry()
+        {
+            if (_attachedRegistry == null)
+            {
+                return;
+            }
+
+            _attachGeneration++;
+            _attachedRegistry = null;
+
+            for (int i = 0; i < _resolvedBindings.Length; i++)
+            {
+                ResolvedBinding binding = _resolvedBindings[i];
+                binding.Source = binding.OriginalSource;
+            }
+        }
 
         /// <inheritdoc />
         public override bool TryWriteValues(Span<float> output)
@@ -235,21 +316,31 @@ namespace Hidano.FacialControl.Adapters.InputSources
             return false;
         }
 
-        private readonly struct ResolvedBinding
+        /// <summary>
+        /// 構築時に解決した binding。<see cref="Source"/> は registry 通知で差し替わる現在の読み先、
+        /// <see cref="OriginalSource"/> は構築時に解決した source（Unregister / Detach で戻す先）。
+        /// </summary>
+        private sealed class ResolvedBinding
         {
-            public readonly IAnalogInputSource Source;
+            public readonly string SourceId;
+            public readonly IAnalogInputSource OriginalSource;
             public readonly int SourceAxis;
             public readonly int BlendShapeIndex;
             public readonly float Scale;
             public readonly AnalogBindingDirection Direction;
 
+            public IAnalogInputSource Source;
+
             public ResolvedBinding(
+                string sourceId,
                 IAnalogInputSource source,
                 int sourceAxis,
                 int blendShapeIndex,
                 float scale,
                 AnalogBindingDirection direction)
             {
+                SourceId = sourceId;
+                OriginalSource = source;
                 Source = source;
                 SourceAxis = sourceAxis;
                 BlendShapeIndex = blendShapeIndex;

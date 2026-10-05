@@ -7,6 +7,7 @@
         "Hidano.FacialControl.Application",
         "Hidano.FacialControl.Timeline",
         "Hidano.FacialControl.Timeline.Editor",
+        "Hidano.FacialControl.Editor",
         "Hidano.FacialControl.Timeline.Tests.Shared",
         "Hidano.FacialControl.Rec.Domain",
         "Hidano.FacialControl.Rec.Application",

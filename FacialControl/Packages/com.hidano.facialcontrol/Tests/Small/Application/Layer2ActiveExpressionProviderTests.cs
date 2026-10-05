@@ -123,5 +123,120 @@ namespace Hidano.FacialControl.Tests.EditMode.Application
             Assert.IsTrue(active.HasValue);
             Assert.AreEqual("anger", active.Value.Id, "スタック末尾(最新 TriggerOn)が top");
         }
+
+        // --- 単一 source の増減 (AddSource / RemoveSource) ---
+
+        [Test]
+        public void AddSource_TriggerOnAfterAdd_ResolvesTopActiveExpression()
+        {
+            var profile = BuildProfile();
+            var trigger = new FakeTriggerSource(profile);
+            var provider = new Layer2ActiveExpressionProvider(profile);
+
+            provider.AddSource(EmotionLayer, trigger);
+            trigger.TriggerOn("smile");
+
+            var active = provider.TryGetTopActiveExpression(EmotionLayer);
+            Assert.IsTrue(active.HasValue);
+            Assert.AreEqual("smile", active.Value.Id);
+        }
+
+        [Test]
+        public void AddSource_KeepsSourcesSetBySetSources()
+        {
+            var profile = BuildProfile();
+            var first = new FakeTriggerSource(profile);
+            var second = new FakeTriggerSource(profile);
+            var provider = new Layer2ActiveExpressionProvider(profile);
+            provider.SetSources(new[] { (EmotionLayer, (ExpressionTriggerInputSourceBase)first) });
+
+            provider.AddSource(EmotionLayer, second);
+            first.TriggerOn("smile");
+
+            var active = provider.TryGetTopActiveExpression(EmotionLayer);
+            Assert.IsTrue(active.HasValue, "AddSource は一括設定済みの source を置き換えないこと");
+            Assert.AreEqual("smile", active.Value.Id);
+        }
+
+        [Test]
+        public void AddSource_SamePairTwice_SingleRemoveClearsResolution()
+        {
+            // 同 (layer, source) は重複追加しない: 1 回の RemoveSource で完全に消えることで検証する。
+            var profile = BuildProfile();
+            var trigger = new FakeTriggerSource(profile);
+            var provider = new Layer2ActiveExpressionProvider(profile);
+
+            provider.AddSource(EmotionLayer, trigger);
+            provider.AddSource(EmotionLayer, trigger);
+            trigger.TriggerOn("smile");
+
+            Assert.IsTrue(provider.RemoveSource(EmotionLayer, trigger));
+            Assert.IsFalse(provider.TryGetTopActiveExpression(EmotionLayer).HasValue,
+                "重複追加されていれば 1 回の削除では残るため、ここで null になることが重複なしの証明");
+            Assert.IsFalse(provider.RemoveSource(EmotionLayer, trigger), "2 回目の削除は対象なしで false");
+        }
+
+        [Test]
+        public void AddSource_SameSourceOnDifferentLayers_RegisteredPerLayer()
+        {
+            var profile = BuildProfile();
+            var trigger = new FakeTriggerSource(profile);
+            var provider = new Layer2ActiveExpressionProvider(profile);
+
+            provider.AddSource(EmotionLayer, trigger);
+            provider.AddSource("overlay", trigger);
+            trigger.TriggerOn("smile");
+
+            Assert.IsTrue(provider.RemoveSource("overlay", trigger));
+            Assert.IsTrue(provider.TryGetTopActiveExpression(EmotionLayer).HasValue,
+                "別レイヤーの登録は独立しており、overlay 側の削除で emotion 側は消えないこと");
+        }
+
+        [Test]
+        public void RemoveSource_Registered_ReturnsTrueAndStopsResolving()
+        {
+            var profile = BuildProfile();
+            var trigger = new FakeTriggerSource(profile);
+            var provider = new Layer2ActiveExpressionProvider(profile);
+            provider.AddSource(EmotionLayer, trigger);
+            trigger.TriggerOn("smile");
+            Assert.IsTrue(provider.TryGetTopActiveExpression(EmotionLayer).HasValue);
+
+            bool removed = provider.RemoveSource(EmotionLayer, trigger);
+
+            Assert.IsTrue(removed);
+            Assert.IsFalse(provider.TryGetTopActiveExpression(EmotionLayer).HasValue,
+                "削除後は TriggerOn 状態でも解決されないこと");
+        }
+
+        [Test]
+        public void RemoveSource_NotRegistered_ReturnsFalse()
+        {
+            var profile = BuildProfile();
+            var trigger = new FakeTriggerSource(profile);
+            var other = new FakeTriggerSource(profile);
+            var provider = new Layer2ActiveExpressionProvider(profile);
+            provider.AddSource(EmotionLayer, trigger);
+
+            Assert.IsFalse(provider.RemoveSource(EmotionLayer, other), "未登録 source は false");
+            Assert.IsFalse(provider.RemoveSource("overlay", trigger), "別レイヤーの組は false");
+            Assert.IsFalse(provider.RemoveSource(EmotionLayer, null), "null は false");
+        }
+
+        [Test]
+        public void AddSource_NullSourceOrEmptyLayer_Ignored()
+        {
+            var profile = BuildProfile();
+            var trigger = new FakeTriggerSource(profile);
+            var provider = new Layer2ActiveExpressionProvider(profile);
+
+            provider.AddSource(EmotionLayer, null);
+            provider.AddSource(string.Empty, trigger);
+            provider.AddSource(null, trigger);
+            trigger.TriggerOn("smile");
+
+            Assert.IsFalse(provider.TryGetTopActiveExpression(EmotionLayer).HasValue);
+            Assert.IsFalse(provider.RemoveSource(string.Empty, trigger));
+        }
     }
 }

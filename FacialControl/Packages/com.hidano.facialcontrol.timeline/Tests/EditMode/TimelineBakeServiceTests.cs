@@ -1,5 +1,7 @@
 using System;
 using System.Collections.Generic;
+using Hidano.FacialControl.Adapters.ScriptableObject;
+using Hidano.FacialControl.Adapters.ScriptableObject.Serializable;
 using Hidano.FacialControl.Domain.Models;
 using Hidano.FacialControl.Domain.Services;
 using Hidano.FacialControl.Timeline.Adapters.Assets;
@@ -233,14 +235,14 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
                 };
 
                 bake = Editor.TimelineBakeService.Bake(timeline, profile);
-                Assert.That(Editor.TimelineBakeService.IsStale(timeline, profile, bake), Is.False);
+                Assert.That(Editor.TimelineBakeService.IsStale(timeline, profile, bake), Is.EqualTo(Editor.BakeStaleReason.None));
 
                 ((FacialValueClip)clip.asset).Axes = new[]
                 {
                     AnimationCurve.Linear(0f, 0f, 0.25f, 0.75f),
                 };
 
-                Assert.That(Editor.TimelineBakeService.IsStale(timeline, profile, bake), Is.True);
+                Assert.That(Editor.TimelineBakeService.IsStale(timeline, profile, bake), Is.EqualTo(Editor.BakeStaleReason.TimelineChanged));
             }
             finally
             {
@@ -251,6 +253,305 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
 
                 UnityEngine.Object.DestroyImmediate(timeline);
             }
+        }
+
+        [Test]
+        public void Bake_WritesProfileContentHashHexMatchingRecalculationFromSameProfile()
+        {
+            var timeline = ScriptableObject.CreateInstance<TimelineAsset>();
+            FacialTimelineBakeAsset bake = null;
+
+            try
+            {
+                FacialProfile profile = CreateProfile(transitionDuration: 0.25f);
+                CreateExpressionTrack(timeline, start: 0.025d, duration: 0.50d);
+
+                bake = Editor.TimelineBakeService.Bake(timeline, profile);
+
+                Assert.That(bake.ProfileContentHashHex, Is.Not.Empty);
+                Assert.That(
+                    bake.ProfileContentHashHex,
+                    Is.EqualTo(FacialTimelineHashCalculator.ComputeProfileContentHashHex(profile, Array.Empty<GazeChannel>())));
+                Assert.That(
+                    bake.SourceHashHex,
+                    Is.EqualTo(FacialTimelineHashCalculator.ComputeHashHex(timeline, profile, Array.Empty<GazeChannel>(), bake.SampleRate)));
+            }
+            finally
+            {
+                if (bake != null)
+                {
+                    UnityEngine.Object.DestroyImmediate(bake);
+                }
+
+                UnityEngine.Object.DestroyImmediate(timeline);
+            }
+        }
+
+        [Test]
+        public void Bake_FromProfileAsset_WritesHashesIncludingGazeChannelsAndIsNotStale()
+        {
+            var timeline = ScriptableObject.CreateInstance<TimelineAsset>();
+            FacialCharacterProfileSO profileAsset = CreateProfileAsset();
+            FacialTimelineBakeAsset bake = null;
+
+            try
+            {
+                CreateExpressionTrack(timeline, start: 0.025d, duration: 0.50d);
+                GazeChannel[] gazeChannels = CopyGazeChannels(profileAsset);
+
+                bake = Editor.TimelineBakeService.Bake(timeline, profileAsset);
+
+                FacialProfile profile = profileAsset.BuildFallbackProfile();
+                Assert.That(bake.ProfileContentHashHex, Is.Not.Empty);
+                Assert.That(
+                    bake.ProfileContentHashHex,
+                    Is.EqualTo(FacialTimelineHashCalculator.ComputeProfileContentHashHex(profile, gazeChannels)));
+                Assert.That(
+                    bake.SourceHashHex,
+                    Is.EqualTo(FacialTimelineHashCalculator.ComputeHashHex(timeline, profile, gazeChannels, bake.SampleRate)));
+                Assert.That(Editor.TimelineBakeService.IsStale(timeline, profileAsset, bake), Is.EqualTo(Editor.BakeStaleReason.None));
+
+                profileAsset.GazeChannels[0].sourceIdLeft = "osc:gaze.changed";
+
+                Assert.That(Editor.TimelineBakeService.IsStale(timeline, profileAsset, bake), Is.EqualTo(Editor.BakeStaleReason.ProfileChanged));
+            }
+            finally
+            {
+                if (bake != null)
+                {
+                    UnityEngine.Object.DestroyImmediate(bake);
+                }
+
+                UnityEngine.Object.DestroyImmediate(profileAsset);
+                UnityEngine.Object.DestroyImmediate(timeline);
+            }
+        }
+
+        [Test]
+        public void UpdateBakeAsset_CopiesProfileContentHashHex()
+        {
+            var timeline = ScriptableObject.CreateInstance<TimelineAsset>();
+            FacialCharacterProfileSO profileAsset = CreateProfileAsset();
+            var target = ScriptableObject.CreateInstance<FacialTimelineBakeAsset>();
+
+            try
+            {
+                CreateExpressionTrack(timeline, start: 0.025d, duration: 0.50d);
+
+                Editor.TimelineBakeService.UpdateBakeAsset(timeline, profileAsset, target);
+
+                Assert.That(
+                    target.ProfileContentHashHex,
+                    Is.EqualTo(FacialTimelineHashCalculator.ComputeProfileContentHashHex(
+                        profileAsset.BuildFallbackProfile(),
+                        CopyGazeChannels(profileAsset))));
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(target);
+                UnityEngine.Object.DestroyImmediate(profileAsset);
+                UnityEngine.Object.DestroyImmediate(timeline);
+            }
+        }
+
+        [Test]
+        public void UpdateBakeAsset_WritesTargetBakeReferenceToAllFacialTracks()
+        {
+            var timeline = ScriptableObject.CreateInstance<TimelineAsset>();
+            FacialCharacterProfileSO profileAsset = CreateProfileAsset();
+            var target = ScriptableObject.CreateInstance<FacialTimelineBakeAsset>();
+
+            try
+            {
+                FacialExpressionTrack root = CreateExpressionTrack(timeline, start: 0.025d, duration: 0.50d);
+                FacialExpressionTrack child = timeline.CreateTrack<FacialExpressionTrack>(root, "Expressions Lane 1");
+                FacialValueTrack value = timeline.CreateTrack<FacialValueTrack>(null, "Analog");
+
+                Editor.TimelineBakeService.UpdateBakeAsset(timeline, profileAsset, target);
+
+                Assert.That(root.Bake, Is.SameAs(target));
+                Assert.That(child.Bake, Is.SameAs(target));
+                Assert.That(value.Bake, Is.SameAs(target));
+                Assert.That(FacialTimelineBakeLocator.Locate(timeline, null).Status, Is.EqualTo(BakeLocateStatus.Found));
+            }
+            finally
+            {
+                DestroyAll(target, profileAsset, timeline);
+            }
+        }
+
+        [Test]
+        public void IsStale_ProfileAssetChangedOnly_ReturnsProfileChanged()
+        {
+            var timeline = ScriptableObject.CreateInstance<TimelineAsset>();
+            FacialCharacterProfileSO profileAsset = CreateProfileAsset();
+            FacialTimelineBakeAsset bake = null;
+
+            try
+            {
+                CreateExpressionTrack(timeline, start: 0.025d, duration: 0.50d);
+                bake = Editor.TimelineBakeService.Bake(timeline, profileAsset);
+
+                profileAsset.Expressions[0].transitionDuration = 0.4f;
+
+                Assert.That(
+                    Editor.TimelineBakeService.IsStale(timeline, profileAsset, bake),
+                    Is.EqualTo(Editor.BakeStaleReason.ProfileChanged));
+            }
+            finally
+            {
+                DestroyAll(bake, profileAsset, timeline);
+            }
+        }
+
+        [Test]
+        public void IsStale_TimelineChangedOnly_ReturnsTimelineChanged()
+        {
+            var timeline = ScriptableObject.CreateInstance<TimelineAsset>();
+            FacialCharacterProfileSO profileAsset = CreateProfileAsset();
+            FacialTimelineBakeAsset bake = null;
+
+            try
+            {
+                FacialExpressionTrack track = CreateExpressionTrack(timeline, start: 0.025d, duration: 0.50d);
+                bake = Editor.TimelineBakeService.Bake(timeline, profileAsset);
+
+                foreach (TimelineClip clip in track.GetClips())
+                {
+                    clip.start = 0.2d;
+                }
+
+                Assert.That(
+                    Editor.TimelineBakeService.IsStale(timeline, profileAsset, bake),
+                    Is.EqualTo(Editor.BakeStaleReason.TimelineChanged));
+            }
+            finally
+            {
+                DestroyAll(bake, profileAsset, timeline);
+            }
+        }
+
+        [Test]
+        public void IsStale_ProfileAndTimelineBothChanged_ReturnsProfileChangedFirst()
+        {
+            var timeline = ScriptableObject.CreateInstance<TimelineAsset>();
+            FacialCharacterProfileSO profileAsset = CreateProfileAsset();
+            FacialTimelineBakeAsset bake = null;
+
+            try
+            {
+                FacialExpressionTrack track = CreateExpressionTrack(timeline, start: 0.025d, duration: 0.50d);
+                bake = Editor.TimelineBakeService.Bake(timeline, profileAsset);
+
+                profileAsset.Expressions[0].transitionDuration = 0.4f;
+                foreach (TimelineClip clip in track.GetClips())
+                {
+                    clip.start = 0.2d;
+                }
+
+                Assert.That(
+                    Editor.TimelineBakeService.IsStale(timeline, profileAsset, bake),
+                    Is.EqualTo(Editor.BakeStaleReason.ProfileChanged));
+            }
+            finally
+            {
+                DestroyAll(bake, profileAsset, timeline);
+            }
+        }
+
+        [Test]
+        public void IsStale_BakeWithoutProfileContentHash_ReturnsProfileChanged()
+        {
+            var timeline = ScriptableObject.CreateInstance<TimelineAsset>();
+            FacialCharacterProfileSO profileAsset = CreateProfileAsset();
+            FacialTimelineBakeAsset bake = null;
+
+            try
+            {
+                CreateExpressionTrack(timeline, start: 0.025d, duration: 0.50d);
+                bake = Editor.TimelineBakeService.Bake(timeline, profileAsset);
+                bake.ProfileContentHashHex = string.Empty;
+
+                Assert.That(
+                    Editor.TimelineBakeService.IsStale(timeline, profileAsset, bake),
+                    Is.EqualTo(Editor.BakeStaleReason.ProfileChanged));
+            }
+            finally
+            {
+                DestroyAll(bake, profileAsset, timeline);
+            }
+        }
+
+        [Test]
+        public void IsStale_NullBake_ReturnsProfileChanged()
+        {
+            var timeline = ScriptableObject.CreateInstance<TimelineAsset>();
+            FacialCharacterProfileSO profileAsset = CreateProfileAsset();
+
+            try
+            {
+                CreateExpressionTrack(timeline, start: 0.025d, duration: 0.50d);
+
+                Assert.That(
+                    Editor.TimelineBakeService.IsStale(timeline, profileAsset, null),
+                    Is.EqualTo(Editor.BakeStaleReason.ProfileChanged));
+            }
+            finally
+            {
+                DestroyAll(null, profileAsset, timeline);
+            }
+        }
+
+        private static void DestroyAll(params UnityEngine.Object[] objects)
+        {
+            for (int i = 0; i < objects.Length; i++)
+            {
+                if (objects[i] != null)
+                {
+                    UnityEngine.Object.DestroyImmediate(objects[i]);
+                }
+            }
+        }
+
+        private static FacialCharacterProfileSO CreateProfileAsset()
+        {
+            var profileAsset = ScriptableObject.CreateInstance<FacialCharacterProfileSO>();
+            profileAsset.SchemaVersion = "1.0.0";
+            profileAsset.Layers.Add(new LayerDefinitionSerializable
+            {
+                name = "Expressions",
+                priority = 0,
+                exclusionMode = ExclusionMode.LastWins,
+            });
+            profileAsset.Expressions.Add(new ExpressionSerializable
+            {
+                id = "smile",
+                name = "Smile",
+                layer = "Expressions",
+                transitionDuration = 0.1f,
+                blendShapeValues = new List<BlendShapeMappingSerializable>
+                {
+                    new BlendShapeMappingSerializable
+                    {
+                        name = "Smile",
+                        value = 1f,
+                    },
+                },
+            });
+            profileAsset.GazeChannels[0].sourceIdLeft = "osc:gaze";
+            profileAsset.GazeChannels[0].sourceIdRight = "osc:gaze";
+            return profileAsset;
+        }
+
+        private static GazeChannel[] CopyGazeChannels(FacialCharacterProfileSO profileAsset)
+        {
+            var copy = new GazeChannel[profileAsset.GazeChannels.Count];
+            for (int i = 0; i < copy.Length; i++)
+            {
+                copy[i] = profileAsset.GazeChannels[i];
+            }
+
+            return copy;
         }
 
         private static float SimulateLiveLinearValue(FacialProfile profile, float time, float transitionDuration)

@@ -6,6 +6,7 @@
         "Hidano.FacialControl.Domain",
         "Hidano.FacialControl.Application",
         "Hidano.FacialControl.Adapters",
+        "Hidano.FacialControl.Editor",
         "Hidano.FacialControl.Rec.Domain",
         "Hidano.FacialControl.Rec.Application",
         "Hidano.FacialControl.Rec.Adapters",

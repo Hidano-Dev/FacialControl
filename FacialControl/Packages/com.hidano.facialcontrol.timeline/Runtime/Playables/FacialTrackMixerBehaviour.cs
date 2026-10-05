@@ -9,6 +9,17 @@ using UnityEngine.Timeline;
 
 namespace Hidano.FacialControl.Timeline.Playables
 {
+    /// <summary>
+    /// Mixer が Edit プレビューと Play を分岐する判定。Mixer は playable 生成時に 1 回だけ読み、bool でキャッシュする。
+    /// </summary>
+    internal static class FacialTimelinePlayMode
+    {
+        /// <summary>テスト専用の上書き（null なら <see cref="UnityEngine.Application.isPlaying"/>）。EditMode テストで Play 相当を再現する。</summary>
+        internal static bool? OverrideIsPlaying { get; set; }
+
+        internal static bool IsPlaying => OverrideIsPlaying ?? UnityEngine.Application.isPlaying;
+    }
+
     public sealed class FacialTrackMixerBehaviour : PlayableBehaviour
     {
         private readonly TimelineEventStateReconstructor _stateReconstructor = new TimelineEventStateReconstructor();
@@ -19,6 +30,13 @@ namespace Hidano.FacialControl.Timeline.Playables
         private ITimelineTriggerSink _sink;
         private double _lastEvaluatedTime;
         private bool _hasEvaluationTime;
+        private bool _isPlaying;
+
+        public override void OnPlayableCreate(Playable playable)
+        {
+            // Edit / Play の判定は playable 生成時に 1 回だけ読む（Play 遷移時は graph が作り直される）。
+            _isPlaying = FacialTimelinePlayMode.IsPlaying;
+        }
 
         public void ConfigureExpression(string layerName, TimelineStateEvent[] stateEvents)
         {
@@ -44,13 +62,22 @@ namespace Hidano.FacialControl.Timeline.Playables
                 return;
             }
 
-            TimelineAsset timeline = ResolveTimeline(playable);
-            if (!UnityEngine.Application.isPlaying)
+            PlayableDirector director = ResolveDirector(playable);
+            TimelineAsset timeline = director != null ? director.playableAsset as TimelineAsset : null;
+            if (!_isPlaying)
             {
+                // Edit はプレビューのみ。セッションは開始しない（Receiver の状態・診断・registry に触れない）。
                 FacialTimelineEditorPreviewBridge.ApplyPreview?.Invoke(receiver, timeline, playable.GetTime());
+                return;
             }
 
-            receiver.BeginPlaybackSession(timeline);
+            // Play: 冪等なセッション開始。Active 以外（Pending / Failed / 他 Director の所有）は戻る。
+            // 失敗理由は Receiver の診断に記録済みのため Mixer はログを出さない。
+            receiver.BeginPlaybackSession(timeline, director);
+            if (!receiver.IsSessionOwnedBy(director))
+            {
+                return;
+            }
 
             if (!receiver.TryGetExpressionSink(_layerName, out Timeline.Adapters.InputSources.TimelineExpressionStateSink expressionSink))
             {
@@ -130,15 +157,9 @@ namespace Hidano.FacialControl.Timeline.Playables
             }
         }
 
-        private static TimelineAsset ResolveTimeline(Playable playable)
+        private static PlayableDirector ResolveDirector(Playable playable)
         {
-            var resolver = playable.GetGraph().GetResolver();
-            if (resolver is PlayableDirector director)
-            {
-                return director.playableAsset as TimelineAsset;
-            }
-
-            return null;
+            return playable.GetGraph().GetResolver() as PlayableDirector;
         }
 
         private void ReleaseReceiver()

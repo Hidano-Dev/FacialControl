@@ -595,6 +595,7 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings.InputSystem
                 slug,
                 AnalogExpressionInputSource.ReservedId,
                 _analogExpressionSink);
+            _analogExpressionSink.AttachRegistry(ctx.InputSourceRegistry, slug);
         }
 
         // bindingMode == Overlay のエントリで slot ごとに OverlayInputSource を構築する。

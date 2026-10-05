@@ -72,6 +72,25 @@
 - **修正案**: キャッシュ判定に `GetSlotId(layerIdx, sourceIdx)` の変化を含める（数行）+ `LayerUseCaseTests` に再現テスト。
 - **トリガ**: 次に `LayerInputSourceAggregator` を触るとき（小さいので同乗で拾う）。
 
+### S-28: Timeline の Analog チャネル経由の出力が Edit プレビューに出ない
+- **出典**: 2026-10-05 `timeline-playback-ux`（HID-144）タスク 10.1〜10.3 のレビュー。
+- **背景**: Timeline の Analog Value トラックは Play では registry の乗っ取り → analog 消費者（InputSystem の analog expression 等）→ BlendShape と流れるが、Edit プレビューの `TimelinePreviewCompositor` は値 sink と state sink だけでオフライン合成するため、この経路を再現しない。REC Export した Timeline に Analog チャネルがあると、Play では表情が出るのに Edit では出ない。design.md D9 に既知制約として明記し、`TimelinePreviewCompositorTests` に不一致を示す特性テストがある。
+- **方針候補**: Profile の adapter binding が持つ analog 消費者構成を Editor でオフライン構築する仕組み、または Bake 時に analog → BlendShape の寄与をカーブ化する。
+- **トリガ**: Analog を含む REC の Edit プレビューで「Play と違う」という報告、または HID-144 の受け入れ確認でユーザーが必須と判断したとき。
+
+### S-30: TimelineProfileSource のキャッシュが保存を伴わない外部再インポートを検知しない
+- **出典**: 2026-10-05 `timeline-playback-ux` タスク 7.1〜7.3 のレビュー（P3）。
+- **背景**: キャッシュキーは SO instanceID / profile.json の更新時刻 / SO のダーティ状態で、VCS pull などで SO がディスクから再インポートされた場合はドメインリロードまで古い Profile を返し得る。
+- **修正案**: `AssetPostprocessor.OnPostprocessAllAssets` で Profile SO の再インポートを拾って無効化する。
+
+### S-31: Timeline 関連の小さな後始末（2026-10-05 timeline-playback-ux のレビュー所見）
+- design.md D11 の「基底へ blendShapeCount: Count を渡す」記述を実装（blendShapeCount 0 維持 + ContributeMask override）に合わせる。
+- design.md の SessionConflict の扱い（Postconditions は Failed、実装と状態図は Active 維持）を揃える。
+- 旧 Profile で legacy フィールド警告が binding OnStart と Receiver Start の 2 経路から出る（design の 2 節が二重に要求）。どちらか一方に寄せる。
+- `TimelineEditChangeWatcher` の `PendingEntry.Reason` が最後の理由で上書きされ、BakeReferenceInconsistent 等の Info が欠けることがある（design は理由の集合）。
+- `LayerInputSourceAggregator` に ContributeMask 長の不一致防御を入れる（core。Timeline 側は mask 長統一で解消済み）。
+- timeline Runtime Domain の既存例外 2 ファイル（`FacialTimelineHashCalculator` / `TimelineStateEventCollector`）の Unity.Timeline 参照を Adapters へ移す。
+
 ## 中期（preview.2 以降 / 別 spec 候補）
 
 ### M-1: 既知の機能延期（technical-spec.md 1.5 節と同期）
