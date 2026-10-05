@@ -9,6 +9,7 @@
         "Hidano.FacialControl.Rec.Adapters",
         "Hidano.FacialControl.Timeline",
         "Hidano.FacialControl.Timeline.Editor",
+        "Hidano.FacialControl.Editor",
         "Hidano.FacialControl.Timeline.Tests.Shared",
         "Unity.Timeline",
         "UnityEngine.TestRunner",

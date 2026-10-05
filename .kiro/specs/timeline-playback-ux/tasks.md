@@ -309,7 +309,7 @@
 ## 第 3 段: Edit プレビューと Play の一致、REC Export ウィンドウ整理、既存 PlayMode の移行、ドキュメント（受け入れ条件 2 の「Edit プレビュー」と Req 7 / 10）
 
 - [ ] 10. Edit プレビューを Play と同じ合成規則で描き、REC Export を TimelineAsset 1 つで完結させ、既存テストとドキュメントを新形式へ移行する
-- [ ] 10.1 オフラインの LayerUseCase で Edit プレビューを合成する Compositor を実装し、Edit / Play の一致を PlayMode テストで固定する（timeline Editor）
+- [x] 10.1 オフラインの LayerUseCase で Edit プレビューを合成する Compositor を実装し、Edit / Play の一致を PlayMode テストで固定する（timeline Editor）
   - controller / Profile SO / Profile / Bake / Timeline から ExpressionUseCase + LayerUseCase を構築し、レイヤーごとに値 sink と state sink を weight 1 で後付け接続、状態復元器に Bake のイベントを設定、ホスト BlendShape 名は 2.2 で公開した収集を使う。時刻評価は Bake 値を sink に書き → 状態を時刻へジャンプ → dt 0 で更新 → 合成出力を renderer へ書く。構築時に Profile 内容ハッシュを Bake と照合して ProfileCheck（Ok / ProfileMismatch）を保持し、描画可否は Locator が Found / OverrideUsed のときだけ true（ProfileCheck には依存しない）。キャッシュ再利用判定を提供する
   - 新規 `TimelinePreviewCompositorTests`（PlayMode Medium。8.1 の fixture を使う）に 同一スナップショット（SO 保存 → profile.json 書き出し → 再ベイク）で時刻 0 / 各 Clip の start・end ±1/60 s / 中点 / duration の Edit 合成と Director 再生の renderer 値が 0.01 以内、Gaze 回転が各成分 1e-3 以内、を書く
   - 完了条件: Timeline 以外の live 入力が無くレイヤー weight 既定の条件で、Edit 合成と Play の BlendShape 値が許容誤差内で一致する
