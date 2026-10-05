@@ -1,3 +1,6 @@
+using System.Reflection;
+using Hidano.FacialControl.Timeline.Adapters;
+using Hidano.FacialControl.Timeline.Adapters.Assets;
 using Hidano.FacialControl.Timeline.Clips;
 using Hidano.FacialControl.Timeline.Playables;
 using Hidano.FacialControl.Timeline.Tracks;
@@ -107,6 +110,124 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
             {
                 Object.DestroyImmediate(timeline);
             }
+        }
+
+        [Test]
+        public void ExpressionTrack_BakeReference_DefaultsToNull()
+        {
+            var timeline = ScriptableObject.CreateInstance<TimelineAsset>();
+
+            try
+            {
+                var track = timeline.CreateTrack<FacialExpressionTrack>(null, "Expressions");
+
+                Assert.That(track, Is.InstanceOf<IFacialTimelineBakeHolder>());
+                Assert.That(((IFacialTimelineBakeHolder)track).Bake, Is.Null);
+            }
+            finally
+            {
+                Object.DestroyImmediate(timeline);
+            }
+        }
+
+        [Test]
+        public void ValueTrack_BakeReference_DefaultsToNull()
+        {
+            var timeline = ScriptableObject.CreateInstance<TimelineAsset>();
+
+            try
+            {
+                var track = timeline.CreateTrack<FacialValueTrack>(null, "osc:lt");
+
+                Assert.That(track, Is.InstanceOf<IFacialTimelineBakeHolder>());
+                Assert.That(((IFacialTimelineBakeHolder)track).Bake, Is.Null);
+            }
+            finally
+            {
+                Object.DestroyImmediate(timeline);
+            }
+        }
+
+        [Test]
+        public void BakeHolder_SerializationRoundTrip_PreservesSameReferenceOnBothTrackKinds()
+        {
+            var timeline = ScriptableObject.CreateInstance<TimelineAsset>();
+            var bake = ScriptableObject.CreateInstance<FacialTimelineBakeAsset>();
+            FacialExpressionTrack restoredExpression = null;
+            FacialValueTrack restoredValue = null;
+
+            try
+            {
+                var expressionTrack = timeline.CreateTrack<FacialExpressionTrack>(null, "Expressions");
+                var valueTrack = timeline.CreateTrack<FacialValueTrack>(null, "osc:lt");
+                ((IFacialTimelineBakeHolder)expressionTrack).Bake = bake;
+                ((IFacialTimelineBakeHolder)valueTrack).Bake = bake;
+
+                // Instantiate は Unity のシリアライズ経由で複製する（シリアライズされないフィールドは引き継がれない）。
+                restoredExpression = Object.Instantiate(expressionTrack);
+                restoredValue = Object.Instantiate(valueTrack);
+
+                Assert.That(((IFacialTimelineBakeHolder)restoredExpression).Bake, Is.SameAs(bake));
+                Assert.That(((IFacialTimelineBakeHolder)restoredValue).Bake, Is.SameAs(bake));
+            }
+            finally
+            {
+                if (restoredExpression != null)
+                {
+                    Object.DestroyImmediate(restoredExpression);
+                }
+
+                if (restoredValue != null)
+                {
+                    Object.DestroyImmediate(restoredValue);
+                }
+
+                Object.DestroyImmediate(bake);
+                Object.DestroyImmediate(timeline);
+            }
+        }
+
+        [Test]
+        public void BakeHolder_SetNull_ClearsReference()
+        {
+            var timeline = ScriptableObject.CreateInstance<TimelineAsset>();
+            var bake = ScriptableObject.CreateInstance<FacialTimelineBakeAsset>();
+
+            try
+            {
+                var track = timeline.CreateTrack<FacialValueTrack>(null, "osc:lt");
+                var holder = (IFacialTimelineBakeHolder)track;
+                holder.Bake = bake;
+                holder.Bake = null;
+
+                Assert.That(holder.Bake, Is.Null);
+            }
+            finally
+            {
+                Object.DestroyImmediate(bake);
+                Object.DestroyImmediate(timeline);
+            }
+        }
+
+        [TestCase(typeof(FacialExpressionTrack))]
+        [TestCase(typeof(FacialValueTrack))]
+        public void BakeHolder_BackingField_IsSerializedButHiddenInInspector(System.Type trackType)
+        {
+            FieldInfo field = trackType.GetField("bake", BindingFlags.Instance | BindingFlags.NonPublic);
+
+            Assert.That(field, Is.Not.Null);
+            Assert.That(field.FieldType, Is.EqualTo(typeof(FacialTimelineBakeAsset)));
+            Assert.That(field.GetCustomAttribute<SerializeField>(), Is.Not.Null);
+            Assert.That(field.GetCustomAttribute<HideInInspector>(), Is.Not.Null);
+        }
+
+        [Test]
+        public void ValueTrack_DeclaresReceiverAsTrackBindingType()
+        {
+            var attribute = typeof(FacialValueTrack).GetCustomAttribute<TrackBindingTypeAttribute>();
+
+            Assert.That(attribute, Is.Not.Null);
+            Assert.That(attribute.type, Is.EqualTo(typeof(FacialTimelineReceiver)));
         }
     }
 }

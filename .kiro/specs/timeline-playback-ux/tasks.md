@@ -114,7 +114,7 @@
   - _Boundary: FacialTimelineHashCalculator, FacialTimelineBakeAsset, TimelineBakeService_
 
 - [ ] 5. TimelineAsset の走査・Bake 解決・Director / Track binding 解決・レイヤー接続・乗っ取り・静的診断を Adapters サービスとして実装する（timeline Runtime Adapters）
-- [ ] 5.1 Facial トラックに Bake 参照の保持口を持たせ、Value トラックに Receiver 型の binding 属性を付ける（timeline Runtime Tracks）
+- [x] 5.1 Facial トラックに Bake 参照の保持口を持たせ、Value トラックに Receiver 型の binding 属性を付ける（timeline Runtime Tracks）
   - Bake 参照保持の契約（取得 / 設定）を定義し、Expression トラックと Value トラックが HideInInspector のシリアライズフィールドで実装する
   - Value トラックに Receiver を binding 型とする属性を付け、Director Inspector に binding 欄が出るようにする
   - 既存 `FacialTimelineTrackAssetTests` に Bake 参照のシリアライズ往復（設定 → 保存 → 再読込で同一参照）と null 既定を追記する

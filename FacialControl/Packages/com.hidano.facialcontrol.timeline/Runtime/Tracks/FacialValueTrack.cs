@@ -1,3 +1,5 @@
+using Hidano.FacialControl.Timeline.Adapters;
+using Hidano.FacialControl.Timeline.Adapters.Assets;
 using Hidano.FacialControl.Timeline.Clips;
 using Hidano.FacialControl.Timeline.EditorPreview;
 using Hidano.FacialControl.Timeline.Playables;
@@ -10,11 +12,21 @@ using UnityEngine.Timeline;
 namespace Hidano.FacialControl.Timeline.Tracks
 {
     [TrackClipType(typeof(FacialValueClip))]
+    [TrackBindingType(typeof(FacialTimelineReceiver))]
     [TrackColor(0.23f, 0.56f, 0.78f)]
-    public sealed class FacialValueTrack : TrackAsset, IPropertyPreview
+    public sealed class FacialValueTrack : TrackAsset, IPropertyPreview, IFacialTimelineBakeHolder
     {
         [SerializeField] private string channelSubId = string.Empty;
         [SerializeField] private FacialValueChannelKind channelKind = FacialValueChannelKind.Analog;
+
+        // 内部キャッシュ（Bake サブアセット）への参照。Exporter / 再ベイクが全 Facial トラックへ同じ参照を書く（D5）。
+        [SerializeField, HideInInspector] private FacialTimelineBakeAsset bake;
+
+        public FacialTimelineBakeAsset Bake
+        {
+            get => bake;
+            set => bake = value;
+        }
 
         public string ChannelSubId
         {
