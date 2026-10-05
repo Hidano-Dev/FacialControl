@@ -265,7 +265,7 @@
   - _Depends: 2.6, 7.1, 7.2, 7.3_
   - _Requirements: 1.5, 4.4, 4.5, 6.3, 6.4, 6.6, 9.1_
 
-- [ ] 9.3 Unity イベント購読の唯一の所有者となる Services を実装し、DirtyWatcher の自己購読を撤去する（timeline Editor）
+- [x] 9.3 Unity イベント購読の唯一の所有者となる Services を実装し、DirtyWatcher の自己購読を撤去する（timeline Editor）
   - `[InitializeOnLoad]` の静的サービスが 冪等な初期化（ObjectChangeEvents / Undo / playModeStateChanged / beforeAssemblyReload / quitting / 2.6 の完了イベント の固定 6 購読 + 9.1 の Watcher 生成）と Shutdown（全購読解除 + Watcher 破棄、二重呼び出しは no-op）を提供し、update は Watcher の pending がある間だけ参照カウントで購読する。テスト用に現在の購読数を公開する
   - 配送規則: ObjectChange は対象型（Facial トラック / Clip / TimelineAsset / Profile SO とその派生）を判定して MarkDirty、Undo / Redo は開いている Timeline と追跡中 Timeline を MarkDirty、完了イベントは追跡逆引きで ProfileChanged、ExitingEditMode は Watcher の FlushNow → 9.2 の直列処理、EnteredEditMode は無言修復 + 4.4 のゲートのエポックリセット、ExitingPlayMode は pending 破棄
   - DirtyWatcher の `[InitializeOnLoad]` と静的コンストラクタの購読（playModeStateChanged / Receiver の BakeIssueDetected）を撤去し、AssetModificationProcessor の保存経路は残す

@@ -86,7 +86,7 @@ namespace Hidano.FacialControl.Timeline.Editor
         private bool _disposed;
 
         public TimelineEditChangeWatcher(IRebakeExecutor rebake, Func<double> clock)
-            : this(rebake, clock, null, null)
+            : this(rebake, clock, TimelineEditorServices.RequestTick, TimelineEditorServices.ReleaseTick)
         {
         }
 

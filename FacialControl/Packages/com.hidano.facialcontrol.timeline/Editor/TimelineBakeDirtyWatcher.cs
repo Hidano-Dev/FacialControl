@@ -21,28 +21,19 @@ namespace Hidano.FacialControl.Timeline.Editor
     /// <para>Receiver の <see cref="FacialTimelineReceiver.BakeAsset"/> は任意の上書き欄なので自動では書かない。ユーザーが既に
     /// 同じ Timeline の Bake を明示設定している場合だけ、再ベイク後の Bake へ追従更新する（Undo 可能）。</para>
     /// <para>Play 中（Play 遷移中を含む）の保存フックは再ベイクも Receiver 更新もせず、対象を記録して Edit 復帰時に処理する。</para>
+    /// <para>Unity イベントは購読しない（購読は <see cref="TimelineEditorServices"/> が持ち、Play 遷移時に
+    /// <see cref="ProcessOpenSceneTimelinesNow"/> / <see cref="TryRepairPendingSessionIssuesNow"/> を呼ぶ）。
+    /// 保存フックは AssetModificationProcessor（<see cref="TimelineBakeDirtyWatcherAssetHook"/>）経由で残す。</para>
     /// </remarks>
-    [InitializeOnLoad]
     public static class TimelineBakeDirtyWatcher
     {
         private const string LogPrefix = "[TimelineBakeDirtyWatcher] ";
 
-        private static readonly Dictionary<string, PendingRepairRequest> PendingRepairRequests =
-            new Dictionary<string, PendingRepairRequest>(StringComparer.Ordinal);
         private static readonly HashSet<string> PendingSavedPaths = new HashSet<string>(StringComparer.Ordinal);
         private static bool _suppressSaveHook;
 
         /// <summary>Play 遷移中の判定（既定 <see cref="EditorApplication.isPlayingOrWillChangePlaymode"/>。テストから差し替え可）。</summary>
         internal static Func<bool> IsPlayModeTransition = () => EditorApplication.isPlayingOrWillChangePlaymode;
-
-        static TimelineBakeDirtyWatcher()
-        {
-            FacialTimelineReceiver.BakeIssueDetected -= OnBakeIssueDetected;
-            FacialTimelineReceiver.BakeIssueDetected += OnBakeIssueDetected;
-
-            EditorApplication.playModeStateChanged -= OnPlayModeStateChanged;
-            EditorApplication.playModeStateChanged += OnPlayModeStateChanged;
-        }
 
         // ================================================================
         // 保存フック（AssetModificationProcessor から）
@@ -232,40 +223,10 @@ namespace Hidano.FacialControl.Timeline.Editor
                 CollectRequestsForPaths(saved, requests);
             }
 
-            // (2) Play 中に Receiver が通知した旧イベント（Editor 購読の一元化で撤去予定）。
-            if (PendingRepairRequests.Count > 0)
-            {
-                PendingRepairRequest[] pending = new PendingRepairRequest[PendingRepairRequests.Count];
-                PendingRepairRequests.Values.CopyTo(pending, 0);
-                PendingRepairRequests.Clear();
-                for (int i = 0; i < pending.Length; i++)
-                {
-                    PendingRepairRequest request = pending[i];
-                    if (requests.ContainsKey(request.TimelinePath))
-                    {
-                        continue;
-                    }
-
-                    if (!TryLoadTimeline(request.TimelinePath, out TimelineAsset timeline))
-                    {
-                        failures.Add($"Timeline not found: {request.TimelinePath}");
-                        continue;
-                    }
-
-                    if (!TryResolveProfileAsset(request.TimelinePath, request.ProfileAssetGuid, out FacialCharacterProfileSO profileAsset))
-                    {
-                        failures.Add($"Profile not found for timeline: {request.TimelinePath}");
-                        continue;
-                    }
-
-                    requests[request.TimelinePath] = new RebakeRequest(timeline, profileAsset);
-                }
-            }
-
-            // (3) Receiver の診断状態。
+            // (2) Receiver の診断状態（Play 中に検出した BakeStale / ProfileMismatch / 参照不整合）。
             CollectReceiverDiagnosticRequests(requests);
 
-            // (4) シーン上の Director の Timeline（鮮度・参照不整合）。
+            // (3) シーン上の Director の Timeline（鮮度・参照不整合）。
             CollectOpenSceneRequests(requests);
 
             int attempted = failures.Count;
@@ -364,45 +325,7 @@ namespace Hidano.FacialControl.Timeline.Editor
         /// <summary>記録済みの修復対象を破棄する（Play 中の変更を捨てる / テスト）。</summary>
         internal static void ClearPendingRepairs()
         {
-            PendingRepairRequests.Clear();
             PendingSavedPaths.Clear();
-        }
-
-        private static void OnPlayModeStateChanged(PlayModeStateChange change)
-        {
-            if (change == PlayModeStateChange.ExitingEditMode)
-            {
-                ProcessOpenSceneTimelinesNow();
-                return;
-            }
-
-            if (change == PlayModeStateChange.EnteredEditMode)
-            {
-                TryRepairPendingSessionIssuesNow();
-            }
-        }
-
-        private static void OnBakeIssueDetected(BakeInspectionIssue issue)
-        {
-            if (issue.Status != BakeInspectionStatus.HashMismatch || issue.Timeline == null || issue.ProfileSource == null)
-            {
-                return;
-            }
-
-            string timelinePath = AssetDatabase.GetAssetPath(issue.Timeline);
-            string profilePath = AssetDatabase.GetAssetPath(issue.ProfileSource);
-            if (string.IsNullOrEmpty(timelinePath) || string.IsNullOrEmpty(profilePath))
-            {
-                return;
-            }
-
-            string profileAssetGuid = AssetDatabase.AssetPathToGUID(profilePath);
-            if (string.IsNullOrEmpty(profileAssetGuid))
-            {
-                return;
-            }
-
-            PendingRepairRequests[timelinePath] = new PendingRepairRequest(timelinePath, profileAssetGuid);
         }
 
         // ================================================================
@@ -673,34 +596,6 @@ namespace Hidano.FacialControl.Timeline.Editor
             return FindBakeAsset(timelinePath);
         }
 
-        private static bool TryResolveProfileAsset(
-            string timelinePath,
-            string profileAssetGuid,
-            out FacialCharacterProfileSO profileAsset)
-        {
-            profileAsset = null;
-            if (string.IsNullOrEmpty(profileAssetGuid))
-            {
-                return false;
-            }
-
-            string profilePath = AssetDatabase.GUIDToAssetPath(profileAssetGuid);
-            if (string.IsNullOrEmpty(profilePath))
-            {
-                Debug.LogWarning($"{LogPrefix}Profile GUID '{profileAssetGuid}' could not be resolved for '{timelinePath}'.");
-                return false;
-            }
-
-            profileAsset = AssetDatabase.LoadAssetAtPath<FacialCharacterProfileSO>(profilePath);
-            if (profileAsset == null)
-            {
-                Debug.LogWarning($"{LogPrefix}Profile asset '{profilePath}' could not be loaded for '{timelinePath}'.");
-                return false;
-            }
-
-            return true;
-        }
-
         private static bool TryResolveDirectorProfile(
             PlayableDirector director,
             TimelineAsset timeline,
@@ -788,19 +683,6 @@ namespace Hidano.FacialControl.Timeline.Editor
             public TimelineAsset Timeline { get; }
 
             public FacialCharacterProfileSO ProfileAsset { get; }
-        }
-
-        private readonly struct PendingRepairRequest
-        {
-            public PendingRepairRequest(string timelinePath, string profileAssetGuid)
-            {
-                TimelinePath = timelinePath;
-                ProfileAssetGuid = profileAssetGuid;
-            }
-
-            public string TimelinePath { get; }
-
-            public string ProfileAssetGuid { get; }
         }
     }
 
