@@ -27,6 +27,8 @@ namespace Hidano.FacialControl.Rec.Application.UseCases
         private bool _disposed;
         private byte[] _maskScratch = Array.Empty<byte>();
         private float[] _valueScratch = Array.Empty<float>();
+        // weight サンプル（1 float）の事前確保スクラッチ。毎フレームの確保をしない（design: RecordingUseCase 節）
+        private readonly float[] _weightScratch = new float[1];
 
         /// <param name="startOffsetSeconds">
         /// 記録タイムスタンプと録画長に加算する開始オフセット（秒、有限かつ 0 以上）。
@@ -269,6 +271,32 @@ namespace Hidano.FacialControl.Rec.Application.UseCases
             AppendEvent(RecEvent.CreateExpressionDeactivate(SampleClock(), sourceIndex, expressionIndex), ReadOnlySpan<float>.Empty, ReadOnlySpan<byte>.Empty);
         }
 
+        public void OnLayerWeightSample(string layerName, float weight)
+        {
+            if (!IsRecording || string.IsNullOrWhiteSpace(layerName))
+            {
+                return;
+            }
+
+            ushort layerIndex = EnsureLayerIdDefined(layerName);
+            _weightScratch[0] = weight;
+            AppendEvent(RecEvent.CreateLayerWeightSample(SampleClock(), layerIndex), _weightScratch, ReadOnlySpan<byte>.Empty);
+        }
+
+        public void OnInputSourceWeightSample(string layerName, string slotId, float weight)
+        {
+            if (!IsRecording || string.IsNullOrWhiteSpace(layerName) || string.IsNullOrWhiteSpace(slotId))
+            {
+                return;
+            }
+
+            ushort layerIndex = EnsureLayerIdDefined(layerName);
+            ushort sourceIndex = EnsureSourceIdDefined(slotId);
+            _weightScratch[0] = weight;
+            AppendEvent(RecEvent.CreateInputSourceWeightSample(SampleClock(), layerIndex, sourceIndex), _weightScratch,
+                ReadOnlySpan<byte>.Empty);
+        }
+
         public void Dispose()
         {
             if (_disposed)
@@ -360,6 +388,19 @@ namespace Hidano.FacialControl.Rec.Application.UseCases
             if (!existed)
             {
                 AppendEvent(RecEvent.CreateIdDefine(index, RecEvent.IdDefinitionKind.Source), ReadOnlySpan<float>.Empty, ReadOnlySpan<byte>.Empty, sourceId);
+            }
+
+            return index;
+        }
+
+        private ushort EnsureLayerIdDefined(string layerName)
+        {
+            bool existed = _idTable.TryGetLayerIndex(layerName, out ushort index);
+            index = _idTable.GetOrAddLayerId(layerName);
+            if (!existed)
+            {
+                AppendEvent(RecEvent.CreateIdDefine(index, RecEvent.IdDefinitionKind.Layer), ReadOnlySpan<float>.Empty,
+                    ReadOnlySpan<byte>.Empty, layerName);
             }
 
             return index;

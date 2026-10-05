@@ -18,6 +18,120 @@ namespace Hidano.FacialControl.Rec.Tests.EditMode
     public sealed class PlaybackUseCaseFourPortTests : SizedTestFixture
     {
         [Test]
+        public void StartPlayback_FivePorts_UsesWeightFirstAndWeightLastReleaseOrder()
+        {
+            var order = new List<string>();
+            var weight = new FakeWeightPort(order, "weight", true);
+            var trigger = new FakePort(order, "trigger", true);
+            var expression = new FakePort(order, "expression", true);
+            var analog = new FakePort(order, "analog", true);
+            var valueProvider = new FakePort(order, "valueProvider", true);
+            var useCase = new PlaybackUseCase(weight, trigger, expression, analog, valueProvider);
+            useCase.Load(CreateTimeline(), CreateProfile());
+
+            Assert.That(useCase.StartPlayback(), Is.True);
+            useCase.StopPlayback();
+
+            Assert.That(order, Is.EqualTo(new[]
+            {
+                "weight.begin", "trigger.begin", "expression.begin", "analog.begin", "valueProvider.begin",
+                "trigger.end", "expression.end", "analog.end", "valueProvider.end", "weight.end",
+            }));
+        }
+
+        [Test]
+        public void StartPlayback_FivePorts_WeightPreflightFailsWithoutBeginningAnyPort()
+        {
+            var order = new List<string>();
+            var weight = new FakeWeightPort(order, "weight", false, "weight unavailable");
+            var useCase = new PlaybackUseCase(weight, new FakePort(order, "trigger", true),
+                new FakePort(order, "expression", true), new FakePort(order, "analog", true),
+                new FakePort(order, "valueProvider", true));
+            useCase.Load(CreateTimeline(), CreateProfile());
+
+            LogAssert.Expect(LogType.Error, new Regex("weight unavailable"));
+            Assert.That(useCase.StartPlayback(), Is.False);
+            Assert.That(order, Is.Empty);
+        }
+
+        [Test]
+        public void VisitWeightSamples_FivePorts_InjectsBothWeightKinds()
+        {
+            var order = new List<string>();
+            var weight = new FakeWeightPort(order, "weight", true);
+            var useCase = new PlaybackUseCase(weight, new FakePort(order, "trigger", true),
+                new FakePort(order, "expression", true), new FakePort(order, "analog", true),
+                new FakePort(order, "valueProvider", true));
+
+            useCase.VisitLayerWeightSample("emotion", 0.25f);
+            useCase.VisitInputSourceWeightSample("emotion", "input:osc", 0.75f);
+
+            Assert.That(order, Is.EqualTo(new[] { "weight.layer:emotion:0.25", "weight.source:emotion:input:osc:0.75" }));
+        }
+
+        [Test]
+        public void StartPlayback_FivePorts_RestartFromCompleted_ReleasesWeightLastThenReestablishesWeightFirst()
+        {
+            var order = new List<string>();
+            var weight = new FakeWeightPort(order, "weight", true);
+            var useCase = new PlaybackUseCase(weight, new FakePort(order, "trigger", true),
+                new FakePort(order, "expression", true), new FakePort(order, "analog", true),
+                new FakePort(order, "valueProvider", true));
+            useCase.Load(CreateTimeline(), CreateProfile());
+            Assert.That(useCase.StartPlayback(), Is.True);
+            useCase.Tick(1f);
+            Assert.That(useCase.State, Is.EqualTo(RecPlaybackState.Completed));
+            order.Clear();
+
+            Assert.That(useCase.StartPlayback(), Is.True);
+
+            Assert.That(order, Is.EqualTo(new[]
+            {
+                "trigger.end", "expression.end", "analog.end", "valueProvider.end", "weight.end",
+                "weight.begin", "trigger.begin", "expression.begin", "analog.begin", "valueProvider.begin",
+            }));
+        }
+
+        [Test]
+        public void StartPlayback_FivePorts_SecondPortFails_RollsBackWeightInReverseOrder()
+        {
+            var order = new List<string>();
+            var weight = new FakeWeightPort(order, "weight", true);
+            var trigger = new FakePort(order, "trigger", true, beginResult: false);
+            var expression = new FakePort(order, "expression", true);
+            var useCase = new PlaybackUseCase(weight, trigger, expression,
+                new FakePort(order, "analog", true), new FakePort(order, "valueProvider", true));
+            useCase.Load(CreateTimeline(), CreateProfile());
+
+            LogAssert.Expect(LogType.Error, new Regex("trigger"));
+            Assert.That(useCase.StartPlayback(), Is.False);
+
+            Assert.That(order, Is.EqualTo(new[] { "weight.begin", "trigger.begin", "weight.end" }));
+            Assert.That(expression.BeginCount, Is.EqualTo(0));
+            Assert.That(useCase.State, Is.EqualTo(RecPlaybackState.Idle));
+        }
+
+        [Test]
+        public void VisitWeightSamples_FourPorts_AreNoOpViaNullWeightPort()
+        {
+            var order = new List<string>();
+            var useCase = CreateUseCase(new FakePort(order, "trigger", true), new FakePort(order, "expression", true),
+                new FakePort(order, "analog", true), new FakePort(order, "valueProvider", true));
+            useCase.Load(CreateTimeline(), CreateProfile());
+
+            Assert.That(useCase.StartPlayback(), Is.True);
+            useCase.VisitLayerWeightSample("emotion", 0.25f);
+            useCase.VisitInputSourceWeightSample("emotion", "input:osc", 0.75f);
+            useCase.StopPlayback();
+
+            Assert.That(order, Is.EqualTo(new[]
+            {
+                "trigger.begin", "expression.begin", "analog.begin", "valueProvider.begin",
+                "trigger.end", "expression.end", "analog.end", "valueProvider.end",
+            }));
+        }
+
+        [Test]
         public void StartPlayback_AllPortsSucceed_UsesTriggerExpressionAnalogValueProviderOrder()
         {
             var order = new List<string>();
@@ -218,6 +332,28 @@ namespace Hidano.FacialControl.Rec.Tests.EditMode
             public void InjectDeactivate(string expressionId) { }
             public void InjectAnalogSample(string sourceId, ReadOnlySpan<float> axes) { }
             public void InjectValueProviderState(string sourceId, bool isValid, ReadOnlySpan<byte> maskBytes, ReadOnlySpan<float> values) { }
+        }
+
+        private sealed class FakeWeightPort : IWeightInjectionPort
+        {
+            private readonly List<string> _order;
+            private readonly string _name;
+            private readonly bool _canBegin;
+            private readonly string _reason;
+
+            public FakeWeightPort(List<string> order, string name, bool canBegin, string reason = "")
+            {
+                _order = order;
+                _name = name;
+                _canBegin = canBegin;
+                _reason = reason;
+            }
+
+            public bool CanBeginInjection(out string reason) { reason = _reason; return _canBegin; }
+            public bool TryBeginInjection(RecBaselineState baseline) { _order.Add(_name + ".begin"); return true; }
+            public void EndInjection() { _order.Add(_name + ".end"); }
+            public void InjectLayerWeight(string layerName, float weight) => _order.Add($"weight.layer:{layerName}:{weight}");
+            public void InjectInputSourceWeight(string layerName, string slotId, float weight) => _order.Add($"weight.source:{layerName}:{slotId}:{weight}");
         }
     }
 }

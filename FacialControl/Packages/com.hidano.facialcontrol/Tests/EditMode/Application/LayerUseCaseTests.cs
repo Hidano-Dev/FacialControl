@@ -64,6 +64,24 @@ namespace Hidano.FacialControl.Tests.EditMode.Application
         private ExpressionUseCase _expressionUseCase;
         private FacialProfile _profile;
 
+        private sealed class FakeWeightObserver : ILayerWeightObserver
+        {
+            public readonly List<(string layerName, float weight)> LayerSamples =
+                new List<(string layerName, float weight)>();
+            public readonly List<(string layerName, string slotId, float weight)> InputSourceSamples =
+                new List<(string layerName, string slotId, float weight)>();
+
+            public void OnLayerWeightSample(string layerName, float weight)
+            {
+                LayerSamples.Add((layerName, weight));
+            }
+
+            public void OnInputSourceWeightSample(string layerName, string slotId, float weight)
+            {
+                InputSourceSamples.Add((layerName, slotId, weight));
+            }
+        }
+
         [SetUp]
         public void SetUp()
         {
@@ -92,6 +110,434 @@ namespace Hidano.FacialControl.Tests.EditMode.Application
         {
             var useCase = new LayerUseCase(_profile, _expressionUseCase, Array.Empty<string>());
             Assert.IsNotNull(useCase);
+        }
+
+        [Test]
+        public void SetLayerWeight_WhileSuspended_IsNoOp()
+        {
+            var gate = (IWeightInjectionGate)_useCase;
+            var observer = new FakeWeightObserver();
+            _useCase.SetWeightObserver(observer);
+            Assert.IsTrue(gate.SuspendLiveWeights());
+
+            _useCase.SetLayerWeight("emotion", 0.25f);
+            _useCase.UpdateWeights(0f);
+
+            var layers = new List<LayerWeightEntry>();
+            gate.CollectLayerWeights(layers);
+            Assert.AreEqual(1f, layers[0].Weight, 1e-6f);
+            Assert.IsEmpty(observer.LayerSamples);
+        }
+
+        [Test]
+        public void SuspendLiveWeights_ThenLayerAndSourceLiveWrites_NeitherReachesNextAggregate()
+        {
+            var source = new FakeValueWritingSource("source", CreateBlendShapeNames().Length, 1f);
+            using var useCase = new LayerUseCase(
+                _profile, _expressionUseCase, CreateBlendShapeNames(),
+                new[] { (0, (IInputSource)source, 1f) }, new[] { "source-slot" });
+            var gate = (IWeightInjectionGate)useCase;
+
+            // 遮断 → 基準 → ライブ書込 → 消費、の順。ライブ書込が基準の後に来ても消費値が基準のままであることが
+            // 遮断の証明になる（基準を後に書くと遮断が壊れていても通ってしまう）。
+            Assert.IsTrue(gate.SuspendLiveWeights());
+            Assert.IsTrue(gate.TrySetBaselineLayerWeight("emotion", 0.6f));
+            Assert.IsTrue(gate.TrySetBaselineInputSourceWeight("emotion", "source-slot", 0.4f));
+            useCase.SetLayerWeight("emotion", 0.1f);
+            useCase.SetInputSourceWeight(0, 1, 0.9f);
+            using (var bulk = useCase.BeginInputSourceWeightBatch())
+            {
+                bulk.SetWeight(0, 1, 0.95f);
+            }
+            useCase.UpdateWeights(0f);
+
+            var layers = new List<LayerWeightEntry>();
+            var slots = new List<InputSourceWeightEntry>();
+            gate.CollectLayerWeights(layers);
+            gate.CollectInputSourceWeights(slots);
+            Assert.AreEqual(0.6f, layers[0].Weight, 1e-6f);
+            Assert.AreEqual(0.4f, slots[1].Weight, 1e-6f);
+        }
+
+        [Test]
+        public void BaselineWritesDoNotNotify_ButInjectionDoesWhileSuspended()
+        {
+            var source = new FakeValueWritingSource("source", CreateBlendShapeNames().Length, 1f);
+            using var useCase = new LayerUseCase(
+                _profile, _expressionUseCase, CreateBlendShapeNames(),
+                new[] { (0, (IInputSource)source, 1f) }, new[] { "source-slot" });
+            var gate = (IWeightInjectionGate)useCase;
+            var observer = new FakeWeightObserver();
+            useCase.SetWeightObserver(observer);
+            Assert.IsTrue(gate.SuspendLiveWeights());
+
+            Assert.IsTrue(gate.TrySetBaselineLayerWeight("emotion", 0.6f));
+            Assert.IsTrue(gate.TrySetBaselineInputSourceWeight("emotion", "source-slot", 0.4f));
+            gate.ResetWeightsToDeclared();
+            useCase.UpdateWeights(0f);
+            Assert.IsEmpty(observer.LayerSamples);
+            Assert.IsEmpty(observer.InputSourceSamples);
+
+            Assert.IsTrue(gate.TryInjectLayerWeight("emotion", 0.3f));
+            Assert.IsTrue(gate.TryInjectInputSourceWeight("emotion", "source-slot", 0.2f));
+            useCase.UpdateWeights(0f);
+            Assert.AreEqual(1, observer.LayerSamples.Count);
+            Assert.AreEqual(0.3f, observer.LayerSamples[0].weight, 1e-6f);
+            Assert.AreEqual(1, observer.InputSourceSamples.Count);
+            Assert.AreEqual(0.2f, observer.InputSourceSamples[0].weight, 1e-6f);
+        }
+
+        [Test]
+        public void ResetWeightsToDeclared_RestoresDeclaredValuesWithoutNotifying()
+        {
+            var profile = CreateProfile(
+                layers: CreateDefaultLayers(),
+                expressions: Array.Empty<Expression>());
+            var expressionUseCase = new ExpressionUseCase(profile);
+            var source = new FakeValueWritingSource("declared", CreateBlendShapeNames().Length, 1f);
+            var useCase = new LayerUseCase(
+                profile,
+                expressionUseCase,
+                CreateBlendShapeNames(),
+                new[] { (0, (IInputSource)source, 0.4f) },
+                new[] { "declared-slot" });
+            var gate = (IWeightInjectionGate)useCase;
+
+            Assert.IsTrue(gate.TryInjectLayerWeight("emotion", 0.2f));
+            Assert.IsTrue(gate.TryInjectInputSourceWeight("emotion", "declared-slot", 0.8f));
+            gate.ResetWeightsToDeclared();
+            useCase.UpdateWeights(0f);
+
+            var layers = new List<LayerWeightEntry>();
+            var slots = new List<InputSourceWeightEntry>();
+            gate.CollectLayerWeights(layers);
+            gate.CollectInputSourceWeights(slots);
+            Assert.AreEqual(1f, layers[0].Weight, 1e-6f);
+            Assert.AreEqual(0.4f, slots[1].Weight, 1e-6f);
+        }
+
+        [Test]
+        public void CollectInputSourceWeights_BeforeFirstUpdateWeights_ReturnsDeclaredWeights()
+        {
+            // 初期化直後（最初の UpdateWeights より前）に録画を開始しても、基準が 0 にならず宣言 weight を捕捉する。
+            var source = new FakeValueWritingSource("declared", CreateBlendShapeNames().Length, 1f);
+            using var useCase = new LayerUseCase(
+                _profile, _expressionUseCase, CreateBlendShapeNames(),
+                new[] { (0, (IInputSource)source, 0.4f) }, new[] { "declared-slot" });
+            var gate = (IWeightInjectionGate)useCase;
+
+            var slots = new List<InputSourceWeightEntry>();
+            gate.CollectInputSourceWeights(slots);
+
+            Assert.AreEqual(1f, slots[0].Weight, 1e-6f);
+            Assert.AreEqual(0.4f, slots[1].Weight, 1e-6f);
+        }
+
+        [Test]
+        public void CollectInputSourceWeights_PendingLiveWriteInSameFrame_ReturnsLatestWrittenValue()
+        {
+            var source = new FakeValueWritingSource("declared", CreateBlendShapeNames().Length, 1f);
+            using var useCase = new LayerUseCase(
+                _profile, _expressionUseCase, CreateBlendShapeNames(),
+                new[] { (0, (IInputSource)source, 0.4f) }, new[] { "declared-slot" });
+            var gate = (IWeightInjectionGate)useCase;
+            useCase.UpdateWeights(0f);
+
+            useCase.SetInputSourceWeight(0, 1, 0.7f);
+            var slots = new List<InputSourceWeightEntry>();
+            gate.CollectInputSourceWeights(slots);
+
+            Assert.AreEqual(0.7f, slots[1].Weight, 1e-6f);
+        }
+
+        [Test]
+        public void TrySetBaselineAndInject_UsesStableKeysAndUnknownKeysReturnFalse()
+        {
+            var gate = (IWeightInjectionGate)_useCase;
+            Assert.IsTrue(gate.TrySetBaselineLayerWeight("emotion", 0.3f));
+            Assert.IsTrue(gate.TrySetBaselineInputSourceWeight("emotion", WeightSlotIds.ExpressionSlotId, 0.6f));
+            Assert.IsTrue(gate.TryInjectLayerWeight("emotion", 0.7f));
+            Assert.IsTrue(gate.TryInjectInputSourceWeight("emotion", WeightSlotIds.ExpressionSlotId, 0.8f));
+            Assert.IsFalse(gate.TryInjectLayerWeight("missing", 0.5f));
+            Assert.IsFalse(gate.TryInjectInputSourceWeight("emotion", "missing", 0.5f));
+
+            var layers = new List<LayerWeightEntry>();
+            var slots = new List<InputSourceWeightEntry>();
+            _useCase.UpdateWeights(0f);
+            gate.CollectLayerWeights(layers);
+            gate.CollectInputSourceWeights(slots);
+            Assert.AreEqual(0.7f, layers[0].Weight, 1e-6f);
+            Assert.AreEqual("@expression", slots[0].SlotId);
+            Assert.AreEqual(0.8f, slots[0].Weight, 1e-6f);
+        }
+
+        [Test]
+        public void SetWeightObserver_Attach_SyncsWithoutNotifying()
+        {
+            var observer = new FakeWeightObserver();
+
+            _useCase.SetLayerWeight("emotion", 0.25f);
+            _useCase.UpdateWeights(0f);
+            _useCase.SetWeightObserver(observer);
+            _useCase.UpdateWeights(0f);
+
+            Assert.IsEmpty(observer.LayerSamples);
+            Assert.IsEmpty(observer.InputSourceSamples);
+        }
+
+        [Test]
+        public void UpdateWeights_ChangedLayerAndSourceWeights_NotifiesConsumedValuesOnce()
+        {
+            var source = new FakeValueWritingSource("declared-source", CreateBlendShapeNames().Length, 0f);
+            var useCase = new LayerUseCase(
+                _profile,
+                _expressionUseCase,
+                CreateBlendShapeNames(),
+                new[] { (0, (IInputSource)source, 1f) },
+                new[] { "declared-id" });
+            var observer = new FakeWeightObserver();
+            useCase.UpdateWeights(0f);
+            useCase.SetWeightObserver(observer);
+
+            useCase.SetLayerWeight("emotion", 0.25f);
+            useCase.SetInputSourceWeight(0, 1, 0.75f);
+            useCase.UpdateWeights(0f);
+
+            Assert.AreEqual(1, observer.LayerSamples.Count);
+            Assert.AreEqual("emotion", observer.LayerSamples[0].layerName);
+            Assert.AreEqual(0.25f, observer.LayerSamples[0].weight);
+            Assert.AreEqual(1, observer.InputSourceSamples.Count);
+            Assert.AreEqual("emotion", observer.InputSourceSamples[0].layerName);
+            Assert.AreEqual("declared-id", observer.InputSourceSamples[0].slotId);
+            Assert.AreEqual(0.75f, observer.InputSourceSamples[0].weight);
+
+            useCase.Dispose();
+        }
+
+        [Test]
+        public void UpdateWeights_SameFrameMultipleWeightWrites_NotifiesFinalValuesOnce()
+        {
+            var source = new FakeValueWritingSource("source", CreateBlendShapeNames().Length, 0f);
+            var useCase = new LayerUseCase(
+                _profile,
+                _expressionUseCase,
+                CreateBlendShapeNames(),
+                new[] { (0, (IInputSource)source, 1f) });
+            var observer = new FakeWeightObserver();
+            useCase.UpdateWeights(0f);
+            useCase.SetWeightObserver(observer);
+
+            useCase.SetLayerWeight("emotion", 0.2f);
+            useCase.SetLayerWeight("emotion", 0.8f);
+            useCase.SetInputSourceWeight(0, 1, 0.3f);
+            useCase.SetInputSourceWeight(0, 1, 0.7f);
+            useCase.UpdateWeights(0f);
+
+            Assert.AreEqual(1, observer.LayerSamples.Count);
+            Assert.AreEqual(0.8f, observer.LayerSamples[0].weight);
+            Assert.AreEqual(1, observer.InputSourceSamples.Count);
+            Assert.AreEqual(0.7f, observer.InputSourceSamples[0].weight);
+
+            useCase.Dispose();
+        }
+
+        [Test]
+        public void UpdateWeights_SameConsumedWeights_DoesNotNotifyAgain()
+        {
+            var observer = new FakeWeightObserver();
+            _useCase.UpdateWeights(0f);
+            _useCase.SetWeightObserver(observer);
+            _useCase.SetLayerWeight("emotion", 0.5f);
+            _useCase.SetInputSourceWeight(0, 0, 0.5f);
+
+            _useCase.UpdateWeights(0f);
+            _useCase.UpdateWeights(0f);
+
+            Assert.AreEqual(1, observer.LayerSamples.Count);
+            Assert.AreEqual(1, observer.InputSourceSamples.Count);
+        }
+
+        [Test]
+        public void UpdateWeights_ExpressionSlot_NotifiesWithReservedSlotId()
+        {
+            var observer = new FakeWeightObserver();
+            _useCase.UpdateWeights(0f);
+            _useCase.SetWeightObserver(observer);
+            _useCase.SetInputSourceWeight(0, 0, 0.5f);
+            _useCase.UpdateWeights(0f);
+
+            Assert.AreEqual(1, observer.InputSourceSamples.Count);
+            Assert.AreEqual(WeightSlotIds.ExpressionSlotId, observer.InputSourceSamples[0].slotId);
+            Assert.AreEqual(0.5f, observer.InputSourceSamples[0].weight);
+        }
+
+        [Test]
+        public void UpdateWeights_NoObserver_DoesNotTouchNotificationArrays()
+        {
+            // 観測者が未設定なら比較ループ自体を走らせない（Req 9.2）。前回通知値は構築時の未観測（NaN）のまま。
+            _useCase.SetLayerWeight("emotion", 0.25f);
+            _useCase.SetInputSourceWeight(0, 0, 0.5f);
+            _useCase.UpdateWeights(0f);
+            _useCase.UpdateWeights(0f);
+
+            var flags = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic;
+            var layerWeights = (float[])typeof(LayerUseCase).GetField("_lastNotifiedLayerWeights", flags).GetValue(_useCase);
+            var slotWeights = (float[])typeof(LayerUseCase).GetField("_lastNotifiedSlotWeights", flags).GetValue(_useCase);
+
+            Assert.IsTrue(Array.TrueForAll(layerWeights, float.IsNaN), "レイヤー weight の前回通知値が未観測のまま");
+            Assert.IsTrue(Array.TrueForAll(slotWeights, float.IsNaN), "スロット weight の前回通知値が未観測のまま");
+        }
+
+        [Test]
+        public void BindLateInputSource_CapacityGrowthWhileObserved_NotifiesNewSlotWithoutException()
+        {
+            // 観測者接続中に late-bind で registry の容量が増えても、前回通知値の配列が追随し
+            // 新スロットは宣言 weight で通知される（範囲外例外・スロット取り違えなし）。
+            var declared = new FakeValueWritingSource("declared-source", CreateBlendShapeNames().Length, 0f);
+            var useCase = new LayerUseCase(
+                _profile,
+                _expressionUseCase,
+                CreateBlendShapeNames(),
+                new[] { (0, (IInputSource)declared, 1f) },
+                new[] { "declared-id" });
+            var observer = new FakeWeightObserver();
+            useCase.UpdateWeights(0f);
+            useCase.SetWeightObserver(observer);
+
+            var late = new FakeValueWritingSource("late-source", CreateBlendShapeNames().Length, 0f);
+            Assert.DoesNotThrow(() =>
+            {
+                useCase.BindLateInputSource(0, "late-id", late, 0.5f);
+                useCase.UpdateWeights(0f);
+            });
+
+            Assert.AreEqual(1, observer.InputSourceSamples.Count);
+            Assert.AreEqual("emotion", observer.InputSourceSamples[0].layerName);
+            Assert.AreEqual("late-id", observer.InputSourceSamples[0].slotId);
+            Assert.AreEqual(0.5f, observer.InputSourceSamples[0].weight);
+
+            // 既存スロットの前回通知値は保持されるため、同値の再通知は起きない。
+            useCase.UpdateWeights(0f);
+            Assert.AreEqual(1, observer.InputSourceSamples.Count);
+
+            useCase.Dispose();
+        }
+
+        [Test]
+        public void BindLateInputSource_ReplacingExistingId_WhileSuspended_KeepsCurrentWeight()
+        {
+            var layers = new[] { new LayerDefinition("emotion", 0, ExclusionMode.LastWins) };
+            var profile = new FacialProfile("1.0", layers, Array.Empty<Expression>());
+            var expressionUseCase = new ExpressionUseCase(profile);
+            var source = new FakeValueWritingSource("source", 1, 1f);
+            using var useCase = new LayerUseCase(
+                profile, expressionUseCase, new[] { "bs_smile" },
+                new[] { (0, (IInputSource)source, 0.8f) }, new[] { "slot" });
+            var gate = (IWeightInjectionGate)useCase;
+
+            Assert.IsTrue(gate.TryInjectInputSourceWeight("emotion", "slot", 0.7f));
+            Assert.IsTrue(gate.SuspendLiveWeights());
+            useCase.BindLateInputSource(0, "slot", new FakeValueWritingSource("replacement", 1, 1f), 0.2f);
+            useCase.UpdateWeights(0f);
+
+            var slots = new List<InputSourceWeightEntry>();
+            gate.CollectInputSourceWeights(slots);
+            Assert.AreEqual(0.7f, slots[1].Weight, 1e-6f);
+        }
+
+        [Test]
+        public void BindLateInputSource_ReplacingExistingId_WhileNotSuspended_AppliesDeclaredWeight()
+        {
+            var layers = new[] { new LayerDefinition("emotion", 0, ExclusionMode.LastWins) };
+            var profile = new FacialProfile("1.0", layers, Array.Empty<Expression>());
+            var expressionUseCase = new ExpressionUseCase(profile);
+            var source = new FakeValueWritingSource("source", 1, 1f);
+            using var useCase = new LayerUseCase(
+                profile, expressionUseCase, new[] { "bs_smile" },
+                new[] { (0, (IInputSource)source, 0.8f) }, new[] { "slot" });
+
+            useCase.BindLateInputSource(0, "slot", new FakeValueWritingSource("replacement", 1, 1f), 0.2f);
+            useCase.UpdateWeights(0f);
+
+            var slots = new List<InputSourceWeightEntry>();
+            ((IWeightInjectionGate)useCase).CollectInputSourceWeights(slots);
+            Assert.AreEqual(0.2f, slots[1].Weight, 1e-6f);
+        }
+
+        [Test]
+        public void LayerNamesAreUnique_DuplicateLayerNames_ReturnsFalse()
+        {
+            var profile = CreateProfile(new[]
+            {
+                new LayerDefinition("emotion", 0, ExclusionMode.LastWins),
+                new LayerDefinition("emotion", 1, ExclusionMode.Blend),
+            });
+            var expressionUseCase = new ExpressionUseCase(profile);
+
+            using var useCase = new LayerUseCase(profile, expressionUseCase, CreateBlendShapeNames());
+
+            Assert.That(((IWeightInjectionGate)useCase).LayerNamesAreUnique, Is.False);
+        }
+
+        [Test]
+        public void LayerNamesAreUnique_UniqueLayerNames_ReturnsTrue()
+        {
+            Assert.That(((IWeightInjectionGate)_useCase).LayerNamesAreUnique, Is.True);
+        }
+
+        [Test]
+        public void BindLateInputSource_AddingNewSlot_WhileSuspended_AppliesDeclaredWeightWithoutOpeningGate()
+        {
+            var layers = new[] { new LayerDefinition("emotion", 0, ExclusionMode.LastWins) };
+            var profile = new FacialProfile("1.0", layers, Array.Empty<Expression>());
+            var expressionUseCase = new ExpressionUseCase(profile);
+            using var useCase = new LayerUseCase(profile, expressionUseCase, new[] { "bs_smile" });
+            var gate = (IWeightInjectionGate)useCase;
+            var observer = new FakeWeightObserver();
+            useCase.SetWeightObserver(observer);
+
+            Assert.IsTrue(gate.SuspendLiveWeights());
+            useCase.BindLateInputSource(0, "late", new FakeValueWritingSource("late", 1, 0.6f), 0.35f);
+            useCase.UpdateWeights(0f);
+
+            var slots = new List<InputSourceWeightEntry>();
+            gate.CollectInputSourceWeights(slots);
+            Assert.AreEqual(0.35f, slots[1].Weight, 1e-6f);
+            var lateSample = observer.InputSourceSamples.Find(sample => sample.slotId == "late");
+            Assert.AreEqual("late", lateSample.slotId);
+            Assert.AreEqual(0.35f, lateSample.weight, 1e-6f);
+        }
+
+        [Test]
+        public void UnbindLateInputSource_WhileSuspended_CompactsWeightsAndRenotifiesRemainingSlots()
+        {
+            var layers = new[] { new LayerDefinition("emotion", 0, ExclusionMode.LastWins) };
+            var profile = new FacialProfile("1.0", layers, Array.Empty<Expression>());
+            var expressionUseCase = new ExpressionUseCase(profile);
+            var sourceA = new FakeValueWritingSource("a", 1, 0f);
+            var sourceB = new FakeValueWritingSource("b", 1, 0.8f);
+            using var useCase = new LayerUseCase(
+                profile, expressionUseCase, new[] { "bs_smile" },
+                new[]
+                {
+                    (0, (IInputSource)sourceA, 0.5f),
+                    (0, (IInputSource)sourceB, 1f),
+                }, new[] { "a", "b" });
+            var gate = (IWeightInjectionGate)useCase;
+            useCase.UpdateWeights(0f);
+            var observer = new FakeWeightObserver();
+            useCase.SetWeightObserver(observer);
+            Assert.IsTrue(gate.SuspendLiveWeights());
+            Assert.IsTrue(gate.TryInjectInputSourceWeight("emotion", "b", 0.7f));
+            useCase.UpdateWeights(0f);
+            observer.InputSourceSamples.Clear();
+
+            useCase.UnbindLateInputSource(0, "a");
+            useCase.UpdateWeights(0f);
+
+            Assert.AreEqual(1, observer.InputSourceSamples.Count);
+            Assert.AreEqual("b", observer.InputSourceSamples[0].slotId);
+            Assert.AreEqual(0.7f, observer.InputSourceSamples[0].weight, 1e-6f);
         }
 
         // --- SetLayerWeight ---

@@ -70,6 +70,40 @@ namespace Hidano.FacialControl.Rec.Tests.EditMode
         }
 
         [Test]
+        public void BuildBaselineAt_WeightSamplesBeforeOffset_FoldsToLastLayerAndSlotValues()
+        {
+            var timeline = new RecTimeline(
+                new RecBaselineState(
+                    null,
+                    null,
+                    null,
+                    null,
+                    new[] { new LayerWeightEntry("face", 0.9f), new LayerWeightEntry("eyes", 0.8f) },
+                    new[] { new InputSourceWeightEntry("face", "osc", 0.1f) }),
+                new[]
+                {
+                    RecEvent.CreateLayerWeightSample(0.1d, 0),
+                    RecEvent.CreateInputSourceWeightSample(0.2d, 0, 0),
+                    RecEvent.CreateLayerWeightSample(0.3d, 0),
+                    RecEvent.CreateInputSourceWeightSample(0.4d, 0, 0),
+                },
+                new[] { "osc" },
+                null,
+                new[] { "face", "eyes" },
+                1d,
+                new[] { new[] { 0.2f }, new[] { 0.3f }, new[] { 0.4f }, new[] { 0.5f } });
+
+            RecBaselineState baseline = RecTimelineSeek.BuildBaselineAt(timeline, 0.35d);
+
+            Assert.That(baseline.TryGetLayerWeight("face", out float layerWeight), Is.True);
+            Assert.That(layerWeight, Is.EqualTo(0.4f));
+            Assert.That(baseline.TryGetLayerWeight("eyes", out float unchangedLayerWeight), Is.True);
+            Assert.That(unchangedLayerWeight, Is.EqualTo(0.8f));
+            Assert.That(baseline.TryGetInputSourceWeight("face", "osc", out float slotWeight), Is.True);
+            Assert.That(slotWeight, Is.EqualTo(0.3f));
+        }
+
+        [Test]
         public void BuildBaselineAt_SourceMissingFromRecordedBaseline_AddsSourceEntry()
         {
             RecTimeline timeline = CreateTimeline();

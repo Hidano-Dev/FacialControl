@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 using Hidano.FacialControl.Domain.Interfaces;
+using Hidano.FacialControl.Domain.Models;
 using Hidano.FacialControl.Rec.Domain.Models;
 
 namespace Hidano.FacialControl.Rec.Domain.Services
@@ -15,7 +16,7 @@ namespace Hidano.FacialControl.Rec.Domain.Services
     {
         public const ushort CurrentFormatVersion = 1;
         // bit0 identifies the current full-input baseline record layout.
-        public const ushort RequiredHeaderFlags = (ushort)RecHeaderFlags.FullInputBaseline;
+        public const ushort RequiredHeaderFlags = (ushort)(RecHeaderFlags.FullInputBaseline | RecHeaderFlags.WeightBaseline);
         public const ushort DefaultFlags = RequiredHeaderFlags;
         public const int HeaderSize = 16;
         public const int FooterRecordSize = 13;
@@ -101,9 +102,15 @@ namespace Hidano.FacialControl.Rec.Domain.Services
             int baselineValueProviderSize = GetBaselineValueProviderRecordSize(maxValueCount, maxMaskByteCount);
             int expressionSize = 1 + 8 + 2 + 2;
             int baselineExpressionSize = 1 + 2 + 2;
-            return Math.Max(Math.Max(idDefineSize, analogSize),
-                Math.Max(Math.Max(valueProviderSize, baselineValueProviderSize),
-                    Math.Max(expressionSize, baselineExpressionSize)));
+            int timedLayerWeightSize = 1 + 8 + 2 + 4;
+            int timedInputWeightSize = 1 + 8 + 2 + 2 + 4;
+            int baselineLayerWeightSize = 1 + 2 + 4;
+            int baselineInputWeightSize = 1 + 2 + 2 + 4;
+            int weightSize = Math.Max(Math.Max(timedLayerWeightSize, timedInputWeightSize),
+                Math.Max(baselineLayerWeightSize, baselineInputWeightSize));
+            int expressionRecordSize = Math.Max(expressionSize, baselineExpressionSize);
+            int providerSize = Math.Max(valueProviderSize, baselineValueProviderSize);
+            return Math.Max(Math.Max(idDefineSize, analogSize), Math.Max(providerSize, Math.Max(expressionRecordSize, weightSize)));
         }
 
         public static int GetSerializedSize(RecTimeline timeline)
@@ -125,6 +132,11 @@ namespace Hidano.FacialControl.Rec.Domain.Services
                 size += GetIdDefineRecordSize(timeline.ExpressionIds[i]);
             }
 
+            for (int i = 0; i < timeline.LayerIds.Count; i++)
+            {
+                size += GetIdDefineRecordSize(timeline.LayerIds[i]);
+            }
+
             foreach (RecBaselineState.TriggerEntry entry in timeline.Baseline.TriggerEntries)
             {
                 size += 5 * entry.ExpressionIds.Count;
@@ -141,6 +153,8 @@ namespace Hidano.FacialControl.Rec.Domain.Services
             }
 
             size += timeline.Baseline.ExpressionEntries.Count * (1 + 2 + 2);
+            size += timeline.Baseline.LayerWeightEntries.Count * 7;
+            size += timeline.Baseline.InputSourceWeightEntries.Count * 9;
 
             for (int i = 0; i < timeline.Events.Count; i++)
             {
@@ -197,7 +211,15 @@ namespace Hidano.FacialControl.Rec.Domain.Services
                     timeline.ExpressionIds[i]);
             }
 
-            uint recordCount = checked((uint)(timeline.SourceIds.Count + timeline.ExpressionIds.Count));
+            for (int i = 0; i < timeline.LayerIds.Count; i++)
+            {
+                ushort layerIndex = idTable.GetOrAddLayerId(timeline.LayerIds[i]);
+                offset += WriteRecord(destination.Slice(offset),
+                    RecEvent.CreateIdDefine(layerIndex, RecEvent.IdDefinitionKind.Layer),
+                    ReadOnlySpan<float>.Empty, timeline.LayerIds[i]);
+            }
+
+            uint recordCount = checked((uint)(timeline.SourceIds.Count + timeline.ExpressionIds.Count + timeline.LayerIds.Count));
 
             for (int i = 0; i < timeline.Baseline.TriggerEntries.Count; i++)
             {
@@ -262,6 +284,25 @@ namespace Hidano.FacialControl.Rec.Domain.Services
                 recordCount++;
             }
 
+            for (int i = 0; i < timeline.Baseline.LayerWeightEntries.Count; i++)
+            {
+                var entry = timeline.Baseline.LayerWeightEntries[i];
+                if (!idTable.TryGetLayerIndex(entry.LayerName, out ushort layerIndex))
+                    throw new InvalidOperationException("Unknown baseline layer weight id.");
+                offset += WriteRecord(destination.Slice(offset), RecEvent.CreateBaselineLayerWeight(layerIndex), new[] { entry.Weight });
+                recordCount++;
+            }
+
+            for (int i = 0; i < timeline.Baseline.InputSourceWeightEntries.Count; i++)
+            {
+                var entry = timeline.Baseline.InputSourceWeightEntries[i];
+                if (!idTable.TryGetLayerIndex(entry.LayerName, out ushort layerIndex)
+                    || !idTable.TryGetSourceIndex(entry.SlotId, out ushort sourceIndex))
+                    throw new InvalidOperationException("Unknown baseline input-source weight id.");
+                offset += WriteRecord(destination.Slice(offset), RecEvent.CreateBaselineInputSourceWeight(layerIndex, sourceIndex), new[] { entry.Weight });
+                recordCount++;
+            }
+
             for (int i = 0; i < timeline.Events.Count; i++)
             {
                 IReadOnlyList<float> axes = timeline.GetAnalogAxes(i);
@@ -305,7 +346,7 @@ namespace Hidano.FacialControl.Rec.Domain.Services
 
             if ((header.Flags & RequiredHeaderFlags) != RequiredHeaderFlags)
             {
-                error = $"REC file header flags 0x{header.Flags:X4} lack the required FullInputBaseline bit 0x{RequiredHeaderFlags:X4}; re-record with the current version.";
+                error = $"REC file header flags 0x{header.Flags:X4} lack the required bits 0x0003 (FullInputBaseline | WeightBaseline); re-record with the current version.";
                 return false;
             }
 
@@ -321,6 +362,8 @@ namespace Hidano.FacialControl.Rec.Domain.Services
             var baselineAnalogRecords = new List<(ushort sourceIndex, float[] axes)>();
             var baselineValueProviderRecords = new List<(ushort sourceIndex, bool isValid, byte[] mask, float[] values)>();
             var baselineExpressionRecords = new List<(ushort sourceIndex, ushort expressionIndex)>();
+            var baselineLayerWeightRecords = new List<(ushort layerIndex, float weight)>();
+            var baselineInputSourceWeightRecords = new List<(ushort layerIndex, ushort sourceIndex, float weight)>();
             var events = new List<RecEvent>();
             var analogAxesByEvent = new List<IReadOnlyList<float>>();
             var maskBytesByEvent = new List<IReadOnlyList<byte>>();
@@ -353,6 +396,8 @@ namespace Hidano.FacialControl.Rec.Domain.Services
                     baselineAnalogRecords,
                     baselineValueProviderRecords,
                     baselineExpressionRecords,
+                    baselineLayerWeightRecords,
+                    baselineInputSourceWeightRecords,
                     events,
                     analogAxesByEvent,
                     maskBytesByEvent,
@@ -395,7 +440,8 @@ namespace Hidano.FacialControl.Rec.Domain.Services
             }
 
             if (!TryBuildTimeline(idTable, baselineTriggerRecords, baselineAnalogRecords, baselineValueProviderRecords,
-                baselineExpressionRecords, events, analogAxesByEvent, maskBytesByEvent, durationSeconds,
+                baselineExpressionRecords, baselineLayerWeightRecords, baselineInputSourceWeightRecords,
+                events, analogAxesByEvent, maskBytesByEvent, durationSeconds,
                 out RecTimeline timeline, out error))
             {
                 return false;
@@ -477,6 +523,14 @@ namespace Hidano.FacialControl.Rec.Domain.Services
                     return 1 + 8 + 2 + 2;
                 case RecEventKind.BaselineExpression:
                     return 1 + 2 + 2;
+                case RecEventKind.LayerWeightSample:
+                    return 1 + 8 + 2 + 4;
+                case RecEventKind.InputSourceWeightSample:
+                    return 1 + 8 + 2 + 2 + 4;
+                case RecEventKind.BaselineLayerWeight:
+                    return 1 + 2 + 4;
+                case RecEventKind.BaselineInputSourceWeight:
+                    return 1 + 2 + 2 + 4;
                 default:
                     throw new ArgumentOutOfRangeException(nameof(evt), $"Unsupported event kind {evt.Kind}.");
             }
@@ -540,6 +594,14 @@ namespace Hidano.FacialControl.Rec.Domain.Services
                     BinaryPrimitives.WriteUInt16LittleEndian(destination.Slice(1, 2), evt.SourceIdIndex);
                     BinaryPrimitives.WriteUInt16LittleEndian(destination.Slice(3, 2), evt.ExpressionIdIndex);
                     break;
+                case RecEventKind.LayerWeightSample:
+                case RecEventKind.InputSourceWeightSample:
+                    WriteTimedWeight(destination.Slice(1), evt, values);
+                    break;
+                case RecEventKind.BaselineLayerWeight:
+                case RecEventKind.BaselineInputSourceWeight:
+                    WriteBaselineWeight(destination.Slice(1), evt, values);
+                    break;
                 default:
                     throw new ArgumentOutOfRangeException(nameof(evt), $"Unsupported event kind {evt.Kind}.");
             }
@@ -585,6 +647,33 @@ namespace Hidano.FacialControl.Rec.Domain.Services
             BinaryPrimitives.WriteInt64LittleEndian(destination.Slice(0, 8), BitConverter.DoubleToInt64Bits(evt.TimestampSeconds));
             BinaryPrimitives.WriteUInt16LittleEndian(destination.Slice(8, 2), evt.SourceIdIndex);
             BinaryPrimitives.WriteUInt16LittleEndian(destination.Slice(10, 2), evt.ExpressionIdIndex);
+        }
+
+        private static void WriteTimedWeight(Span<byte> destination, RecEvent evt, ReadOnlySpan<float> values)
+        {
+            if (values.Length != 1) throw new ArgumentException("Weight payload must contain one float.", nameof(values));
+            BinaryPrimitives.WriteInt64LittleEndian(destination.Slice(0, 8), BitConverter.DoubleToInt64Bits(evt.TimestampSeconds));
+            BinaryPrimitives.WriteUInt16LittleEndian(destination.Slice(8, 2), evt.LayerIdIndex);
+            int offset = 10;
+            if (evt.Kind == RecEventKind.InputSourceWeightSample)
+            {
+                BinaryPrimitives.WriteUInt16LittleEndian(destination.Slice(offset, 2), evt.SourceIdIndex);
+                offset += 2;
+            }
+            BinaryPrimitives.WriteInt32LittleEndian(destination.Slice(offset, 4), BitConverter.SingleToInt32Bits(values[0]));
+        }
+
+        private static void WriteBaselineWeight(Span<byte> destination, RecEvent evt, ReadOnlySpan<float> values)
+        {
+            if (values.Length != 1) throw new ArgumentException("Weight payload must contain one float.", nameof(values));
+            BinaryPrimitives.WriteUInt16LittleEndian(destination.Slice(0, 2), evt.LayerIdIndex);
+            int offset = 2;
+            if (evt.Kind == RecEventKind.BaselineInputSourceWeight)
+            {
+                BinaryPrimitives.WriteUInt16LittleEndian(destination.Slice(offset, 2), evt.SourceIdIndex);
+                offset += 2;
+            }
+            BinaryPrimitives.WriteInt32LittleEndian(destination.Slice(offset, 4), BitConverter.SingleToInt32Bits(values[0]));
         }
 
         private static void WriteValueProvider(Span<byte> destination, RecEvent evt, ReadOnlySpan<float> values, ReadOnlySpan<byte> maskBytes)
@@ -663,6 +752,8 @@ namespace Hidano.FacialControl.Rec.Domain.Services
             List<(ushort sourceIndex, float[] axes)> baselineAnalogRecords,
             List<(ushort sourceIndex, bool isValid, byte[] mask, float[] values)> baselineValueProviderRecords,
             List<(ushort sourceIndex, ushort expressionIndex)> baselineExpressionRecords,
+            List<(ushort layerIndex, float weight)> baselineLayerWeightRecords,
+            List<(ushort layerIndex, ushort sourceIndex, float weight)> baselineInputSourceWeightRecords,
             List<RecEvent> events,
             List<IReadOnlyList<float>> analogAxesByEvent,
             List<IReadOnlyList<byte>> maskBytesByEvent,
@@ -698,6 +789,14 @@ namespace Hidano.FacialControl.Rec.Domain.Services
                     return TryReadTimedExpression(source, kind, events, analogAxesByEvent, maskBytesByEvent, ref parsedRecordCount, out recordBytes, out error);
                 case RecEventKind.BaselineExpression:
                     return TryReadBaselineExpression(source, baselineExpressionRecords, ref parsedRecordCount, out recordBytes);
+                case RecEventKind.LayerWeightSample:
+                    return TryReadTimedWeight(source, kind, events, analogAxesByEvent, maskBytesByEvent, ref parsedRecordCount, out recordBytes, out error);
+                case RecEventKind.InputSourceWeightSample:
+                    return TryReadTimedWeight(source, kind, events, analogAxesByEvent, maskBytesByEvent, ref parsedRecordCount, out recordBytes, out error);
+                case RecEventKind.BaselineLayerWeight:
+                    return TryReadBaselineLayerWeight(source, baselineLayerWeightRecords, ref parsedRecordCount, out recordBytes);
+                case RecEventKind.BaselineInputSourceWeight:
+                    return TryReadBaselineInputSourceWeight(source, baselineInputSourceWeightRecords, ref parsedRecordCount, out recordBytes);
                 case RecEventKind.Footer:
                     return TryReadFooter(source, ref hasFooter, ref durationSeconds, ref footerRecordCount, out recordBytes);
                 default:
@@ -1018,6 +1117,45 @@ namespace Hidano.FacialControl.Rec.Domain.Services
             parsedRecordCount++; recordBytes = 13; return true;
         }
 
+        private static bool TryReadTimedWeight(ReadOnlySpan<byte> source, RecEventKind kind,
+            List<RecEvent> events, List<IReadOnlyList<float>> payloads, List<IReadOnlyList<byte>> masks,
+            ref uint parsedRecordCount, out int recordBytes, out string error)
+        {
+            int size = kind == RecEventKind.LayerWeightSample ? 15 : 17;
+            recordBytes = 0; error = null;
+            if (source.Length < size) return false;
+            double timestamp = BitConverter.Int64BitsToDouble(BinaryPrimitives.ReadInt64LittleEndian(source.Slice(1, 8)));
+            if (!TryValidateTimestamp(timestamp, kind, out error)) return false;
+            ushort layerIndex = BinaryPrimitives.ReadUInt16LittleEndian(source.Slice(9, 2));
+            ushort sourceIndex = kind == RecEventKind.InputSourceWeightSample
+                ? BinaryPrimitives.ReadUInt16LittleEndian(source.Slice(11, 2)) : (ushort)0;
+            int valueOffset = kind == RecEventKind.InputSourceWeightSample ? 13 : 11;
+            float weight = BitConverter.Int32BitsToSingle(BinaryPrimitives.ReadInt32LittleEndian(source.Slice(valueOffset, 4)));
+            events.Add(kind == RecEventKind.LayerWeightSample
+                ? RecEvent.CreateLayerWeightSample(timestamp, layerIndex)
+                : RecEvent.CreateInputSourceWeightSample(timestamp, layerIndex, sourceIndex));
+            payloads.Add(new[] { weight }); masks.Add(Array.Empty<byte>()); parsedRecordCount++; recordBytes = size; return true;
+        }
+
+        private static bool TryReadBaselineLayerWeight(ReadOnlySpan<byte> source,
+            List<(ushort layerIndex, float weight)> records, ref uint parsedRecordCount, out int recordBytes)
+        {
+            recordBytes = 0; if (source.Length < 7) return false;
+            records.Add((BinaryPrimitives.ReadUInt16LittleEndian(source.Slice(1, 2)),
+                BitConverter.Int32BitsToSingle(BinaryPrimitives.ReadInt32LittleEndian(source.Slice(3, 4)))));
+            parsedRecordCount++; recordBytes = 7; return true;
+        }
+
+        private static bool TryReadBaselineInputSourceWeight(ReadOnlySpan<byte> source,
+            List<(ushort layerIndex, ushort sourceIndex, float weight)> records, ref uint parsedRecordCount, out int recordBytes)
+        {
+            recordBytes = 0; if (source.Length < 9) return false;
+            records.Add((BinaryPrimitives.ReadUInt16LittleEndian(source.Slice(1, 2)),
+                BinaryPrimitives.ReadUInt16LittleEndian(source.Slice(3, 2)),
+                BitConverter.Int32BitsToSingle(BinaryPrimitives.ReadInt32LittleEndian(source.Slice(5, 4)))));
+            parsedRecordCount++; recordBytes = 9; return true;
+        }
+
         private static bool TryReadBaselineExpression(ReadOnlySpan<byte> source,
             List<(ushort sourceIndex, ushort expressionIndex)> records, ref uint parsedRecordCount, out int recordBytes)
         {
@@ -1091,6 +1229,8 @@ namespace Hidano.FacialControl.Rec.Domain.Services
             List<(ushort sourceIndex, float[] axes)> baselineAnalogRecords,
             List<(ushort sourceIndex, bool isValid, byte[] mask, float[] values)> baselineValueProviderRecords,
             List<(ushort sourceIndex, ushort expressionIndex)> baselineExpressionRecords,
+            List<(ushort layerIndex, float weight)> baselineLayerWeightRecords,
+            List<(ushort layerIndex, ushort sourceIndex, float weight)> baselineInputSourceWeightRecords,
             List<RecEvent> events,
             List<IReadOnlyList<float>> analogAxesByEvent,
             List<IReadOnlyList<byte>> maskBytesByEvent,
@@ -1110,12 +1250,16 @@ namespace Hidano.FacialControl.Rec.Domain.Services
                 var analogEntries = BuildBaselineAnalogEntries(idTable, baselineAnalogRecords);
                 var valueProviderEntries = BuildBaselineValueProviderEntries(idTable, baselineValueProviderRecords);
                 var expressionEntries = BuildBaselineExpressionEntries(idTable, baselineExpressionRecords);
-                var baseline = new RecBaselineState(triggerEntries, analogEntries, valueProviderEntries, expressionEntries);
+                var layerWeightEntries = BuildBaselineLayerWeightEntries(idTable, baselineLayerWeightRecords);
+                var inputSourceWeightEntries = BuildBaselineInputSourceWeightEntries(idTable, baselineInputSourceWeightRecords);
+                var baseline = new RecBaselineState(triggerEntries, analogEntries, valueProviderEntries, expressionEntries,
+                    layerWeightEntries, inputSourceWeightEntries);
                 timeline = new RecTimeline(
                     baseline,
                     events,
                     sourceIds,
                     expressionIds,
+                    idTable.LayerIds,
                     durationSeconds,
                     analogAxesByEvent, maskBytesByEvent);
                 return true;
@@ -1233,17 +1377,53 @@ namespace Hidano.FacialControl.Rec.Domain.Services
             return entries;
         }
 
+        private static IReadOnlyList<LayerWeightEntry> BuildBaselineLayerWeightEntries(
+            RecIdTable idTable, List<(ushort layerIndex, float weight)> records)
+        {
+            var entries = new List<LayerWeightEntry>(records.Count);
+            var seen = new HashSet<ushort>();
+            for (int i = 0; i < records.Count; i++)
+            {
+                if (!idTable.TryGetLayerId(records[i].layerIndex, out string layerId))
+                    throw new InvalidOperationException($"Baseline layer weight referenced undefined layer index {records[i].layerIndex}.");
+                if (!seen.Add(records[i].layerIndex))
+                    throw new InvalidOperationException($"Duplicate BaselineLayerWeight record for layer index {records[i].layerIndex}.");
+                entries.Add(new LayerWeightEntry(layerId, records[i].weight));
+            }
+            return entries;
+        }
+
+        private static IReadOnlyList<InputSourceWeightEntry> BuildBaselineInputSourceWeightEntries(
+            RecIdTable idTable, List<(ushort layerIndex, ushort sourceIndex, float weight)> records)
+        {
+            var entries = new List<InputSourceWeightEntry>(records.Count);
+            var seen = new HashSet<string>(StringComparer.Ordinal);
+            for (int i = 0; i < records.Count; i++)
+            {
+                if (!idTable.TryGetLayerId(records[i].layerIndex, out string layerId)
+                    || !idTable.TryGetSourceId(records[i].sourceIndex, out string sourceId))
+                    throw new InvalidOperationException("Baseline input-source weight referenced undefined id index.");
+                string key = records[i].layerIndex + ":" + records[i].sourceIndex;
+                if (!seen.Add(key))
+                    throw new InvalidOperationException($"Duplicate BaselineInputSourceWeight record for layer index {records[i].layerIndex} and source index {records[i].sourceIndex}.");
+                entries.Add(new InputSourceWeightEntry(layerId, sourceId, records[i].weight));
+            }
+            return entries;
+        }
+
         private static bool IsTimedKind(RecEventKind kind)
         {
             return kind == RecEventKind.TriggerOn || kind == RecEventKind.TriggerOff
                 || kind == RecEventKind.AnalogSample || kind == RecEventKind.ValueProviderSample
-                || kind == RecEventKind.ExpressionActivate || kind == RecEventKind.ExpressionDeactivate;
+                || kind == RecEventKind.ExpressionActivate || kind == RecEventKind.ExpressionDeactivate
+                || kind == RecEventKind.LayerWeightSample || kind == RecEventKind.InputSourceWeightSample;
         }
 
         private static bool IsBaselineKind(RecEventKind kind)
         {
             return kind == RecEventKind.BaselineTrigger || kind == RecEventKind.BaselineAnalog
-                || kind == RecEventKind.BaselineValueProvider || kind == RecEventKind.BaselineExpression;
+                || kind == RecEventKind.BaselineValueProvider || kind == RecEventKind.BaselineExpression
+                || kind == RecEventKind.BaselineLayerWeight || kind == RecEventKind.BaselineInputSourceWeight;
         }
 
         private static float[] CopyAxesToTemp(IReadOnlyList<float> axes)

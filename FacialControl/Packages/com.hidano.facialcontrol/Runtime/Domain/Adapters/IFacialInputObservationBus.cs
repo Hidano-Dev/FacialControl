@@ -7,7 +7,7 @@ namespace Hidano.FacialControl.Domain.Adapters
     /// Domain contract for publishing trigger and analog input observations for one FacialController scope.
     /// Implementations own observer dispatch only; they do not sample, blend, or write back to the pipeline.
     /// </summary>
-    public interface IFacialInputObservationBus : ITriggerEventObserver, IExpressionActivationObserver
+    public interface IFacialInputObservationBus : ITriggerEventObserver, IExpressionActivationObserver, ILayerWeightObserver
     {
         /// <summary>
         /// Gets whether at least one observer is currently registered.

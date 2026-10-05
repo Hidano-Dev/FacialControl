@@ -159,5 +159,39 @@ namespace Hidano.FacialControl.Rec.Tests.EditMode
             Assert.That((ushort)RecHeaderFlags.FullInputBaseline, Is.EqualTo(0x0001));
             Assert.That((byte)RecValueProviderFlags.IsValid, Is.EqualTo(0x01)); Assert.That((byte)RecValueProviderFlags.HasMask, Is.EqualTo(0x02)); Assert.That((byte)RecValueProviderFlags.HasValues, Is.EqualTo(0x04));
         }
+
+        [Test]
+        public void WeightFactories_UseKindsIndexesPayloadAndTiming()
+        {
+            RecEvent layer = RecEvent.CreateLayerWeightSample(1.25d, 4);
+            RecEvent source = RecEvent.CreateInputSourceWeightSample(2.5d, 4, 7);
+            RecEvent baselineLayer = RecEvent.CreateBaselineLayerWeight(4);
+            RecEvent baselineSource = RecEvent.CreateBaselineInputSourceWeight(4, 7);
+
+            Assert.That(layer.Kind, Is.EqualTo(RecEventKind.LayerWeightSample));
+            Assert.That(layer.LayerIdIndex, Is.EqualTo(4));
+            Assert.That(layer.PayloadFloatCount, Is.EqualTo(1));
+            Assert.That(layer.IsTimedEvent, Is.True);
+            Assert.That(source.Kind, Is.EqualTo(RecEventKind.InputSourceWeightSample));
+            Assert.That(source.LayerIdIndex, Is.EqualTo(4));
+            Assert.That(source.SourceIdIndex, Is.EqualTo(7));
+            Assert.That(baselineLayer.Kind, Is.EqualTo(RecEventKind.BaselineLayerWeight));
+            Assert.That(baselineSource.Kind, Is.EqualTo(RecEventKind.BaselineInputSourceWeight));
+            Assert.That(baselineLayer.IsTimedEvent, Is.False);
+            Assert.That(baselineSource.PayloadFloatCount, Is.EqualTo(1));
+        }
+
+        [Test]
+        public void LayerIdDefinition_IsSupported()
+        {
+            RecEvent evt = RecEvent.CreateIdDefine(2, RecEvent.IdDefinitionKind.Layer);
+            Assert.That(evt.DefinedIdKind, Is.EqualTo(RecEvent.IdDefinitionKind.Layer));
+        }
+
+        [Test]
+        public void Flags_DefineWeightBaselineHeaderBit()
+        {
+            Assert.That((ushort)RecHeaderFlags.WeightBaseline, Is.EqualTo(0x0002));
+        }
     }
 }

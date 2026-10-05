@@ -21,7 +21,7 @@
 - 音声解析・リップシンク音源そのものの記録（リップシンクは `LipSyncPhonemeOverlayInputSource` が合成へ供給した BlendShape 値（消費値・有効性・寄与対象集合）を値提供型観測面経由で記録する。`rec-full-input-coverage` により上書き）
 - ランタイム UI の提供
 - 記録セッション中の `SetProfile` 再初期化を跨ぐ完全な記録保証（再購読 + 警告ログで継続するが、切替瞬間の欠落は許容）
-- 拡張パッケージ内部の直接参照消費者（registry を介さない配線）への注入到達（値提供型は自身の Replace 遮断で対象内。残る未到達は inputsystem overlay binding の layer weight / input-source weight 駆動のみであり、HID-80 の既知制限として残る。`rec-full-input-coverage` により上書き）
+- 拡張パッケージ内部の直接参照消費者（registry を介さない配線）への注入到達（値提供型は自身の Replace 遮断で対象内。inputsystem overlay binding の layer weight / input-source weight 駆動を未到達とする初期方針は `rec-weight-coverage` により上書きされ、weight 系統も対象となる）
 
 ## Boundary Commitments
 
@@ -41,7 +41,7 @@
 
 - 既存コードパスの挙動変更（観測者未登録・差し替え未実施時は bit 単位で従来同一の実行結果であること）
 - 拡張パッケージ（osc / inputsystem / lipsync / ifacialmocap）のあらゆる変更（ただし osc 受信 binding は `rec-full-input-coverage` により上書きされ、本 spec の対象へ追加）
-- 拡張パッケージ内部で registry を介さず直接参照される消費者への注入（値提供型は自身の Replace 遮断で対象内。残る未到達は inputsystem overlay binding の layer weight / input-source weight 駆動のみであり、HID-80 の既知制限として残る。`rec-full-input-coverage` により上書き）
+- 拡張パッケージ内部で registry を介さず直接参照される消費者への注入（値提供型は自身の Replace 遮断で対象内。inputsystem overlay binding の layer weight / input-source weight 駆動を未到達とする初期方針は `rec-weight-coverage` により上書きされ、weight 系統も対象となる）
 - 系1（`ExpressionUseCase` / `FacialController.Activate` 直接呼び出し）経路の記録（`rec-full-input-coverage` により上書き: 系1 は `ExpressionUseCase` の観測面・遮断面・注入面で記録・遮断・注入される）
 - 記録 UI の高度化（Editor は最小限の操作 Inspector のみ）
 

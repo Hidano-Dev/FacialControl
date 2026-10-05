@@ -9,9 +9,11 @@ namespace Hidano.FacialControl.Rec.Domain.Models
             None = 0,
             Source = 1,
             Expression = 2,
+            Layer = 3,
         }
 
         private RecEvent(RecEventKind kind, double timestampSeconds, ushort sourceIdIndex, ushort expressionIdIndex,
+            ushort layerIdIndex,
             ushort idIndex, IdDefinitionKind idKind, byte axisCount, ushort valueCount, ushort maskByteCount,
             RecValueProviderFlags flags, double durationSeconds, uint eventCount)
         {
@@ -19,6 +21,7 @@ namespace Hidano.FacialControl.Rec.Domain.Models
             TimestampSeconds = timestampSeconds;
             SourceIdIndex = sourceIdIndex;
             ExpressionIdIndex = expressionIdIndex;
+            LayerIdIndex = layerIdIndex;
             IdIndex = idIndex;
             DefinedIdKind = idKind;
             AxisCount = axisCount;
@@ -33,6 +36,7 @@ namespace Hidano.FacialControl.Rec.Domain.Models
         public double TimestampSeconds { get; }
         public ushort SourceIdIndex { get; }
         public ushort ExpressionIdIndex { get; }
+        public ushort LayerIdIndex { get; }
         public ushort IdIndex { get; }
         public IdDefinitionKind DefinedIdKind { get; }
         public byte AxisCount { get; }
@@ -46,23 +50,27 @@ namespace Hidano.FacialControl.Rec.Domain.Models
             Kind == RecEventKind.AnalogSample || Kind == RecEventKind.BaselineAnalog
                 ? AxisCount
                 : (Kind == RecEventKind.ValueProviderSample || Kind == RecEventKind.BaselineValueProvider)
-                    && (Flags & RecValueProviderFlags.HasValues) != 0 ? ValueCount : 0;
+                    && (Flags & RecValueProviderFlags.HasValues) != 0 ? ValueCount
+                    : Kind == RecEventKind.LayerWeightSample || Kind == RecEventKind.InputSourceWeightSample
+                        || Kind == RecEventKind.BaselineLayerWeight || Kind == RecEventKind.BaselineInputSourceWeight ? 1 : 0;
 
         public bool IsTimedEvent => Kind == RecEventKind.TriggerOn
             || Kind == RecEventKind.TriggerOff
             || Kind == RecEventKind.AnalogSample
             || Kind == RecEventKind.ValueProviderSample
             || Kind == RecEventKind.ExpressionActivate
-            || Kind == RecEventKind.ExpressionDeactivate;
+            || Kind == RecEventKind.ExpressionDeactivate
+            || Kind == RecEventKind.LayerWeightSample
+            || Kind == RecEventKind.InputSourceWeightSample;
 
         public static RecEvent CreateIdDefine(ushort idIndex, IdDefinitionKind idKind)
         {
-            if (idKind != IdDefinitionKind.Source && idKind != IdDefinitionKind.Expression)
+            if (idKind != IdDefinitionKind.Source && idKind != IdDefinitionKind.Expression && idKind != IdDefinitionKind.Layer)
             {
                 throw new ArgumentOutOfRangeException(nameof(idKind));
             }
 
-            return Create(RecEventKind.IdDefine, 0d, 0, 0, idIndex, idKind);
+            return Create(RecEventKind.IdDefine, 0d, 0, 0, 0, idIndex, idKind);
         }
 
         public static RecEvent CreateTriggerOn(double timestampSeconds, ushort sourceIdIndex, ushort expressionIdIndex)
@@ -75,7 +83,7 @@ namespace Hidano.FacialControl.Rec.Domain.Models
         {
             ValidateTimestamp(timestampSeconds);
             ValidateAxisCount(axisCount);
-            return Create(RecEventKind.AnalogSample, timestampSeconds, sourceIdIndex, 0, 0, IdDefinitionKind.None, axisCount);
+            return Create(RecEventKind.AnalogSample, timestampSeconds, sourceIdIndex, 0, 0, 0, IdDefinitionKind.None, axisCount);
         }
 
         public static RecEvent CreateBaselineTrigger(ushort sourceIdIndex, ushort expressionIdIndex)
@@ -84,7 +92,7 @@ namespace Hidano.FacialControl.Rec.Domain.Models
         public static RecEvent CreateBaselineAnalog(ushort sourceIdIndex, byte axisCount)
         {
             ValidateAxisCount(axisCount);
-            return Create(RecEventKind.BaselineAnalog, 0d, sourceIdIndex, 0, 0, IdDefinitionKind.None, axisCount);
+            return Create(RecEventKind.BaselineAnalog, 0d, sourceIdIndex, 0, 0, 0, IdDefinitionKind.None, axisCount);
         }
 
         public static RecEvent CreateValueProviderSample(double timestampSeconds, ushort sourceIdIndex,
@@ -92,7 +100,7 @@ namespace Hidano.FacialControl.Rec.Domain.Models
         {
             ValidateTimestamp(timestampSeconds);
             ValidateValueProvider(flags, valueCount, maskByteCount);
-            return Create(RecEventKind.ValueProviderSample, timestampSeconds, sourceIdIndex, 0, 0,
+            return Create(RecEventKind.ValueProviderSample, timestampSeconds, sourceIdIndex, 0, 0, 0,
                 IdDefinitionKind.None, 0, valueCount, maskByteCount, flags);
         }
 
@@ -106,7 +114,7 @@ namespace Hidano.FacialControl.Rec.Domain.Models
             }
 
             ValidateValueProvider(flags, valueCount, maskByteCount);
-            return Create(RecEventKind.BaselineValueProvider, 0d, sourceIdIndex, 0, 0,
+            return Create(RecEventKind.BaselineValueProvider, 0d, sourceIdIndex, 0, 0, 0,
                 IdDefinitionKind.None, 0, valueCount, maskByteCount, flags);
         }
 
@@ -119,6 +127,18 @@ namespace Hidano.FacialControl.Rec.Domain.Models
         public static RecEvent CreateBaselineExpression(ushort sourceIdIndex, ushort expressionIdIndex)
             => Create(RecEventKind.BaselineExpression, 0d, sourceIdIndex, expressionIdIndex);
 
+        public static RecEvent CreateLayerWeightSample(double timestampSeconds, ushort layerIdIndex)
+            => CreateTimed(RecEventKind.LayerWeightSample, timestampSeconds, 0, 0, layerIdIndex);
+
+        public static RecEvent CreateInputSourceWeightSample(double timestampSeconds, ushort layerIdIndex, ushort sourceIdIndex)
+            => CreateTimed(RecEventKind.InputSourceWeightSample, timestampSeconds, sourceIdIndex, 0, layerIdIndex);
+
+        public static RecEvent CreateBaselineLayerWeight(ushort layerIdIndex)
+            => Create(RecEventKind.BaselineLayerWeight, 0d, 0, 0, layerIdIndex: layerIdIndex);
+
+        public static RecEvent CreateBaselineInputSourceWeight(ushort layerIdIndex, ushort sourceIdIndex)
+            => Create(RecEventKind.BaselineInputSourceWeight, 0d, sourceIdIndex, 0, layerIdIndex: layerIdIndex);
+
         public static RecEvent CreateFooter(double durationSeconds, uint eventCount)
         {
             if (durationSeconds < 0d)
@@ -126,7 +146,7 @@ namespace Hidano.FacialControl.Rec.Domain.Models
                 throw new ArgumentOutOfRangeException(nameof(durationSeconds));
             }
 
-            return Create(RecEventKind.Footer, 0d, 0, 0, 0, IdDefinitionKind.None, 0, 0, 0,
+            return Create(RecEventKind.Footer, 0d, 0, 0, 0, 0, IdDefinitionKind.None, 0, 0, 0,
                 RecValueProviderFlags.None, durationSeconds, eventCount);
         }
 
@@ -134,6 +154,7 @@ namespace Hidano.FacialControl.Rec.Domain.Models
             && TimestampSeconds.Equals(other.TimestampSeconds)
             && SourceIdIndex == other.SourceIdIndex
             && ExpressionIdIndex == other.ExpressionIdIndex
+            && LayerIdIndex == other.LayerIdIndex
             && IdIndex == other.IdIndex
             && DefinedIdKind == other.DefinedIdKind
             && AxisCount == other.AxisCount
@@ -149,7 +170,7 @@ namespace Hidano.FacialControl.Rec.Domain.Models
         {
             var hash = new HashCode();
             hash.Add((int)Kind); hash.Add(TimestampSeconds); hash.Add(SourceIdIndex); hash.Add(ExpressionIdIndex);
-            hash.Add(IdIndex); hash.Add((int)DefinedIdKind); hash.Add(AxisCount); hash.Add(ValueCount);
+            hash.Add(LayerIdIndex); hash.Add(IdIndex); hash.Add((int)DefinedIdKind); hash.Add(AxisCount); hash.Add(ValueCount);
             hash.Add(MaskByteCount); hash.Add((int)Flags); hash.Add(DurationSeconds); hash.Add(EventCount);
             return hash.ToHashCode();
         }
@@ -158,16 +179,16 @@ namespace Hidano.FacialControl.Rec.Domain.Models
         public static bool operator !=(RecEvent left, RecEvent right) => !left.Equals(right);
 
         private static RecEvent Create(RecEventKind kind, double timestampSeconds, ushort sourceIdIndex,
-            ushort expressionIdIndex, ushort idIndex = 0, IdDefinitionKind idKind = IdDefinitionKind.None,
+            ushort expressionIdIndex, ushort layerIdIndex = 0, ushort idIndex = 0, IdDefinitionKind idKind = IdDefinitionKind.None,
             byte axisCount = 0, ushort valueCount = 0, ushort maskByteCount = 0,
             RecValueProviderFlags flags = RecValueProviderFlags.None, double durationSeconds = 0d, uint eventCount = 0)
-            => new RecEvent(kind, timestampSeconds, sourceIdIndex, expressionIdIndex, idIndex, idKind, axisCount,
+            => new RecEvent(kind, timestampSeconds, sourceIdIndex, expressionIdIndex, layerIdIndex, idIndex, idKind, axisCount,
                 valueCount, maskByteCount, flags, durationSeconds, eventCount);
 
-        private static RecEvent CreateTimed(RecEventKind kind, double timestampSeconds, ushort sourceIdIndex, ushort expressionIdIndex)
+        private static RecEvent CreateTimed(RecEventKind kind, double timestampSeconds, ushort sourceIdIndex, ushort expressionIdIndex, ushort layerIdIndex = 0)
         {
             ValidateTimestamp(timestampSeconds);
-            return Create(kind, timestampSeconds, sourceIdIndex, expressionIdIndex);
+            return Create(kind, timestampSeconds, sourceIdIndex, expressionIdIndex, layerIdIndex);
         }
 
         private static void ValidateTimestamp(double timestampSeconds)

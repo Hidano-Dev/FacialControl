@@ -68,6 +68,46 @@ namespace Hidano.FacialControl.Rec.Tests.EditMode
             Assert.That(baseline.ValueProviderEntries, Is.Empty);
         }
 
+        [Test]
+        public void Capture_WithWeightGate_IncludesAllLayersAndSlots()
+        {
+            var registry = new InputSourceRegistry();
+            var gate = new FakeWeightGate();
+            gate.LayerWeights.Add(new LayerWeightEntry("emotion", 0.25f));
+            gate.InputSourceWeights.Add(new InputSourceWeightEntry("emotion", "input:osc", 0.75f));
+
+            RecBaselineState baseline = RecBaselineCapture.Capture(registry, null, gate, 0);
+
+            Assert.That(baseline.LayerWeightEntries, Is.EqualTo(new[] { new LayerWeightEntry("emotion", 0.25f) }));
+            Assert.That(baseline.InputSourceWeightEntries, Is.EqualTo(new[] { new InputSourceWeightEntry("emotion", "input:osc", 0.75f) }));
+        }
+
+        [Test]
+        public void Capture_NullWeightGate_HasEmptyWeightEntries()
+        {
+            var baseline = RecBaselineCapture.Capture(new InputSourceRegistry(), null, (IWeightInjectionGate)null, 0);
+
+            Assert.That(baseline.LayerWeightEntries, Is.Empty);
+            Assert.That(baseline.InputSourceWeightEntries, Is.Empty);
+        }
+
+        private sealed class FakeWeightGate : IWeightInjectionGate
+        {
+            public readonly List<LayerWeightEntry> LayerWeights = new List<LayerWeightEntry>();
+            public readonly List<InputSourceWeightEntry> InputSourceWeights = new List<InputSourceWeightEntry>();
+            public bool IsLiveWeightSuspended => false;
+            public bool LayerNamesAreUnique => true;
+            public bool SuspendLiveWeights() => true;
+            public bool ResumeLiveWeights() => true;
+            public void ResetWeightsToDeclared() { }
+            public bool TrySetBaselineLayerWeight(string layerName, float weight) => true;
+            public bool TrySetBaselineInputSourceWeight(string layerName, string slotId, float weight) => true;
+            public bool TryInjectLayerWeight(string layerName, float weight) => true;
+            public bool TryInjectInputSourceWeight(string layerName, string slotId, float weight) => true;
+            public void CollectLayerWeights(List<LayerWeightEntry> buffer) => buffer.AddRange(LayerWeights);
+            public void CollectInputSourceWeights(List<InputSourceWeightEntry> buffer) => buffer.AddRange(InputSourceWeights);
+        }
+
         private sealed class SparseValueProvider : ValueProviderInputSourceBase
         {
             private readonly BitArray _mask;

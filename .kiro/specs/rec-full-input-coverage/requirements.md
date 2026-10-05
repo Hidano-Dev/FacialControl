@@ -14,7 +14,7 @@ Linear HID-35: REC の記録・遮断対象を FacialControl で動く全入力�
 
 本 spec の方針は「**FacialControl システムで動くものは例外なく全て REC 対象にする。半端な未対応は許容しない**」である（Linear HID-35 で決定）。この方針を、(1) 全 `IInputSource` 実装および `IInputSource` を実装しない `IAnalogInputSource` 単独実装（Runtime / Editor アセンブリの両方）を「観測対象」または「理由付きの明示的除外」のいずれかに分類し、分類漏れを reflection ベースの網羅性ゲートテストで機械的に検出すること、(2) 観測対象に分類された全入力について記録・基準状態捕捉・再生時遮断・注入・`.fcrec` ラウンドトリップの全てを成立させること、の 2 点で担保する。1.0.0 は未リリースのため、`.fcrec` フォーマットの後方互換は制約としない（`formatVersion` は 1 のまま据え置き、記録構造の変更は版分岐なしで行う）。
 
-ランタイムのレイヤー weight / 入力源 weight 変更（inputsystem の overlay binding が駆動する `FacialController.SetLayerWeight`、`LayerUseCase.SetInputSourceWeight`）は本 spec の対象外とし、Linear **HID-80**（REC: record and block runtime layer / input-source weight changes）へ分離する。本 spec の設計・文書は、この経路がライブのまま残ることを明示した前提の上で書く。
+ランタイムのレイヤー weight / 入力源 weight 変更（inputsystem の overlay binding が駆動する `FacialController.SetLayerWeight`、`LayerUseCase.SetInputSourceWeight`）は、初期には本 spec の対象外として Linear **HID-80**（REC: record and block runtime layer / input-source weight changes）へ分離していた。`rec-weight-coverage` により上書きされ、現在はこの経路も REC の記録・遮断・注入対象であり、既知制限ではない。
 
 既存 spec との関係: rec-recording-playback（観測面・注入面・`.fcrec` の契約オーナー）と rec-playback-input-exclusivity（ライブ遮断面・排他ライフサイクルのオーナー）が確立した語彙と設計判断（観測面 / 注入 / live 遮断 / 基準状態 / 占有規則 / 開始時スナップショット方式 / StopPlayback を唯一の解放点とする）を継承し、その**対象範囲**を全入力へ拡張する。両 spec の文書のうち、本 spec の方針と矛盾する記述（例: rec-recording-playback design.md の「リップシンク由来の操作イベントは他入力と同様に観測面経由で記録される」「系1 経路の記録は Out of Boundary」）は本 spec で上書き・修正する。
 
@@ -22,7 +22,7 @@ Linear HID-35: REC の記録・遮断対象を FacialControl で動く全入力�
 
 - **対象 Unity プロジェクト**: `FacialControl/`（リポジトリ直下。単一 Unity プロジェクト）。変更対象パッケージは `FacialControl/Packages/com.hidano.facialcontrol`（core: 観測面・遮断面・注入面）と `FacialControl/Packages/com.hidano.facialcontrol.rec`（記録・再生・永続化・網羅性ゲートテスト）。網羅性ゲートテストの列挙対象は `FacialControl/Packages/com.hidano.facialcontrol*` の全パッケージ（core / osc / inputsystem / lipsync / ifacialmocap / rec / timeline / expression-creator / routing-editor）の **Runtime と Editor の両アセンブリ**（テストアセンブリは除外）。列挙する型は具象 `IInputSource` 実装に加え、`IInputSource` を実装しない具象 `IAnalogInputSource` 実装（`InputActionAnalogSource` / `ArKitOscAnalogSource` / `OscFloatAnalogSource` 等）も含む。Editor アセンブリの実装（timeline Editor の `OfflineExpressionSource` 等）も列挙対象であり、観測対象または明示的除外（例: Editor のベイクシミュレーション用ソースとして除外）に分類する。Requirement 3.9 / 8.4 により osc パッケージ（`FacialControl/Packages/com.hidano.facialcontrol.osc`）の受信 binding も改修対象に含む
 - **In scope**: `ValueProviderInputSourceBase` 派生入力源の記録・基準状態捕捉・再生時遮断・注入、`FacialController.Activate/Deactivate`（系1 経路）の記録・基準状態捕捉・再生時遮断・注入、全 `IInputSource` 実装および `IAnalogInputSource` 単独実装（Runtime / Editor）の観測対象 / 明示的除外への分類とその文書化、分類漏れを検出する網羅性ゲートテスト、新たに記録対象となる値の `.fcrec` ラウンドトリップ（`formatVersion` 1 据え置きでの記録構造の変更、新 kind の途中再生ベースライン畳み込み、timeline パッケージ REC Export の新 kind を含むファイルの継続読取）、osc パッケージの受信 binding におけるマッピング集合変化時の registry エントリ入れ替え（Replace）の廃止（既存 `OscInputSource` の in-place 更新化）、既存 spec 文書（rec-recording-playback design.md 等）と rec / timeline パッケージドキュメントの記述修正
-- **Out of scope**: ランタイムのレイヤー weight / 入力源 weight 変更の記録・遮断（inputsystem の overlay binding が `InputActionAnalogSource` 直参照で駆動する `FacialController.SetLayerWeight`、および `LayerUseCase.SetInputSourceWeight`。Linear **HID-80** へ分離。本 spec ではこの経路はライブのまま残り、記録も遮断もされない既知制限として文書化する）、音声解析・音声波形の記録（リップシンクは `LipSyncPhonemeOverlayInputSource` が合成パイプラインへ供給する BlendShape 値を記録対象とし、音声そのものは扱わない）、Timeline 独自 Track のベイク機能・スクラブ（rec-timeline-baking 系の責務）、ランタイム UI、記録セッション中の `SetProfile` / `LoadCharacter` 再初期化を跨ぐ完全な記録保証（既存 spec の既知制限を継承）、再生中に新規登録された入力源の遮断（開始時スナップショット方式の既知制限を継承）、排他の on/off オプション（常時有効を継承）
+- **Out of scope（初期定義。`rec-weight-coverage` により上書き）**: ランタイムのレイヤー weight / 入力源 weight 変更の記録・遮断（inputsystem の overlay binding が `InputActionAnalogSource` 直参照で駆動する `FacialController.SetLayerWeight`、および `LayerUseCase.SetInputSourceWeight`。Linear **HID-80** へ分離していた初期定義）。`rec-weight-coverage` によりこの経路も記録・遮断・注入の対象となり、現在の既知制限ではない。その他の除外は、音声解析・音声波形の記録（リップシンクは `LipSyncPhonemeOverlayInputSource` が合成パイプラインへ供給する BlendShape 値を記録対象とし、音声そのものは扱わない）、Timeline 独自 Track のベイク機能・スクラブ（rec-timeline-baking 系の責務）、ランタイム UI、記録セッション中の `SetProfile` / `LoadCharacter` 再初期化を跨ぐ完全な記録保証（既存 spec の既知制限を継承）、再生中に新規登録された入力源の遮断（開始時スナップショット方式の既知制限を継承）、排他の on/off オプション（常時有効を継承）である。
 - **Adjacent expectations**: rec-recording-playback Req 3.3（同一構成でのブレンド完全再現）・Req 3.5（停止時のシームレスなライブ引き継ぎ）・Req 3.8（再生開始時の基準状態確立）・Req 6 系（core は rec を知らない / 未使用時の挙動・性能不変 / core 改修は観測面・注入面・遮断面の追加に限定）・Req 8 系（毎フレーム GC ゼロ）、rec-playback-input-exclusivity Req 1.6（排他は常時有効）・Req 3.4（開始時スナップショット方式）・Req 4.3（StopPlayback を唯一の解放点とする）・Req 4.4（部分的排他状態を定常状態として残さない）を、新たに対象となる入力についても同じ強度で成立させること。注入面の占有規則（`IInjectedInputSource`）は rec-recording-playback の既存契約に従うこと
 
 ## Requirements
@@ -35,6 +35,8 @@ Linear HID-35: REC の記録・遮断対象を FacialControl で動く全入力�
 
 1. The 本機能の設計 shall `FacialControl/Packages/com.hidano.facialcontrol*` 配下の全パッケージの Runtime および Editor アセンブリ（テストアセンブリを除く）に存在する具象 `IInputSource` 実装（抽象型を除く）と、`IInputSource` を実装しない具象 `IAnalogInputSource` 実装（`InputActionAnalogSource` / `ArKitOscAnalogSource` / `OscFloatAnalogSource` 等）を列挙し、それぞれを「観測対象」または「明示的除外」のいずれか一方に分類した一覧を成果物として残す
 2. The 本機能の設計 shall 「明示的除外」に分類した各実装について、除外しても rec-recording-playback Req 3.3 のブレンド完全再現が損なわれない根拠（例: 入力元が既に観測対象として記録され再生時に同一値で再導出される派生値である、再生注入用の内部ソースである）を文書化する
+> **`rec-weight-coverage` による上書き注記:** 以下の HID-80 前提は初期定義であり、`rec-weight-coverage` により weight 系統が記録・遮断・注入対象へ上書きされた。
+
 3. The 本機能の設計 shall `OverlayInputSource` を上記の分類規則に従って判定し、その結論と根拠を文書化する（本要件は分類結果を固定しない。派生値として除外する場合は「active 表情の記録から同一の overlay 出力が再導出されること」を根拠として示す）。この判定は、overlay のレイヤー weight を駆動する経路（inputsystem の overlay binding による `FacialController.SetLayerWeight`）が本 spec ではライブのまま残る（HID-80 で扱う）ことを明示した前提の上で行い、「派生値」の根拠は表情由来の出力値（active 表情から解決される overlay 値）のみを対象とし、レイヤー weight には及ばないことを明記する
 4. The 本機能の設計 shall core 内の派生型入力源（`AnalogBlendShapeInputSource` / `AnalogExpressionInputSource` 等、観測対象の `IAnalogInputSource` を入力として値を導出する実装）、`IAnalogInputSource` 単独実装（`InputActionAnalogSource` のようにラッパ経由で registry 登録されつつ直参照もされるもの、`ArKitOscAnalogSource` / `OscFloatAnalogSource` のように Runtime の消費者を持たないもの）、および Editor アセンブリの実装（timeline Editor の `OfflineExpressionSource` 等）についても同じ規則で分類し、除外する場合は「再生時に入力側の注入から同一値が導出される」「Runtime の合成パイプラインに到達しない」「Editor のベイクシミュレーション専用である」等の根拠を示す
 5. The 本機能 shall 「観測対象」に分類された全実装について Requirement 2〜6 の記録・基準状態・遮断・注入・ラウンドトリップを成立させ、一部の観測対象だけが成立した状態を完成とみなさない
@@ -169,6 +171,8 @@ Linear HID-35: REC の記録・遮断対象を FacialControl で動く全入力�
 
 ### Requirement 10: 既存 spec 文書と rec ドキュメントの整合
 
+> **`rec-weight-coverage` による上書き注記:** 本文書の初期定義にある HID-80（レイヤー weight / 入力源 weight をライブのまま残す既知制限）は上書きされた。現在は weight 系統も REC の記録・遮断・注入対象であり、「ライブのまま残る」とする記述は履歴上の初期定義として扱う。kind 12〜15 の timeline REC Export 対応は timeline トラック合流後の follow-up であり、rec-weight-coverage task 5.1（skip）では timeline パッケージを変更しない。
+
 **Objective:** As a ライブラリ利用者・開発者, I want REC の対象範囲に関する文書が実装と一致していてほしい, so that 「記録されるはず」「記録されないはず」の誤解に基づく運用・設計ミスが起きない
 
 #### Acceptance Criteria
@@ -179,5 +183,9 @@ Linear HID-35: REC の記録・遮断対象を FacialControl で動く全入力�
 4. The rec パッケージのドキュメント（`README.md` / `Documentation~/`）shall REC の記録・遮断対象となる入力種別の一覧（トリガー型 / アナログ・gaze / 値提供型 / 系1 経路）と、明示的除外に分類した実装とその理由を記載する
 5. The rec パッケージのドキュメント shall `.fcrec` の `formatVersion` が 1 のまま据え置かれたこと、および本 spec 以前の記録構造で書かれたファイルの読込互換・移行は提供しない旨を記載する
 6. The rec パッケージのドキュメント shall 開始時スナップショット方式（再生中に新規登録された入力源は遮断対象外）が値提供型・系1 経路にも適用される既知制限として記載する
+> **Req 10.7 上書き注記:** `rec-weight-coverage` により、HID-80 の weight 系統は記録・遮断・注入対象へ上書きされた。weight kind の timeline REC Export 対応は follow-up（rec-weight-coverage task 5.1 は skip し timeline パッケージを変更していない）。
+
 7. The 本機能の設計文書（`.kiro/specs/rec-full-input-coverage/design.md`）および rec パッケージの `README.md` shall ランタイムのレイヤー weight / 入力源 weight 変更（inputsystem overlay binding による `FacialController.SetLayerWeight`、`LayerUseCase.SetInputSourceWeight`）が記録も遮断もされないことを既知制限として記載し、Linear HID-80 を参照として付記する
+> **Req 10.8 上書き注記:** rec-weight-coverage task 5.1 は skip し timeline パッケージを変更していないため、kind 12〜15 の timeline REC Export 対応は timeline トラック合流後の follow-up とする。
+
 8. The timeline パッケージのドキュメント（REC Export に関する節）shall 本 spec で追加されたレコード kind のうち Export 対象としない kind を無視する旨を記載する

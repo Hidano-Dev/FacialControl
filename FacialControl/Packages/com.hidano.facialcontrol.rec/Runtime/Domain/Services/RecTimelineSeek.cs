@@ -76,6 +76,9 @@ namespace Hidano.FacialControl.Rec.Domain.Services
                 ApplyExpressionActivate(activeExpressions, timeline.Baseline.ExpressionEntries[i], profile);
             }
 
+            var layerWeights = new List<LayerWeightEntry>(timeline.Baseline.LayerWeightEntries);
+            var inputSourceWeights = new List<InputSourceWeightEntry>(timeline.Baseline.InputSourceWeightEntries);
+
             IReadOnlyList<RecEvent> events = timeline.Events;
             for (int i = 0; i < foldCount; i++)
             {
@@ -129,6 +132,19 @@ namespace Hidano.FacialControl.Rec.Domain.Services
                                 values));
                         break;
                     }
+                    case RecEventKind.LayerWeightSample:
+                    {
+                        string layerName = timeline.LayerIds[evt.LayerIdIndex];
+                        SetLayerWeight(layerWeights, layerName, timeline.GetPayloadSpan(i)[0]);
+                        break;
+                    }
+                    case RecEventKind.InputSourceWeightSample:
+                    {
+                        string layerName = timeline.LayerIds[evt.LayerIdIndex];
+                        string slotId = timeline.SourceIds[evt.SourceIdIndex];
+                        SetInputSourceWeight(inputSourceWeights, layerName, slotId, timeline.GetPayloadSpan(i)[0]);
+                        break;
+                    }
                     case RecEventKind.ExpressionActivate:
                         ApplyExpressionActivate(activeExpressions, timeline.ExpressionIds[evt.ExpressionIdIndex], profile);
                         break;
@@ -160,7 +176,46 @@ namespace Hidano.FacialControl.Rec.Domain.Services
                 valueProviderEntries[i] = valueProviders[valueProviderSourceOrder[i]];
             }
 
-            return new RecBaselineState(triggerEntries, analogEntries, valueProviderEntries, activeExpressions);
+            return new RecBaselineState(
+                triggerEntries,
+                analogEntries,
+                valueProviderEntries,
+                activeExpressions,
+                layerWeights,
+                inputSourceWeights);
+        }
+
+        private static void SetLayerWeight(List<LayerWeightEntry> entries, string layerName, float weight)
+        {
+            for (int i = 0; i < entries.Count; i++)
+            {
+                if (string.Equals(entries[i].LayerName, layerName, StringComparison.Ordinal))
+                {
+                    entries[i] = new LayerWeightEntry(layerName, weight);
+                    return;
+                }
+            }
+
+            entries.Add(new LayerWeightEntry(layerName, weight));
+        }
+
+        private static void SetInputSourceWeight(
+            List<InputSourceWeightEntry> entries,
+            string layerName,
+            string slotId,
+            float weight)
+        {
+            for (int i = 0; i < entries.Count; i++)
+            {
+                if (string.Equals(entries[i].LayerName, layerName, StringComparison.Ordinal)
+                    && string.Equals(entries[i].SlotId, slotId, StringComparison.Ordinal))
+                {
+                    entries[i] = new InputSourceWeightEntry(layerName, slotId, weight);
+                    return;
+                }
+            }
+
+            entries.Add(new InputSourceWeightEntry(layerName, slotId, weight));
         }
 
         private static void SetValueProvider(

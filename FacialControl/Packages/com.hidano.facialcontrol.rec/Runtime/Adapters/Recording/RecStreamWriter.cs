@@ -4,6 +4,7 @@ using System.IO;
 using System.Text;
 using System.Threading;
 using Hidano.FacialControl.Domain.Interfaces;
+using Hidano.FacialControl.Domain.Models;
 using Hidano.FacialControl.Rec.Domain.Interfaces;
 using Hidano.FacialControl.Rec.Domain.Models;
 using Hidano.FacialControl.Rec.Domain.Services;
@@ -381,6 +382,29 @@ namespace Hidano.FacialControl.Rec.Adapters.Recording
                 RecEvent evt = RecEvent.CreateBaselineExpression(expressionSourceIndex, expressionIndex);
                 WriteRecord(stream, ref buffer, in evt, ReadOnlySpan<float>.Empty, ReadOnlySpan<byte>.Empty, null);
             }
+
+            for (int i = 0; i < idTable.LayerIds.Count; i++)
+            {
+                WriteRecord(stream, ref buffer, RecEvent.CreateIdDefine((ushort)i, RecEvent.IdDefinitionKind.Layer),
+                    ReadOnlySpan<float>.Empty, ReadOnlySpan<byte>.Empty, idTable.LayerIds[i]);
+            }
+
+            for (int i = 0; i < _baseline.LayerWeightEntries.Count; i++)
+            {
+                LayerWeightEntry entry = _baseline.LayerWeightEntries[i];
+                ushort layerIndex = idTable.GetOrAddLayerId(entry.LayerName);
+                RecEvent evt = RecEvent.CreateBaselineLayerWeight(layerIndex);
+                WriteRecord(stream, ref buffer, in evt, new[] { entry.Weight }, ReadOnlySpan<byte>.Empty, null);
+            }
+
+            for (int i = 0; i < _baseline.InputSourceWeightEntries.Count; i++)
+            {
+                InputSourceWeightEntry entry = _baseline.InputSourceWeightEntries[i];
+                ushort layerIndex = idTable.GetOrAddLayerId(entry.LayerName);
+                ushort sourceIndex = idTable.GetOrAddSourceId(entry.SlotId);
+                RecEvent evt = RecEvent.CreateBaselineInputSourceWeight(layerIndex, sourceIndex);
+                WriteRecord(stream, ref buffer, in evt, new[] { entry.Weight }, ReadOnlySpan<byte>.Empty, null);
+            }
         }
 
         private static void WriteRecord(Stream stream, ref byte[] buffer, in RecEvent evt,
@@ -407,7 +431,7 @@ namespace Hidano.FacialControl.Rec.Adapters.Recording
         private static int CountBaselineRecords(RecBaselineState baseline)
         {
             RecIdTable idTable = RecIdTable.CreateSeeded(baseline);
-            int count = idTable.SourceIds.Count + idTable.ExpressionIds.Count;
+            int count = idTable.SourceIds.Count + idTable.ExpressionIds.Count + idTable.LayerIds.Count;
 
             for (int i = 0; i < baseline.TriggerEntries.Count; i++)
             {
@@ -417,6 +441,8 @@ namespace Hidano.FacialControl.Rec.Adapters.Recording
             count += baseline.AnalogEntries.Count;
             count += baseline.ValueProviderEntries.Count;
             count += baseline.ExpressionEntries.Count;
+            count += baseline.LayerWeightEntries.Count;
+            count += baseline.InputSourceWeightEntries.Count;
             return count;
         }
 

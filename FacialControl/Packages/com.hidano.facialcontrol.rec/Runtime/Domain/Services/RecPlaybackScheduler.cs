@@ -17,6 +17,10 @@ namespace Hidano.FacialControl.Rec.Domain.Services
         void VisitExpressionActivate(string sourceId, string expressionId);
 
         void VisitExpressionDeactivate(string sourceId, string expressionId);
+
+        void VisitLayerWeightSample(string layerName, float weight);
+
+        void VisitInputSourceWeightSample(string layerName, string slotId, float weight);
     }
 
     /// <summary>
@@ -196,6 +200,17 @@ namespace Hidano.FacialControl.Rec.Domain.Services
                     return;
                 case RecEventKind.ExpressionDeactivate:
                     visitor.VisitExpressionDeactivate(sourceId, _timeline.ExpressionIds[evt.ExpressionIdIndex]);
+                    return;
+                case RecEventKind.LayerWeightSample:
+                    visitor.VisitLayerWeightSample(
+                        _timeline.LayerIds[evt.LayerIdIndex],
+                        _timeline.GetPayloadSpan(eventIndex)[0]);
+                    return;
+                case RecEventKind.InputSourceWeightSample:
+                    visitor.VisitInputSourceWeightSample(
+                        _timeline.LayerIds[evt.LayerIdIndex],
+                        sourceId,
+                        _timeline.GetPayloadSpan(eventIndex)[0]);
                     return;
                 default:
                     throw new InvalidOperationException($"Unsupported timed event kind '{evt.Kind}'.");

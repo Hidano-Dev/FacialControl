@@ -87,6 +87,26 @@ namespace Hidano.FacialControl.Tests.EditMode.Adapters.Json
         }
 
         [Test]
+        public void ParseProfile_DuplicateLayerNames_KeepsFirstAndWarns()
+        {
+            LogAssert.Expect(LogType.Warning, new Regex("重複|duplicate", RegexOptions.IgnoreCase));
+
+            var profile = _parser.ParseProfile(@"{
+                ""schemaVersion"": ""1.0"",
+                ""layers"": [
+                    {""name"": ""emotion"", ""priority"": 0, ""exclusionMode"": ""lastWins"", ""inputSources"": [{""id"": ""input"", ""weight"": 1}]},
+                    {""name"": ""emotion"", ""priority"": 1, ""exclusionMode"": ""blend"", ""inputSources"": [{""id"": ""input"", ""weight"": 0.5}]},
+                    {""name"": ""eye"", ""priority"": 2, ""exclusionMode"": ""lastWins"", ""inputSources"": [{""id"": ""input"", ""weight"": 1}]}
+                ],
+                ""expressions"": [], ""rendererPaths"": []
+            }");
+
+            Assert.That(profile.Layers.Length, Is.EqualTo(2));
+            Assert.That(profile.Layers.Span[0].Name, Is.EqualTo("emotion"));
+            Assert.That(profile.Layers.Span[1].Name, Is.EqualTo("eye"));
+        }
+
+        [Test]
         public void ParseProfile_LayerOverrideMask_MapsToOverrideMaskBits()
         {
             // layers 宣言順: emotion(bit0), overlay(bit1)。

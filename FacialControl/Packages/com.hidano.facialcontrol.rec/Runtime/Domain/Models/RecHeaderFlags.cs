@@ -7,5 +7,6 @@ namespace Hidano.FacialControl.Rec.Domain.Models
     {
         None = 0,
         FullInputBaseline = 0x0001,
+        WeightBaseline = 0x0002,
     }
 }
