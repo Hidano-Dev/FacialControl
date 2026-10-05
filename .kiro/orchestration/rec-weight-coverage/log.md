@@ -119,3 +119,4 @@
   - MAJOR: Req 11.7（timeline README の weight kind 記載）未実装
   - 要件カバレッジ 74 項目中 72。未達 2 項目はどちらも directive が禁止した timeline パッケージ内
 - Gate D: **ESCALATED（ユーザー判断）**。NO-GO の理由は directive の制約で意図的に skip した 2 項目のみで、本 spec が変更した core / rec / inputsystem 側の指摘は無い。coordinator の指示どおり push と PR 作成までは進め、マージ前に timeline 側の追随（Track A マージ後の別 PR、または本 PR への追加）をユーザーが判断する旨を PR 本文に明記する
+- Branch/PR: `feature/hid-80-rec-weight-coverage` を push し PR #48 を作成（https://github.com/Hidano-Dev/FacialControl/pull/48）。PR #47 には #48 が包含する旨のコメントを投稿（閉じていない）。マージはしない
