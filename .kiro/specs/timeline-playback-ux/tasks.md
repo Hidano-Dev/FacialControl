@@ -232,7 +232,7 @@
   - 完了条件: fixture 一式がコンパイルされ、`pwsh ./scripts/check-test-sizes.ps1` が Small asmdef 参照違反を報告しない
   - _Requirements: 11.1, 11.6, 11.7, 11.8_
 
-- [ ] 8.2 4 手順だけで Expression / Analog / Gaze が再現されることを e2e で固定する（timeline Tests/PlayMode）
+- [x] 8.2 4 手順だけで Expression / Analog / Gaze が再現されることを e2e で固定する（timeline Tests/PlayMode）
   - 新規 `TimelinePlaybackEndToEndTests`（PlayMode Medium）で Director を Manual 更新にし、時刻設定 → Evaluate → 1 フレーム待ちで SkinnedMeshRenderer の BlendShape を検証する: smile のトリガーで Expression 値が出る、Analog クリップ値 × Expression 値が squint の BlendShape に出る、Gaze が目ボーン回転に出る。Receiver 同 GameObject + Director 別 GameObject の配置でも同じ結果
   - セッション終了（Director 停止 / ReleaseAll）で `osc:lt` が Fake に戻り squint が 0 に戻る、registry / レイヤー構成が復元される、診断の Overall が Ok（問題なしの状態値）を検証する
   - 完了条件: Profile に Timeline 専用設定を一切書かずに 3 種が再現され、受け入れ条件 (1)(4) が緑

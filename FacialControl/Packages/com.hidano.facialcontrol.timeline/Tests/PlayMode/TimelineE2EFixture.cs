@@ -4,6 +4,7 @@ using System.Collections;
 using System.Collections.Generic;
 using System.IO;
 using System.Reflection;
+using Hidano.FacialControl.Adapters.Json.Dto;
 using Hidano.FacialControl.Adapters.Playable;
 using Hidano.FacialControl.Adapters.ScriptableObject;
 using Hidano.FacialControl.Adapters.ScriptableObject.Serializable;
@@ -258,33 +259,37 @@ namespace Hidano.FacialControl.Timeline.Tests.PlayMode
                 exclusionMode = ExclusionMode.LastWins,
             });
 
-            profileAsset.Expressions.Add(new ExpressionSerializable
-            {
-                id = SmileExpressionId,
-                name = "Smile",
-                layer = EmotionLayer,
-                transitionDuration = 0.1f,
-                blendShapeValues = new List<BlendShapeMappingSerializable>
-                {
-                    new BlendShapeMappingSerializable { name = SmileBlendShape, value = SmileExpressionValue },
-                },
-            });
-            profileAsset.Expressions.Add(new ExpressionSerializable
-            {
-                id = SquintExpressionId,
-                name = "Squint",
-                layer = OverlayLayer,
-                transitionDuration = 0.1f,
-                blendShapeValues = new List<BlendShapeMappingSerializable>
-                {
-                    new BlendShapeMappingSerializable { name = SquintBlendShape, value = SquintExpressionValue },
-                },
-            });
+            profileAsset.Expressions.Add(CreateExpression(SmileExpressionId, "Smile", EmotionLayer, SmileBlendShape, SmileExpressionValue));
+            profileAsset.Expressions.Add(CreateExpression(SquintExpressionId, "Squint", OverlayLayer, SquintBlendShape, SquintExpressionValue));
 
             // GazeChannels は既定（"gaze" 1 本）のまま、目ボーンだけ明示する（Humanoid Avatar を使わない fixture のため）。
             GazeChannel gaze = profileAsset.GazeChannels[0];
             gaze.leftEyeBonePath = LeftEyeName;
             gaze.rightEyeBonePath = RightEyeName;
+        }
+
+        /// <summary>
+        /// Expression を AnimationClip サンプリング済みの形（cachedSnapshot）で作る。実アセットの Expression は cachedSnapshot から
+        /// 展開され、アセットのシリアライズ往復後は cachedSnapshot が空インスタンスになって blendShapeValues が読まれないため。
+        /// </summary>
+        private static ExpressionSerializable CreateExpression(string id, string name, string layer, string blendShape, float value)
+        {
+            return new ExpressionSerializable
+            {
+                id = id,
+                name = name,
+                layer = layer,
+                transitionDuration = 0.1f,
+                cachedSnapshot = new ExpressionSnapshotDto
+                {
+                    transitionDuration = 0.1f,
+                    transitionCurvePreset = "Linear",
+                    blendShapes = new List<BlendShapeSnapshotDto>
+                    {
+                        new BlendShapeSnapshotDto { rendererPath = string.Empty, name = blendShape, value = value },
+                    },
+                },
+            };
         }
     }
 
