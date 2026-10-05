@@ -125,3 +125,8 @@
 - Commits: 1ecbde41 / 86d99ebe / 2f45be29 / dfbd7e09 / Verify: EditMode 全件 2635/0、timeline PlayMode 33/33、check-test-sizes 差分 0
 - Review: REJECTED。[Important] Req 1.6 の Edit 節と D7「Inspector 評価時に Undo 付きで EnsureBindings」を、実装は「Edit では自動設定せずボタンを有効化」に差し替えた / [Important] Edit で未設定トラックがあっても診断行が出ず直し方が表示されない（Req 5.2 / HID-144）/ [Suggestion] Inspector root の再 attach で購読が戻らない / [Suggestion] Drawer の消去ボタンと Req 2.4「読み取り専用で残す」の表現の整合
 - オーケストレータ判断: 仕様（Req 1.6 / D7）の方が HID-144 の確定方針「Receiver を追加するだけ」に合うため仕様は改訂せず、実装を仕様へ寄せる是正を行う。ただし「見るだけで dirty」を最小化するため、未設定の Facial トラックがあるときだけ Undo 付きで設定し（既に設定済みなら何も書かない）、TrackBindingAutoAssigned / 未設定件数を TrackBinding 領域に表示する。Inspector の AttachToPanelEvent 再購読も同時に入れる。Drawer の消去ボタンは「ユーザー操作による明示消去」として design に一文追記
+
+### Task 10.1 / 10.2 / 10.3 — 実装完了、レビュー REJECTED → 是正中
+- Commits: 2984fd10 / 367affcb / 7de25e7a / 実装者報告: EditMode 2642/0、timeline PlayMode 37/37。core 変更なし
+- Review: REJECTED。[Important] Edit/Play 一致テストが Analog を 0 にして不一致を隠している（Analog Value トラックは Timeline の sink で Req 7.1 の除外条件に当たらない）。原因は design D9 の構成が analog 消費者の経路を含まない仕様の欠落で、直すには adapter binding の analog 消費者のオフライン再現が要り 10.x の範囲外 / [Important] Compositor 静的キャッシュがドメインリロード・終了時に Dispose されず NativeArray がリーク / [Suggestion] Watcher 未初期化時に購読が無言スキップ / [FYI] Gaze を Clip から倍精度評価する逸脱は妥当
+- オーケストレータ判断（ユーザー不在）: Analog の Edit プレビューは **既知制約** とし、design D9 に明記・テストの正当化コメント修正・不一致を示す特性テスト追加・docs/backlog.md 登録・PR 本文で人間の判断事項として提示する。NativeArray リークと Watcher 初期化は是正コミットで修正（実行中の実装エージェントに (D) として追加指示）
