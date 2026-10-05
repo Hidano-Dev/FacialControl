@@ -76,7 +76,7 @@
   - _Requirements: 3.4, 11.1, 11.2_
 
 - [ ] 4. Timeline 構成の導出・id 規約・診断モデル・Profile 内容ハッシュを Unity 非依存の Domain として用意する（timeline Runtime Domain）
-- [ ] 4.1 レイヤー sink id の規約（名前優先・index フォールバック・旧 state 宣言判定）を実装する（timeline Runtime Domain）
+- [x] 4.1 レイヤー sink id の規約（名前優先・index フォールバック・旧 state 宣言判定）を実装する（timeline Runtime Domain）
   - レイヤー名が `[a-zA-Z0-9_.-]` のみで `:` を含まず state 形が 64 文字以内なら `timeline:{name}`、それ以外は `timeline:layer{index}` を合成し、フォールバック使用を呼び出し側へ返す。値 id と state id（`:state` 終端）の両方を合成する
   - 宣言 id が「`{slug}:` で始まり `:state` で終わる」（名前形 / index 形の双方）かを判定する旧 state 宣言判定を提供する。InputSourceId として解釈できない文字列には false
   - 新規 `TimelineSinkIdConventionTests`（Small。TimelineAsset を生成しない）に ASCII 名 / 非 ASCII 名 / `:` 含み / 64 文字境界 / state 合成 / 旧 state 判定（名前形・index 形・値 sink 宣言 false・他 slug false）を書く
