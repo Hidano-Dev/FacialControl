@@ -98,7 +98,7 @@
   - _Requirements: 2.6, 2.7, 5.2, 8.9, 11.4_
   - _Boundary: FacialTimelineDiagnostics, TimelineDiagnosticCode_
 
-- [ ] 4.4 (P) 同一原因の警告を 1 セッション / 1 エポックに 1 回だけ通す警告ゲートを実装する（timeline Runtime Domain）
+- [x] 4.4 (P) 同一原因の警告を 1 セッション / 1 エポックに 1 回だけ通す警告ゲートを実装する（timeline Runtime Domain）
   - (所有者 instanceID, 診断コード, 件名) をキーに初回のみ true を返し、エポックリセットで再び通す
   - 新規 `TimelineOnceWarningGateTests`（Small）に 初回 true / 2 回目 false、件名違いは別キー、所有者違いは別キー、リセット後に再び true、を書く
   - 完了条件: 同一キーの連続呼び出しが 1 回しか通らない
