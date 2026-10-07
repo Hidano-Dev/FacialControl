@@ -487,6 +487,18 @@ public interface IBlinkTrigger
 - JSON はルート `gaze` オブジェクト内の `channels[]` にチャネルを保存する。旧 `gaze_configs` は検出して警告し、gaze 部分を読み捨てる。
 - source id は `GazeSourceIdConvention` が `{slug}:{channelId}`（共有）、`{slug}:{channelId}.left`、`{slug}:{channelId}.right`（左右独立）へ統一する。`GazeSnapshot` は `ChannelId` と正規化された `X` / `Y` を保持する。
 
+### 12.3 設計上の境界（旧 spec `gaze-config-promotion` のスコープ外事項）
+
+`gaze-config-promotion`（要件 12.1〜12.5）がスコープ外とした 5 項目の現状。spec 名・要件番号は HID-152 で削除した spec 文書を指す（[削除前のコミット](https://github.com/Hidano-Dev/FacialControl/tree/888337502831165b400ce76f048920a1ba102e6a/.kiro/specs)で参照できる）。「有効」は今も守っている設計上の境界で、拡張の要望が出たら Linear の Issue に切り出す（本仕様を直接広げない）。
+
+| # | 当時のスコープ外事項 | 現状 | 根拠 / 変更元 |
+|---|------|------|------|
+| 1 | `ExpressionKind` に Vector2 kind を新設しない | 有効 | Expression に kind 区分は無く、BlendShape 値（と任意のボーン姿勢）を持つ表情ポーズとして合成する。Vector2 の gaze は Expression と独立した `gaze.channels[]`（§12.1）で扱う。`gaze-channel-redesign` が isGaze ダミー Expression を廃止して分離を確定した |
+| 2 | OSC / ARKit native の gaze 駆動を実装しない（`IBonePoseSource` の契約面のみ温存） | 解除済み | `osc-gaze-auto-mapping` が `/_facialcontrol/gaze` 広告と受信側の自動登録を、`gaze-channel-redesign` が `IGazeSourceProvider` を OSC Receiver / InputSystem / iFacialMocap の各 binding に実装。iFacialMocap は ARKit の `leftEye` / `rightEye` 回転から、OSC 受信は mapping mode `gazeArkit8Bs` で ARKit の `eyeLook*` 8 BlendShape から gaze を導出する。ボーン姿勢の注入口は `IBonePoseProvider.SetActiveBoneSnapshots`、`IBonePoseSource` は active な姿勢を読み出す側の契約として残る |
+| 3 | BlendShape のみで動く gaze の挙動を schema 再配置以外で変えない | 解除済み | `gaze-channel-redesign`（D-2 / 要件 9）が、ランタイムの消費者が無かった `look*Clip` / `look*Samples` を schema・Inspector から削除した。BlendShape gaze は現在未配線で、新データモデルでの再設計は backlog M-29（同項目の方針は旧 `GazeBindingConfig` 前提のため、着手時に書き直す） |
+| 4 | 自動まばたき・視線追従ターゲットを導入しない | 有効 | `IBlinkTrigger` は定義のみで実装は無い（§11）。Vector3 ターゲット / カメラ目線は未実装で、入力 source の拡張点のみ用意（§12.1、backlog M-5） |
+| 5 | bone path の相対化をしない | 解除済み | backlog S-1（2026-05-10 消化）で `BoneTransformResolver` が相対 path / 単純名の併用に対応し、`gaze-channel-redesign`（要件 7.3）で目ボーンを Animator 起点のフル path で保存するようにした |
+
 ---
 
 ## 13. JSON 設計
