@@ -343,7 +343,10 @@ namespace Hidano.FacialControl.Timeline.Editor
             var consumers = new Dictionary<string, IInputSource>(StringComparer.Ordinal);
             for (int i = 0; i < bindings.Count; i++)
             {
-                if (!(bindings[i] is IAnalogExpressionBindingDeclaration declaration)
+                // Play で起動しない無効の binding はプレビューにも載せない。
+                if (bindings[i] == null
+                    || bindings[i].Disabled
+                    || !(bindings[i] is IAnalogExpressionBindingDeclaration declaration)
                     || !AdapterSlug.TryParse(bindings[i].Slug, out AdapterSlug slug))
                 {
                     continue;

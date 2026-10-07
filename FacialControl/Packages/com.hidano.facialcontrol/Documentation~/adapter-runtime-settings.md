@@ -21,7 +21,7 @@ AdapterRuntimeSettingsCollection.asset
 
 ## OSC の上級設定
 
-`OscReceiverRuntimeSettingsSO` / `OscSenderRuntimeSettingsSO` はそれぞれ OSC Receiver / OSC Sender binding の Foldout「上級設定」に割り当てる。割り当ては任意で、未割り当ての binding は既定値で動く。受信・送信を止めたい場合は binding を外す（有効フラグは無い）。値の変更は次の Play から反映される。
+`OscReceiverRuntimeSettingsSO` / `OscSenderRuntimeSettingsSO` はそれぞれ OSC Receiver / OSC Sender binding の Foldout「上級設定」に割り当てる。割り当ては任意で、未割り当ての binding は既定値で動く。受信・送信を一時的に止めたい場合は、Adapter Bindings の Foldout ヘッダーのトグルで binding を無効にする（設定値は残る）。値の変更は次の Play から反映される。
 
 旧 `OscRuntimeSettingsSO`（Receiver / Sender を 1 つにまとめていた型）は既存アセットの移行専用に残している。binding に割り当てたままだとその値で起動して警告を出すので、Inspector の **旧設定から移行** で binding 側へ移す（手順は `com.hidano.facialcontrol.osc` の CHANGELOG を参照）。
 

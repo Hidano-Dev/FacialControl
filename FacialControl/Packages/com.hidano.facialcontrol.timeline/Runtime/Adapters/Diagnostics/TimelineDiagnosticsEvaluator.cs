@@ -267,7 +267,8 @@ namespace Hidano.FacialControl.Timeline.Adapters.Diagnostics
                 items.Add(Error(TimelineDiagnosticArea.ProfileBinding, TimelineDiagnosticCode.BindingSlugInvalid, slugText, BindingSlugInvalidDetail));
             }
 
-            if (!binding.Enabled)
+            // Adapter Bindings ヘッダーのトグルで binding ごと無効にした場合（Disabled）も、受信しない点は同じなので同じ診断にする。
+            if (binding.Disabled || !binding.Enabled)
             {
                 // 件名は Receiver のセッション開始時の BindingDisabled と同じ（slug）にし、警告ゲートで重複させない。
                 string disabledSubject = slugValid ? slug.Value : slugText;
@@ -317,23 +318,33 @@ namespace Hidano.FacialControl.Timeline.Adapters.Diagnostics
             }
         }
 
-        private static TimelineAdapterBinding FindTimelineBinding(FacialCharacterProfileSO source)
+        /// <summary>
+        /// Profile の Timeline binding を返す。Play で起動するもの（<see cref="AdapterBindingBase.Disabled"/> でないもの）を
+        /// 優先し、無ければ無効の binding を返す（BindingDisabled の診断に使う）。
+        /// </summary>
+        internal static TimelineAdapterBinding FindTimelineBinding(FacialCharacterProfileSO source)
         {
             if (source == null || source.AdapterBindings == null)
             {
                 return null;
             }
 
+            TimelineAdapterBinding firstDisabled = null;
             IReadOnlyList<AdapterBindingBase> bindings = source.AdapterBindings;
             for (int i = 0; i < bindings.Count; i++)
             {
                 if (bindings[i] is TimelineAdapterBinding timelineBinding)
                 {
-                    return timelineBinding;
+                    if (!timelineBinding.Disabled)
+                    {
+                        return timelineBinding;
+                    }
+
+                    firstDisabled ??= timelineBinding;
                 }
             }
 
-            return null;
+            return firstDisabled;
         }
 
         private static void Flush(FacialTimelineDiagnostics target, TimelineDiagnosticArea area, List<TimelineDiagnosticItem> items)

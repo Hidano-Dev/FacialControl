@@ -33,6 +33,8 @@ namespace Hidano.FacialControl.Editor.Inspector.AdapterBindings
     /// 追加/削除はリスト末尾の +/- フッター操作に加え、Foldout ヘッダーの削除ボタンからも行える。
     /// Drawer が <see cref="IAdapterBindingHeaderSummaryProvider"/> を実装していれば、ヘッダーに要約
     /// （OSC の IP・ポート等）も出し、binding の値の変更に追従させる。
+    /// ヘッダーの有効トグルで binding を一時的に無効にでき（<see cref="AdapterBindingBase.Disabled"/>）、
+    /// 無効の行はヘッダーをグレーアウトする。
     /// </para>
     /// </remarks>
     public sealed class AdapterBindingsListView : VisualElement
@@ -48,6 +50,8 @@ namespace Hidano.FacialControl.Editor.Inspector.AdapterBindings
         public const string RowFoldoutClassName = "facial-control-adapter-binding-foldout";
         public const string HeaderRemoveButtonClassName = "facial-control-adapter-binding-header-remove";
         public const string HeaderSummaryClassName = "facial-control-adapter-binding-header-summary";
+        public const string HeaderEnabledToggleClassName = "facial-control-adapter-binding-header-enabled";
+        public const string DisabledRowClassName = "facial-control-adapter-binding-disabled";
 
         public const string FooterAddButtonName = "facial-control-adapter-bindings-add";
         public const string FooterRemoveButtonName = "facial-control-adapter-bindings-remove";
@@ -452,6 +456,29 @@ namespace Hidano.FacialControl.Editor.Inspector.AdapterBindings
         }
 
         /// <summary>
+        /// 指定 index の binding の有効 / 無効を切り替える（<see cref="AdapterBindingBase.Disabled"/> を書き込む）。
+        /// 設定値には触れず、ヘッダーのトグルと無効表示も合わせて更新する。型欠落の要素は対象外。
+        /// </summary>
+        public void SetBindingEnabled(int index, bool enabled)
+        {
+            _listProperty.serializedObject.Update();
+            if (index < 0 || index >= _listProperty.arraySize) return;
+
+            var element = _listProperty.GetArrayElementAtIndex(index);
+            if (element.managedReferenceValue == null) return;
+            var disabledProp = element.FindPropertyRelative(nameof(AdapterBindingBase.Disabled));
+            if (disabledProp == null) return;
+
+            disabledProp.boolValue = !enabled;
+            _listProperty.serializedObject.ApplyModifiedProperties();
+
+            if (index < _rowsContainer.childCount)
+            {
+                ApplyEnabledState(_rowsContainer[index], enabled);
+            }
+        }
+
+        /// <summary>
         /// すべての Adapter 行 Foldout を展開 / 折り畳みし、開閉状態を保存する。
         /// </summary>
         public void SetAllExpanded(bool expanded)
@@ -551,6 +578,7 @@ namespace Hidano.FacialControl.Editor.Inspector.AdapterBindings
                 AddHeaderSummary(foldout, index, prop, summaryProvider, bindingType);
             }
             row.Add(foldout);
+            AddHeaderEnabledToggle(row, foldout, index, prop);
 
             if (drawer != null)
             {
@@ -577,7 +605,7 @@ namespace Hidano.FacialControl.Editor.Inspector.AdapterBindings
             }
             else
             {
-                foldout.Add(new PropertyField(prop));
+                foldout.Add(BuildDefaultBody(prop));
             }
 
             return row;
@@ -640,6 +668,102 @@ namespace Hidano.FacialControl.Editor.Inspector.AdapterBindings
 
             _rowFoldouts.Add(rowFoldout);
             return foldout;
+        }
+
+        /// <summary>
+        /// Foldout ヘッダーの表示名の手前に有効 / 無効トグルを置く。折り畳んだままでも切り替えられ、
+        /// 無効の行はヘッダーをグレーアウトする。
+        /// </summary>
+        private void AddHeaderEnabledToggle(
+            VisualElement row,
+            Foldout foldout,
+            int index,
+            SerializedProperty elementProperty)
+        {
+            var headerInput = foldout.Q(className: Foldout.inputUssClassName);
+            var disabledProp = elementProperty.FindPropertyRelative(nameof(AdapterBindingBase.Disabled));
+            if (headerInput == null || disabledProp == null) return;
+
+            var toggle = new Toggle
+            {
+                name = $"adapter-binding-enabled-{index}",
+                tooltip = "この Adapter Binding を有効にする（無効の間は Play で起動しない。設定は残る）",
+            };
+            toggle.AddToClassList(HeaderEnabledToggleClassName);
+            toggle.style.marginRight = 4;
+            toggle.SetValueWithoutNotify(!disabledProp.boolValue);
+            // ヘッダーのクリックで開閉・行選択が同時に起きないよう、押下をここで止める。
+            toggle.RegisterCallback<PointerDownEvent>(evt => evt.StopPropagation());
+            toggle.RegisterCallback<ClickEvent>(evt => evt.StopPropagation());
+            long referenceId = elementProperty.managedReferenceId;
+            toggle.RegisterValueChangedCallback(evt =>
+            {
+                // Foldout の開閉保存（ChangeEvent<bool> の bubble）に拾わせない。
+                evt.StopPropagation();
+                // 組み立て時の参照 ID から現在の index を引き直す（行と要素の対応がずれていても別の要素を書き換えない）。
+                _listProperty.serializedObject.Update();
+                int currentIndex = FindIndexByReferenceId(referenceId);
+                if (currentIndex < 0) return;
+                SetBindingEnabled(currentIndex, evt.newValue);
+                ApplyEnabledState(row, evt.newValue);
+            });
+
+            var headerLabel = foldout.Q<Label>(className: Foldout.textUssClassName);
+            int insertAt = headerLabel != null && headerLabel.parent == headerInput
+                ? headerInput.IndexOf(headerLabel)
+                : 0;
+            headerInput.Insert(insertAt, toggle);
+
+            ApplyEnabledState(row, !disabledProp.boolValue);
+            // body 側の PropertyField 等から書き換えられた場合も追従させる（Undo / Redo は行ごと作り直す）。
+            toggle.TrackSerializedObjectValue(
+                elementProperty.serializedObject,
+                _ =>
+                {
+                    if (toggle.panel == null || elementProperty.serializedObject.targetObject == null) return;
+                    bool enabled;
+                    try
+                    {
+                        enabled = !disabledProp.boolValue;
+                    }
+                    catch (Exception)
+                    {
+                        // 要素の追加・削除の直後は行の作り直し前に古い要素を指していることがある（作り直した行が正しい値を出す）。
+                        return;
+                    }
+                    toggle.SetValueWithoutNotify(enabled);
+                    ApplyEnabledState(row, enabled);
+                });
+        }
+
+        /// <summary>
+        /// 行の無効表示（クラスとヘッダーのグレーアウト）とトグルの値を合わせる。
+        /// </summary>
+        private static void ApplyEnabledState(VisualElement row, bool enabled)
+        {
+            var toggle = row.Q<Toggle>(className: HeaderEnabledToggleClassName);
+            toggle?.SetValueWithoutNotify(enabled);
+
+            if (enabled)
+            {
+                row.RemoveFromClassList(DisabledRowClassName);
+            }
+            else
+            {
+                row.AddToClassList(DisabledRowClassName);
+            }
+
+            var foldout = row.Q<Foldout>(className: RowFoldoutClassName);
+            var headerLabel = foldout?.Q<Label>(className: Foldout.textUssClassName);
+            if (headerLabel != null)
+            {
+                headerLabel.style.opacity = enabled ? 1f : 0.5f;
+            }
+            var summary = foldout?.Q<Label>(className: HeaderSummaryClassName);
+            if (summary != null)
+            {
+                summary.style.opacity = enabled ? 0.75f : 0.4f;
+            }
         }
 
         /// <summary>
@@ -820,6 +944,25 @@ namespace Hidano.FacialControl.Editor.Inspector.AdapterBindings
                 return attr.DisplayName;
             }
             return bindingType.Name;
+        }
+
+        /// <summary>
+        /// Drawer の無い binding の本文。子プロパティを並べ、ヘッダーのトグルと重複する
+        /// <see cref="AdapterBindingBase.Disabled"/> だけは出さない。
+        /// </summary>
+        private static VisualElement BuildDefaultBody(SerializedProperty elementProperty)
+        {
+            var body = new VisualElement();
+            SerializedProperty iterator = elementProperty.Copy();
+            SerializedProperty end = elementProperty.GetEndProperty();
+            bool enterChildren = true;
+            while (iterator.NextVisible(enterChildren) && !SerializedProperty.EqualContents(iterator, end))
+            {
+                enterChildren = false;
+                if (iterator.name == nameof(AdapterBindingBase.Disabled)) continue;
+                body.Add(new PropertyField(iterator.Copy()));
+            }
+            return body;
         }
 
         private VisualElement BuildFallbackElement(Type bindingType, int index)

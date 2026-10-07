@@ -4,6 +4,7 @@ using Hidano.FacialControl.Adapters.Playable;
 using Hidano.FacialControl.Adapters.ScriptableObject;
 using Hidano.FacialControl.Adapters.ScriptableObject.Serializable;
 using Hidano.FacialControl.Domain.Models;
+using Hidano.FacialControl.Timeline.Adapters.AdapterBindings;
 using Hidano.FacialControl.Timeline.Adapters.Assets;
 using Hidano.FacialControl.Timeline.Adapters.Diagnostics;
 using Hidano.FacialControl.Timeline.Adapters.InputSources;
@@ -218,7 +219,20 @@ namespace Hidano.FacialControl.Timeline.Adapters
                 }
                 else
                 {
-                    Fail(TimelineDiagnosticArea.ProfileBinding, TimelineDiagnosticCode.BindingMissing, name, BindingMissingDetail);
+                    // ヘッダーのトグルで binding ごと無効にした場合は OnStart されず接続も無いが、binding 自体はあるので
+                    // 静的診断と同じ BindingDisabled（件名は slug）にする。
+                    TimelineAdapterBinding disabledBinding =
+                        TimelineDiagnosticsEvaluator.FindTimelineBinding(hostController.CharacterSO);
+                    if (disabledBinding != null && disabledBinding.Disabled)
+                    {
+                        string slugText = string.IsNullOrWhiteSpace(disabledBinding.Slug) ? "timeline" : disabledBinding.Slug;
+                        string subject = AdapterSlug.TryParse(slugText, out AdapterSlug disabledSlug) ? disabledSlug.Value : slugText;
+                        Fail(TimelineDiagnosticArea.ProfileBinding, TimelineDiagnosticCode.BindingDisabled, subject, BindingDisabledDetail);
+                    }
+                    else
+                    {
+                        Fail(TimelineDiagnosticArea.ProfileBinding, TimelineDiagnosticCode.BindingMissing, name, BindingMissingDetail);
+                    }
                 }
 
                 return;

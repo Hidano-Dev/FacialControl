@@ -357,10 +357,9 @@ namespace Hidano.FacialControl.Adapters.Playable
 
         private void BuildAdapterBindingsChildScope(FacialProfile profile, string[] blendShapeNames)
         {
-            IReadOnlyList<AdapterBindingBase> bindings =
-                _characterSO != null && _characterSO.AdapterBindings != null
-                    ? _characterSO.AdapterBindings
-                    : Array.Empty<AdapterBindingBase>();
+            // 無効の binding は child scope に載せず、gaze 設定・slug 解決の対象からも外す（設定値は SO に残る）。
+            IReadOnlyList<AdapterBindingBase> bindings = AdapterBindingBase.SelectEnabled(
+                _characterSO != null ? _characterSO.AdapterBindings : null);
 
             IReadOnlyList<GazeChannel> gazeChannels =
                 _characterSO != null && _characterSO.GazeChannels != null
