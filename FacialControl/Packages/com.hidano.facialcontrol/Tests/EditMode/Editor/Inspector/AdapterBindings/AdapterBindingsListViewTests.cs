@@ -602,6 +602,35 @@ namespace Hidano.FacialControl.Tests.EditMode.Editor.Inspector.AdapterBindings
         }
 
         [Test]
+        public void SelectBinding_NullElementThenUndoRedo_ClearsSelection()
+        {
+            _so.WritableAdapterBindings.Add(new MockListViewSimpleBinding { Slug = "a" });
+            _so.WritableAdapterBindings.Add(null);
+            ReloadSerializedObject();
+            var view = new AdapterBindingsListView(_listProperty);
+            view.SelectBinding(1);
+
+            // Undo / Redo の後は index だけで持つ null 要素の選択を追えないため、選択を外す。
+            view.ClearIndexOnlySelection();
+
+            Assert.AreEqual(-1, view.SelectedIndex,
+                "null 要素の選択は Undo / Redo で外し、別の Adapter を削除対象にしてはならない。");
+        }
+
+        [Test]
+        public void SelectBinding_ReferenceElementThenUndoRedo_KeepsSelection()
+        {
+            _so.WritableAdapterBindings.Add(new MockListViewSimpleBinding { Slug = "a" });
+            ReloadSerializedObject();
+            var view = new AdapterBindingsListView(_listProperty);
+            view.SelectBinding(0);
+
+            view.ClearIndexOnlySelection();
+
+            Assert.AreEqual(0, view.SelectedIndex, "参照 ID で持つ選択は Undo / Redo でも保つ。");
+        }
+
+        [Test]
         public void MoveBinding_ThenUndo_SelectionStaysOnSameElement()
         {
             _so.WritableAdapterBindings.Add(new MockListViewSimpleBinding { Slug = "first" });

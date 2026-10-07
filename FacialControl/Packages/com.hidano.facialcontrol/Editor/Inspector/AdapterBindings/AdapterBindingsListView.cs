@@ -1019,7 +1019,20 @@ namespace Hidano.FacialControl.Editor.Inspector.AdapterBindings
         {
             if (_listProperty.serializedObject.targetObject == null) return;
             _listProperty.serializedObject.Update();
+            ClearIndexOnlySelection();
             Rebuild();
+        }
+
+        /// <summary>
+        /// 参照 ID の無い null 要素の選択は Undo / Redo で同じ要素を追えないため、別の Adapter を
+        /// 削除対象にしないよう選択を外す（参照 ID で持つ選択はそのまま Rebuild で引き直す）。
+        /// </summary>
+        internal void ClearIndexOnlySelection()
+        {
+            if (_selectedReferenceId == ManagedReferenceUtility.RefIdNull)
+            {
+                _selectedIndex = -1;
+            }
         }
 
         private static string BuildHeaderText(string displayName, string slug)
