@@ -127,22 +127,9 @@ namespace Hidano.FacialControl.IFacialMocap.Editor.AdapterBindings
         /// </summary>
         public static void ReadEffective(SerializedProperty mapping, out bool enabled, out Vector2 range, out float weight)
         {
-            SerializedProperty versionProp = mapping.FindPropertyRelative(TuningVersionFieldName);
-            bool hasTuning = versionProp != null
-                && versionProp.intValue >= IFacialMocapBlendShapeMapping.CurrentTuningVersion;
-            if (!hasTuning)
-            {
-                enabled = true;
-                range = new Vector2(IFacialMocapValueTuning.DefaultMin, IFacialMocapValueTuning.DefaultMax);
-                weight = IFacialMocapValueTuning.DefaultWeight;
-                return;
-            }
-
-            var tuning = new IFacialMocapValueTuning(
-                mapping.FindPropertyRelative(RangeMinFieldName).floatValue,
-                mapping.FindPropertyRelative(RangeMaxFieldName).floatValue,
-                mapping.FindPropertyRelative(WeightFieldName).floatValue);
-            enabled = mapping.FindPropertyRelative(EnabledFieldName).boolValue;
+            var value = (IFacialMocapBlendShapeMapping)mapping.boxedValue;
+            IFacialMocapValueTuning tuning = value.EffectiveTuning;
+            enabled = value.EffectiveEnabled;
             range = new Vector2(tuning.Min, tuning.Max);
             weight = tuning.Weight;
         }

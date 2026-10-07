@@ -192,8 +192,10 @@ namespace Hidano.FacialControl.IFacialMocap.Tests.PlayMode
             {
                 new IFacialMocapBlendShapeMapping("jawOpen", "jawOpen"),
                 new IFacialMocapBlendShapeMapping("mouthSmile_L", "mouthSmileLeft", false, 0f, 1f, 1f),
+                // 同名の後続マッピングへ出力先が移らないこと
+                new IFacialMocapBlendShapeMapping("mouthSmile_L", "mouthSmileAlt"),
             });
-            AdapterBuildContext ctx = CreateContext(new List<string> { "jawOpen", "mouthSmileLeft" });
+            AdapterBuildContext ctx = CreateContext(new List<string> { "jawOpen", "mouthSmileLeft", "mouthSmileAlt" });
 
             _binding.OnStart(in ctx);
             _started = true;
@@ -201,6 +203,7 @@ namespace Hidano.FacialControl.IFacialMocap.Tests.PlayMode
             Assert.That(_registry.TryResolve("ifm4", out IInputSource source), Is.True);
             Assert.That(source.ContributeMask[0], Is.True, "有効なマッピングは出力対象。");
             Assert.That(source.ContributeMask[1], Is.False, "オフのマッピングは値を出力しない。");
+            Assert.That(source.ContributeMask[2], Is.False, "オフにした名前の後続マッピングは採用しない。");
         }
 
         [UnityTest]

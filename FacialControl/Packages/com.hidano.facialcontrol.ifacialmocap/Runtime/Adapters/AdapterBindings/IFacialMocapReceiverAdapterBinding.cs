@@ -21,9 +21,11 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
     /// </summary>
     /// <remarks>
     /// 調整値は <see cref="tuningVersion"/> が 0 のとき（調整項目の追加前に保存されたアセットや、
-    /// Inspector の「+」で 0 初期化された要素）は無視し、既定値（使用する / Min 0 / Max 1 / Weight 1）で
-    /// 扱う。struct のフィールドは 0 初期化されるため、Max と Weight の既定値 1 をフィールド値だけでは
-    /// 表せないことへの対処。Drawer で調整値を編集すると <see cref="CurrentTuningVersion"/> が書き込まれる。
+    /// 空リストへ Inspector の「+」で最初に追加した 0 初期化の要素）は無視し、既定値（使用する / Min 0 /
+    /// Max 1 / Weight 1）で扱う。struct のフィールドは 0 初期化されるため、Max と Weight の既定値 1 を
+    /// フィールド値だけでは表せないことへの対処。Drawer で調整値を編集すると <see cref="CurrentTuningVersion"/>
+    /// が書き込まれる。コードから調整値を設定する場合は 6 引数の ctor を使う（オブジェクト初期化子で
+    /// <see cref="enabled"/> 等だけを代入すると <see cref="tuningVersion"/> が 0 のままで無視される）。
     /// </remarks>
     [Serializable]
     public struct IFacialMocapBlendShapeMapping
@@ -373,6 +375,7 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
             _ifmNameToSlot = new Dictionary<string, int>(StringComparer.Ordinal);
             var mappingIndexToMeshIndex = new List<int>();
             var slotTunings = new List<IFacialMocapValueTuning>();
+            var disabledNames = new HashSet<string>(StringComparer.Ordinal);
 
             foreach (IFacialMocapBlendShapeMapping mapping in EnumerateMappings())
             {
@@ -383,20 +386,21 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
                     continue;
                 }
 
-                // オフのマッピングは slot を割り当てず ContributeMask にも立てない（値を出力しない）。
-                // 同じ iFacialMocap 名の後続マッピングは有効なら採用される。
-                if (!mapping.EffectiveEnabled)
-                {
-                    continue;
-                }
-
-                if (_ifmNameToSlot.ContainsKey(ifmName))
+                if (_ifmNameToSlot.ContainsKey(ifmName) || disabledNames.Contains(ifmName))
                 {
                     continue;
                 }
 
                 if (!meshNameToIndex.TryGetValue(targetName, out int meshIndex))
                 {
+                    continue;
+                }
+
+                // オフのマッピングは slot を割り当てず ContributeMask にも立てない（値を出力しない）。
+                // 名前は採用済みとして扱い、同じ iFacialMocap 名の後続マッピングへ出力先が移らないようにする。
+                if (!mapping.EffectiveEnabled)
+                {
+                    disabledNames.Add(ifmName);
                     continue;
                 }
 
@@ -408,7 +412,7 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
             if (mappingIndexToMeshIndex.Count == 0)
             {
                 Debug.LogWarning(
-                    $"[IFacialMocapReceiverAdapterBinding] メッシュに一致する BlendShape マッピングが 0 件のため BlendShape 入力源を登録しません。slug='{Slug}'");
+                    $"[IFacialMocapReceiverAdapterBinding] 有効でメッシュに一致する BlendShape マッピングが 0 件（オフ {disabledNames.Count} 件）のため BlendShape 入力源を登録しません。slug='{Slug}'");
                 _ifmNameToSlot = null;
                 return false;
             }
