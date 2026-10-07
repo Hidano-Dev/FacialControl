@@ -93,6 +93,22 @@ pwsh ./scripts/check-test-sizes.ps1
 - **ライセンス**: MIT
 - **uOsc**: 必須依存パッケージとして同梱
 
+### パッケージ構成（`FacialControl/Packages/`）
+
+| パッケージ | 役割 |
+|-----------|------|
+| `com.hidano.facialcontrol` | コア（Domain / Application / Adapters / Editor。Editor は Profile Inspector・ルーティング配線ロジック） |
+| `com.hidano.facialcontrol.expression-creator` | Expression 作成ツール（Editor のみ。プレビュー / ベイク / PNG 書き出し） |
+| `com.hidano.facialcontrol.routing-editor` | ルーティングエディタ（Editor のみ。GraphView の薄い層。配線ロジックは core の `Editor/Windows/Routing/Logic`） |
+| `com.hidano.facialcontrol.osc` | OSC 通信（VRChat 互換） |
+| `com.hidano.facialcontrol.inputsystem` | InputSystem 連携 + `Multi Source Blend Demo` サンプル |
+| `com.hidano.facialcontrol.lipsync` | uLipSync 連携（音素 overlay 入力） |
+| `com.hidano.facialcontrol.ifacialmocap` | iFacialMocap 受信（ARKit 52 / gaze） |
+| `com.hidano.facialcontrol.rec` | 操作イベントの記録・再生（`.fcrec`） |
+| `com.hidano.facialcontrol.timeline` | Timeline 統合（表情 / 連続値 Track、ベイク、REC 書き出し） |
+
+コア / OSC / InputSystem は独立してインストールできる。コアは各アダプタパッケージを知らない。
+
 ### ディレクトリ構成（レイヤー別）
 ```
 Runtime/
@@ -101,13 +117,23 @@ Runtime/
 └── Adapters/           # Unity 依存の実装（JSON パーサー、OSC アダプター等）
 Editor/                 # Editor 拡張（UI Toolkit）
 ```
-各レイヤーは asmdef で依存方向を強制する。
+各レイヤーは asmdef で依存方向を強制する（破ってはならない）:
+```
+Hidano.FacialControl.Domain      ← (Unity.Collections のみ。Unity 型を使わない契約)
+Hidano.FacialControl.Application ← Domain
+Hidano.FacialControl.Adapters    ← Domain, Application, Unity.Animation, Unity.Collections
+Hidano.FacialControl.Editor      ← Editor 専用 asmdef
+```
+
+### 入力合成モデル（D-1 ハイブリッド）
+
+`ExpressionTrigger`（バイナリのスタックベース）と `ValueProvider`（直接値書き込み）を、Aggregator がレイヤーごとに weighted-sum → clamp01 で合成する。
 
 ### Editor 拡張
 
 - Inspector カスタマイズ（FacialProfileSO Inspector でプロファイル管理を一元化: Expression の追加・編集・削除・検索、JSON インポート/エクスポート、新規プロファイル作成）
 - AnimationClip 作成支援ツール（専用プレビューウィンドウで BlendShape スライダー操作）
-- UI Toolkit で実装。ランタイム UI は提供しない
+- UI Toolkit で実装（新規 UI に IMGUI を使わない）。ランタイム UI は提供しない
 
 ### 入力システム
 
@@ -154,7 +180,7 @@ Red-Green-Refactorサイクル:
 - 毎フレームのヒープ確保を避ける（GC スパイク対策）
 - 浮動小数点は `float` 基本
 - UDP 送受信はメインスレッド非依存
-- JSON パース負荷を抑えるデータ構造
+- JSON パース負荷を抑えるデータ構造（JSON は `JsonUtility` ベース。System.Text.Json は使わない）
 
 ## 開発規約
 
@@ -229,6 +255,15 @@ Tests/
 - Unity テストランナーは `run_in_background` を使わず、`timeout: 600000` の同期 Bash 呼び出しで実行する
 - `tasks.txt` は作業手順書（`docs/work-procedure.md`）に記載のタスク ID のみを列挙するファイルである。ターミナルから for 文で連続実行するために使用する。タスクの説明や詳細を `tasks.txt` に直接追記してはならない。タスクの追加・変更は必ず `docs/work-procedure.md` に記載し、`tasks.txt` には ID のみを転記する
 - 同じ原因仮説を 2 回外したら、推測を続けず実機ログ/データ取得に切り替えて一度ユーザーに確認する
+- 作業の起点は Linear の Issue（Hidano チーム / FacialControl プロジェクト）。先送りする作業は Issue として登録する
+
+### Unity 操作の注意
+
+- `-runTests` と `-quit` を併用しない（テストが走らずに終了し、結果 XML も出ない）。`-testResults` / `-logFile` は絶対パスで指定し、成否は exit code ではなく XML で判断する
+- 同じプロジェクトを開いている Editor があると batchmode のテストはプロジェクトロックで止まる。人が作業中の Editor は勝手に終了させず、閉じてもらうよう依頼する。テストが走らないことを理由に検証を省略しない
+- 自動化目的で Editor を GUI 付きで起動するときは `-automated` を渡す（ブロッキングダイアログで止まらないようにする）
+- シーン（`.unity`）・プレハブ（`.prefab`）・ScriptableObject（`.asset`）の YAML は手で編集しない。Editor 経由かコードからの生成で変更し、手編集が避けられないときはその旨を報告する
+- 新規ファイルの `.meta` は可能なら Unity に生成させる。手で書くときは GUID をランダムな 32 桁 hex で新規生成する
 
 ## 重要な注意事項
 
@@ -249,55 +284,6 @@ Tests/
 ### バージョン管理
 - 短縮系命令形コミットメッセージ（日本語可）
 - 例: "表情プロファイルのJSON読み込み機能を追加"
-
-
-# Agentic SDLC and Spec-Driven Development
-
-Kiro-style Spec-Driven Development on an agentic SDLC
-
-## Project Context
-
-### Paths
-- Steering: `.kiro/steering/`
-- Specs: `.kiro/specs/`
-
-### Steering vs Specification
-
-**Steering** (`.kiro/steering/`) - Guide AI with project-wide rules and context
-**Specs** (`.kiro/specs/`) - Formalize development process for individual features
-
-### Active Specifications
-- Check `.kiro/specs/` for active specifications
-- Use `/kiro:spec-status [feature-name]` to check progress
-
-## Development Guidelines
-- Think in English, generate responses in Japanese. All Markdown content written to project files (e.g., requirements.md, design.md, tasks.md, research.md, validation reports) MUST be written in the target language configured for this specification (see spec.json.language).
-
-## Minimal Workflow
-- Phase 0 (optional): `/kiro:steering`, `/kiro:steering-custom`
-- Phase 1 (Specification):
-  - `/kiro:spec-init "description"`
-  - `/kiro:spec-requirements {feature}`
-  - `/kiro:validate-gap {feature}` (optional: for existing codebase)
-  - `/kiro:spec-design {feature} [-y]`
-  - `/kiro:validate-design {feature}` (optional: design review)
-  - `/kiro:spec-tasks {feature} [-y]`
-- Phase 2 (Implementation): `/kiro:spec-impl {feature} [tasks]`
-  - `/kiro:validate-impl {feature}` (optional: after implementation)
-- Progress check: `/kiro:spec-status {feature}` (use anytime)
-
-## Development Rules
-- 3-phase approval workflow: Requirements → Design → Tasks → Implementation
-- Human review required each phase; use `-y` only for intentional fast-track
-- Keep steering current and verify alignment with `/kiro:spec-status`
-- Follow the user's instructions precisely, and within that scope act autonomously: gather the necessary context and complete the requested work end-to-end in this run, asking questions only when essential information is missing or the instructions are critically ambiguous.
-
-## Steering Configuration
-- Load entire `.kiro/steering/` as project memory
-- Default files: `product.md`, `tech.md`, `structure.md`
-- Custom files are supported (managed via `/kiro:steering-custom`)
-
-@.claude/rules/sdd-workflow.md
 
 ## Git 運用ルール (agentic-dev-harness)
 

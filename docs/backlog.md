@@ -2,7 +2,7 @@
 
 > **作成日**: 2026-05-04
 > **目的**: 「別 PR ネタ」「preview.2 以降」「別 spec で対処」と先送りされた項目を 1 箇所に集約する。
-> **対象外**: ロードマップ全体（[`README.md`](../README.md) / [`docs/technical-spec.md`](technical-spec.md) を参照）、現在進行中の spec タスク（`.kiro/specs/*/tasks.md` を参照）。
+> **対象外**: ロードマップ全体（[`README.md`](../README.md) / [`docs/technical-spec.md`](technical-spec.md) を参照）、着手中・着手予定の作業（Linear の FacialControl プロジェクトを参照）。`.kiro/specs/` は 2026-10-08 に SDD 廃止（HID-152）で削除した。本文中の spec へのリンクは削除前のコミット `8883375` の版を指す。
 
 ---
 
@@ -104,42 +104,42 @@
 - **トリガ**: preview.2 マイルストーン着手 / キャラクター Prefab + 表情プロファイルを 1 セットで Addressables 配信したいユーザー要望
 
 ### M-3: ARKit ネイティブ受信（`ArKitNativeAnalogSource`）
-- **出典**: [`.kiro/specs/analog-input-binding/research.md`](../.kiro/specs/analog-input-binding/research.md) Topic 8 の Follow-up
+- **出典**: [`.kiro/specs/analog-input-binding/research.md`](https://github.com/Hidano-Dev/FacialControl/blob/888337502831165b400ce76f048920a1ba102e6a/.kiro/specs/analog-input-binding/research.md) Topic 8 の Follow-up
 - **内容**: preview.1 では ARKit データは外部キャプチャアプリ（iFacialMocap / Live Link Face / Hana 等）から OSC 経由で取得する想定。ネイティブ ARKit SDK 受信は未対応。`IAnalogInputSource` を実装するだけで取り込める設計（Req 5.6）にしてあるので、新 source として追加するのみ。
 - **トリガ**: iOS ターゲットが正式追加された / OSC 経由のレイテンシが問題化した
 
 ### M-4: BonePose 多重 provider のブレンド合成
-- **出典**: [`.kiro/specs/analog-input-binding/tasks.md`](../.kiro/specs/analog-input-binding/tasks.md) スコープ外メモ
+- **出典**: [`.kiro/specs/analog-input-binding/tasks.md`](https://github.com/Hidano-Dev/FacialControl/blob/888337502831165b400ce76f048920a1ba102e6a/.kiro/specs/analog-input-binding/tasks.md) スコープ外メモ
 - **内容**: 現状 `IBonePoseProvider.SetActiveBonePose(in BonePose)` は per-frame 1 回呼び出しで「単一 active BonePose」を組み立てる側にのみ責任を持つ。複数 provider のブレンド合成（例: 視線追従 + 頭部表情 + 物理ジッタ）は preview.2 以降の別 spec で再設計する。
 - **トリガ**: 視線 + 頭部 + その他の複合 bone 制御要件が顕在化したとき
 
 ### M-5: 視線追従の Vector3 ターゲット指定 / カメラ目線
-- **出典**: [`.kiro/specs/analog-input-binding/tasks.md`](../.kiro/specs/analog-input-binding/tasks.md) / [`.kiro/specs/bone-control/design.md`](../.kiro/specs/bone-control/design.md) Non-Goals
+- **出典**: [`.kiro/specs/analog-input-binding/tasks.md`](https://github.com/Hidano-Dev/FacialControl/blob/888337502831165b400ce76f048920a1ba102e6a/.kiro/specs/analog-input-binding/tasks.md) / [`.kiro/specs/bone-control/design.md`](https://github.com/Hidano-Dev/FacialControl/blob/888337502831165b400ce76f048920a1ba102e6a/.kiro/specs/bone-control/design.md) Non-Goals
 - **内容**: preview.1 の analog-input-binding は `BonePose` Euler 直接指定に閉じる。Vector3 ターゲット → Euler 解決と「カメラ目線」自動制御は preview.2 後半の別 spec。
 - **トリガ**: VTuber 実機ユースケースで「カメラ目線トグル」需要が定常化
 
 ### M-6: BonePoseSO 独立化（複数プロファイル間で共有）
-- **出典**: [`.kiro/specs/bone-control/research.md`](../.kiro/specs/bone-control/research.md) §「BonePose は FacialProfileSO 内包」/ [`.kiro/specs/bone-control/gap-analysis.md`](../.kiro/specs/bone-control/gap-analysis.md) §9
+- **出典**: [`.kiro/specs/bone-control/research.md`](https://github.com/Hidano-Dev/FacialControl/blob/888337502831165b400ce76f048920a1ba102e6a/.kiro/specs/bone-control/research.md) §「BonePose は FacialProfileSO 内包」/ [`.kiro/specs/bone-control/gap-analysis.md`](https://github.com/Hidano-Dev/FacialControl/blob/888337502831165b400ce76f048920a1ba102e6a/.kiro/specs/bone-control/gap-analysis.md) §9
 - **内容**: preview.1 では `BonePose` は `FacialProfileSO` に内包する形で確定。複数 FacialProfile 間で同じ BonePose を共有したいユースケースが顕在化したら独立 `BonePoseSO` に切り出す。
 - **トリガ**: 同じ視線設定を複数キャラクター間で使い回したいという要望が発生
 
 ### M-8: Burst / IAnimationJob への差替
-- **出典**: [`.kiro/specs/bone-control/research.md`](../.kiro/specs/bone-control/research.md) §「PlayableGraph + LateUpdate」/ [`.kiro/specs/analog-input-binding/design.md`](../.kiro/specs/analog-input-binding/design.md)
+- **出典**: [`.kiro/specs/bone-control/research.md`](https://github.com/Hidano-Dev/FacialControl/blob/888337502831165b400ce76f048920a1ba102e6a/.kiro/specs/bone-control/research.md) §「PlayableGraph + LateUpdate」/ [`.kiro/specs/analog-input-binding/design.md`](https://github.com/Hidano-Dev/FacialControl/blob/888337502831165b400ce76f048920a1ba102e6a/.kiro/specs/analog-input-binding/design.md)
 - **内容**: preview.1 は通常 C# の範囲で性能目標達成。`IBonePoseSource` / `IBonePoseProvider` インターフェースは安定しているので Burst 化 / `IAnimationJob` への差替は実装差替のみで可能な状態に保つ。
 - **トリガ**: パフォーマンス計測でホットスポット化が確認されたとき
 
 ### M-9: Editor 上の curve エディタ統合（フル GUI マッピング編集）
-- **出典**: [`.kiro/specs/analog-input-binding/research.md`](../.kiro/specs/analog-input-binding/research.md) Topic 4 Follow-up / [`.kiro/specs/analog-input-binding/tasks.md`](../.kiro/specs/analog-input-binding/tasks.md) スコープ外メモ
+- **出典**: [`.kiro/specs/analog-input-binding/research.md`](https://github.com/Hidano-Dev/FacialControl/blob/888337502831165b400ce76f048920a1ba102e6a/.kiro/specs/analog-input-binding/research.md) Topic 4 Follow-up / [`.kiro/specs/analog-input-binding/tasks.md`](https://github.com/Hidano-Dev/FacialControl/blob/888337502831165b400ce76f048920a1ba102e6a/.kiro/specs/analog-input-binding/tasks.md) スコープ外メモ
 - **内容**: preview.1 のアナログマッピング編集は「読取専用 Inspector + JSON Import/Export + Humanoid 自動割当ボタン」に留める。フル GUI（curve エディタ統合）は preview.2 以降。
 - **トリガ**: ユーザーから「JSON 直編集が辛い」というフィードバックが集まったとき
 
 ### M-11: スキーマ migration パス（preview の破壊変更を 1.0 で吸収）
-- **出典**: [`.kiro/specs/analog-input-binding/design.md`](../.kiro/specs/analog-input-binding/design.md) `version` field の扱い
+- **出典**: [`.kiro/specs/analog-input-binding/design.md`](https://github.com/Hidano-Dev/FacialControl/blob/888337502831165b400ce76f048920a1ba102e6a/.kiro/specs/analog-input-binding/design.md) `version` field の扱い
 - **内容**: preview 中は JSON スキーマの破壊的変更を許容している（CLAUDE.md / 要件方針）。1.0 リリースに向けて `schemaVersion` ベースの migration パスを設計する。analog binding profile の `version` field は preview 中は文字列保持のみで分岐なしの状態。
 - **トリガ**: 1.0 リリース直前のスキーマ凍結フェーズ
 
 ### M-12: AnalogBindingBinder の責務分割
-- **出典**: [`.kiro/specs/analog-input-binding/research.md`](../.kiro/specs/analog-input-binding/research.md) Topic 17 Follow-up
+- **出典**: [`.kiro/specs/analog-input-binding/research.md`](https://github.com/Hidano-Dev/FacialControl/blob/888337502831165b400ce76f048920a1ba102e6a/.kiro/specs/analog-input-binding/research.md) Topic 17 Follow-up
 - **内容**: preview.1 の `FacialAnalogInputBinder` は BlendShape / BonePose 両方の binding を 1 MonoBehaviour で扱う。責務肥大が問題化したら `AnalogBlendShapeBinder` / `AnalogBonePoseBinder` の 2 MonoBehaviour に分割する。
 - **トリガ**: 該当ファイルの行数が増えてレビュー困難化したとき
 
@@ -169,8 +169,8 @@
 - **影響範囲**: `Runtime/Domain/Models/Expression.cs`, `Runtime/Domain/Models/ExpressionSnapshot.cs`, 新規 `IExpressionDriver` 等の interface, `Runtime/Adapters/Bone/GazeBonePoseProvider.cs` の Domain への昇格検討, `IFacialCharacterProfile` 経路, runtime 評価経路の再設計
 - **関連**: M-8（Burst / IAnimationJob への差替 — Domain 純化の延長線）、M-4（BonePose 多重 provider のブレンド合成）
 
-### M-16: uOSC vendor copy + zero-alloc fork（osc-output-binding spec Phase 10 / 11）
-- **出典**: [`.kiro/specs/osc-output-binding/tasks.md`](../.kiro/specs/osc-output-binding/tasks.md) "preview.3 milestone（Deferred）" / [`.kiro/specs/osc-output-binding/uosc-modification-plan.md`](../.kiro/specs/osc-output-binding/uosc-modification-plan.md)
+### M-16: uOSC vendor copy + zero-alloc fork（osc-output-binding spec Phase 10 / 11）→ HID-151 へ移管
+- **出典**: [`.kiro/specs/osc-output-binding/tasks.md`](https://github.com/Hidano-Dev/FacialControl/blob/888337502831165b400ce76f048920a1ba102e6a/.kiro/specs/osc-output-binding/tasks.md) "preview.3 milestone（Deferred）" / [`.kiro/specs/osc-output-binding/uosc-modification-plan.md`](https://github.com/Hidano-Dev/FacialControl/blob/888337502831165b400ce76f048920a1ba102e6a/.kiro/specs/osc-output-binding/uosc-modification-plan.md)
 - **内容**: `osc-output-binding` spec の Phase 10 / 11 として記載済み。`com.hidano.uosc` を `Library/PackageCache` から `Packages/com.hidano.uosc/` へ vendor copy 化し、`Runtime/Core/Modern/` 配下に Span / ArrayPool / BinaryPrimitives ベースの新 API（`OscMessage` SoA struct, `OscMessagePool`, `OscWriter`, `OscBundleBuilder`, `OscClient`/`OscServer` (ring buffer + Socket.ReceiveFrom worker), `OscPacketParser` (ref struct), `OscMessageView`, `OscAddressHash` (UTF-8 → uint64)）を実装、送受信ホットパスを zero-alloc 化する。完了後に旧 `uOscClient` / `Bundle` / `Message` facade を撤去（Phase 11）。`osc-output-binding` 内の Req 10.1 「`OnLateTick` で毎フレーム 0 byte GC」を完全達成する。preview.2 では本 spec ロジック側のみ GC ゼロを確認し、uOSC 側 string / object[] alloc は baseline 計測に留めている（`OscSenderGCAllocationTests` / `OscReceiverGCAllocationTests` が `*` deferred マーク付き）。
 - **トリガ**: 1 sender × 10+ receiver × 1000 BlendShape の高負荷シナリオで GC スパイクが実測課題化したとき / 1.0 凍結前の最終性能検証フェーズ
 - **影響範囲**: `Packages/com.hidano.uosc/`（vendor 化）、`Packages/com.hidano.facialcontrol.osc/Runtime/Adapters/OSC/`（新 API への接続切り替え）、対応 PlayMode 性能テスト
@@ -203,7 +203,7 @@
 - **影響範囲**: `AdapterRuntimeSettingsCollectionEditor`、`OscReceiverAdapterBindingDrawer`、`OscSenderAdapterBindingDrawer`、Profile/Prefab/Scene の serialized reference 走査 helper、対応 EditMode (Editor) テスト
 
 ### M-21: Adapter 種別の C# 型削除/リネーム時の自動マイグレーション（対応レベル c）
-- **出典**: [`.kiro/specs/adapter-runtime-settings/requirements.md`](../.kiro/specs/adapter-runtime-settings/requirements.md) 要件 3.5 / 8.1（スコープ外明示）
+- **出典**: [`.kiro/specs/adapter-runtime-settings/requirements.md`](https://github.com/Hidano-Dev/FacialControl/blob/888337502831165b400ce76f048920a1ba102e6a/.kiro/specs/adapter-runtime-settings/requirements.md) 要件 3.5 / 8.1（スコープ外明示）
 - **内容**: `adapter-runtime-settings` spec では「対応レベル b」（Inspector でのエントリ追加/削除 + 新規 C# 型追加）のみをパラメータ消失防止の保証範囲とし、**対応レベル c（C# 型削除/リネーム時の自動マイグレーション）はスコープ外**としている。preview 段階では破壊的変更を許容する前提で進めるが、1.0 リリースに向けては型削除/リネームを検知して既存 sub-asset を新型に救済する仕組みが必要になる。
   - 設計判断項目: (a) Unity の `[MovedFrom]` 属性 / `FormerlySerializedAs` を Base から派生 SO まで一貫して扱えるか検証、(b) 削除型に対しては「孤児 sub-asset」を保持してダンプ JSON に退避する救済パスを設けるか、その場で `AssetDatabase.RemoveObjectFromAsset` で破棄するかの方針決定、(c) `_schemaVersion` をキーに既存 `ToJson`/`FromJson` ラウンドトリップ経路を再利用してマイグレーションを実装、(d) Editor 起動時に Collection を走査して `MissingScript` 化した sub-asset を Inspector に列挙する診断 UI。
 - **トリガ**: 1.0 リリース前に Public API（AdapterRuntimeSettings 型階層）を凍結するタイミング / 既存 RuntimeSettings 型のリネーム要望が顕在化したとき
@@ -211,7 +211,7 @@
 - **関連**: M-11（analog binding 側の schema migration パス — 共通の migration 基盤として整合させる余地あり）、M-22（MigrateOnLoad 本実装と `_schemaVersion` 増分規約）
 
 ### M-22: AdapterRuntimeSettingsCollectionSO.MigrateOnLoad の本実装と `_schemaVersion` 増分規約策定
-- **出典**: [`.kiro/specs/adapter-runtime-settings/requirements.md`](../.kiro/specs/adapter-runtime-settings/requirements.md) 要件 5.4 / 5.5 / 5.6 / [`.kiro/specs/adapter-runtime-settings/tasks.md`](../.kiro/specs/adapter-runtime-settings/tasks.md) 2.2 / 9.2
+- **出典**: [`.kiro/specs/adapter-runtime-settings/requirements.md`](https://github.com/Hidano-Dev/FacialControl/blob/888337502831165b400ce76f048920a1ba102e6a/.kiro/specs/adapter-runtime-settings/requirements.md) 要件 5.4 / 5.5 / 5.6 / [`.kiro/specs/adapter-runtime-settings/tasks.md`](https://github.com/Hidano-Dev/FacialControl/blob/888337502831165b400ce76f048920a1ba102e6a/.kiro/specs/adapter-runtime-settings/tasks.md) 2.2 / 9.2
 - **内容**: 本 spec では `AdapterRuntimeSettingsBase._schemaVersion` フィールドと `ToJson` / `FromJson` 仮想 API、および `AdapterRuntimeSettingsCollectionSO.OnEnable` 内の **空 `MigrateOnLoad()` フック** までを v0 として仕込むに留め、マイグレーション処理本体は実装しない（要件 5.5）。後続では以下を確定させる:
   - (a) `_schemaVersion` の **増分規約**: どの粒度（フィールド追加 / フィールド削除 / 既定値変更 / enum 値追加 etc.）でバージョンを上げるかのルール文書化。Sub-asset 単位で持つ `_schemaVersion` と Collection 側で持つ「アグリゲートバージョン」の関係整理。
   - (b) `MigrateOnLoad` の本実装: Sub-asset ごとの `_schemaVersion` を読んで `FromJson` 経路で defaults を埋め直す or 旧フィールド名 → 新フィールド名のマッピングを適用する。マイグレーション失敗時のロールバックと Warning ログ方針を確定。
@@ -222,7 +222,7 @@
 
 ### M-23: OscReceiverAdapterBinding と OscSenderAdapterBinding の統合解消（Receiver/Sender Binding 一本化）の再検討
 - **状況**: HID-45 で (b) を採用した。`OscReceiverRuntimeSettingsSO` / `OscSenderRuntimeSettingsSO` に分割し、受信ポート・送信先は binding 本体へ移した。`_receiverEnabled` / `_senderEnabled` は廃止（binding の有無で判断）。旧 `OscRuntimeSettingsSO` は移行専用に残している
-- **出典**: [`.kiro/specs/adapter-runtime-settings/requirements.md`](../.kiro/specs/adapter-runtime-settings/requirements.md) 要件 8.2（スコープ外明示） / `.kiro/specs/adapter-runtime-settings/design.md` Boundary Context
+- **出典**: [`.kiro/specs/adapter-runtime-settings/requirements.md`](https://github.com/Hidano-Dev/FacialControl/blob/888337502831165b400ce76f048920a1ba102e6a/.kiro/specs/adapter-runtime-settings/requirements.md) 要件 8.2（スコープ外明示） / `.kiro/specs/adapter-runtime-settings/design.md` Boundary Context
 - **内容**: 本 spec では Receiver/Sender セクションを **1 つの `OscRuntimeSettingsSO`** に統合しつつ、`OscReceiverAdapterBinding` (Receiver) と `OscSenderAdapterBinding` (Sender) の 2 MonoBehaviour 構造は維持する（要件 8.2）。両 Binding が同一 SettingsSO の異なるセクションを参照する形のため、運用上は「片方だけ起動したい」「片方だけ別 SettingsSO を参照したい」というケースで `_receiverEnabled` / `_senderEnabled` トグル + 同一 SO 参照の組み合わせで対応している。preview.2 以降で以下のいずれかを検討する:
   - (a) **統合**: `OscReceiverAdapterBinding` と `OscSenderAdapterBinding` を 1 MonoBehaviour に統合し、Receiver/Sender セクションを単一 binding が両方扱う。MonoBehaviour ライフサイクル管理が単純化される一方、片方だけ disable する operational UX を別途用意する必要あり。
   - (b) **SettingsSO 分割**: `OscRuntimeSettingsSO` を `OscReceiverRuntimeSettingsSO` / `OscSenderRuntimeSettingsSO` の 2 SO に分割し、現行 2 Binding 構造はそのまま維持。SettingsSO 側の責務が明確化される一方、Receiver/Sender 設定の一貫性を担保していた要件 2.7 を別途満たす仕組み（命名規則 / Inspector ヘルパー）が必要。
@@ -232,12 +232,12 @@
 - **関連**: M-20（Sub-asset 削除時の逆引き確認ダイアログ — 統合/分割いずれを採るかで参照関係の管理粒度が変わる）
 
 ### M-24: LipSync AnimationClip の Editor 事前検証 / runtime path 補正
-- **出典**: S-9（LipSync の AnimationClip 形式が動かない件の根本対応） / [`.kiro/specs/lipsync-animationclip-rework/requirements.md`](../.kiro/specs/lipsync-animationclip-rework/requirements.md) 要件 1.3 / [`.kiro/specs/lipsync-animationclip-rework/design.md`](../.kiro/specs/lipsync-animationclip-rework/design.md) Non-Goals
+- **出典**: S-9（LipSync の AnimationClip 形式が動かない件の根本対応） / [`.kiro/specs/lipsync-animationclip-rework/requirements.md`](https://github.com/Hidano-Dev/FacialControl/blob/888337502831165b400ce76f048920a1ba102e6a/.kiro/specs/lipsync-animationclip-rework/requirements.md) 要件 1.3 / [`.kiro/specs/lipsync-animationclip-rework/design.md`](https://github.com/Hidano-Dev/FacialControl/blob/888337502831165b400ce76f048920a1ba102e6a/.kiro/specs/lipsync-animationclip-rework/design.md) Non-Goals
 - **内容**: S-9 の主要対応は `lipsync-animationclip-rework` spec で対応済み。`ExpressionPhonemeEntry` の追加と `AnimationClipPhonemeEntry` sample 失敗時 fallback により、「AnimationClip 形式が rendererPath 不一致などで動かない」体験は本 spec で解消した。一方、候補 (b)「`AnimationUtility.GetCurveBindings` による Editor 事前検証 + runtime path 補正」は本 spec のスコープ外とし、将来課題として残置する。
 - **トリガ**: AnimationClip 形式を引き続き主経路として使いたいユーザー要望が増えたとき / rendererPath 不一致を Inspector 上で自動診断・補正したい需要が顕在化したとき / AnimationClip 作成支援ツールの spec を切るとき
 
 ### M-25: 表情 active 取得の系1/系2 二重化解消（ExpressionUseCase + 空 LayerExpressionSource の撤去）
-- **出典**: 2026-06-08 active-expression-unification 設計セッション（[`.kiro/specs/active-expression-unification/design-notes.md`](../.kiro/specs/active-expression-unification/design-notes.md)）
+- **出典**: 2026-06-08 active-expression-unification 設計セッション（[`.kiro/specs/active-expression-unification/design-notes.md`](https://github.com/Hidano-Dev/FacialControl/blob/888337502831165b400ce76f048920a1ba102e6a/.kiro/specs/active-expression-unification/design-notes.md)）
 - **内容**: overlay suppress / layerOverrideMask の active 取得を系2（`ExpressionTriggerInputSource`）ベースに統一する際、回帰最小・preview 期限のため暫定的に系1（`ExpressionUseCase` + sourceIdx=0 の空 `LayerExpressionSource` 約240行）を残す。実機 InputSystem 経路では系1 は populate されず death-weight（系1 と系2 は相互排他で、実機では系2 のみ動く）。将来、系2 に一本化する:
   - (a) `ExpressionUseCase` を系2 のファサード化（`Activate/Deactivate`→系2 `TriggerOn/Off`、`GetActiveExpressions`→系2 読み）または削除。
   - (b) `LayerUseCase` の sourceIdx=0 `LayerExpressionSource` 撤去（系2 が transition を担うため重複）。
@@ -249,7 +249,7 @@
 - **関連**: `lipsync-animationclip-rework` spec（S-9 本体対応済み）、将来の AnimationClip 作成支援ツール
 
 ### M-26: OscReceiverAdapterBinding の Inspector に手入力/自動 mapping の出自表示（Manual/Auto badge）
-- **出典**: [`.kiro/specs/osc-receiver-auto-mapping/requirements.md`](../.kiro/specs/osc-receiver-auto-mapping/requirements.md) Requirement 2.5（2026-05-26 設計セッション 論点 7）
+- **出典**: [`.kiro/specs/osc-receiver-auto-mapping/requirements.md`](https://github.com/Hidano-Dev/FacialControl/blob/888337502831165b400ce76f048920a1ba102e6a/.kiro/specs/osc-receiver-auto-mapping/requirements.md) Requirement 2.5（2026-05-26 設計セッション 論点 7）
 - **内容**: `osc-receiver-auto-mapping` spec では heartbeat 駆動で生成された runtime mapping と Inspector 手入力 mapping を runtime 内部状態（`bool[] isAutoMapping` 等）で区別し、出自識別は診断ログ + runtime API のみで提供する。preview 段階では Inspector UI への出自表示（ListView 行の Manual/Auto badge、自動生成 mapping の readonly セクション表示等）は実装しない。follow-up として Inspector 上で「どの mapping が手入力でどれが heartbeat 由来か」を可視化する UI を追加する。
   - 設計判断項目: (a) 既存 `_mappings` ListView 行に badge を出すか、自動生成分を別 readonly セクションに出すか、(b) 自動生成 mapping は PlayMode 中のみ存在する runtime 状態のため、Inspector 表示は PlayMode 限定にするか、(c) 自動生成行の編集抑止ロジック。
 - **トリガ**: ユーザーから「auto mapping が何を生成したか Inspector で確認したい」要望が出たとき / preview.2 の UX 整備フェーズ
@@ -257,7 +257,7 @@
 - **関連**: `osc-receiver-auto-mapping` spec、M-19（Layer / InputSource / Adapter の関係視認性改善）
 
 ### M-27: 入力源ルーティング・グラフエディタ（ノードグラフ UI で配線・slug 直書き廃止）
-- **出典**: 2026-06-07 設計セッション。spec 一式生成済み（[`.kiro/specs/input-source-routing-graph-editor/requirements.md`](../.kiro/specs/input-source-routing-graph-editor/requirements.md) / [`design.md`](../.kiro/specs/input-source-routing-graph-editor/design.md) / [`research.md`](../.kiro/specs/input-source-routing-graph-editor/research.md)。phase: design-generated, requirements approved）。
+- **出典**: 2026-06-07 設計セッション。spec 一式生成済み（[`.kiro/specs/input-source-routing-graph-editor/requirements.md`](https://github.com/Hidano-Dev/FacialControl/blob/888337502831165b400ce76f048920a1ba102e6a/.kiro/specs/input-source-routing-graph-editor/requirements.md) / [`design.md`](https://github.com/Hidano-Dev/FacialControl/blob/888337502831165b400ce76f048920a1ba102e6a/.kiro/specs/input-source-routing-graph-editor/design.md) / [`research.md`](https://github.com/Hidano-Dev/FacialControl/blob/888337502831165b400ce76f048920a1ba102e6a/.kiro/specs/input-source-routing-graph-editor/research.md)。phase: design-generated, requirements approved）。
 - **背景**: 現状 `FacialCharacterProfileSO` のレイヤー入力源は `_layers[].inputSources[].id` の文字列 slug（例 `lipsync-overlay:a`）を Inspector で人間が手打ちする運用。この id は本来 binding が `GetDefaultLayerInputSources()` 等から算出できる確定値であり自由入力ではない。手打ち運用のため binding slug 形（`ulipsync:a`）と overlay 登録 prefix 形（`lipsync-overlay:a`）の取り違えが起き、`InputSourceRegistry.TryResolve` が無言で外れて音素欠落する事故が実際に発生した（HANDOVER / MEMORY の最有力真因）。
 - **内容**: id 文字列をソースノードの出力ポートが内部保持し、画面にはラベル（「あ」等）のみ表示。ユーザーはノード間に線（エッジ）を引くだけで配線し、エッジが canonical id を運ぶことで slug 不一致を **UI 操作レベルで物理的に発生不能** にする。確定済み設計判断:
   - UI: パッチベイ/ノードグラフ形式（左=入力源 → 中=レイヤー → 右=合成出力）。配置は **専用エディタウィンドウ**（Inspector は併存）。技術基盤 **UnityEditor.Experimental.GraphView**（experimental リスクは描画薄層に封じ込め）。
@@ -331,7 +331,7 @@
 - 全体ロードマップ: [`README.md`](../README.md)
 - 機能延期一覧: [`docs/technical-spec.md`](technical-spec.md) 1.5 節
 - 直近セッション引き継ぎ: [`HANDOVER.md`](../HANDOVER.md)
-- spec 個別の Out-of-Scope / Non-Goals: 各 `.kiro/specs/*/design.md` § Non-Goals
+- spec 個別の Out-of-Scope / Non-Goals: 削除前のコミット `8883375` の `.kiro/specs/*/design.md` § Non-Goals
 - 完了済み spec の撤去履歴: 各パッケージの `CHANGELOG.md`
 
 ---

@@ -1544,7 +1544,7 @@ spec `osc-output-binding` に基づき、OSC 送信 binding、受信 binding の
 - Package Manager の Import Sample に `OscOutputDemo` と `OscReceiverDemo` が表示される。
 - `Samples~/` の README / JSON / Scene / Profile / Bootstrap が最新の実装と整合している。
 - `CHANGELOG.md` / `README.md` / `docs/backlog.md` が preview.2 の OSC 送受信スコープを反映している。
-- `tasks.txt` には作業説明を追記しない。spec の詳細は `.kiro/specs/osc-output-binding/` と本手順書に集約する。
+- `tasks.txt` には作業説明を追記しない。spec の詳細は本手順書に集約する（`.kiro/specs/osc-output-binding/` は SDD 廃止で削除済み。残作業は HID-151）。
 
 ---
 
