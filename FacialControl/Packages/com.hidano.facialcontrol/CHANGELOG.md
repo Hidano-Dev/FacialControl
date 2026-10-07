@@ -17,6 +17,7 @@
   - 「サムネイルを再生成」ボタンでキャッシュを破棄して作り直せる
   - Inspector を閉じたとき・ドメインリロード前に、プレビュー用の一時オブジェクトとテクスチャを破棄する
 - Adapter ごとの有効 / 無効 — `AdapterBindingBase.Disabled`（既定 false = 有効。既存アセットはそのまま有効で読み込まれる）を追加し、Adapter Bindings タブの各 Foldout ヘッダーにトグルを置いた。折り畳んだままでも切り替えられ、無効の Adapter はヘッダーをグレーアウトする。無効の Adapter は Play 時に host を作らず `OnStart` / Tick / `Dispose` を呼ばない（入力源を登録しない・ポートを開かない）。設定値は保持するので、有効に戻せば元の設定のまま動く。Adapter Bindings は JSON に含まれないため JSON 側の変更はない。Drawer の無い binding の本文には `Disabled` を出さない（ヘッダーのトグルに集約）
+- Adapter の並び替え — Adapter Bindings タブの各 Foldout ヘッダーに ▲ / ▼ ボタンを置き、リスト内の順序を入れ替えられるようにした（先頭の ▲・末尾の ▼ は無効。`SerializedProperty.MoveArrayElement` で書き込むので Undo で戻せる）。Foldout の開閉状態は移動した要素に付いたままになる。並び順は Play 時の `OnStart` / Tick の呼び出し順になる。入力源ごとの合成はレイヤーの入力源宣言と優先度で決まるので並び順に依存しないが、複数の binding が同じ値を書き込む場合は後ろの binding が勝つ（例: 複数の InputSystem binding が同じレイヤーの overlay weight を書く）。Timeline binding が複数ある場合は有効なもののうち先頭を使う。フッターの「− 選択中を削除」の選択は要素に付いて回り、移動や Undo で別の Adapter を指さない
 - Editor 共通ユーティリティ `FaceTrackTargetResolver`（`com.hidano.facialcontrol.expression-creator` から移動）、`PreviewRenderCapture`（`PreviewRenderUtility` のオフスクリーン描画 → `Texture2D`）、`PreviewModelBounds`
 
 ### Changed

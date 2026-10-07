@@ -116,7 +116,8 @@ namespace Hidano.FacialControl.Tests.EditMode.Editor.Inspector.AdapterBindings
     /// 「SerializeReference 追加直後に Drawer の PropertyField が出る（スロットが出ない不具合の回帰）」、
     /// 「Foldout の開閉状態が要素単位に保持される（削除・並べ替えでずれない）」、
     /// 「Drawer が要約を提供すればヘッダーに出し、提供しなければ表示名だけにする」、
-    /// 「ヘッダーの有効トグルで binding を無効にでき、設定値は残る」を守る。
+    /// 「ヘッダーの有効トグルで binding を無効にでき、設定値は残る」、
+    /// 「ヘッダーの ▲ / ▼ で並び順を入れ替えられ、Undo で戻せ、開閉状態は要素に付いて回る」を守る。
     /// slug 重複の検出は <c>FacialCharacterProfileAssetGuardTests</c> 側で保証する。
     /// </summary>
     [TestFixture]
@@ -497,6 +498,174 @@ namespace Hidano.FacialControl.Tests.EditMode.Editor.Inspector.AdapterBindings
 
             Assert.IsNull(view.Q<Toggle>(className: AdapterBindingsListView.HeaderEnabledToggleClassName),
                 "型欠落の行は起動対象にならないためトグルを出さない。");
+        }
+
+        // ---------------------------------------------------------------
+        // Foldout ヘッダーの ▲ / ▼（並び替え）
+        // ---------------------------------------------------------------
+
+        private string[] GetSlugs()
+        {
+            var bindings = _so.AdapterBindings;
+            var slugs = new string[bindings.Count];
+            for (int i = 0; i < bindings.Count; i++)
+            {
+                slugs[i] = bindings[i]?.Slug;
+            }
+            return slugs;
+        }
+
+        [Test]
+        public void MoveBinding_FirstToSecond_SwapsOrderInProfile()
+        {
+            _so.WritableAdapterBindings.Add(new MockListViewSimpleBinding { Slug = "first" });
+            _so.WritableAdapterBindings.Add(new MockListViewWithSerializedField { Slug = "second" });
+            _so.WritableAdapterBindings.Add(new MockListViewSimpleBinding { Slug = "third" });
+            ReloadSerializedObject();
+            var view = new AdapterBindingsListView(_listProperty);
+
+            Assert.IsTrue(view.MoveBinding(0, 1));
+
+            CollectionAssert.AreEqual(new[] { "second", "first", "third" }, GetSlugs(),
+                "移動はプロファイルの _adapterBindings の順序に書き込まれるべき。");
+            Assert.IsInstanceOf<MockListViewWithSerializedField>(_so.AdapterBindings[0],
+                "要素は型と設定ごと移動するべき。");
+        }
+
+        [Test]
+        public void MoveBinding_OutOfRangeOrSameIndex_ReturnsFalseAndKeepsOrder()
+        {
+            _so.WritableAdapterBindings.Add(new MockListViewSimpleBinding { Slug = "first" });
+            _so.WritableAdapterBindings.Add(new MockListViewSimpleBinding { Slug = "second" });
+            ReloadSerializedObject();
+            var view = new AdapterBindingsListView(_listProperty);
+
+            Assert.IsFalse(view.MoveBinding(0, -1), "先頭より上へは移動しない。");
+            Assert.IsFalse(view.MoveBinding(1, 2), "末尾より下へは移動しない。");
+            Assert.IsFalse(view.MoveBinding(1, 1));
+
+            CollectionAssert.AreEqual(new[] { "first", "second" }, GetSlugs());
+        }
+
+        [Test]
+        public void MoveBinding_ThenUndo_RestoresOriginalOrder()
+        {
+            _so.WritableAdapterBindings.Add(new MockListViewSimpleBinding { Slug = "first" });
+            _so.WritableAdapterBindings.Add(new MockListViewSimpleBinding { Slug = "second" });
+            ReloadSerializedObject();
+            var view = new AdapterBindingsListView(_listProperty);
+            // 移動が Undo に記録されなかった場合に、無関係な過去の操作を戻して誤判定しないよう履歴を空にする。
+            Undo.ClearAll();
+            Undo.IncrementCurrentGroup();
+
+            view.MoveBinding(1, 0);
+            CollectionAssert.AreEqual(new[] { "second", "first" }, GetSlugs());
+
+            Undo.PerformUndo();
+
+            CollectionAssert.AreEqual(new[] { "first", "second" }, GetSlugs(), "移動は Undo で元に戻せるべき。");
+        }
+
+        [Test]
+        public void MoveBinding_SelectedOrNeighborMoved_SelectionFollowsSameElement()
+        {
+            _so.WritableAdapterBindings.Add(new MockListViewSimpleBinding { Slug = "first" });
+            _so.WritableAdapterBindings.Add(new MockListViewSimpleBinding { Slug = "second" });
+            _so.WritableAdapterBindings.Add(new MockListViewSimpleBinding { Slug = "third" });
+            ReloadSerializedObject();
+            var view = new AdapterBindingsListView(_listProperty);
+            view.SelectBinding(1);
+
+            view.MoveBinding(1, 2);
+            Assert.AreEqual(2, view.SelectedIndex, "選択した要素を動かしたら選択も移動先へ付いて行くべき。");
+
+            view.MoveBinding(0, 2);
+            Assert.AreEqual(1, view.SelectedIndex, "間の要素を動かして index がずれても、同じ要素を選択し続けるべき。");
+            Assert.AreEqual("second", _so.AdapterBindings[view.SelectedIndex].Slug);
+        }
+
+        [Test]
+        public void MoveBinding_ThenUndo_SelectionStaysOnSameElement()
+        {
+            _so.WritableAdapterBindings.Add(new MockListViewSimpleBinding { Slug = "first" });
+            _so.WritableAdapterBindings.Add(new MockListViewSimpleBinding { Slug = "second" });
+            ReloadSerializedObject();
+            var view = new AdapterBindingsListView(_listProperty);
+            view.SelectBinding(0);
+            Undo.ClearAll();
+            Undo.IncrementCurrentGroup();
+            view.MoveBinding(0, 1);
+
+            Undo.PerformUndo();
+            CollectionAssert.AreEqual(new[] { "first", "second" }, GetSlugs());
+            // Undo 後の次の操作（ここでは別の要素の移動）で、選択が index ではなく要素に付いていることを確かめる。
+            view.MoveBinding(1, 0);
+
+            Assert.AreEqual("first", _so.AdapterBindings[view.SelectedIndex].Slug,
+                "移動を Undo しても、選択は最初に選んだ要素を指し続けるべき（別の Adapter を削除対象にしない）。");
+        }
+
+        [Test]
+        public void MoveBinding_CollapsedElementMoved_FoldoutStateFollowsElement()
+        {
+            _so.WritableAdapterBindings.Add(new MockListViewSimpleBinding { Slug = "first" });
+            _so.WritableAdapterBindings.Add(new MockListViewSimpleBinding { Slug = "second" });
+            ReloadSerializedObject();
+            string firstKey = GetKey(0);
+            AdapterBindingFoldoutState.Save(firstKey, false);
+            var view = new AdapterBindingsListView(_listProperty);
+
+            view.MoveBinding(0, 1);
+            ReloadSerializedObject();
+
+            Assert.AreEqual(firstKey, GetKey(1), "移動後も要素の保存キーは変わらないべき。");
+            Assert.IsFalse(AdapterBindingFoldoutState.Load(GetKey(1)), "折り畳んだ要素の状態が移動先でも維持されるべき。");
+            Assert.IsTrue(AdapterBindingFoldoutState.Load(GetKey(0)), "入れ替わった要素に状態が移ってはならない。");
+            var foldouts = view.Query<Foldout>(className: AdapterBindingsListView.RowFoldoutClassName).ToList();
+            Assert.IsTrue(foldouts[0].value, "作り直した行でも、展開していた要素は展開のまま。");
+            Assert.IsFalse(foldouts[1].value, "作り直した行でも、折り畳んだ要素は折り畳んだまま。");
+        }
+
+        [Test]
+        public void Construct_ThreeBindings_MoveButtonsInHeaderAndDisabledAtEnds()
+        {
+            _so.WritableAdapterBindings.Add(new MockListViewSimpleBinding { Slug = "first" });
+            _so.WritableAdapterBindings.Add(new MockListViewSimpleBinding { Slug = "second" });
+            _so.WritableAdapterBindings.Add(new MockListViewSimpleBinding { Slug = "third" });
+            ReloadSerializedObject();
+
+            var view = new AdapterBindingsListView(_listProperty);
+
+            var foldouts = view.Query<Foldout>(className: AdapterBindingsListView.RowFoldoutClassName).ToList();
+            Assert.AreEqual(3, foldouts.Count);
+            bool[] expectedUp = { false, true, true };
+            bool[] expectedDown = { true, true, false };
+            for (int i = 0; i < foldouts.Count; i++)
+            {
+                var header = foldouts[i].Q(className: Foldout.inputUssClassName);
+                var up = header.Q<Button>(className: AdapterBindingsListView.HeaderMoveUpButtonClassName);
+                var down = header.Q<Button>(className: AdapterBindingsListView.HeaderMoveDownButtonClassName);
+                Assert.IsNotNull(up, "折り畳んだままでも並び替えられるよう、▲ はヘッダーに置くべき。");
+                Assert.IsNotNull(down, "折り畳んだままでも並び替えられるよう、▼ はヘッダーに置くべき。");
+                Assert.AreEqual(expectedUp[i], up.enabledSelf, $"行 {i} の ▲ の有効状態（先頭のみ無効）。");
+                Assert.AreEqual(expectedDown[i], down.enabledSelf, $"行 {i} の ▼ の有効状態（末尾のみ無効）。");
+            }
+        }
+
+        [Test]
+        public void Construct_DrawerProvidesHeaderSummary_SummaryPrecedesMoveButtons()
+        {
+            _so.WritableAdapterBindings.Add(new MockListViewSummaryBinding { Slug = "osc", _port = 9001 });
+            ReloadSerializedObject();
+
+            var view = new AdapterBindingsListView(_listProperty);
+
+            var header = view.Q(className: Foldout.inputUssClassName);
+            var summary = header.Q<Label>(className: AdapterBindingsListView.HeaderSummaryClassName);
+            var up = header.Q<Button>(className: AdapterBindingsListView.HeaderMoveUpButtonClassName);
+            var remove = header.Q<Button>(className: AdapterBindingsListView.HeaderRemoveButtonClassName);
+            Assert.Less(header.IndexOf(summary), header.IndexOf(up), "要約はボタン群の手前に並べる。");
+            Assert.Less(header.IndexOf(up), header.IndexOf(remove), "削除ボタンは右端に置く。");
         }
     }
 }

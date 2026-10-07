@@ -35,6 +35,8 @@ namespace Hidano.FacialControl.Editor.Inspector.AdapterBindings
     /// （OSC の IP・ポート等）も出し、binding の値の変更に追従させる。
     /// ヘッダーの有効トグルで binding を一時的に無効にでき（<see cref="AdapterBindingBase.Disabled"/>）、
     /// 無効の行はヘッダーをグレーアウトする。
+    /// ヘッダーの ▲ / ▼ ボタンで並び順を入れ替えられる（Undo 対応）。並び順は Play 時の OnStart / Tick の
+    /// 呼び出し順になり、複数の binding が同じ値を書き込む場合（同じレイヤーの overlay weight 等）は後ろが勝つ。
     /// </para>
     /// </remarks>
     public sealed class AdapterBindingsListView : VisualElement
@@ -52,6 +54,8 @@ namespace Hidano.FacialControl.Editor.Inspector.AdapterBindings
         public const string HeaderSummaryClassName = "facial-control-adapter-binding-header-summary";
         public const string HeaderEnabledToggleClassName = "facial-control-adapter-binding-header-enabled";
         public const string DisabledRowClassName = "facial-control-adapter-binding-disabled";
+        public const string HeaderMoveUpButtonClassName = "facial-control-adapter-binding-header-move-up";
+        public const string HeaderMoveDownButtonClassName = "facial-control-adapter-binding-header-move-down";
 
         public const string FooterAddButtonName = "facial-control-adapter-bindings-add";
         public const string FooterRemoveButtonName = "facial-control-adapter-bindings-remove";
@@ -67,6 +71,8 @@ namespace Hidano.FacialControl.Editor.Inspector.AdapterBindings
         private readonly Button _removeButton;
         private AdvancedDropdownState _addDropdownState;
         private int _selectedIndex = -1;
+        // 選択は参照 ID で持ち、移動・削除・Undo で index がずれても同じ要素を指す（参照 ID の無い null 要素は index のみ）。
+        private long _selectedReferenceId = ManagedReferenceUtility.RefIdNull;
 
         // 現在の行 Foldout と開閉状態の保存情報（Rebuild のたびに作り直す）。
         private readonly List<RowFoldout> _rowFoldouts = new List<RowFoldout>();
@@ -448,7 +454,10 @@ namespace Hidano.FacialControl.Editor.Inspector.AdapterBindings
                 : null;
 
             list.RemoveAt(index);
-            if (_selectedIndex >= list.Count) _selectedIndex = list.Count - 1;
+            if (_selectedReferenceId == ManagedReferenceUtility.RefIdNull && _selectedIndex >= list.Count)
+            {
+                _selectedIndex = list.Count - 1;
+            }
             CommitMutation();
 
             // 削除した要素の開閉状態は不要になるため消す。
@@ -479,6 +488,61 @@ namespace Hidano.FacialControl.Editor.Inspector.AdapterBindings
         }
 
         /// <summary>
+        /// 指定 index の binding を <paramref name="destinationIndex"/> へ移動する。
+        /// <see cref="SerializedProperty.MoveArrayElement"/> で書き込むため Undo で戻せ、
+        /// 開閉状態は参照 ID 単位で保存しているので移動した要素に付いたままになる。
+        /// 範囲外・同じ位置の指定は何もせず false を返す。
+        /// </summary>
+        public bool MoveBinding(int index, int destinationIndex)
+        {
+            var so = _listProperty.serializedObject;
+            so.Update();
+            int count = _listProperty.arraySize;
+            if (index < 0 || index >= count) return false;
+            if (destinationIndex < 0 || destinationIndex >= count) return false;
+            if (index == destinationIndex) return false;
+
+            if (!_listProperty.MoveArrayElement(index, destinationIndex)) return false;
+            so.ApplyModifiedProperties();
+            Undo.SetCurrentGroupName("Adapter Binding を移動");
+
+            // 参照 ID の無い null 要素を選択していた場合だけ、index で移動先へ追従させる
+            // （参照 ID で選択している場合は Rebuild で引き直す）。
+            if (_selectedReferenceId == ManagedReferenceUtility.RefIdNull && _selectedIndex == index)
+            {
+                _selectedIndex = destinationIndex;
+            }
+
+            CommitMutation();
+            return true;
+        }
+
+        /// <summary>
+        /// 選択中の binding の index（未選択なら -1）。フッターの「− 選択中を削除」の対象。
+        /// </summary>
+        public int SelectedIndex => _selectedIndex;
+
+        /// <summary>
+        /// 指定 index の binding を選択する（行のクリックと同じ）。範囲外なら選択を外す。
+        /// </summary>
+        public void SelectBinding(int index)
+        {
+            if (index < 0 || index >= _listProperty.arraySize)
+            {
+                _selectedIndex = -1;
+                _selectedReferenceId = ManagedReferenceUtility.RefIdNull;
+            }
+            else
+            {
+                _selectedIndex = index;
+                _selectedReferenceId = _listProperty.GetArrayElementAtIndex(index).managedReferenceId;
+            }
+
+            ApplySelectionMarkers();
+            UpdateRemoveButtonState();
+        }
+
+        /// <summary>
         /// すべての Adapter 行 Foldout を展開 / 折り畳みし、開閉状態を保存する。
         /// </summary>
         public void SetAllExpanded(bool expanded)
@@ -500,6 +564,7 @@ namespace Hidano.FacialControl.Editor.Inspector.AdapterBindings
         {
             // 行の作り直しで ChangeEvent を経ずに捨てられる開閉状態を先に保存する。
             SaveFoldoutStates();
+            SyncSelectedIndex();
             _rowFoldouts.Clear();
             _rowsContainer.Clear();
 
@@ -533,12 +598,7 @@ namespace Hidano.FacialControl.Editor.Inspector.AdapterBindings
             row.style.borderRightWidth = 1;
 
             int capturedIndex = index;
-            row.RegisterCallback<PointerDownEvent>(_ =>
-            {
-                _selectedIndex = capturedIndex;
-                ApplySelectionMarkers();
-                UpdateRemoveButtonState();
-            });
+            row.RegisterCallback<PointerDownEvent>(_ => SelectBinding(capturedIndex));
 
             var prop = _listProperty.GetArrayElementAtIndex(index);
             object value = prop.managedReferenceValue;
@@ -651,6 +711,14 @@ namespace Hidano.FacialControl.Editor.Inspector.AdapterBindings
                 // ヘッダーのクリックで開閉・行選択が同時に起きないよう、押下をここで止める。
                 removeButton.RegisterCallback<PointerDownEvent>(evt => evt.StopPropagation());
                 removeButton.RegisterCallback<ClickEvent>(evt => evt.StopPropagation());
+
+                int count = _listProperty.arraySize;
+                headerInput.Add(BuildMoveButton(
+                    "▲", "この Adapter Binding を 1 つ上へ移動（Play 時の起動・更新順が変わる）",
+                    HeaderMoveUpButtonClassName, referenceId, index, -1, enabled: index > 0));
+                headerInput.Add(BuildMoveButton(
+                    "▼", "この Adapter Binding を 1 つ下へ移動（Play 時の起動・更新順が変わる）",
+                    HeaderMoveDownButtonClassName, referenceId, index, 1, enabled: index < count - 1));
                 headerInput.Add(removeButton);
             }
 
@@ -668,6 +736,40 @@ namespace Hidano.FacialControl.Editor.Inspector.AdapterBindings
 
             _rowFoldouts.Add(rowFoldout);
             return foldout;
+        }
+
+        /// <summary>
+        /// ヘッダーの ▲ / ▼ ボタン。押下時に組み立て時の参照 ID から現在の index を引き直して移動する
+        /// （Undo 等で行と要素の対応がずれていても別の要素を動かさない）。先頭の ▲・末尾の ▼ は無効化する。
+        /// </summary>
+        private Button BuildMoveButton(
+            string text,
+            string tooltip,
+            string className,
+            long referenceId,
+            int builtIndex,
+            int offset,
+            bool enabled)
+        {
+            var button = new Button(() =>
+            {
+                int index = ResolveCurrentIndex(referenceId, builtIndex);
+                if (index < 0 || !MoveBinding(index, index + offset))
+                {
+                    // 対応する要素が見つからない・端にいる（行が古い）場合は動かさずに表示を最新化する。
+                    Rebuild();
+                }
+            })
+            {
+                text = text,
+                tooltip = tooltip,
+            };
+            button.AddToClassList(className);
+            button.SetEnabled(enabled);
+            // ヘッダーのクリックで開閉・行選択が同時に起きないよう、押下をここで止める。
+            button.RegisterCallback<PointerDownEvent>(evt => evt.StopPropagation());
+            button.RegisterCallback<ClickEvent>(evt => evt.StopPropagation());
+            return button;
         }
 
         /// <summary>
@@ -701,8 +803,7 @@ namespace Hidano.FacialControl.Editor.Inspector.AdapterBindings
                 // Foldout の開閉保存（ChangeEvent<bool> の bubble）に拾わせない。
                 evt.StopPropagation();
                 // 組み立て時の参照 ID から現在の index を引き直す（行と要素の対応がずれていても別の要素を書き換えない）。
-                _listProperty.serializedObject.Update();
-                int currentIndex = FindIndexByReferenceId(referenceId);
+                int currentIndex = ResolveCurrentIndex(referenceId, index);
                 if (currentIndex < 0) return;
                 SetBindingEnabled(currentIndex, evt.newValue);
                 ApplyEnabledState(row, evt.newValue);
@@ -767,7 +868,7 @@ namespace Hidano.FacialControl.Editor.Inspector.AdapterBindings
         }
 
         /// <summary>
-        /// Foldout ヘッダーの削除ボタンの手前に要約ラベルを置き、プロファイルの値が変わるたびに取り直す。
+        /// Foldout ヘッダーの移動・削除ボタンの手前に要約ラベルを置き、プロファイルの値が変わるたびに取り直す。
         /// </summary>
         private static void AddHeaderSummary(
             Foldout foldout,
@@ -785,8 +886,9 @@ namespace Hidano.FacialControl.Editor.Inspector.AdapterBindings
             label.style.marginRight = 6;
             label.style.opacity = 0.75f;
 
-            var removeButton = headerInput.Q<Button>(className: HeaderRemoveButtonClassName);
-            int insertAt = removeButton != null ? headerInput.IndexOf(removeButton) : headerInput.childCount;
+            var firstButton = headerInput.Q<Button>(className: HeaderMoveUpButtonClassName)
+                ?? headerInput.Q<Button>(className: HeaderRemoveButtonClassName);
+            int insertAt = firstButton != null ? headerInput.IndexOf(firstButton) : headerInput.childCount;
             headerInput.Insert(insertAt, label);
 
             ApplyHeaderSummary(label, elementProperty, provider, bindingType, logErrors: true);
@@ -845,14 +947,8 @@ namespace Hidano.FacialControl.Editor.Inspector.AdapterBindings
                 return;
             }
 
-            _listProperty.serializedObject.Update();
-            int index = builtIndex;
-            if (referenceId != ManagedReferenceUtility.RefIdNull)
-            {
-                index = FindIndexByReferenceId(referenceId);
-            }
-
-            if (index < 0 || index >= _listProperty.arraySize)
+            int index = ResolveCurrentIndex(referenceId, builtIndex);
+            if (index < 0)
             {
                 // 対応する要素が見つからない（行が古い）場合は消さずに表示を最新化する。
                 Rebuild();
@@ -860,6 +956,35 @@ namespace Hidano.FacialControl.Editor.Inspector.AdapterBindings
             }
 
             RemoveBindingAt(index);
+        }
+
+        /// <summary>
+        /// 行の組み立て時の参照 ID から現在の index を引き直す（SerializedObject を最新化してから引く）。
+        /// 参照 ID の無い null 要素は組み立て時の index を使う。見つからない・範囲外なら -1。
+        /// </summary>
+        private int ResolveCurrentIndex(long referenceId, int builtIndex)
+        {
+            _listProperty.serializedObject.Update();
+            int index = referenceId != ManagedReferenceUtility.RefIdNull
+                ? FindIndexByReferenceId(referenceId)
+                : builtIndex;
+            return index >= 0 && index < _listProperty.arraySize ? index : -1;
+        }
+
+        /// <summary>
+        /// 参照 ID で持っている選択を現在の index へ引き直す（削除された要素なら選択を外す）。
+        /// </summary>
+        private void SyncSelectedIndex()
+        {
+            if (_selectedReferenceId != ManagedReferenceUtility.RefIdNull)
+            {
+                _selectedIndex = FindIndexByReferenceId(_selectedReferenceId);
+                if (_selectedIndex < 0) _selectedReferenceId = ManagedReferenceUtility.RefIdNull;
+            }
+            else if (_selectedIndex >= _listProperty.arraySize)
+            {
+                _selectedIndex = _listProperty.arraySize - 1;
+            }
         }
 
         private int FindIndexByReferenceId(long referenceId)
