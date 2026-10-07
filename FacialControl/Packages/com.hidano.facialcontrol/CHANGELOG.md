@@ -16,6 +16,7 @@
   - Expression の中身（AnimationClip のカーブ値・参照先）や参照モデル（依存するマテリアル・テクスチャを含む）が変わったときだけ作り直す。clip を編集中は変更が落ち着いてから作り直す
   - 「サムネイルを再生成」ボタンでキャッシュを破棄して作り直せる
   - Inspector を閉じたとき・ドメインリロード前に、プレビュー用の一時オブジェクトとテクスチャを破棄する
+- Adapter ごとの有効 / 無効 — `AdapterBindingBase.Disabled`（既定 false = 有効。既存アセットはそのまま有効で読み込まれる）を追加し、Adapter Bindings タブの各 Foldout ヘッダーにトグルを置いた。折り畳んだままでも切り替えられ、無効の Adapter はヘッダーをグレーアウトする。無効の Adapter は Play 時に host を作らず `OnStart` / Tick / `Dispose` を呼ばない（入力源を登録しない・ポートを開かない）。設定値は保持するので、有効に戻せば元の設定のまま動く。Adapter Bindings は JSON に含まれないため JSON 側の変更はない。Drawer の無い binding の本文には `Disabled` を出さない（ヘッダーのトグルに集約）
 - Editor 共通ユーティリティ `FaceTrackTargetResolver`（`com.hidano.facialcontrol.expression-creator` から移動）、`PreviewRenderCapture`（`PreviewRenderUtility` のオフスクリーン描画 → `Texture2D`）、`PreviewModelBounds`
 
 ### Changed

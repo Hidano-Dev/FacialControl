@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 
 namespace Hidano.FacialControl.Domain.Adapters
 {
@@ -27,6 +28,17 @@ namespace Hidano.FacialControl.Domain.Adapters
         public string Slug;
 
         /// <summary>
+        /// true のとき Binding を無効として扱い、Play 時に <see cref="OnStart"/> 以降の lifecycle を一切呼ばない
+        /// （入力源を登録しない・ポートを開かない）。設定値は保持する。
+        /// </summary>
+        /// <remarks>
+        /// 既定の false を「有効」とするため、フィールドを持たない既存アセットもマイグレーションなしで有効として読み込まれる
+        /// （<c>[SerializeReference]</c> の復元でフィールド初期化子に頼らない）。
+        /// 個別 Binding が持つ独自の有効フラグ（Timeline の Enabled 等）とは別で、こちらは Binding 全体を起動しない。
+        /// </remarks>
+        public bool Disabled;
+
+        /// <summary>
         /// Binding 構築時に呼ばれる初期化フック。
         /// 必要なリソース（helper MonoBehaviour、socket 等）を <see cref="AdapterBuildContext"/> 経由で確保する。
         /// </summary>
@@ -53,5 +65,47 @@ namespace Hidano.FacialControl.Domain.Adapters
         /// <see cref="OnStart"/> で確保したリソースをここで解放する。
         /// </summary>
         public virtual void Dispose() { }
+
+        /// <summary>
+        /// 無効（<see cref="Disabled"/>）の Binding を除いた一覧を返す。null 要素（型欠落）は呼び出し側の警告のために残す。
+        /// </summary>
+        /// <remarks>
+        /// 無効な Binding が無ければ <paramref name="bindings"/> をそのまま返し、確保しない。
+        /// </remarks>
+        /// <param name="bindings">対象の一覧。null なら空配列を返す。</param>
+        public static IReadOnlyList<AdapterBindingBase> SelectEnabled(IReadOnlyList<AdapterBindingBase> bindings)
+        {
+            if (bindings == null)
+            {
+                return Array.Empty<AdapterBindingBase>();
+            }
+
+            bool anyDisabled = false;
+            for (int i = 0; i < bindings.Count; i++)
+            {
+                if (bindings[i] != null && bindings[i].Disabled)
+                {
+                    anyDisabled = true;
+                    break;
+                }
+            }
+
+            if (!anyDisabled)
+            {
+                return bindings;
+            }
+
+            var enabled = new List<AdapterBindingBase>(bindings.Count);
+            for (int i = 0; i < bindings.Count; i++)
+            {
+                AdapterBindingBase binding = bindings[i];
+                if (binding == null || !binding.Disabled)
+                {
+                    enabled.Add(binding);
+                }
+            }
+
+            return enabled;
+        }
     }
 }

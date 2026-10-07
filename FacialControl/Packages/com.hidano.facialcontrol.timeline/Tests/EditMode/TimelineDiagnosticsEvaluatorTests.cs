@@ -292,6 +292,33 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
         }
 
         [Test]
+        public void EvaluateStatic_BindingDisabledByHeaderToggle_ReportsBindingDisabledError()
+        {
+            Scenario s = CreateScenario();
+            s.Binding.Disabled = true;
+            var diagnostics = new FacialTimelineDiagnostics();
+
+            TimelineDiagnosticsEvaluator.EvaluateStatic(s.Receiver, diagnostics, s.BuildContext());
+
+            Assert.That(diagnostics.Contains(TimelineDiagnosticCode.BindingDisabled), Is.True, Describe(diagnostics));
+            Assert.That(diagnostics.Contains(TimelineDiagnosticCode.BindingMissing), Is.False);
+        }
+
+        [Test]
+        public void EvaluateStatic_DisabledBindingFollowedByEnabledBinding_DoesNotReportBindingDisabled()
+        {
+            Scenario s = CreateScenario();
+            s.Binding.Disabled = true;
+            s.ProfileSO.WritableAdapterBindings.Add(new TimelineAdapterBinding { Slug = "timeline2" });
+            var diagnostics = new FacialTimelineDiagnostics();
+
+            TimelineDiagnosticsEvaluator.EvaluateStatic(s.Receiver, diagnostics, s.BuildContext());
+
+            Assert.That(diagnostics.Contains(TimelineDiagnosticCode.BindingDisabled), Is.False,
+                "Play で起動する有効な binding があれば、無効の binding は診断に使わない。" + Describe(diagnostics));
+        }
+
+        [Test]
         public void EvaluateStatic_BindingWithLegacyFields_ReportsBindingLegacyFieldsWarning()
         {
             Scenario s = CreateScenario();

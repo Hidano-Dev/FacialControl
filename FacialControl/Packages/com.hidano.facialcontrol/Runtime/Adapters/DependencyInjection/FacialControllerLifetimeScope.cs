@@ -61,7 +61,7 @@ namespace Hidano.FacialControl.Adapters.DependencyInjection
         /// <param name="appScope">親 <see cref="FacialControlAppLifetimeScope"/>。null 不可。</param>
         /// <param name="profile">FacialProfile（値型）。</param>
         /// <param name="blendShapeNames">BlendShape 名配列。null 不可（空 list 可）。</param>
-        /// <param name="bindings">SO の <c>_adapterBindings</c> 一覧。null 不可（空 list 可）。null 要素は skip。</param>
+        /// <param name="bindings">SO の <c>_adapterBindings</c> 一覧。null 不可（空 list 可）。null 要素と無効（<see cref="AdapterBindingBase.Disabled"/>）の要素は skip。</param>
         /// <param name="hostGameObject">binding helper を <c>AddComponent</c> する宿主 GameObject。null 不可。</param>
         /// <param name="childScopeName">child scope の名前（任意）。</param>
         /// <exception cref="ArgumentNullException">必須引数のいずれかが null の場合。</exception>
@@ -95,7 +95,9 @@ namespace Hidano.FacialControl.Adapters.DependencyInjection
             {
             FacialProfile capturedProfile = profile;
             IReadOnlyList<string> capturedBlendShapeNames = blendShapeNames;
-            IReadOnlyList<AdapterBindingBase> capturedBindings = bindings;
+            // 無効の binding は host を作らず（OnStart / Tick / Dispose を呼ばない）、
+            // AdapterBuildContext.AdapterBindings にも載せない（起動していない binding を他の binding が前提にしないため）。
+            IReadOnlyList<AdapterBindingBase> capturedBindings = AdapterBindingBase.SelectEnabled(bindings);
             GameObject capturedHostGameObject = hostGameObject;
             IActiveExpressionProvider capturedActiveProvider = activeExpressionProvider;
 

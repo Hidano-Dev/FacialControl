@@ -115,7 +115,8 @@ namespace Hidano.FacialControl.Tests.EditMode.Editor.Inspector.AdapterBindings
     /// 「null 要素 / 例外を投げる Drawer を含んでも構築できる」「Add 操作が SerializedObject へ書き込まれる」
     /// 「SerializeReference 追加直後に Drawer の PropertyField が出る（スロットが出ない不具合の回帰）」、
     /// 「Foldout の開閉状態が要素単位に保持される（削除・並べ替えでずれない）」、
-    /// 「Drawer が要約を提供すればヘッダーに出し、提供しなければ表示名だけにする」を守る。
+    /// 「Drawer が要約を提供すればヘッダーに出し、提供しなければ表示名だけにする」、
+    /// 「ヘッダーの有効トグルで binding を無効にでき、設定値は残る」を守る。
     /// slug 重複の検出は <c>FacialCharacterProfileAssetGuardTests</c> 側で保証する。
     /// </summary>
     [TestFixture]
@@ -413,6 +414,89 @@ namespace Hidano.FacialControl.Tests.EditMode.Editor.Inspector.AdapterBindings
 
             Assert.IsNull(view.Q<Label>(className: AdapterBindingsListView.HeaderSummaryClassName),
                 "要約を提供しない binding のヘッダーは従来どおり表示名と slug だけにする。");
+        }
+
+        // ---------------------------------------------------------------
+        // Foldout ヘッダーの有効 / 無効トグル
+        // ---------------------------------------------------------------
+
+        [Test]
+        public void Construct_DefaultBinding_HeaderToggleIsOnInFoldoutHeader()
+        {
+            _so.WritableAdapterBindings.Add(new MockListViewSimpleBinding { Slug = "plain" });
+            ReloadSerializedObject();
+
+            var view = new AdapterBindingsListView(_listProperty);
+
+            var foldout = view.Q<Foldout>(className: AdapterBindingsListView.RowFoldoutClassName);
+            var toggle = foldout.Q<Toggle>(className: AdapterBindingsListView.HeaderEnabledToggleClassName);
+            Assert.IsNotNull(toggle, "折り畳んだままでも切り替えられるよう、トグルはヘッダーに置くべき。");
+            Assert.IsTrue(foldout.Q(className: Foldout.inputUssClassName).Contains(toggle));
+            Assert.IsTrue(toggle.value, "既存 binding は既定で有効。");
+            Assert.IsNull(view.Q(className: AdapterBindingsListView.DisabledRowClassName));
+        }
+
+        [Test]
+        public void Construct_DisabledBinding_ToggleOffAndRowMarkedDisabled()
+        {
+            _so.WritableAdapterBindings.Add(new MockListViewSimpleBinding { Slug = "off", Disabled = true });
+            ReloadSerializedObject();
+
+            var view = new AdapterBindingsListView(_listProperty);
+
+            var toggle = view.Q<Toggle>(className: AdapterBindingsListView.HeaderEnabledToggleClassName);
+            Assert.IsFalse(toggle.value);
+            Assert.IsNotNull(view.Q(className: AdapterBindingsListView.DisabledRowClassName),
+                "無効の行はヘッダーの見た目で分かるようにする。");
+        }
+
+        [Test]
+        public void SetBindingEnabled_OffThenOn_WritesDisabledAndKeepsSettings()
+        {
+            _so.WritableAdapterBindings.Add(new MockListViewSummaryBinding { Slug = "osc", _port = 9001 });
+            ReloadSerializedObject();
+            var view = new AdapterBindingsListView(_listProperty);
+
+            view.SetBindingEnabled(0, false);
+
+            Assert.IsTrue(_so.AdapterBindings[0].Disabled, "トグルを切ると SO の binding が無効になる。");
+            Assert.AreEqual(9001, ((MockListViewSummaryBinding)_so.AdapterBindings[0])._port, "設定値は保持する。");
+            Assert.IsFalse(view.Q<Toggle>(className: AdapterBindingsListView.HeaderEnabledToggleClassName).value);
+            Assert.IsNotNull(view.Q(className: AdapterBindingsListView.DisabledRowClassName));
+
+            view.SetBindingEnabled(0, true);
+
+            Assert.IsFalse(_so.AdapterBindings[0].Disabled);
+            Assert.AreEqual(9001, ((MockListViewSummaryBinding)_so.AdapterBindings[0])._port);
+            Assert.IsTrue(view.Q<Toggle>(className: AdapterBindingsListView.HeaderEnabledToggleClassName).value);
+            Assert.IsNull(view.Q(className: AdapterBindingsListView.DisabledRowClassName));
+        }
+
+        [Test]
+        public void Construct_BindingWithoutDrawer_BodyOmitsDisabledField()
+        {
+            _so.WritableAdapterBindings.Add(new MockListViewSimpleBinding { Slug = "plain" });
+            ReloadSerializedObject();
+
+            var view = new AdapterBindingsListView(_listProperty);
+
+            var fields = view.Query<PropertyField>().ToList();
+            Assert.IsTrue(fields.Exists(f => f.bindingPath.EndsWith("." + nameof(AdapterBindingBase.Slug))),
+                "Drawer の無い binding の本文には従来どおり子プロパティを並べる。");
+            Assert.IsFalse(fields.Exists(f => f.bindingPath.EndsWith("." + nameof(AdapterBindingBase.Disabled))),
+                "ヘッダーのトグルと重複する Disabled は本文に出さない。");
+        }
+
+        [Test]
+        public void Construct_NullElement_HasNoHeaderToggle()
+        {
+            _so.WritableAdapterBindings.Add(null);
+            ReloadSerializedObject();
+
+            var view = new AdapterBindingsListView(_listProperty);
+
+            Assert.IsNull(view.Q<Toggle>(className: AdapterBindingsListView.HeaderEnabledToggleClassName),
+                "型欠落の行は起動対象にならないためトグルを出さない。");
         }
     }
 }

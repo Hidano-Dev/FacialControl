@@ -42,6 +42,7 @@ Timeline 再生の手順を「REC → Export → Director にセット → Recei
 
 ### Fixed
 
+- Adapter Bindings のヘッダーのトグルで Timeline binding ごと無効にした（`AdapterBindingBase.Disabled`）場合、静的診断・Receiver のセッション開始とも Enabled オフと同じ `BindingDisabled` を出す（`BindingMissing` にしない）。無効の binding の後ろに有効な Timeline binding があれば有効な方で診断する。Edit プレビューは無効の binding の Analog Expression を合成しない（Play と揃える）
 - State sink の ContributeMask 長が 0 で、レイヤー入力源に接続すると Aggregator が `ArgumentException` を投げていた
 - weight のレコード kind（12〜15。`com.hidano.facialcontrol.rec` の HID-80 で追加）を含む `.fcrec` を REC Export に通すと `InvalidOperationException`（Unsupported REC event kind）で失敗していた。weight は Export 対象外として読み捨て、時刻付き weight イベントがあれば Export 1 回につき 1 回だけ件数付きの Warning を出す（HID-80）
 
