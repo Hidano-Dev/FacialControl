@@ -585,6 +585,23 @@ namespace Hidano.FacialControl.Tests.EditMode.Editor.Inspector.AdapterBindings
         }
 
         [Test]
+        public void MoveBinding_NullElementSelectedAndNeighborMoved_SelectionFollowsNullElement()
+        {
+            _so.WritableAdapterBindings.Add(new MockListViewSimpleBinding { Slug = "a" });
+            _so.WritableAdapterBindings.Add(null);
+            _so.WritableAdapterBindings.Add(new MockListViewSimpleBinding { Slug = "b" });
+            ReloadSerializedObject();
+            var view = new AdapterBindingsListView(_listProperty);
+            view.SelectBinding(1);
+
+            view.MoveBinding(0, 1);
+
+            Assert.AreEqual(0, view.SelectedIndex,
+                "参照 ID の無い null 要素の選択も、隣の要素の移動で別の Adapter に移ってはならない。");
+            Assert.IsNull(_so.AdapterBindings[view.SelectedIndex]);
+        }
+
+        [Test]
         public void MoveBinding_ThenUndo_SelectionStaysOnSameElement()
         {
             _so.WritableAdapterBindings.Add(new MockListViewSimpleBinding { Slug = "first" });

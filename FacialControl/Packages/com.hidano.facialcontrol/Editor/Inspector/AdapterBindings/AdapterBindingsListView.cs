@@ -506,15 +506,27 @@ namespace Hidano.FacialControl.Editor.Inspector.AdapterBindings
             so.ApplyModifiedProperties();
             Undo.SetCurrentGroupName("Adapter Binding を移動");
 
-            // 参照 ID の無い null 要素を選択していた場合だけ、index で移動先へ追従させる
+            // 参照 ID の無い null 要素を選択していた場合だけ、index で同じ要素へ追従させる
             // （参照 ID で選択している場合は Rebuild で引き直す）。
-            if (_selectedReferenceId == ManagedReferenceUtility.RefIdNull && _selectedIndex == index)
+            if (_selectedReferenceId == ManagedReferenceUtility.RefIdNull && _selectedIndex >= 0)
             {
-                _selectedIndex = destinationIndex;
+                _selectedIndex = FollowMovedIndex(_selectedIndex, index, destinationIndex);
             }
 
             CommitMutation();
             return true;
+        }
+
+        /// <summary>
+        /// <paramref name="from"/> → <paramref name="to"/> の移動後に、元 <paramref name="current"/> にあった要素の index を返す
+        /// （移動した要素は移動先へ、間の要素は 1 つずつずれる）。
+        /// </summary>
+        internal static int FollowMovedIndex(int current, int from, int to)
+        {
+            if (current == from) return to;
+            if (from < to && current > from && current <= to) return current - 1;
+            if (to < from && current >= to && current < from) return current + 1;
+            return current;
         }
 
         /// <summary>
@@ -535,7 +547,11 @@ namespace Hidano.FacialControl.Editor.Inspector.AdapterBindings
             else
             {
                 _selectedIndex = index;
-                _selectedReferenceId = _listProperty.GetArrayElementAtIndex(index).managedReferenceId;
+                long referenceId = _listProperty.GetArrayElementAtIndex(index).managedReferenceId;
+                // 参照 ID が未確定の要素は null 要素と同じく index で持つ。
+                _selectedReferenceId = referenceId == ManagedReferenceUtility.RefIdUnknown
+                    ? ManagedReferenceUtility.RefIdNull
+                    : referenceId;
             }
 
             ApplySelectionMarkers();
