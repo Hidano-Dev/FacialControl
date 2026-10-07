@@ -133,7 +133,18 @@ namespace Hidano.FacialControl.Editor.Inspector
         // ====================================================================
 
         protected const int HelpBoxFontSize = 12;
+
         protected const int SectionFoldoutFontSize = 13;
+
+        private const string ExpressionRowNameHeaderClass = "facial-control-expression-row-name-header";
+        private const string ExpressionRowNameHeaderLabelClass = "facial-control-expression-row-name-header__label";
+        private const string ExpressionRowNameHeaderEmptyText = "(名前未設定)";
+
+        /// <summary>
+        /// Expression 行のパラメータ列の最小幅（px）。field のラベル幅を除いても入力欄が使える幅を確保し、
+        /// サムネイルの右に収まらないときはパラメータ列をサムネイルの下へ折り返す。
+        /// </summary>
+        private const float ExpressionRowParametersMinWidth = 300f;
 
         // ====================================================================
         // SerializedProperty（汎用部分）
@@ -1978,30 +1989,36 @@ namespace Hidano.FacialControl.Editor.Inspector
             row.style.borderLeftColor = new StyleColor(new Color(0.7f, 0.7f, 0.7f));
             row.style.borderLeftWidth = 2;
 
-            // ヘッダー行: 左にサムネイル、右に削除ボタン。「目線操作」トグルは AnimationClip スロット直下に移動した。
-            var headerRow = new VisualElement();
-            headerRow.style.flexDirection = FlexDirection.Row;
-            headerRow.style.alignItems = Align.FlexStart;
-            headerRow.style.justifyContent = Justify.SpaceBetween;
-            headerRow.style.marginBottom = 4;
+            // 名前ヘッダ: 行の区切りが分かるよう背景色付きで名前を表示し、右端に削除ボタンを置く。
+            var nameHeaderLabel = BuildExpressionNameHeader(row, nameProp != null ? nameProp.stringValue : string.Empty, exprIndex);
+
+            // 本体: サムネイル左・パラメータ右の横並び。Inspector が狭いときはパラメータをサムネイルの下へ折り返す。
+            var body = new VisualElement();
+            body.style.flexDirection = FlexDirection.Row;
+            body.style.flexWrap = Wrap.Wrap;
+            body.style.alignItems = Align.FlexStart;
+            body.style.marginBottom = 4;
 
             var thumbnailView = new ExpressionThumbnailView();
-            headerRow.Add(thumbnailView);
+            thumbnailView.style.marginRight = 8;
+            thumbnailView.style.marginBottom = 4;
+            body.Add(thumbnailView);
             var clipPropForThumbnail = entryProp.FindPropertyRelative("animationClip");
             BindExpressionThumbnail(
                 thumbnailView,
                 clipPropForThumbnail != null ? clipPropForThumbnail.objectReferenceValue as AnimationClip : null);
 
-            var removeButton = new Button(() => RemoveExpression(exprIndex))
-            {
-                text = "削除",
-            };
-            removeButton.style.marginLeft = 6;
-            headerRow.Add(removeButton);
+            var parameters = new VisualElement();
+            parameters.style.flexDirection = FlexDirection.Column;
+            parameters.style.flexGrow = 1f;
+            parameters.style.flexShrink = 1f;
+            parameters.style.flexBasis = 0f;
+            parameters.style.minWidth = ExpressionRowParametersMinWidth;
+            body.Add(parameters);
 
-            row.Add(headerRow);
+            row.Add(body);
 
-            // 名前
+            // パラメータは 名前 → Layer → AnimationClip → 遷移時間 の順に並べる。
             var nameField = new TextField("名前")
             {
                 name = ExpressionRowNameFieldName,
@@ -2021,14 +2038,24 @@ namespace Hidano.FacialControl.Editor.Inspector
                     }
                 });
             }
-            row.Add(nameField);
+            parameters.Add(nameField);
+
+            // Undo / Redo・clip 割り当て時の自動命名など、どの経路で name が変わってもヘッダと入力欄を追従させる。
+            if (nameProp != null)
+            {
+                row.TrackPropertyValue(nameProp, p =>
+                {
+                    string current = p.stringValue ?? string.Empty;
+                    SetExpressionNameHeaderText(nameHeaderLabel, current);
+                    nameField.SetValueWithoutNotify(current);
+                });
+            }
 
             var layerDropdown = new ExpressionLayerDropdownField
             {
                 label = "Layer",
                 name = ExpressionRowLayerDropdownName,
             };
-            layerDropdown.style.minWidth = 180;
             if (layerProp != null)
             {
                 string currentLayer = layerProp.stringValue ?? string.Empty;
@@ -2042,9 +2069,12 @@ namespace Hidano.FacialControl.Editor.Inspector
             {
                 layerDropdown.SetEnabled(false);
             }
-            row.Add(layerDropdown);
+            parameters.Add(layerDropdown);
 
-            // 遷移時間。目線操作では概念がないため非表示にする (データは互換目的で保持)。
+            // GazeConfig は専用セクションで opt-in 編集するため、Expression 行では共通 clip のみ表示する。
+            // clip 欄はパラメータ列、影響する SkinnedMeshRenderer の一覧は本体の下 (行の全幅) に置く。
+            BuildAnimationClipFields(row, parameters, exprIndex);
+
             var transitionDurationField = new Slider("遷移時間 (秒)", 0f, 1f)
             {
                 name = ExpressionRowTransitionDurationFieldName,
@@ -2054,11 +2084,7 @@ namespace Hidano.FacialControl.Editor.Inspector
             {
                 transitionDurationField.BindProperty(transitionDurationProp);
             }
-            row.Add(transitionDurationField);
-
-            // GazeConfig は専用セクションで opt-in 編集するため、Expression 行では共通 clip のみ表示する。
-            // BuildAnimationClipFields は AnimationClip スロットの直下に「目線操作」Toggle を配置する。
-            BuildAnimationClipFields(row, exprIndex);
+            parameters.Add(transitionDurationField);
 
             var overlaysProp = entryProp.FindPropertyRelative("overlays");
             row.Add(BuildOverlaysSectionForExpression(overlaysProp, exprIndex));
@@ -2075,6 +2101,41 @@ namespace Hidano.FacialControl.Editor.Inspector
             UpdateRowValidation(row, exprIndex);
 
             return row;
+        }
+
+        /// <summary>
+        /// Expression 行の先頭に名前ヘッダ（背景色付きの名前表示 + 削除ボタン）を追加し、名前の Label を返す。
+        /// 配色は共通 USS の <c>facial-control-expression-row-name-header</c> で Light / Dark 両テーマ向けに定義する。
+        /// </summary>
+        private Label BuildExpressionNameHeader(VisualElement row, string expressionName, int exprIndex)
+        {
+            var header = new VisualElement();
+            header.AddToClassList(ExpressionRowNameHeaderClass);
+
+            var label = new Label
+            {
+                // 名前に含まれる <...> をリッチテキストとして解釈せず、入力欄と同じ文字列を表示する
+                enableRichText = false,
+            };
+            label.AddToClassList(ExpressionRowNameHeaderLabelClass);
+            header.Add(label);
+
+            var removeButton = new Button(() => RemoveExpression(exprIndex))
+            {
+                text = "削除",
+            };
+            removeButton.style.marginLeft = 6;
+            removeButton.style.flexShrink = 0f;
+            header.Add(removeButton);
+
+            SetExpressionNameHeaderText(label, expressionName);
+            row.Add(header);
+            return label;
+        }
+
+        private static void SetExpressionNameHeaderText(Label label, string expressionName)
+        {
+            label.text = string.IsNullOrEmpty(expressionName) ? ExpressionRowNameHeaderEmptyText : expressionName;
         }
 
         private void BindExpressionThumbnail(ExpressionThumbnailView view, AnimationClip clip)
@@ -2555,7 +2616,7 @@ namespace Hidano.FacialControl.Editor.Inspector
             return null;
         }
 
-        private void BuildAnimationClipFields(VisualElement row, int exprIndex)
+        private void BuildAnimationClipFields(VisualElement row, VisualElement fieldContainer, int exprIndex)
         {
             var entryProp = _expressionsProperty.GetArrayElementAtIndex(exprIndex);
             var clipProp = entryProp.FindPropertyRelative("animationClip");
@@ -2580,7 +2641,7 @@ namespace Hidano.FacialControl.Editor.Inspector
                 };
                 clipField.RefreshDisplayLabel();
             }
-            row.Add(clipField);
+            fieldContainer.Add(clipField);
 
             var rendererSummary = new ListView
             {
