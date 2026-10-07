@@ -16,7 +16,7 @@
 | 設定 | 置き場所 | 内容 |
 |---|---|---|
 | Runtime Settings | `IFacialMocapRuntimeSettingsSO`（`AdapterRuntimeSettingsCollectionSO` の sub-asset） | listen ポート（既定 49983）、端末 IP とハンドシェイク、データ形式、staleness / fail-safe、視線の感度、頭部の有効化 |
-| BlendShape Mappings | binding | iFacialMocap 名 → メッシュ BlendShape 名。空なら 52 BlendShape を ARKit 正準名（`eyeBlink_L` → `eyeBlinkLeft` 等）へ自動変換 |
+| BlendShape Mappings | binding | iFacialMocap 名 → メッシュ BlendShape 名。空なら 52 BlendShape を ARKit 正準名（`eyeBlink_L` → `eyeBlinkLeft` 等）へ自動変換。1 件ごとに Enabled（オフなら出力しない）・Range（受信値 0〜1 の有効範囲を 0〜1 に再マップ）・Weight（再マップ後に掛ける倍率。結果は 0〜1 にクランプ）を設定できる。既定（Enabled / 0〜1 / 1）は素通し |
 | Gaze Invert Yaw / Pitch | binding | 視線の左右 / 上下反転（目ボーンの向きに依存するアバター固有設定） |
 
 登録される入力源 id:

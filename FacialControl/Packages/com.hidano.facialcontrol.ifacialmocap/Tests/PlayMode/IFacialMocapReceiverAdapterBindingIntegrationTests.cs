@@ -182,6 +182,75 @@ namespace Hidano.FacialControl.IFacialMocap.Tests.PlayMode
             Assert.DoesNotThrow(() => layerMask.Or(source.ContributeMask));
         }
 
+        [Test]
+        public void OnStart_DisabledMapping_IsExcludedFromContributeMask()
+        {
+            int port = ++s_port;
+            _settings = CreateSettings(port);
+            _binding = new IFacialMocapReceiverAdapterBinding { Slug = "ifm4" };
+            _binding.Configure(_settings, new List<IFacialMocapBlendShapeMapping>
+            {
+                new IFacialMocapBlendShapeMapping("jawOpen", "jawOpen"),
+                new IFacialMocapBlendShapeMapping("mouthSmile_L", "mouthSmileLeft", false, 0f, 1f, 1f),
+                // 同名の後続マッピングへ出力先が移らないこと
+                new IFacialMocapBlendShapeMapping("mouthSmile_L", "mouthSmileAlt"),
+            });
+            AdapterBuildContext ctx = CreateContext(new List<string> { "jawOpen", "mouthSmileLeft", "mouthSmileAlt" });
+
+            _binding.OnStart(in ctx);
+            _started = true;
+
+            Assert.That(_registry.TryResolve("ifm4", out IInputSource source), Is.True);
+            Assert.That(source.ContributeMask[0], Is.True, "有効なマッピングは出力対象。");
+            Assert.That(source.ContributeMask[1], Is.False, "オフのマッピングは値を出力しない。");
+            Assert.That(source.ContributeMask[2], Is.False, "オフにした名前の後続マッピングは採用しない。");
+        }
+
+        [UnityTest]
+        public IEnumerator OnFixedTick_TunedMapping_AppliesRangeThenWeight()
+        {
+            int port = ++s_port;
+            _settings = CreateSettings(port);
+            _binding = new IFacialMocapReceiverAdapterBinding { Slug = "ifm5" };
+            _binding.Configure(_settings, new List<IFacialMocapBlendShapeMapping>
+            {
+                // 範囲 0〜0.5 を 0〜1 に再マップ → ×0.5: 受信 0.25 → 0.5 → 0.25
+                new IFacialMocapBlendShapeMapping("jawOpen", "jawOpen", true, 0f, 0.5f, 0.5f),
+                // 旧アセット相当（tuningVersion 0）は従来どおり素通し: 受信 0.5 → 0.5
+                new IFacialMocapBlendShapeMapping { ifacialMocapName = "mouthSmile_L", blendShapeName = "mouthSmileLeft" },
+            });
+            AdapterBuildContext ctx = CreateContext(new List<string> { "jawOpen", "mouthSmileLeft" });
+
+            _binding.OnStart(in ctx);
+            _started = true;
+            Assert.That(_registry.TryResolve("ifm5", out IInputSource blendShapeSource), Is.True);
+
+            yield return new WaitForSeconds(0.2f);
+
+            _sender = new UdpClient();
+            byte[] data = Encoding.ASCII.GetBytes("jawOpen-25|mouthSmile_L-50|");
+            var endpoint = new IPEndPoint(IPAddress.Loopback, port);
+
+            var output = new float[2];
+            bool got = false;
+            for (int attempt = 0; attempt < 20 && !got; attempt++)
+            {
+                _sender.Send(data, data.Length, endpoint);
+                yield return new WaitForSeconds(0.05f);
+                _binding.OnFixedTick(0.02f);
+
+                Array.Clear(output, 0, output.Length);
+                if (blendShapeSource.TryWriteValues(output) && output[1] > 0.01f)
+                {
+                    got = true;
+                }
+            }
+
+            Assert.That(got, Is.True, "loopback の値が BlendShape 入力源へ届くべき。");
+            Assert.That(output[0], Is.EqualTo(0.25f).Within(0.02f));
+            Assert.That(output[1], Is.EqualTo(0.5f).Within(0.02f));
+        }
+
         [UnityTest]
         public IEnumerator Dispose_DestroysHost_AndUnregistersSources()
         {

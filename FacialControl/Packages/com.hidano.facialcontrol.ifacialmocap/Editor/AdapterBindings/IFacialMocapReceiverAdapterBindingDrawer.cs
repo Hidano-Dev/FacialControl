@@ -105,7 +105,8 @@ namespace Hidano.FacialControl.IFacialMocap.Editor.AdapterBindings
 
             root.Add(new HelpBox(
                 "BlendShape Mappings が空のとき、iFacialMocap の 52 BlendShape を ARKit 正準名"
-                + "（_L/_R → Left/Right）へ自動変換し、同名のメッシュ BlendShape に適用します。",
+                + "（_L/_R → Left/Right）へ自動変換し、同名のメッシュ BlendShape に適用します。"
+                + "各マッピングの Range は受信値の有効範囲を 0〜1 に再マップし、Weight を掛けて 0〜1 にクランプします。",
                 HelpBoxMessageType.Info));
         }
 

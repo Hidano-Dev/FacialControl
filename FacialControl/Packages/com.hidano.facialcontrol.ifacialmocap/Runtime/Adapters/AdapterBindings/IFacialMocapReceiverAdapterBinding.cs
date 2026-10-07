@@ -15,23 +15,83 @@ using UnityEngine;
 namespace Hidano.FacialControl.Adapters.AdapterBindings
 {
     /// <summary>
-    /// iFacialMocap 名 → メッシュ BlendShape 名の上書きマッピング 1 件。
+    /// iFacialMocap 名 → メッシュ BlendShape 名の上書きマッピング 1 件と、その受信値の調整
+    /// （使用する/しない・入力範囲 Min/Max・Weight）。
     /// 空リストのときは <see cref="IFacialMocapBlendShapeCatalog"/> の既定変換を全 52 件に適用する。
     /// </summary>
+    /// <remarks>
+    /// 調整値は <see cref="tuningVersion"/> が 0 のとき（調整項目の追加前に保存されたアセットや、
+    /// 空リストへ Inspector の「+」で最初に追加した 0 初期化の要素）は無視し、既定値（使用する / Min 0 /
+    /// Max 1 / Weight 1）で扱う。struct のフィールドは 0 初期化されるため、Max と Weight の既定値 1 を
+    /// フィールド値だけでは表せないことへの対処。Drawer で調整値を編集すると <see cref="CurrentTuningVersion"/>
+    /// が書き込まれる。コードから調整値を設定する場合は 6 引数の ctor を使う（オブジェクト初期化子で
+    /// <see cref="enabled"/> 等だけを代入すると <see cref="tuningVersion"/> が 0 のままで無視される）。
+    /// </remarks>
     [Serializable]
     public struct IFacialMocapBlendShapeMapping
     {
+        /// <summary>調整値（<see cref="enabled"/> / <see cref="rangeMin"/> / <see cref="rangeMax"/> / <see cref="weight"/>）が有効な版。</summary>
+        public const int CurrentTuningVersion = 1;
+
         [Tooltip("iFacialMocap の BlendShape 名（例: eyeBlink_L）。")]
         public string ifacialMocapName;
 
         [Tooltip("反映先メッシュ BlendShape 名。空ならスキップ。")]
         public string blendShapeName;
 
+        [Tooltip("オフのマッピングは値を出力しない（マッピング自体は残す）。")]
+        public bool enabled;
+
+        [Tooltip("受信値の有効範囲の下限（0〜1）。下限以下は 0 になる。")]
+        public float rangeMin;
+
+        [Tooltip("受信値の有効範囲の上限（0〜1）。上限以上は 1 になる。")]
+        public float rangeMax;
+
+        [Tooltip("範囲を再マップした値に掛ける倍率。結果は 0〜1 にクランプする。")]
+        public float weight;
+
+        [Tooltip("0 なら調整値を無視して既定値で扱う（旧アセット互換）。")]
+        public int tuningVersion;
+
+        /// <summary>調整値は既定（使用する / Min 0 / Max 1 / Weight 1）で作る。</summary>
         public IFacialMocapBlendShapeMapping(string ifacialMocapName, string blendShapeName)
+            : this(
+                ifacialMocapName,
+                blendShapeName,
+                true,
+                IFacialMocapValueTuning.DefaultMin,
+                IFacialMocapValueTuning.DefaultMax,
+                IFacialMocapValueTuning.DefaultWeight)
+        {
+        }
+
+        public IFacialMocapBlendShapeMapping(
+            string ifacialMocapName,
+            string blendShapeName,
+            bool enabled,
+            float rangeMin,
+            float rangeMax,
+            float weight)
         {
             this.ifacialMocapName = ifacialMocapName;
             this.blendShapeName = blendShapeName;
+            this.enabled = enabled;
+            this.rangeMin = rangeMin;
+            this.rangeMax = rangeMax;
+            this.weight = weight;
+            tuningVersion = CurrentTuningVersion;
         }
+
+        /// <summary>調整値が保存されているか（false なら既定値で扱う）。</summary>
+        public bool HasTuning => tuningVersion >= CurrentTuningVersion;
+
+        /// <summary>実際に使う「使用する/しない」。調整値が無ければ true。</summary>
+        public bool EffectiveEnabled => !HasTuning || enabled;
+
+        /// <summary>実際に使う調整値。調整値が無ければ <see cref="IFacialMocapValueTuning.Identity"/>。</summary>
+        public IFacialMocapValueTuning EffectiveTuning =>
+            HasTuning ? new IFacialMocapValueTuning(rangeMin, rangeMax, weight) : IFacialMocapValueTuning.Identity;
     }
 
     /// <summary>
@@ -107,6 +167,10 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
 
         [NonSerialized]
         private Dictionary<string, int> _ifmNameToSlot;
+
+        /// <summary>slot ごとの受信値調整（<see cref="_ifmNameToSlot"/> の値で引く）。</summary>
+        [NonSerialized]
+        private IFacialMocapValueTuning[] _slotTunings;
 
         [NonSerialized]
         private IFacialMocapFrame _frame;
@@ -310,17 +374,19 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
 
             _ifmNameToSlot = new Dictionary<string, int>(StringComparer.Ordinal);
             var mappingIndexToMeshIndex = new List<int>();
+            var slotTunings = new List<IFacialMocapValueTuning>();
+            var disabledNames = new HashSet<string>(StringComparer.Ordinal);
 
-            foreach (KeyValuePair<string, string> mapping in EnumerateMappings())
+            foreach (IFacialMocapBlendShapeMapping mapping in EnumerateMappings())
             {
-                string ifmName = mapping.Key;
-                string targetName = mapping.Value;
+                string ifmName = mapping.ifacialMocapName;
+                string targetName = mapping.blendShapeName;
                 if (string.IsNullOrEmpty(ifmName) || string.IsNullOrEmpty(targetName))
                 {
                     continue;
                 }
 
-                if (_ifmNameToSlot.ContainsKey(ifmName))
+                if (_ifmNameToSlot.ContainsKey(ifmName) || disabledNames.Contains(ifmName))
                 {
                     continue;
                 }
@@ -330,17 +396,28 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
                     continue;
                 }
 
+                // オフのマッピングは slot を割り当てず ContributeMask にも立てない（値を出力しない）。
+                // 名前は採用済みとして扱い、同じ iFacialMocap 名の後続マッピングへ出力先が移らないようにする。
+                if (!mapping.EffectiveEnabled)
+                {
+                    disabledNames.Add(ifmName);
+                    continue;
+                }
+
                 _ifmNameToSlot.Add(ifmName, mappingIndexToMeshIndex.Count);
                 mappingIndexToMeshIndex.Add(meshIndex);
+                slotTunings.Add(mapping.EffectiveTuning);
             }
 
             if (mappingIndexToMeshIndex.Count == 0)
             {
                 Debug.LogWarning(
-                    $"[IFacialMocapReceiverAdapterBinding] メッシュに一致する BlendShape マッピングが 0 件のため BlendShape 入力源を登録しません。slug='{Slug}'");
+                    $"[IFacialMocapReceiverAdapterBinding] 有効でメッシュに一致する BlendShape マッピングが 0 件（オフ {disabledNames.Count} 件）のため BlendShape 入力源を登録しません。slug='{Slug}'");
                 _ifmNameToSlot = null;
                 return false;
             }
+
+            _slotTunings = slotTunings.ToArray();
 
             // ContributeMask はメッシュの BlendShape 総数長で作る。null 渡しの自動生成に任せると
             // 長さが「最大 mapped index + 1」に縮み、末尾に非マッピング BlendShape を持つモデルで
@@ -368,14 +445,13 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
             return true;
         }
 
-        private IEnumerable<KeyValuePair<string, string>> EnumerateMappings()
+        private IEnumerable<IFacialMocapBlendShapeMapping> EnumerateMappings()
         {
             if (_mappings != null && _mappings.Count > 0)
             {
                 for (int i = 0; i < _mappings.Count; i++)
                 {
-                    IFacialMocapBlendShapeMapping entry = _mappings[i];
-                    yield return new KeyValuePair<string, string>(entry.ifacialMocapName, entry.blendShapeName);
+                    yield return _mappings[i];
                 }
 
                 yield break;
@@ -385,7 +461,7 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
             string[] catalog = IFacialMocapBlendShapeCatalog.Names;
             for (int i = 0; i < catalog.Length; i++)
             {
-                yield return new KeyValuePair<string, string>(
+                yield return new IFacialMocapBlendShapeMapping(
                     catalog[i],
                     IFacialMocapBlendShapeCatalog.ToArKitName(catalog[i]));
             }
@@ -453,7 +529,7 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
 
         private void ApplyFrame()
         {
-            if (_buffer != null && _inputSource != null && _ifmNameToSlot != null)
+            if (_buffer != null && _inputSource != null && _ifmNameToSlot != null && _slotTunings != null)
             {
                 List<IFacialMocapBlendShapeSample> samples = _frame.BlendShapes;
                 for (int i = 0; i < samples.Count; i++)
@@ -462,7 +538,7 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
                     if (_ifmNameToSlot.TryGetValue(sample.Name, out int slot))
                     {
                         float normalized = Mathf.Clamp01(sample.Value / IFacialMocapProtocol.BlendShapeMaxValue);
-                        _buffer.Write(slot, normalized);
+                        _buffer.Write(slot, _slotTunings[slot].Apply(normalized));
                     }
                 }
 
@@ -572,6 +648,7 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
             _gazeRight = null;
             _headSource = null;
             _ifmNameToSlot = null;
+            _slotTunings = null;
             _frame = null;
             _registry = null;
             _timeProvider = null;
