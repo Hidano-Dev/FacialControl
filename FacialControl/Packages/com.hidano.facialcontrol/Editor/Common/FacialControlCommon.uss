@@ -83,3 +83,29 @@
     -unity-font-style: bold;
     font-size: 13px;
 }
+
+/* Expression 行の名前ヘッダ。行の区切りが分かるよう背景色を付ける。
+   半透明の青なので Light / Dark どちらの背景でも見え、文字色はテーマ既定を使う。 */
+.facial-control-expression-row-name-header {
+    flex-direction: row;
+    align-items: center;
+    margin-bottom: 4px;
+    padding-left: 6px;
+    padding-right: 2px;
+    padding-top: 2px;
+    padding-bottom: 2px;
+    border-top-left-radius: 3px;
+    border-top-right-radius: 3px;
+    border-bottom-left-radius: 3px;
+    border-bottom-right-radius: 3px;
+    background-color: rgba(64, 128, 230, 0.3);
+}
+
+.facial-control-expression-row-name-header__label {
+    flex-grow: 1;
+    flex-shrink: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    -unity-font-style: bold;
+}

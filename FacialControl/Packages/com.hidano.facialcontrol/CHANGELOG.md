@@ -22,6 +22,7 @@
 
 ### Changed
 
+- `FacialCharacterProfileSO` Inspector の Expression List の行レイアウトを変更した。各行の先頭に背景色付きの名前ヘッダ（Light / Dark 両テーマで読める半透明の背景、Undo を含め名前の変更に追従、空なら「(名前未設定)」、削除ボタンもここへ移動）を置き、パラメータをサムネイルの右に 名前 → Layer → AnimationClip → 遷移時間 の順で並べる。Inspector の幅がサムネイル + パラメータ列の最小幅（300px）に満たないときは、パラメータ列をサムネイルの下へ折り返す。影響する SkinnedMeshRenderer の一覧と Overlays は従来どおり行の全幅で下に置く
 - Gaze チャネルの目ボーン path（`leftEyeBonePath` / `rightEyeBonePath`）を任意にした。空欄の側は実行時に Humanoid Avatar の `LeftEye` / `RightEye` を使い、初期回転は初期化時の目ボーンの姿勢、yaw / pitch 軸はキャラクター root の上方向 / 右方向から導出する。path を指定した側の挙動は従来どおり。非 Humanoid（または Eye 未マップ）で path も空の目は駆動せず、初期化ごとに警告を 1 回だけ出す。Humanoid の目ボーン・rest 回転・軸は初期化時に 1 回だけ取得し、入力源の登録変化で provider を作り直しても取り直さない。path 未指定のチャネルが複数ある場合、Humanoid の目ボーンを駆動するのは目ごとに入力源が解決できた先頭のチャネルだけで、path 指定のチャネルが同じボーンを指していればそちらを優先する
 - 目線タブの目ボーン欄を「(任意)」表記にし、空欄時の案内を情報表示に変更。参照モデルが Humanoid の目ボーンを持たない場合だけ警告を出す
 - `FacialCharacterProfileSO` Inspector の Adapter Bindings タブ — 各 Adapter を折り畳める `Foldout` で包んだ。ヘッダーに表示名と slug を出し、ヘッダーの `−` ボタンから確認のうえその Adapter を削除できる（型が解決できない行の削除もこのボタンに集約）。開閉状態は Adapter ごとに SessionState へ保存し、Inspector の再選択・ドメインリロード・Adapter の追加 / 削除 / 並べ替えの後も同じ Adapter に保持する（Editor 再起動でリセット）。フッターに「すべて展開」「すべて折り畳む」ボタンを追加した
