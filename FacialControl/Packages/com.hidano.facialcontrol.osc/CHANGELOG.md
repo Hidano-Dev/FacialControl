@@ -10,6 +10,7 @@
 - Gaze 広告（`/_facialcontrol/gaze`）に、チャネルごとの目ボーン path（`bone.left=<path>` / `bone.right=<path>`、送信側で指定した側のみ）と可動範囲（`range=<lookUp>,<lookDown>,<outerYaw>,<innerYaw>`、毎回）を属性ペアとして載せるようにした。`OscSenderAdapterBinding` は `IGazeChannelSettingsConsumer` で Profile の目線設定を受け取り、heartbeat のたびに設定の変化を確かめて、変わっていれば広告を組み直す
 - `OscReceiverAdapterBinding` が広告の属性ペアを `IGazeChannelOverrideProvider` として公開し、`FacialController` がローカルの目線設定より優先して使う。FacialControl 同士の送受信では、受信側は目線タブを設定しなくても送信側と同じ目ボーン・可動範囲で目線が動く。属性ペアの解析は広告の中身が変わったときだけ行う
 - `GazeChannelOverrideTable` — 広告の属性ペアからチャネルごとの上書きを保持し、内容が変わったときだけ version を進める
+- `OscReceiverAdapterBinding` に **対象レイヤー**（`TargetLayer`）を追加した。起動時に、対象レイヤーの入力源宣言へ受信 slug を自動で補う（Profile アセットは書き換えない）。未指定ならプロファイルの先頭レイヤー、指定したレイヤーが無ければ補わず警告を 1 回出す。slug がどこかのレイヤーに手で宣言済みなら何もしない（従来の手動宣言はそのまま動く）。Inspector ではプロファイルのレイヤー一覧から選ぶ
 
 ### Changed
 

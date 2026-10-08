@@ -324,10 +324,16 @@ namespace Hidano.FacialControl.Adapters.Playable
             // VContainer の per-FC child scope を無条件で build する。
             // 各 binding の OnStart は VContainer の IInitializable 経由で同期的に呼ばれ、
             // 自身の IInputSource を child scope の InputSourceRegistry に slug ベースで登録する。
-            BuildAdapterBindingsChildScope(profile, blendShapeNames);
+            IReadOnlyList<AdapterBindingBase> bindings = BuildAdapterBindingsChildScope(profile, blendShapeNames);
 
-            // profile.LayerInputSources を child scope 内 InputSourceRegistry 経由で IInputSource に解決する。
-            var additionalSources = ResolveLayerInputSourcesFromRegistry(profile, out List<string> declaredSourceIds);
+            // binding が「既存レイヤーへ足す」と宣言した入力源を補う。Profile アセットは書き換えない。
+            InputSourceDeclaration[][] layerInputSources = ResolveEffectiveLayerInputSources(profile, bindings);
+
+            // レイヤー宣言を child scope 内 InputSourceRegistry 経由で IInputSource に解決する。
+            var additionalSources = ResolveLayerInputSourcesFromRegistry(
+                profile,
+                layerInputSources,
+                out List<string> declaredSourceIds);
 
             // overlay suppress の active 取得を系2(ExpressionTriggerInputSource)ベースにする。
             // OverlayInputSource は child scope build 時点（additionalSources 解決前）に
@@ -347,7 +353,7 @@ namespace Hidano.FacialControl.Adapters.Playable
             // 目線の目ボーン provider を構築。child scope build 済み・_inputSourceRegistry キャッシュ済みで、
             // 各 binding が登録した gaze 入力源(osc:eye_look 等)を registry から解決できる。
             SetupGazeBoneProvider();
-            SetupObservationAndRebindIntegration(profile, additionalSources);
+            SetupObservationAndRebindIntegration(profile, layerInputSources, additionalSources);
 
             // Cleanup() が冒頭で登録を解除しているため、初期化完了後に登録し直す。
             FacialControllerRendererOwnership.Register(this, renderers);
@@ -355,7 +361,7 @@ namespace Hidano.FacialControl.Adapters.Playable
             _isInitialized = true;
         }
 
-        private void BuildAdapterBindingsChildScope(FacialProfile profile, string[] blendShapeNames)
+        private IReadOnlyList<AdapterBindingBase> BuildAdapterBindingsChildScope(FacialProfile profile, string[] blendShapeNames)
         {
             // 無効の binding は child scope に載せず、gaze 設定・slug 解決の対象からも外す（設定値は SO に残る）。
             IReadOnlyList<AdapterBindingBase> bindings = AdapterBindingBase.SelectEnabled(
@@ -390,7 +396,7 @@ namespace Hidano.FacialControl.Adapters.Playable
             {
                 Debug.LogWarning(
                     "[FacialControl] FacialController: FacialControlAppLifetimeScope が取得できないため child scope build をスキップします。");
-                return;
+                return bindings;
             }
 
             // _characterSO が null または AdapterBindings が空でも child scope は build する
@@ -414,6 +420,22 @@ namespace Hidano.FacialControl.Adapters.Playable
                     $"[FacialControl] FacialController: child LifetimeScope の build に失敗しました: {ex}");
                 _childLifetimeScope = null;
             }
+
+            return bindings;
+        }
+
+        private static InputSourceDeclaration[][] ResolveEffectiveLayerInputSources(
+            FacialProfile profile,
+            IReadOnlyList<AdapterBindingBase> bindings)
+        {
+            var warnings = new List<string>();
+            InputSourceDeclaration[][] result = TargetLayerInputSourceResolver.Resolve(profile, bindings, warnings);
+            for (int i = 0; i < warnings.Count; i++)
+            {
+                Debug.LogWarning($"[FacialControl] FacialController: {warnings[i]}");
+            }
+
+            return result;
         }
 
         private void ConfigureAdapterBindingsWithGazeChannels(IReadOnlyList<AdapterBindingBase> bindings)
@@ -534,6 +556,7 @@ namespace Hidano.FacialControl.Adapters.Playable
 
         private List<(int layerIdx, IInputSource source, float weight)> ResolveLayerInputSourcesFromRegistry(
             FacialProfile profile,
+            InputSourceDeclaration[][] layerInputSources,
             out List<string> declaredIds)
         {
             var result = new List<(int layerIdx, IInputSource source, float weight)>();
@@ -543,7 +566,7 @@ namespace Hidano.FacialControl.Adapters.Playable
                 return result;
             }
 
-            var layerInputSourcesSpan = profile.LayerInputSources.Span;
+            ReadOnlySpan<InputSourceDeclaration[]> layerInputSourcesSpan = layerInputSources;
             int layerCount = profile.Layers.Length;
             int declarationLayers = layerInputSourcesSpan.Length;
             int upper = layerCount < declarationLayers ? layerCount : declarationLayers;
@@ -929,6 +952,7 @@ namespace Hidano.FacialControl.Adapters.Playable
 
         private void SetupObservationAndRebindIntegration(
             FacialProfile profile,
+            InputSourceDeclaration[][] layerInputSources,
             IReadOnlyList<(int layerIdx, IInputSource source, float weight)> additionalSources)
         {
             _expressionUseCase.SetActivationObserver(_inputObservationBus);
@@ -945,7 +969,7 @@ namespace Hidano.FacialControl.Adapters.Playable
 
             WireTriggerObserversForRegisteredSources();
             WireTriggerObserversForResolvedSources(additionalSources);
-            SubscribeDeclaredLayerInputSources(profile);
+            SubscribeDeclaredLayerInputSources(profile, layerInputSources);
             SubscribeGazeInputSources();
         }
 
@@ -1000,9 +1024,11 @@ namespace Hidano.FacialControl.Adapters.Playable
             }
         }
 
-        private void SubscribeDeclaredLayerInputSources(FacialProfile profile)
+        private void SubscribeDeclaredLayerInputSources(
+            FacialProfile profile,
+            InputSourceDeclaration[][] layerInputSources)
         {
-            var layerInputSourcesSpan = profile.LayerInputSources.Span;
+            ReadOnlySpan<InputSourceDeclaration[]> layerInputSourcesSpan = layerInputSources;
             int upper = Math.Min(profile.Layers.Length, layerInputSourcesSpan.Length);
             for (int layerIdx = 0; layerIdx < upper; layerIdx++)
             {

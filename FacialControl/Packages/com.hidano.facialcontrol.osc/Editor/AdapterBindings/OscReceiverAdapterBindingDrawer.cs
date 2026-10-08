@@ -21,6 +21,15 @@ namespace Hidano.FacialControl.Osc.Editor.AdapterBindings
         private const string SlugFieldName = "Slug";
         private const string PortFieldName = "_port";
         private const string MappingsFieldName = "_mappings";
+        private const string TargetLayerFieldName = "_targetLayer";
+        private const string LayersFieldName = "_layers";
+        private const string LayerNameFieldName = "name";
+
+        /// <summary>対象レイヤー未指定（先頭レイヤーへ補う）を表す選択肢。</summary>
+        public const string TargetLayerUnspecifiedChoice = "(未指定: 先頭レイヤー)";
+
+        /// <summary>プロファイルに無いレイヤー名が設定されているときに選択肢へ付ける接尾辞。</summary>
+        public const string TargetLayerMissingSuffix = " (見つかりません)";
 
         private const string EntryModeFieldName = "mode";
         private const string EntryExpressionIdFieldName = "expressionId";
@@ -31,6 +40,7 @@ namespace Hidano.FacialControl.Osc.Editor.AdapterBindings
 
         public const string RootClassName = "facial-control-osc-adapter-binding";
         public const string PortFieldElementName = "osc-adapter-binding-port";
+        public const string TargetLayerFieldElementName = "osc-adapter-binding-target-layer";
         public const string AdvancedFoldoutName = "osc-adapter-binding-advanced";
         public const string AdvancedSettingsFieldElementName = "osc-adapter-binding-advanced-settings";
         public const string LegacyMigrationContainerName = "osc-adapter-binding-legacy-migration";
@@ -56,6 +66,7 @@ namespace Hidano.FacialControl.Osc.Editor.AdapterBindings
 
             AddSlugField(root, property);
             AddPortField(root, property);
+            AddTargetLayerField(root, property);
             OscAdapterBindingSettingsSection.AddLegacyMigrationBox(
                 root,
                 property,
@@ -88,6 +99,135 @@ namespace Hidano.FacialControl.Osc.Editor.AdapterBindings
                 name = PortFieldElementName,
                 tooltip = "この UDP ポートで受信します。受信は常に全インターフェース (0.0.0.0) で行います。",
             });
+        }
+
+        private static void AddTargetLayerField(VisualElement root, SerializedProperty property)
+        {
+            SerializedProperty targetProp = property.FindPropertyRelative(TargetLayerFieldName);
+            if (targetProp == null)
+            {
+                AddMissingFieldLabel(root, TargetLayerFieldName);
+                return;
+            }
+
+            SerializedObject serializedObject = property.serializedObject;
+            var dropdown = new DropdownField("対象レイヤー")
+            {
+                name = TargetLayerFieldElementName,
+                tooltip = "受信値を足す既存レイヤー。起動時にこのレイヤーの入力源へ slug を自動で補う（Profile は書き換えない）。"
+                    + "slug がどこかのレイヤーに宣言済みなら何もしない。未指定なら先頭レイヤー。",
+            };
+
+            List<string> layerNames = new List<string>();
+
+            void Refresh()
+            {
+                serializedObject.Update();
+                layerNames = CollectLayerNames(serializedObject);
+                List<string> choices = BuildTargetLayerChoices(layerNames, targetProp.stringValue, out int selected);
+                dropdown.choices = choices;
+                dropdown.SetValueWithoutNotify(choices[selected]);
+            }
+
+            dropdown.RegisterValueChangedCallback(_ =>
+            {
+                string next = ResolveTargetLayerValue(layerNames, targetProp.stringValue, dropdown.index);
+                if (next == targetProp.stringValue)
+                {
+                    return;
+                }
+
+                targetProp.stringValue = next;
+                serializedObject.ApplyModifiedProperties();
+                Refresh();
+            });
+
+            Refresh();
+            dropdown.TrackPropertyValue(targetProp, _ => Refresh());
+            SerializedProperty layersProp = serializedObject.FindProperty(LayersFieldName);
+            if (layersProp != null)
+            {
+                dropdown.TrackPropertyValue(layersProp, _ => Refresh());
+            }
+
+            root.Add(dropdown);
+        }
+
+        /// <summary>
+        /// 対象レイヤーの選択肢を組み立てる。先頭は未指定、続いてプロファイルのレイヤー名。
+        /// 現在値がレイヤー一覧に無ければ <see cref="TargetLayerMissingSuffix"/> 付きで末尾に残す（値を勝手に消さない）。
+        /// </summary>
+        /// <param name="layerNames">プロファイルのレイヤー名一覧。</param>
+        /// <param name="current">現在の設定値。</param>
+        /// <param name="selectedIndex">現在値に対応する選択肢の位置。</param>
+        public static List<string> BuildTargetLayerChoices(
+            IReadOnlyList<string> layerNames,
+            string current,
+            out int selectedIndex)
+        {
+            var choices = new List<string> { TargetLayerUnspecifiedChoice };
+            selectedIndex = 0;
+            if (layerNames != null)
+            {
+                for (int i = 0; i < layerNames.Count; i++)
+                {
+                    choices.Add(layerNames[i]);
+                    if (selectedIndex == 0 && !string.IsNullOrWhiteSpace(current)
+                        && string.Equals(layerNames[i], current, StringComparison.Ordinal))
+                    {
+                        selectedIndex = choices.Count - 1;
+                    }
+                }
+            }
+
+            if (selectedIndex == 0 && !string.IsNullOrWhiteSpace(current))
+            {
+                choices.Add(current + TargetLayerMissingSuffix);
+                selectedIndex = choices.Count - 1;
+            }
+
+            return choices;
+        }
+
+        /// <summary>
+        /// <see cref="BuildTargetLayerChoices"/> の選択肢の位置から、保存する対象レイヤー名を求める。
+        /// 未指定は空文字、見つからない現在値の選択肢はその現在値を返す。
+        /// </summary>
+        public static string ResolveTargetLayerValue(IReadOnlyList<string> layerNames, string current, int choiceIndex)
+        {
+            int layerCount = layerNames != null ? layerNames.Count : 0;
+            if (choiceIndex <= 0)
+            {
+                return string.Empty;
+            }
+
+            if (choiceIndex <= layerCount)
+            {
+                return layerNames[choiceIndex - 1];
+            }
+
+            return current ?? string.Empty;
+        }
+
+        private static List<string> CollectLayerNames(SerializedObject serializedObject)
+        {
+            var names = new List<string>();
+            SerializedProperty layersProp = serializedObject.FindProperty(LayersFieldName);
+            if (layersProp == null || !layersProp.isArray)
+            {
+                return names;
+            }
+
+            for (int i = 0; i < layersProp.arraySize; i++)
+            {
+                SerializedProperty nameProp = layersProp.GetArrayElementAtIndex(i).FindPropertyRelative(LayerNameFieldName);
+                if (nameProp != null && !string.IsNullOrWhiteSpace(nameProp.stringValue))
+                {
+                    names.Add(nameProp.stringValue);
+                }
+            }
+
+            return names;
         }
 
         private static void AddMappingsList(VisualElement root, SerializedProperty property)

@@ -35,7 +35,7 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
     /// </remarks>
     [Serializable]
     [FacialAdapterBinding(displayName: "OSC Receiver")]
-    public sealed class OscReceiverAdapterBinding : AdapterBindingBase, IGazeChannelConsumer, IGazeSourceProvider, IOscResolvedMessageHandler, IGazeChannelOverrideProvider
+    public sealed class OscReceiverAdapterBinding : AdapterBindingBase, IGazeChannelConsumer, IGazeSourceProvider, IOscResolvedMessageHandler, IGazeChannelOverrideProvider, IAdapterBindingTargetLayerInput
     {
         public enum MappingOrigin
         {
@@ -70,6 +70,13 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
 
         [SerializeField]
         private List<OscMappingEntry> _mappings = new List<OscMappingEntry>();
+
+        /// <summary>
+        /// 受信値を足す既存レイヤーの名前。起動時にこのレイヤーの入力源宣言へ slug を自動で補う
+        /// （Profile アセットは書き換えない）。空ならプロファイルの先頭レイヤー。
+        /// </summary>
+        [SerializeField]
+        private string _targetLayer;
 
         /// <summary>
         /// 受信の上級設定 (sub-asset)。割り当ては任意で、未割り当てなら既定値で動く。
@@ -429,6 +436,19 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
             get => _mappings;
             set => _mappings = value ?? new List<OscMappingEntry>();
         }
+
+        /// <summary>受信値を足す既存レイヤーの名前。null / 空ならプロファイルの先頭レイヤー。</summary>
+        public string TargetLayer
+        {
+            get => _targetLayer;
+            set => _targetLayer = value;
+        }
+
+        /// <inheritdoc />
+        string IAdapterBindingTargetLayerInput.TargetLayerName => _targetLayer;
+
+        /// <inheritdoc />
+        string IAdapterBindingTargetLayerInput.TargetLayerInputSourceId => Slug;
 
         public FailSafeMode FailSafeMode
         {
