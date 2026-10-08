@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using Hidano.FacialControl.Adapters.ScriptableObject.Serializable;
 using Hidano.FacialControl.Domain.Adapters;
+using Hidano.FacialControl.Domain.Services;
 
 namespace Hidano.FacialControl.Editor.Windows.Routing.Logic
 {
@@ -52,7 +53,7 @@ namespace Hidano.FacialControl.Editor.Windows.Routing.Logic
                 _invalidIdValidator.Validate(profile, validCanonicalIds);
 
             AdapterNodeData[] adapterNodes = BuildAdapterNodes(sourcePorts, bindings);
-            WiringEdgeData[] edges = BuildEdges(layers, invalidDeclarations);
+            WiringEdgeData[] edges = BuildEdges(layers, bindings, invalidDeclarations, validCanonicalIds);
             LayerNodeData[] layerNodes = BuildLayerNodes(layers, edges, sourcePorts);
             DanglingEdgeData[] invalidEdges = BuildInvalidEdges(invalidDeclarations);
             OutputNodeData outputNode = BuildOutputNode(layerNodes);
@@ -168,7 +169,8 @@ namespace Hidano.FacialControl.Editor.Windows.Routing.Logic
                     new LayerInputData(
                         edge.CanonicalId,
                         ResolveLabel(labelByCanonicalId, edge.CanonicalId),
-                        edge.Weight));
+                        edge.Weight,
+                        edge.IsAutoDeclared));
             }
 
             var layerNodes = new LayerNodeData[layers.Count];
@@ -222,9 +224,14 @@ namespace Hidano.FacialControl.Editor.Windows.Routing.Logic
                 : canonicalId.Substring(separatorIndex + 1);
         }
 
+        /// <summary>
+        /// Profile アセットの宣言から配線を作り、続けてランタイムが自動で補う配線（<see cref="IAdapterBindingTargetLayerInput"/>）を足す。
+        /// </summary>
         private static WiringEdgeData[] BuildEdges(
             IReadOnlyList<LayerDefinitionSerializable> layers,
-            IReadOnlyList<InvalidDeclarationRef> invalidDeclarations)
+            IReadOnlyList<AdapterBindingBase> bindings,
+            IReadOnlyList<InvalidDeclarationRef> invalidDeclarations,
+            ISet<string> validCanonicalIds)
         {
             if (layers == null || layers.Count == 0)
             {
@@ -262,7 +269,60 @@ namespace Hidano.FacialControl.Editor.Windows.Routing.Logic
                 }
             }
 
+            AddAutoDeclaredEdges(layers, bindings, validCanonicalIds, edges);
             return edges.ToArray();
+        }
+
+        /// <summary>
+        /// ランタイムが自動で補う配線を <see cref="TargetLayerInputSourceResolver"/> と同じ規則で足す。
+        /// ランタイムと同じレイヤー（変換で読み捨てられるレイヤーを除いたもの）と宣言で判定し、
+        /// 結果を Profile アセットのレイヤーインデックスへ戻す。描画できる入力源 id のものだけを足す。
+        /// </summary>
+        private static void AddAutoDeclaredEdges(
+            IReadOnlyList<LayerDefinitionSerializable> layers,
+            IReadOnlyList<AdapterBindingBase> bindings,
+            ISet<string> validCanonicalIds,
+            List<WiringEdgeData> edges)
+        {
+            int[] sourceIndices = FacialCharacterProfileConverter.GetConvertedLayerSourceIndices(layers);
+            var layerNames = new string[sourceIndices.Length];
+            var declaredIds = new List<string>();
+            for (int i = 0; i < sourceIndices.Length; i++)
+            {
+                LayerDefinitionSerializable layer = layers[sourceIndices[i]];
+                layerNames[i] = layer.name;
+                IList<InputSourceDeclarationSerializable> declarations = layer.inputSources;
+                if (declarations == null)
+                {
+                    continue;
+                }
+
+                for (int d = 0; d < declarations.Count; d++)
+                {
+                    string id = declarations[d]?.id;
+                    if (!string.IsNullOrWhiteSpace(id))
+                    {
+                        declaredIds.Add(id);
+                    }
+                }
+            }
+
+            IReadOnlyList<TargetLayerInputAssignment> assignments =
+                TargetLayerInputSourceResolver.ResolveConfigured(layerNames, declaredIds, bindings, null);
+            for (int i = 0; i < assignments.Count; i++)
+            {
+                TargetLayerInputAssignment assignment = assignments[i];
+                if (!validCanonicalIds.Contains(assignment.InputSourceId))
+                {
+                    continue;
+                }
+
+                edges.Add(new WiringEdgeData(
+                    sourceIndices[assignment.LayerIndex],
+                    assignment.InputSourceId,
+                    TargetLayerInputSourceResolver.AutoDeclarationWeight,
+                    isAutoDeclared: true));
+            }
         }
 
         private static DanglingEdgeData[] BuildInvalidEdges(IReadOnlyList<InvalidDeclarationRef> invalidDeclarations)

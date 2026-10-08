@@ -2,6 +2,12 @@
 
 [Keep a Changelog](https://keepachangelog.com/ja/1.1.0/) の形式に準拠し、[セマンティックバージョニング](https://semver.org/lang/ja/) に従う。
 
+## [Unreleased]
+
+### Added
+
+- 対象レイヤーを指定した Adapter（OSC Receiver 等）がランタイムで自動宣言する入力源を、半透明の読み取り専用エッジで表示するようにした。レイヤーノードの入力一覧には「(自動)」付きで出し、weight は編集できない。そのレイヤーへ手動で配線すると手動の宣言になり、自動のエッジは消える
+
 ## [1.0.0] - 2026-09-26
 
 初回リリース。`com.hidano.facialcontrol` の Editor に含まれていたルーティングエディタを独立パッケージとして分離した。

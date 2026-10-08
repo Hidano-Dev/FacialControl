@@ -56,10 +56,82 @@ namespace Hidano.FacialControl.Domain.Services
                     : Array.Empty<InputSourceDeclaration>();
             }
 
-            if (bindings == null)
+            if (!HasTargetLayerBinding(bindings))
             {
                 return result;
             }
+
+            var layerNames = new string[layerCount];
+            var declaredIds = new HashSet<string>(StringComparer.Ordinal);
+            for (int l = 0; l < layerCount; l++)
+            {
+                layerNames[l] = layers[l].Name;
+                InputSourceDeclaration[] layerDeclarations = result[l];
+                for (int d = 0; d < layerDeclarations.Length; d++)
+                {
+                    declaredIds.Add(layerDeclarations[d].Id);
+                }
+            }
+
+            List<TargetLayerInputAssignment> assignments =
+                ResolveCore(layerNames, declaredIds, bindings, useConfiguredId: false, warnings);
+            for (int i = 0; i < assignments.Count; i++)
+            {
+                TargetLayerInputAssignment assignment = assignments[i];
+                result[assignment.LayerIndex] = Append(
+                    result[assignment.LayerIndex],
+                    new InputSourceDeclaration(assignment.InputSourceId, AutoDeclarationWeight, null));
+            }
+
+            return result;
+        }
+
+        /// <summary>
+        /// 起動前（Editor のルーティング表示など）に、binding の入力源がどのレイヤーへ自動で補われるかを求める。
+        /// </summary>
+        /// <remarks>
+        /// 規則は <see cref="Resolve"/> と同じ。入力源 id には起動状態に依存しない
+        /// <see cref="IAdapterBindingTargetLayerInput.ConfiguredTargetLayerInputSourceId"/> を使う。
+        /// </remarks>
+        /// <param name="layerNames">プロファイルのレイヤー名（宣言順）。null 要素は空名として扱う。</param>
+        /// <param name="declaredInputSourceIds">いずれかのレイヤーに手動で宣言済みの入力源 id。null 可。</param>
+        /// <param name="bindings">binding 一覧（null 要素・無効 binding は無視する）。null 可。</param>
+        /// <param name="warnings">補えなかった理由を追加する一覧。null なら警告を集めない。</param>
+        /// <returns>補う宣言の一覧（binding の並び順）。</returns>
+        public static IReadOnlyList<TargetLayerInputAssignment> ResolveConfigured(
+            IReadOnlyList<string> layerNames,
+            IEnumerable<string> declaredInputSourceIds,
+            IReadOnlyList<AdapterBindingBase> bindings,
+            List<string> warnings)
+        {
+            if (bindings == null)
+            {
+                return Array.Empty<TargetLayerInputAssignment>();
+            }
+
+            var declaredIds = declaredInputSourceIds != null
+                ? new HashSet<string>(declaredInputSourceIds, StringComparer.Ordinal)
+                : new HashSet<string>(StringComparer.Ordinal);
+            return ResolveCore(
+                layerNames ?? Array.Empty<string>(),
+                declaredIds,
+                bindings,
+                useConfiguredId: true,
+                warnings);
+        }
+
+        /// <summary>
+        /// 補う規則の本体。<paramref name="declaredIds"/> には補った id を追加する（同じ id を 2 回補わない）。
+        /// </summary>
+        private static List<TargetLayerInputAssignment> ResolveCore(
+            IReadOnlyList<string> layerNames,
+            HashSet<string> declaredIds,
+            IReadOnlyList<AdapterBindingBase> bindings,
+            bool useConfiguredId,
+            List<string> warnings)
+        {
+            var assignments = new List<TargetLayerInputAssignment>();
+            int layerCount = layerNames.Count;
 
             for (int b = 0; b < bindings.Count; b++)
             {
@@ -69,8 +141,8 @@ namespace Hidano.FacialControl.Domain.Services
                     continue;
                 }
 
-                string id = target.TargetLayerInputSourceId;
-                if (string.IsNullOrWhiteSpace(id) || IsDeclared(result, layerCount, id))
+                string id = useConfiguredId ? target.ConfiguredTargetLayerInputSourceId : target.TargetLayerInputSourceId;
+                if (string.IsNullOrWhiteSpace(id) || declaredIds.Contains(id))
                 {
                     continue;
                 }
@@ -83,7 +155,7 @@ namespace Hidano.FacialControl.Domain.Services
                 }
 
                 string layerName = target.TargetLayerName;
-                int layerIndex = string.IsNullOrWhiteSpace(layerName) ? 0 : IndexOfLayer(layers, layerName);
+                int layerIndex = string.IsNullOrWhiteSpace(layerName) ? 0 : IndexOfLayer(layerNames, layerName);
                 if (layerIndex < 0)
                 {
                     warnings?.Add(
@@ -92,37 +164,36 @@ namespace Hidano.FacialControl.Domain.Services
                     continue;
                 }
 
-                result[layerIndex] = Append(
-                    result[layerIndex],
-                    new InputSourceDeclaration(id, AutoDeclarationWeight, null));
+                declaredIds.Add(id);
+                assignments.Add(new TargetLayerInputAssignment(layerIndex, id));
             }
 
-            return result;
+            return assignments;
         }
 
-        private static bool IsDeclared(InputSourceDeclaration[][] declarations, int layerCount, string id)
+        private static bool HasTargetLayerBinding(IReadOnlyList<AdapterBindingBase> bindings)
         {
-            int upper = Math.Min(layerCount, declarations.Length);
-            for (int l = 0; l < upper; l++)
+            if (bindings == null)
             {
-                InputSourceDeclaration[] layerDeclarations = declarations[l];
-                for (int d = 0; d < layerDeclarations.Length; d++)
+                return false;
+            }
+
+            for (int b = 0; b < bindings.Count; b++)
+            {
+                if (bindings[b] is IAdapterBindingTargetLayerInput && !bindings[b].Disabled)
                 {
-                    if (string.Equals(layerDeclarations[d].Id, id, StringComparison.Ordinal))
-                    {
-                        return true;
-                    }
+                    return true;
                 }
             }
 
             return false;
         }
 
-        private static int IndexOfLayer(ReadOnlySpan<LayerDefinition> layers, string name)
+        private static int IndexOfLayer(IReadOnlyList<string> layerNames, string name)
         {
-            for (int i = 0; i < layers.Length; i++)
+            for (int i = 0; i < layerNames.Count; i++)
             {
-                if (string.Equals(layers[i].Name, name, StringComparison.Ordinal))
+                if (string.Equals(layerNames[i], name, StringComparison.Ordinal))
                 {
                     return i;
                 }
@@ -138,5 +209,23 @@ namespace Hidano.FacialControl.Domain.Services
             appended[source.Length] = item;
             return appended;
         }
+    }
+
+    /// <summary>
+    /// <see cref="TargetLayerInputSourceResolver"/> が自動で補う 1 件の宣言（どのレイヤーへどの入力源 id を足すか）。
+    /// </summary>
+    public readonly struct TargetLayerInputAssignment
+    {
+        public TargetLayerInputAssignment(int layerIndex, string inputSourceId)
+        {
+            LayerIndex = layerIndex;
+            InputSourceId = inputSourceId ?? string.Empty;
+        }
+
+        /// <summary>補う先のレイヤーのインデックス。</summary>
+        public int LayerIndex { get; }
+
+        /// <summary>補う入力源 id。</summary>
+        public string InputSourceId { get; }
     }
 }

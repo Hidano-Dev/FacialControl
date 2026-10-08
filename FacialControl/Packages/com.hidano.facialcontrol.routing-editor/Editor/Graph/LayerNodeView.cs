@@ -19,6 +19,10 @@ namespace Hidano.FacialControl.RoutingEditor.Graph
         public const string NameFieldName = "routing-layer-name";
         public const string InputsHeaderName = "routing-layer-inputs-header";
         public const string InputsHeaderText = "Inputs";
+        public const string AutoDeclaredSuffix = "(自動)";
+        public const string AutoDeclaredTooltip =
+            "binding の対象レイヤー指定により、起動時に自動で宣言される入力源。"
+            + "このレイヤーへ手動で配線すると weight を編集できる。";
         public const string WeightFieldClassName = "routing-layer-input-weight";
         public const string TypeBadgeName = "routing-layer-type-badge";
         public const string TypeBadgeText = "Layer";
@@ -135,7 +139,7 @@ namespace Hidano.FacialControl.RoutingEditor.Graph
             row.style.flexDirection = FlexDirection.Row;
             row.style.alignItems = Align.Center;
 
-            var label = new Label(input.Label);
+            var label = new Label(input.IsAutoDeclared ? $"{input.Label} {AutoDeclaredSuffix}" : input.Label);
             label.style.flexGrow = 1f;
             label.style.marginRight = 6f;
             row.Add(label);
@@ -149,7 +153,17 @@ namespace Hidano.FacialControl.RoutingEditor.Graph
             };
             weightField.AddToClassList(WeightFieldClassName);
             weightField.style.width = 60f;
-            weightField.RegisterValueChangedCallback(evt => ApplyInputWeight(input.CanonicalId, evt.newValue));
+            if (input.IsAutoDeclared)
+            {
+                // Profile アセットに宣言が無いので weight は書き込めない。手動で配線すると編集できる。
+                row.tooltip = AutoDeclaredTooltip;
+                weightField.SetEnabled(false);
+            }
+            else
+            {
+                weightField.RegisterValueChangedCallback(evt => ApplyInputWeight(input.CanonicalId, evt.newValue));
+            }
+
             row.Add(weightField);
 
             return row;

@@ -11,6 +11,7 @@
 - `OscReceiverAdapterBinding` が広告の属性ペアを `IGazeChannelOverrideProvider` として公開し、`FacialController` がローカルの目線設定より優先して使う。FacialControl 同士の送受信では、受信側は目線タブを設定しなくても送信側と同じ目ボーン・可動範囲で目線が動く。属性ペアの解析は広告の中身が変わったときだけ行う
 - `GazeChannelOverrideTable` — 広告の属性ペアからチャネルごとの上書きを保持し、内容が変わったときだけ version を進める
 - `OscReceiverAdapterBinding` に **対象レイヤー**（`TargetLayer`）を追加した。起動時に、対象レイヤーの入力源宣言へ受信 slug を自動で補う（Profile アセットは書き換えない）。未指定ならプロファイルの先頭レイヤー、指定したレイヤーが無ければ補わず初期化のたびに警告を出す。slug がどこかのレイヤーに手で宣言済みなら何もしない（従来の手動宣言はそのまま動く）。Inspector ではプロファイルのレイヤー一覧から選ぶ
+- `OscReceiverAdapterBinding` が受信 slug を `IAdapterBindingDeclaredInputs` で公開するようにした。ルーティングエディタに OSC Receiver のノードが出て、対象レイヤーへの自動宣言の配線と手動配線を表示・編集できる（手動で宣言した slug を未解決の入力源として扱わない）
 
 ### Changed
 

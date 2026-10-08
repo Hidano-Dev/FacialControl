@@ -35,7 +35,7 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
     /// </remarks>
     [Serializable]
     [FacialAdapterBinding(displayName: "OSC Receiver")]
-    public sealed class OscReceiverAdapterBinding : AdapterBindingBase, IGazeChannelConsumer, IGazeSourceProvider, IOscResolvedMessageHandler, IGazeChannelOverrideProvider, IAdapterBindingTargetLayerInput
+    public sealed class OscReceiverAdapterBinding : AdapterBindingBase, IGazeChannelConsumer, IGazeSourceProvider, IOscResolvedMessageHandler, IGazeChannelOverrideProvider, IAdapterBindingTargetLayerInput, IAdapterBindingDeclaredInputs
     {
         public enum MappingOrigin
         {
@@ -452,6 +452,20 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
         /// 解決できない宣言を補わない（毎回の解決失敗警告を出さない）。
         /// </summary>
         string IAdapterBindingTargetLayerInput.TargetLayerInputSourceId => _started ? Slug : null;
+
+        /// <inheritdoc />
+        string IAdapterBindingTargetLayerInput.ConfiguredTargetLayerInputSourceId => Slug;
+
+        /// <summary>
+        /// 受信値を登録する入力源 id（slug）をルーティングエディタへ公開する。gaze の入力源はレイヤー入力ではないので含めない。
+        /// </summary>
+        IEnumerable<string> IAdapterBindingDeclaredInputs.GetDeclaredInputSourceIds()
+        {
+            if (AdapterSlug.TryParse(Slug, out AdapterSlug slug))
+            {
+                yield return slug.Value;
+            }
+        }
 
         public FailSafeMode FailSafeMode
         {

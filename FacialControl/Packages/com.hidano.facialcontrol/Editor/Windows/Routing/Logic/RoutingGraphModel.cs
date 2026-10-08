@@ -72,10 +72,16 @@ namespace Hidano.FacialControl.Editor.Windows.Routing.Logic
     public readonly struct LayerInputData
     {
         public LayerInputData(string canonicalId, string label, float weight)
+            : this(canonicalId, label, weight, false)
+        {
+        }
+
+        public LayerInputData(string canonicalId, string label, float weight, bool isAutoDeclared)
         {
             CanonicalId = canonicalId ?? string.Empty;
             Label = string.IsNullOrEmpty(label) ? CanonicalId : label;
             Weight = weight;
+            IsAutoDeclared = isAutoDeclared;
         }
 
         public string CanonicalId { get; }
@@ -83,6 +89,11 @@ namespace Hidano.FacialControl.Editor.Windows.Routing.Logic
         public string Label { get; }
 
         public float Weight { get; }
+
+        /// <summary>
+        /// binding の対象レイヤー指定によりランタイムが自動で補う入力源なら true（Profile アセットには宣言が無い）。
+        /// </summary>
+        public bool IsAutoDeclared { get; }
     }
 
     public readonly struct LayerNodeData
@@ -236,10 +247,16 @@ namespace Hidano.FacialControl.Editor.Windows.Routing.Logic
     public readonly struct WiringEdgeData
     {
         public WiringEdgeData(int layerIndex, string canonicalId, float weight)
+            : this(layerIndex, canonicalId, weight, false)
+        {
+        }
+
+        public WiringEdgeData(int layerIndex, string canonicalId, float weight, bool isAutoDeclared)
         {
             LayerIndex = layerIndex;
             CanonicalId = canonicalId ?? string.Empty;
             Weight = weight;
+            IsAutoDeclared = isAutoDeclared;
         }
 
         public int LayerIndex { get; }
@@ -247,6 +264,12 @@ namespace Hidano.FacialControl.Editor.Windows.Routing.Logic
         public string CanonicalId { get; }
 
         public float Weight { get; }
+
+        /// <summary>
+        /// binding の対象レイヤー指定によりランタイムが自動で補う配線なら true。
+        /// Profile アセットに宣言が無いため、削除・繋ぎ替え・weight 編集の対象にしない。
+        /// </summary>
+        public bool IsAutoDeclared { get; }
     }
 
     public readonly struct DanglingEdgeData

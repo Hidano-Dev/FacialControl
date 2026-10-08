@@ -21,8 +21,15 @@ namespace Hidano.FacialControl.Domain.Adapters
         string TargetLayerName { get; }
 
         /// <summary>
-        /// 補う入力源 id。通常は binding の <see cref="AdapterBindingBase.Slug"/>。null / 空白なら何も補わない。
+        /// ランタイムで補う入力源 id。通常は binding の <see cref="AdapterBindingBase.Slug"/>。null / 空白なら何も補わない
+        /// （起動に失敗した binding は null を返して、解決できない宣言を補わない）。
         /// </summary>
         string TargetLayerInputSourceId { get; }
+
+        /// <summary>
+        /// 起動状態に依存しない、設定上の補う入力源 id（通常は binding の <see cref="AdapterBindingBase.Slug"/>）。
+        /// Editor のルーティング表示など、binding を起動しない経路が自動宣言を求めるときに使う。null / 空白なら何も補わない。
+        /// </summary>
+        string ConfiguredTargetLayerInputSourceId { get; }
     }
 }

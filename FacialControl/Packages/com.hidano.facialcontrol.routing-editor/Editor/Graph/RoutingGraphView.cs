@@ -24,7 +24,9 @@ namespace Hidano.FacialControl.RoutingEditor.Graph
         private readonly List<LayerNodeView> _layerNodeViews = new List<LayerNodeView>();
         private const float OrphanColumnX = 32f;
         private const float OrphanRowSpacing = 120f;
+        private const float AutoDeclaredEdgeOpacity = 0.5f;
         private readonly List<RoutingEdge> _routingEdges = new List<RoutingEdge>();
+        private readonly List<Edge> _autoDeclaredEdges = new List<Edge>();
         private readonly List<OrphanInputNodeView> _orphanInputNodes = new List<OrphanInputNodeView>();
         private readonly List<Edge> _orphanInputEdges = new List<Edge>();
         private readonly List<Edge> _compositionEdges = new List<Edge>();
@@ -67,6 +69,9 @@ namespace Hidano.FacialControl.RoutingEditor.Graph
         public IReadOnlyList<LayerNodeView> LayerNodeViews => _layerNodeViews;
 
         public IReadOnlyList<RoutingEdge> RoutingEdges => _routingEdges;
+
+        /// <summary>binding の対象レイヤー指定によりランタイムが自動で補う配線（読み取り専用）。</summary>
+        public IReadOnlyList<Edge> AutoDeclaredEdges => _autoDeclaredEdges;
 
         public IReadOnlyList<OrphanInputNodeView> OrphanInputNodes => _orphanInputNodes;
 
@@ -208,6 +213,17 @@ namespace Hidano.FacialControl.RoutingEditor.Graph
                     continue;
                 }
 
+                // 自動宣言は Profile アセットに無いので、削除・繋ぎ替えできない半透明の線で描く。
+                // 手動で配線すると宣言済みになり、次の rebuild で自動の線は消える（ランタイムと同じ）。
+                if (edgeData.IsAutoDeclared)
+                {
+                    Edge autoEdge = CreateReadOnlyEdge(sourcePort, layerNode.InputPort);
+                    autoEdge.style.opacity = AutoDeclaredEdgeOpacity;
+                    _autoDeclaredEdges.Add(autoEdge);
+                    AddElement(autoEdge);
+                    continue;
+                }
+
                 var edge = new RoutingEdge(sourcePort, layerNode.InputPort, edgeData);
                 _routingEdges.Add(edge);
                 AddElement(edge);
@@ -305,7 +321,9 @@ namespace Hidano.FacialControl.RoutingEditor.Graph
                 return true;
             }
 
-            return _orphanInputEdges.Contains(edge) || _compositionEdges.Contains(edge);
+            return _autoDeclaredEdges.Contains(edge)
+                || _orphanInputEdges.Contains(edge)
+                || _compositionEdges.Contains(edge);
         }
 
         private static Edge CreateReadOnlyEdge(Port outputPort, Port inputPort)
@@ -388,6 +406,13 @@ namespace Hidano.FacialControl.RoutingEditor.Graph
             }
 
             _routingEdges.Clear();
+
+            for (int i = 0; i < _autoDeclaredEdges.Count; i++)
+            {
+                RemoveElement(_autoDeclaredEdges[i]);
+            }
+
+            _autoDeclaredEdges.Clear();
         }
 
         private void ClearOrphanInputs()
