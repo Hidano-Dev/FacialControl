@@ -29,6 +29,7 @@
 
 ### Fixed
 
+- `LayerInputSourceWeightBuffer` の `SuspendLiveWrites` / `EnsureMaxSourcesPerLayer` が、in-flight の writer を固定回数（64 回）のスピンで待ち切れなくても続行していた。プリエンプトされた writer が REC の baseline 注入後にライブ値で上書きしたり、拡張中に破棄済みの NativeArray へ書き込んだりし得たため、writer が 0 になるまで待つようにした（HID-172）
 - `LayerUseCase.BindLateInputSource` で同 id の入力源を差し替えるとき、remove + append ではなく同じスロットでその場置換するようにした（`LayerInputSourceRegistry.TryReplaceSource`）。従来は後続スロットの source だけが詰まり weight 列が詰まらないため、他の入力源の weight が入れ替わって元に戻らなかった（OSC heartbeat の差し替えや REC の注入・復元で発生）。`UnbindLateInputSource` も除去後に weight 列を詰める
 - `LayerInputSourceAggregator` が観測フック（`ILayerSourceValueObserver`）に渡す source ID をスロットの同定キー（レイヤー宣言の id / binding slug）にした。従来は入力源自身の `Id`（`OscInputSource` は常に `osc`）だったため、`ifm` 等の slug で登録した OSC 系入力源の REC 記録が基準・注入側のキーと一致しなかった。`ValueProviderObservationSampler` はこの ID をそのまま publish する。あわせて、無効 → 有効への復帰時は値が前回と同じでも mask と値を全量 publish する（無効中に録画を始めたテイクで有効化後の値が欠けないようにする）
 - レイヤー内の入力源スロットを `source.Id` ではなく**レイヤー宣言の id**（= registry の登録キー）で同定するようにした（`LayerInputSourceRegistry` の slot id、`LayerUseCase` の宣言 id 付きコンストラクタ / `BindLateInputSource(layerIdx, declaredId, source, weight)`、Aggregator の観測 ID）。従来は同一レイヤーに slug 違いの OSC receiver（どれも `Id == "osc"`）を複数宣言すると、後付けバインド・解除が別の受信元のスロットを取り違えていた
