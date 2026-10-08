@@ -229,6 +229,27 @@ namespace Hidano.FacialControl.IFacialMocap.Tests.PlayMode
             Assert.That(source.ContributeMask[1], Is.False, "出力先が解決できなくても、オフにした名前は後続マッピングへ移さない。");
         }
 
+        [Test]
+        public void OnStart_DisabledMappingWithEmptyTarget_StillBlocksLaterSameNameMapping()
+        {
+            int port = ++s_port;
+            _settings = CreateSettings(port);
+            _binding = new IFacialMocapReceiverAdapterBinding { Slug = "ifm4c" };
+            _binding.Configure(_settings, new List<IFacialMocapBlendShapeMapping>
+            {
+                new IFacialMocapBlendShapeMapping("jawOpen", "jawOpen"),
+                new IFacialMocapBlendShapeMapping("mouthSmile_L", string.Empty, false, 0f, 1f, 1f),
+                new IFacialMocapBlendShapeMapping("mouthSmile_L", "mouthSmileAlt"),
+            });
+            AdapterBuildContext ctx = CreateContext(new List<string> { "jawOpen", "mouthSmileAlt" });
+
+            _binding.OnStart(in ctx);
+            _started = true;
+
+            Assert.That(_registry.TryResolve("ifm4c", out IInputSource source), Is.True);
+            Assert.That(source.ContributeMask[1], Is.False, "出力先が空でも、オフにした名前は後続マッピングへ移さない。");
+        }
+
         [UnityTest]
         public IEnumerator OnFixedTick_TunedMapping_AppliesRangeThenWeight()
         {
