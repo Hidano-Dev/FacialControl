@@ -6,6 +6,8 @@
 
 ### Added
 
+- 録画開始時に、ホスト（FacialController）の BlendShape 名を IdDefine（id 種別 `BlendShape` = 4、id index = 値提供型の BlendShape index）として記録するようにした。`RecBaselineState.BlendShapeNames` で読める（`WithBlendShapeNames` / 7 引数コンストラクタ）。timeline の REC Export はこの名前で値提供型の BlendShape を保存する。名前がコントローラの BlendShape 数と 1 対 1 に対応しない（空白・重複を含む）ときは記録せず 1 回 Warning を出す。formatVersion は 1 のまま。名前を持たない既存の `.fcrec` もそのまま読める（名前は空）。名前を記録した `.fcrec` は、id 種別 4 を知らない以前の REC では読めない（HID-180）
+
 - 入力源分類カタログに `TimelineValueProviderInputSource`（Timeline の値提供型の注入ソース）を InjectionSource として追加した（観測対象 13 / 明示的除外 8）。timeline REC Export は値提供型（kind 7 / 8）を Value トラックとして書き出すようになり、系1（kind 9 / 10）を読み捨てたときは Export 時に 1 回、件数付きの Warning を出す（HID-178）
 
 - `rec-weight-coverage` によりレイヤー weight / 入力源 weight の基準・時刻付きレコード（kind 12〜15）とヘッダ `flags` bit1（`WeightBaseline`）を追加し、再生中はライブ書込を遮断して宣言値リセット → 基準確立 → REC 注入を行うよう文書化した。停止後は停止時点の weight を維持する。timeline REC Export は kind 12〜15 を含む `.fcrec` を読み込み、weight を Export 対象外として無視する（時刻付き weight イベントがあれば Export 時に 1 回 Warning）

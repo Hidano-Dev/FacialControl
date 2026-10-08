@@ -33,6 +33,52 @@ namespace Hidano.FacialControl.Rec.Tests.EditMode
         }
 
         [Test]
+        public void SerializeThenRead_BaselineWithBlendShapeNames_RoundTripsNamesInIndexOrder()
+        {
+            RecBaselineState baseline = RecBaselineState.Empty.WithBlendShapeNames(new[] { "ex_agosage", "browInnerUp", "jawOpen" });
+            var timeline = new RecTimeline(baseline, Array.Empty<RecEvent>(), Array.Empty<string>(), Array.Empty<string>(), 1d);
+
+            byte[] bytes = RecBinaryFormat.Serialize(timeline, 123L);
+
+            Assert.That(RecBinaryFormat.TryRead(bytes, out RecBinaryFormat.ReadResult result, out string error), Is.True, error);
+            Assert.That(result.Timeline.Baseline.BlendShapeNames, Is.EqualTo(new[] { "ex_agosage", "browInnerUp", "jawOpen" }));
+        }
+
+        [Test]
+        public void SerializeThenRead_BaselineWithoutBlendShapeNames_ReadsEmptyNames()
+        {
+            byte[] bytes = RecBinaryFormat.Serialize(CreateTimeline(), 123L);
+
+            Assert.That(RecBinaryFormat.TryRead(bytes, out RecBinaryFormat.ReadResult result, out string error), Is.True, error);
+            Assert.That(result.Timeline.Baseline.BlendShapeNames, Is.Empty);
+        }
+
+        [Test]
+        public void TryRead_BlendShapeNameTableWithGap_ReturnsError()
+        {
+            // index 0 を欠いた BlendShape 名（index 1 だけ定義）。index と名前の対応が崩れるため読込エラーにする。
+            var bytes = new byte[RecBinaryFormat.HeaderSize + 64];
+            int offset = RecBinaryFormat.WriteHeader(bytes, 123L);
+            offset += RecBinaryFormat.WriteRecord(bytes.AsSpan(offset),
+                RecEvent.CreateIdDefine(1, RecEvent.IdDefinitionKind.BlendShape), ReadOnlySpan<float>.Empty, "jawOpen");
+            offset += RecBinaryFormat.WriteFooter(bytes.AsSpan(offset), 1d, 1);
+
+            bool success = RecBinaryFormat.TryRead(bytes.AsSpan(0, offset), out _, out string error);
+
+            Assert.That(success, Is.False);
+            Assert.That(error, Does.Contain("BlendShape"));
+        }
+
+        [Test]
+        public void IsRecordableBlendShapeNames_EmptyOrDuplicateName_ReturnsFalse()
+        {
+            Assert.That(RecBaselineState.IsRecordableBlendShapeNames(new[] { "a", "b" }), Is.True);
+            Assert.That(RecBaselineState.IsRecordableBlendShapeNames(new[] { "a", " " }), Is.False);
+            Assert.That(RecBaselineState.IsRecordableBlendShapeNames(new[] { "a", "a" }), Is.False);
+            Assert.That(RecBaselineState.IsRecordableBlendShapeNames(Array.Empty<string>()), Is.False);
+        }
+
+        [Test]
         public void TryRead_MissingFooter_RecoversTimeline()
         {
             var timeline = CreateTimeline();

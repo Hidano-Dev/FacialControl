@@ -223,6 +223,16 @@ namespace Hidano.FacialControl.Rec.Adapters.Playable
                 controller.ExpressionActivationGate,
                 weightGate,
                 controller.BlendShapeCount);
+            // 値提供型の BlendShape index と名前の対応を記録する（Export がメッシュの推測なしに名前で保存できるように）。
+            // 初期化済みの controller の SkinnedMeshRenderers は、BlendShape 並びを作ったのと同じ renderer。
+            IReadOnlyList<string> hostBlendShapeNames = RecBaselineCapture.SelectHostBlendShapeNames(
+                FacialController.CollectBlendShapeNames(controller.SkinnedMeshRenderers),
+                controller.BlendShapeCount);
+            if (hostBlendShapeNames != null)
+            {
+                baseline = baseline.WithBlendShapeNames(hostBlendShapeNames);
+            }
+
             _requestedRecordingPath = requestedFilePath;
             _recordingStartedUtc = DateTime.UtcNow;
             GetQueueCapacities(controller.BlendShapeCount, out int floatCapacity, out int byteCapacity);

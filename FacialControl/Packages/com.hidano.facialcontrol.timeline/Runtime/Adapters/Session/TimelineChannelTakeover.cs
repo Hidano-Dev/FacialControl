@@ -61,7 +61,7 @@ namespace Hidano.FacialControl.Timeline.Adapters.Session
         private const string InvalidIdDetail = "ChannelSubId を入力源 id として解釈できないため、このチャネルは再生されません。";
         private const string BlendShapeMismatchDetailFormat =
             "Clip の BlendShape {0} 個のうち {1} 個がこのモデルの BlendShape に対応しないため、その分は再生されません" +
-            "（BlendShape 数 {2}）。録画時と同じモデルか確認し、Profile の参照モデルを設定して再 Export すると名前で対応付けます。";
+            "（BlendShape 数 {2}）。録画時と同じモデルか確認してください。BlendShape 名を記録した REC から Export し直すと名前で対応付けます。";
 
         private const string NotDeclaredDetail =
             "この入力源 id は Profile のどのレイヤー（Layer.inputSources）にも宣言されていないため、Timeline の値は合成されません。" +

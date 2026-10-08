@@ -18,7 +18,7 @@
 
 | kind | 名称 | 説明 |
 |---:|---|---|
-| 1 | `IdDefine` | source / Expression id の定義 |
+| 1 | `IdDefine` | source / Expression / レイヤー id と、録画時のホストの BlendShape 名の定義 |
 | 2 / 3 | `TriggerOn` / `TriggerOff` | 入力トリガーの on/off |
 | 4 | `AnalogSample` | アナログ・gaze の軸値 |
 | 5 / 6 | `BaselineTrigger` / `BaselineAnalog` | 開始時の trigger / analog 基準 |
@@ -33,6 +33,17 @@
 | 255 | `Footer` | duration と record count |
 
 値提供型は `ValueCount` と mask byte 列を持ちます。mask は byte 列の LSB-first 表現で、値は mask の立っている index 順に疎に格納されます。mask 外の非ゼロ値はファイルに保存されず、再生でも再現されません。
+
+### IdDefine の id 種別
+
+| id 種別 | 値 | 内容 |
+|---:|---|---|
+| 1 | `Source` | 入力源 id |
+| 2 | `Expression` | Expression id |
+| 3 | `Layer` | レイヤー名 |
+| 4 | `BlendShape` | 録画時のホスト（FacialController）の BlendShape 名。id index = 値提供型の BlendShape index（mask のビット位置） |
+
+`BlendShape` は録画開始時に index 0 から欠けなく書きます。reader は欠けのある名前表を読込エラーにします。名前がコントローラの BlendShape 数と 1 対 1 に対応しないとき（空白・重複を含むとき）は書きません。名前の無いファイルでは `RecBaselineState.BlendShapeNames` が空になり、timeline の REC Export は値提供型の BlendShape を index で保存します。
 
 ## 記録対象と明示的除外
 

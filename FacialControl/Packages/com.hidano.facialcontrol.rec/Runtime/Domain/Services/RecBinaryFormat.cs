@@ -137,6 +137,11 @@ namespace Hidano.FacialControl.Rec.Domain.Services
                 size += GetIdDefineRecordSize(timeline.LayerIds[i]);
             }
 
+            for (int i = 0; i < timeline.Baseline.BlendShapeNames.Count; i++)
+            {
+                size += GetIdDefineRecordSize(timeline.Baseline.BlendShapeNames[i]);
+            }
+
             foreach (RecBaselineState.TriggerEntry entry in timeline.Baseline.TriggerEntries)
             {
                 size += 5 * entry.ExpressionIds.Count;
@@ -219,7 +224,16 @@ namespace Hidano.FacialControl.Rec.Domain.Services
                     ReadOnlySpan<float>.Empty, timeline.LayerIds[i]);
             }
 
-            uint recordCount = checked((uint)(timeline.SourceIds.Count + timeline.ExpressionIds.Count + timeline.LayerIds.Count));
+            IReadOnlyList<string> blendShapeNames = timeline.Baseline.BlendShapeNames;
+            for (int i = 0; i < blendShapeNames.Count; i++)
+            {
+                offset += WriteRecord(destination.Slice(offset),
+                    RecEvent.CreateIdDefine(checked((ushort)i), RecEvent.IdDefinitionKind.BlendShape),
+                    ReadOnlySpan<float>.Empty, blendShapeNames[i]);
+            }
+
+            uint recordCount = checked((uint)(timeline.SourceIds.Count + timeline.ExpressionIds.Count + timeline.LayerIds.Count
+                + blendShapeNames.Count));
 
             for (int i = 0; i < timeline.Baseline.TriggerEntries.Count; i++)
             {
@@ -1253,7 +1267,7 @@ namespace Hidano.FacialControl.Rec.Domain.Services
                 var layerWeightEntries = BuildBaselineLayerWeightEntries(idTable, baselineLayerWeightRecords);
                 var inputSourceWeightEntries = BuildBaselineInputSourceWeightEntries(idTable, baselineInputSourceWeightRecords);
                 var baseline = new RecBaselineState(triggerEntries, analogEntries, valueProviderEntries, expressionEntries,
-                    layerWeightEntries, inputSourceWeightEntries);
+                    layerWeightEntries, inputSourceWeightEntries, BuildBlendShapeNames(idTable));
                 timeline = new RecTimeline(
                     baseline,
                     events,
@@ -1269,6 +1283,24 @@ namespace Hidano.FacialControl.Rec.Domain.Services
                 error = ex.Message;
                 return false;
             }
+        }
+
+        /// <summary>
+        /// BlendShape 名は index 0 から欠けなく並んでいなければならない（index が値提供型の BlendShape index そのもの）。
+        /// 欠けがあると index と名前の対応が崩れるため、読込エラーにする。
+        /// </summary>
+        private static IReadOnlyList<string> BuildBlendShapeNames(RecIdTable idTable)
+        {
+            IReadOnlyList<string> names = idTable.BlendShapeNames;
+            for (int i = 0; i < names.Count; i++)
+            {
+                if (names[i] == null)
+                {
+                    throw new InvalidOperationException($"BlendShape name table is missing index {i}.");
+                }
+            }
+
+            return names;
         }
 
         private static IReadOnlyList<RecBaselineState.TriggerEntry> BuildBaselineTriggerEntries(

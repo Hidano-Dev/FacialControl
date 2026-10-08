@@ -24,6 +24,7 @@ namespace Hidano.FacialControl.Rec.Domain.Models
         private readonly string[] _expressionEntries;
         private readonly LayerWeightEntry[] _layerWeightEntries;
         private readonly InputSourceWeightEntry[] _inputSourceWeightEntries;
+        private readonly string[] _blendShapeNames;
 
         public RecBaselineState(IEnumerable<TriggerEntry> triggerEntries, IEnumerable<AnalogEntry> analogEntries)
             : this(triggerEntries, analogEntries, null, null, null, null)
@@ -46,6 +47,22 @@ namespace Hidano.FacialControl.Rec.Domain.Models
             IEnumerable<string> expressionEntries,
             IEnumerable<LayerWeightEntry> layerWeightEntries,
             IEnumerable<InputSourceWeightEntry> inputSourceWeightEntries)
+            : this(triggerEntries, analogEntries, valueProviderEntries, expressionEntries, layerWeightEntries,
+                inputSourceWeightEntries, null)
+        {
+        }
+
+        /// <param name="blendShapeNames">
+        /// 録画時のホストの BlendShape 名（index = 値提供型の BlendShape index）。null なら記録しない。
+        /// </param>
+        public RecBaselineState(
+            IEnumerable<TriggerEntry> triggerEntries,
+            IEnumerable<AnalogEntry> analogEntries,
+            IEnumerable<ValueProviderEntry> valueProviderEntries,
+            IEnumerable<string> expressionEntries,
+            IEnumerable<LayerWeightEntry> layerWeightEntries,
+            IEnumerable<InputSourceWeightEntry> inputSourceWeightEntries,
+            IEnumerable<string> blendShapeNames)
         {
             _triggerEntries = CopyTriggers(triggerEntries);
             _analogEntries = CopyAnalogs(analogEntries);
@@ -53,6 +70,7 @@ namespace Hidano.FacialControl.Rec.Domain.Models
             _expressionEntries = CopyStrings(expressionEntries, nameof(expressionEntries));
             _layerWeightEntries = CopyLayerWeights(layerWeightEntries);
             _inputSourceWeightEntries = CopyInputSourceWeights(inputSourceWeightEntries);
+            _blendShapeNames = CopyBlendShapeNames(blendShapeNames);
         }
 
         public IReadOnlyList<TriggerEntry> TriggerEntries => _triggerEntries;
@@ -68,6 +86,41 @@ namespace Hidano.FacialControl.Rec.Domain.Models
 
         /// <summary>系1.5 基準: 入力源 weight（core の <see cref="InputSourceWeightEntry"/> を正本とする）。</summary>
         public IReadOnlyList<InputSourceWeightEntry> InputSourceWeightEntries => _inputSourceWeightEntries;
+
+        /// <summary>
+        /// 録画時のホスト（FacialController）の BlendShape 名。index が値提供型の BlendShape index（mask のビット位置）に
+        /// 対応する。記録していない（本項目の導入前のファイル等）なら空。
+        /// </summary>
+        public IReadOnlyList<string> BlendShapeNames => _blendShapeNames;
+
+        /// <summary>BlendShape 名だけを差し替えた基準を返す。</summary>
+        public RecBaselineState WithBlendShapeNames(IEnumerable<string> blendShapeNames)
+        {
+            return new RecBaselineState(_triggerEntries, _analogEntries, _valueProviderEntries, _expressionEntries,
+                _layerWeightEntries, _inputSourceWeightEntries, blendShapeNames);
+        }
+
+        /// <summary>
+        /// BlendShape 名の列として記録できるか（全要素が空白でなく、重複しない）。記録できない列は丸ごと記録しない。
+        /// </summary>
+        public static bool IsRecordableBlendShapeNames(IReadOnlyList<string> blendShapeNames)
+        {
+            if (blendShapeNames == null || blendShapeNames.Count == 0)
+            {
+                return false;
+            }
+
+            var seen = new HashSet<string>(StringComparer.Ordinal);
+            for (int i = 0; i < blendShapeNames.Count; i++)
+            {
+                if (string.IsNullOrWhiteSpace(blendShapeNames[i]) || !seen.Add(blendShapeNames[i]))
+                {
+                    return false;
+                }
+            }
+
+            return true;
+        }
 
         public bool TryGetLayerWeight(string layerName, out float weight)
         {
@@ -343,6 +396,17 @@ namespace Hidano.FacialControl.Rec.Domain.Models
             }
 
             return list.Count == 0 ? EmptyInputSourceWeightEntries : list.ToArray();
+        }
+
+        private static string[] CopyBlendShapeNames(IEnumerable<string> values)
+        {
+            string[] names = CopyStrings(values, nameof(values));
+            if (names.Length > 0 && !IsRecordableBlendShapeNames(names))
+            {
+                throw new ArgumentException("BlendShape names must be unique.", nameof(values));
+            }
+
+            return names;
         }
 
         private static string[] CopyStrings(IEnumerable<string> values, string paramName)

@@ -43,7 +43,7 @@ namespace Hidano.FacialControl.Timeline.Editor
                 TimelineProfileSource.Resolve(profileAsset),
                 CollectGazeDetectionContext(profileAsset),
                 null,
-                CollectReferenceBlendShapeNames(profileAsset, sequence));
+                ResolveRecordedBlendShapeNames(sequence));
         }
 
         /// <param name="referenceBlendShapeNames">
@@ -194,7 +194,7 @@ namespace Hidano.FacialControl.Timeline.Editor
                     TimelineProfileSource.Resolve(profileAsset),
                     gazeContext,
                     sourceKindOverrides,
-                    CollectReferenceBlendShapeNames(profileAsset, sequence));
+                    ResolveRecordedBlendShapeNames(sequence));
                 WarnSkippedWeightRecords(sequence, recordingPath);
                 WarnSkippedExpressionRecords(sequence, recordingPath);
 
@@ -283,45 +283,16 @@ namespace Hidano.FacialControl.Timeline.Editor
         }
 
         /// <summary>
-        /// Profile の参照モデルから、値提供型の BlendShape 名の解決に使う名前列を集める（FacialController と同じ並び）。
-        /// 参照モデルが無い、または記録に値提供型が無いときは null。
+        /// REC に記録された録画時のホストの BlendShape 名（index = 値提供型の BlendShape index）。記録が無ければ null（index で保存する）。
         /// </summary>
         /// <remarks>
-        /// 再生時の FacialController は有効な子の SkinnedMeshRenderer を集めるため、まずそれと同じ規則（非アクティブを除く）で集め、
-        /// 記録の mask 長と合わなければ非アクティブを含めて集め直す。どちらも合わなければトラック側で index 保存になる。
+        /// 参照モデル等から名前を推測しない。mask のバイト数は BlendShape 数を 8 単位でしか表さないため、
+        /// 録画時と BlendShape が 1 つ違うモデルでも一致とみなし、名前が 1 つずつずれて割り当てられていた（HID-180）。
         /// </remarks>
-        private static IReadOnlyList<string> CollectReferenceBlendShapeNames(
-            FacialCharacterProfileSO profileAsset,
-            IRecordedEventSequence sequence)
+        private static IReadOnlyList<string> ResolveRecordedBlendShapeNames(IRecordedEventSequence sequence)
         {
-            GameObject model = profileAsset != null ? profileAsset.ReferenceModel : null;
-            if (model == null || sequence == null)
-            {
-                return null;
-            }
-
-            int maskByteCount = 0;
-            for (int i = 0; i < sequence.Count; i++)
-            {
-                RecordedEvent evt = sequence[i];
-                if (evt.Kind == RecordedEventKind.ValueProviderSample)
-                {
-                    maskByteCount = Math.Max(maskByteCount, evt.MaskBytesSpan.Length);
-                }
-            }
-
-            if (maskByteCount == 0)
-            {
-                return null;
-            }
-
-            string[] activeNames = FacialController.CollectBlendShapeNames(model.GetComponentsInChildren<SkinnedMeshRenderer>(false));
-            if ((activeNames.Length + 7) / 8 == maskByteCount)
-            {
-                return activeNames;
-            }
-
-            return FacialController.CollectBlendShapeNames(model.GetComponentsInChildren<SkinnedMeshRenderer>(true));
+            IReadOnlyList<string> names = (sequence as RecEventSequenceAdapter)?.BlendShapeNames;
+            return names != null && names.Count > 0 ? names : null;
         }
 
         private static List<ValueProviderTrackBuilder.SourceTrack> BuildValueProviderTracks(
@@ -374,9 +345,9 @@ namespace Hidano.FacialControl.Timeline.Editor
             {
                 Debug.LogWarning(
                     $"[RecToTimelineExporter] BlendShape names could not be resolved for value-provider source(s) " +
-                    $"'{string.Join("', '", indexedSourceIds)}', so their BlendShapes are stored by recorded index. " +
-                    "Set the Profile's Reference Model to the recorded model and export again to store them by name " +
-                    "(playback with a different mesh then still maps them correctly).");
+                    $"'{string.Join("', '", indexedSourceIds)}', so their BlendShapes are stored by recorded index " +
+                    "(playback maps them correctly only on a character with the same BlendShape layout as the recording). " +
+                    "Recordings made with an older REC package do not contain BlendShape names; record again to store them by name.");
             }
 
             return tracks;
@@ -466,7 +437,7 @@ namespace Hidano.FacialControl.Timeline.Editor
                 detections.Add(Detect(sources[i], context, sourceKindOverrides));
             }
 
-            BuildValueProviderTracks(sequence, CollectReferenceBlendShapeNames(profileAsset, sequence), detections, warn: false);
+            BuildValueProviderTracks(sequence, ResolveRecordedBlendShapeNames(sequence), detections, warn: false);
             detections.Sort((left, right) => string.CompareOrdinal(left.SourceId, right.SourceId));
             return detections;
         }
