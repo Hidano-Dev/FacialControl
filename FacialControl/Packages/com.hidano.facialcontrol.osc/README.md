@@ -24,7 +24,7 @@
 1. `FacialCharacterProfileSO` の **Adapter Bindings** で **OSC Receiver** / **OSC Sender** を Add する
 2. Receiver は **受信ポート**（既定 9001。受信は常に全インターフェース）、Sender は **送信先**（既定 `127.0.0.1:9000` の 1 件。複数指定可、宛先ごとに有効 / プリセット VRChat・ARKit を選べる）を設定する
    - 上級設定を変えたい場合だけ、**Create → FacialControl → Adapter Runtime Settings Collection** に **Add → OscReceiverRuntimeSettingsSO** / **OscSenderRuntimeSettingsSO** で sub-asset を追加し、binding の **上級設定** に割り当てる
-3. 受信をレイヤーに繋ぐ場合はレイヤーの入力源 id に `<slug>`（例 `osc-receiver`）を追加する。binding を Add した時点で既定レイヤーが自動追加される
+3. Receiver の **対象レイヤー** で、受信値を足す既存レイヤーを選ぶ（未指定ならプロファイルの先頭レイヤー）。レイヤーの入力源を手で編集する必要はない（起動時の補い方は「受信の動作」）
 4. Gaze を受信する場合は Profile の目線タブでチャネル `gaze` の入力ソースに Receiver を選ぶ。送信側が FacialControl なら手動 mapping は不要
 5. Play。**Import Sample** から `OscOutputDemo` / `OscReceiverDemo` を取り込むと、送信側・受信側それぞれの最小 Scene を確認できる
 
@@ -69,6 +69,10 @@
 - 受信スレッドは Unity API を呼ばず、メインスレッドの `Update` でパースと反映を行う
 
 登録する入力源 id: BlendShape は `<slug>`、Gaze は `<slug>:<channelId>`（左右別は `.left` / `.right`）。
+
+- **レイヤーへの自動宣言**: 起動時に、対象レイヤーの入力源宣言へ `<slug>`（weight 1.0）を補う。補うのはランタイムの解決結果だけで、Profile アセットは書き換えない
+  - `<slug>` がいずれかのレイヤーに手で宣言済みなら何もしない（従来の手動宣言はそのまま動き、同じ入力源を 2 回合成しない）
+  - 対象レイヤーが未指定ならプロファイルの先頭レイヤーに補う。指定したレイヤーがプロファイルに無い場合は補わず、初期化のたびに警告を出す。受信が起動しなかった（ポート不正等）場合は補わない
 
 ## 送信の動作
 
