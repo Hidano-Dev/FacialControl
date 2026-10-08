@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using Hidano.FacialControl.Adapters.Playable;
 using Hidano.FacialControl.Adapters.ScriptableObject;
 using Hidano.FacialControl.Adapters.ScriptableObject.Serializable;
 using Hidano.FacialControl.Domain.Adapters;
@@ -41,48 +42,60 @@ namespace Hidano.FacialControl.Timeline.Editor
                 sequence,
                 TimelineProfileSource.Resolve(profileAsset),
                 CollectGazeDetectionContext(profileAsset),
-                null);
+                null,
+                CollectReferenceBlendShapeNames(profileAsset, sequence));
         }
 
+        /// <param name="referenceBlendShapeNames">
+        /// 値提供型の BlendShape 名の解決に使う名前列（FacialController と同じ並び）。null なら index で保存する。
+        /// </param>
         public static TimelineAsset CreateTimelineAsset(
             IRecordedEventSequence sequence,
             FacialProfile profile,
             IReadOnlyCollection<string> gazeSourceIds = null,
-            IReadOnlyDictionary<string, FacialValueChannelKind> sourceKindOverrides = null)
+            IReadOnlyDictionary<string, FacialValueChannelKind> sourceKindOverrides = null,
+            IReadOnlyList<string> referenceBlendShapeNames = null)
         {
             return CreateTimelineAssetInternal(
                 sequence,
                 profile,
                 CreateExplicitGazeContext(gazeSourceIds),
-                sourceKindOverrides);
+                sourceKindOverrides,
+                referenceBlendShapeNames);
         }
 
         private static TimelineAsset CreateTimelineAssetInternal(
             IRecordedEventSequence sequence,
             FacialProfile profile,
             GazeDetectionContext gazeContext,
-            IReadOnlyDictionary<string, FacialValueChannelKind> sourceKindOverrides = null)
+            IReadOnlyDictionary<string, FacialValueChannelKind> sourceKindOverrides,
+            IReadOnlyList<string> referenceBlendShapeNames)
         {
             ValidateSequence(sequence);
 
             var timeline = ScriptableObject.CreateInstance<TimelineAsset>();
-            PopulateTimelineInternal(timeline, sequence, profile, gazeContext, sourceKindOverrides);
+            PopulateTimelineInternal(timeline, sequence, profile, gazeContext, sourceKindOverrides, referenceBlendShapeNames);
             return timeline;
         }
 
+        /// <param name="referenceBlendShapeNames">
+        /// 値提供型の BlendShape 名の解決に使う名前列（FacialController と同じ並び）。null なら index で保存する。
+        /// </param>
         public static void PopulateTimeline(
             TimelineAsset timeline,
             IRecordedEventSequence sequence,
             FacialProfile profile,
             IReadOnlyCollection<string> gazeSourceIds = null,
-            IReadOnlyDictionary<string, FacialValueChannelKind> sourceKindOverrides = null)
+            IReadOnlyDictionary<string, FacialValueChannelKind> sourceKindOverrides = null,
+            IReadOnlyList<string> referenceBlendShapeNames = null)
         {
             PopulateTimelineInternal(
                 timeline,
                 sequence,
                 profile,
                 CreateExplicitGazeContext(gazeSourceIds),
-                sourceKindOverrides);
+                sourceKindOverrides,
+                referenceBlendShapeNames);
         }
 
         private static List<ChannelDetection> PopulateTimelineInternal(
@@ -90,7 +103,8 @@ namespace Hidano.FacialControl.Timeline.Editor
             IRecordedEventSequence sequence,
             FacialProfile profile,
             GazeDetectionContext gazeContext,
-            IReadOnlyDictionary<string, FacialValueChannelKind> sourceKindOverrides = null)
+            IReadOnlyDictionary<string, FacialValueChannelKind> sourceKindOverrides,
+            IReadOnlyList<string> referenceBlendShapeNames)
         {
             if (timeline == null)
             {
@@ -105,6 +119,12 @@ namespace Hidano.FacialControl.Timeline.Editor
             List<AnalogTrackInfo> analogTracks = BuildAnalogTracks(
                 sequence, gazeContext, sourceKindOverrides, out List<ChannelDetection> detections);
             CreateAnalogTracks(timeline, analogTracks, sequence.DurationSeconds);
+
+            List<ValueProviderTrackBuilder.SourceTrack> valueProviderTracks =
+                BuildValueProviderTracks(sequence, referenceBlendShapeNames, detections, warn: true);
+            CreateValueProviderTracks(timeline, valueProviderTracks, sequence.DurationSeconds);
+
+            detections.Sort((left, right) => string.CompareOrdinal(left.SourceId, right.SourceId));
             return detections;
         }
 
@@ -173,8 +193,10 @@ namespace Hidano.FacialControl.Timeline.Editor
                     sequence,
                     TimelineProfileSource.Resolve(profileAsset),
                     gazeContext,
-                    sourceKindOverrides);
+                    sourceKindOverrides,
+                    CollectReferenceBlendShapeNames(profileAsset, sequence));
                 WarnSkippedWeightRecords(sequence, recordingPath);
+                WarnSkippedExpressionRecords(sequence, recordingPath);
 
                 if (createdTimeline)
                 {
@@ -241,8 +263,167 @@ namespace Hidano.FacialControl.Timeline.Editor
         }
 
         /// <summary>
-        /// REC の Analog イベントを持つ source ごとに、Export で使うチャネル種別と判定理由・軸数を返す（source id 昇順）。
-        /// トリガー専用（Analog イベントを持たない）source は含めない。
+        /// 系1 の時刻付きレコード（kind 9 / 10）を Export 対象外として読み捨てたことを、Export 1 回につき 1 回だけ件数付きで警告する。
+        /// </summary>
+        /// <remarks>
+        /// 系1（<c>ExpressionUseCase</c> / <c>FacialController.Activate</c> 経由の Expression 操作）は REC 再生では再現されるが、
+        /// Timeline に表現するトラックが無いため Export した Timeline の再生では再現されない。weight と同じく無言では捨てない。
+        /// </remarks>
+        private static void WarnSkippedExpressionRecords(RecEventSequenceAdapter sequence, string recordingPath)
+        {
+            if (sequence.SkippedExpressionEventCount <= 0)
+            {
+                return;
+            }
+
+            Debug.LogWarning(
+                $"[RecToTimelineExporter] '{recordingPath}' contains {sequence.SkippedExpressionEventCount} expression activate/deactivate " +
+                "record(s) (kind 9 / 10: expressions driven through ExpressionUseCase / FacialController.Activate). Timeline has no track " +
+                "for them, so they are not exported and the exported Timeline does not reproduce those expression changes.");
+        }
+
+        /// <summary>
+        /// Profile の参照モデルから、値提供型の BlendShape 名の解決に使う名前列を集める（FacialController と同じ並び）。
+        /// 参照モデルが無い、または記録に値提供型が無いときは null。
+        /// </summary>
+        /// <remarks>
+        /// 再生時の FacialController は有効な子の SkinnedMeshRenderer を集めるため、まずそれと同じ規則（非アクティブを除く）で集め、
+        /// 記録の mask 長と合わなければ非アクティブを含めて集め直す。どちらも合わなければトラック側で index 保存になる。
+        /// </remarks>
+        private static IReadOnlyList<string> CollectReferenceBlendShapeNames(
+            FacialCharacterProfileSO profileAsset,
+            IRecordedEventSequence sequence)
+        {
+            GameObject model = profileAsset != null ? profileAsset.ReferenceModel : null;
+            if (model == null || sequence == null)
+            {
+                return null;
+            }
+
+            int maskByteCount = 0;
+            for (int i = 0; i < sequence.Count; i++)
+            {
+                RecordedEvent evt = sequence[i];
+                if (evt.Kind == RecordedEventKind.ValueProviderSample)
+                {
+                    maskByteCount = Math.Max(maskByteCount, evt.MaskBytesSpan.Length);
+                }
+            }
+
+            if (maskByteCount == 0)
+            {
+                return null;
+            }
+
+            string[] activeNames = FacialController.CollectBlendShapeNames(model.GetComponentsInChildren<SkinnedMeshRenderer>(false));
+            if ((activeNames.Length + 7) / 8 == maskByteCount)
+            {
+                return activeNames;
+            }
+
+            return FacialController.CollectBlendShapeNames(model.GetComponentsInChildren<SkinnedMeshRenderer>(true));
+        }
+
+        private static List<ValueProviderTrackBuilder.SourceTrack> BuildValueProviderTracks(
+            IRecordedEventSequence sequence,
+            IReadOnlyList<string> referenceBlendShapeNames,
+            List<ChannelDetection> detections,
+            bool warn)
+        {
+            List<ValueProviderTrackBuilder.SourceTrack> built = ValueProviderTrackBuilder.Build(sequence, referenceBlendShapeNames);
+            var tracks = new List<ValueProviderTrackBuilder.SourceTrack>(built.Count);
+            var indexedSourceIds = new List<string>();
+            for (int i = 0; i < built.Count; i++)
+            {
+                ValueProviderTrackBuilder.SourceTrack track = built[i];
+                if (ContainsSource(detections, track.SourceId))
+                {
+                    // 同じ source id の Analog トラックがある（1 つの入力源が両方の型として記録された）。ChannelSubId が重複すると
+                    // 再生側が後続を不正扱いするため、先に作った Analog を残す。
+                    if (warn)
+                    {
+                        Debug.LogWarning(
+                            $"[RecToTimelineExporter] Source '{track.SourceId}' has both analog and value-provider records. " +
+                            "Only the analog channel is exported.");
+                    }
+
+                    continue;
+                }
+
+                if (warn && track.RejectedRecords > 0)
+                {
+                    Debug.LogWarning(
+                        $"[RecToTimelineExporter] Value-provider source '{track.SourceId}' has {track.RejectedRecords} record(s) whose " +
+                        "mask / value count does not match. They are skipped (REC playback skips them as well).");
+                }
+
+                if (!track.NamesResolved)
+                {
+                    indexedSourceIds.Add(track.SourceId);
+                }
+
+                tracks.Add(track);
+                detections.Add(new ChannelDetection(
+                    track.SourceId,
+                    FacialValueChannelKind.ValueProvider,
+                    track.NamesResolved ? ChannelDetectionReason.ValueProviderNamed : ChannelDetectionReason.ValueProviderIndexed,
+                    track.RecordedIndices.Length));
+            }
+
+            if (warn && indexedSourceIds.Count > 0)
+            {
+                Debug.LogWarning(
+                    $"[RecToTimelineExporter] BlendShape names could not be resolved for value-provider source(s) " +
+                    $"'{string.Join("', '", indexedSourceIds)}', so their BlendShapes are stored by recorded index. " +
+                    "Set the Profile's Reference Model to the recorded model and export again to store them by name " +
+                    "(playback with a different mesh then still maps them correctly).");
+            }
+
+            return tracks;
+        }
+
+        private static bool ContainsSource(List<ChannelDetection> detections, string sourceId)
+        {
+            for (int i = 0; i < detections.Count; i++)
+            {
+                if (string.Equals(detections[i].SourceId, sourceId, StringComparison.Ordinal))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private static void CreateValueProviderTracks(
+            TimelineAsset timeline,
+            List<ValueProviderTrackBuilder.SourceTrack> tracks,
+            double durationSeconds)
+        {
+            for (int i = 0; i < tracks.Count; i++)
+            {
+                ValueProviderTrackBuilder.SourceTrack trackInfo = tracks[i];
+                var track = timeline.CreateTrack<FacialValueTrack>(null, trackInfo.SourceId);
+                track.ChannelSubId = trackInfo.SourceId;
+                track.ChannelKind = FacialValueChannelKind.ValueProvider;
+
+                TimelineClip clip = track.CreateClip<FacialValueClip>();
+                clip.start = trackInfo.ClipStart;
+                clip.duration = Math.Max(MinimumClipDuration, durationSeconds - trackInfo.ClipStart);
+
+                var valueClip = (FacialValueClip)clip.asset;
+                valueClip.Axes = trackInfo.Values;
+                valueClip.BlendShapeNames = trackInfo.BlendShapeNames;
+                valueClip.BlendShapeIndices = trackInfo.RecordedIndices;
+                valueClip.Contributes = trackInfo.Contributes;
+                valueClip.Validity = trackInfo.Validity;
+            }
+        }
+
+        /// <summary>
+        /// REC の値チャネルごとに、Export で使うチャネル種別と判定理由・軸数を返す（source id 昇順）。
+        /// Analog イベントを持つ source と、寄与 BlendShape のある値提供型レコードを持つ source を含む。
+        /// トリガー専用の source は含めない。
         /// </summary>
         public static IReadOnlyList<ChannelDetection> DetectChannels(
             RecBinaryFormat.ReadResult readResult,
@@ -285,6 +466,8 @@ namespace Hidano.FacialControl.Timeline.Editor
                 detections.Add(Detect(sources[i], context, sourceKindOverrides));
             }
 
+            BuildValueProviderTracks(sequence, CollectReferenceBlendShapeNames(profileAsset, sequence), detections, warn: false);
+            detections.Sort((left, right) => string.CompareOrdinal(left.SourceId, right.SourceId));
             return detections;
         }
 

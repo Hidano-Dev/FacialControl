@@ -141,9 +141,11 @@ namespace Hidano.FacialControl.Timeline.Tests.PlayMode
             FacialProfile profile,
             IReadOnlyList<string> blendShapeNames,
             TimelineAsset timeline,
-            FacialTimelineBakeAsset bake)
+            FacialTimelineBakeAsset bake,
+            Action<TimelinePlayModeRig> beforePlay = null)
         {
             var rig = new TimelinePlayModeRig(name, profile, blendShapeNames, timeline, bake);
+            beforePlay?.Invoke(rig);
             rig.Director.Play();
             rig.Director.playableGraph.Evaluate(0f);
 

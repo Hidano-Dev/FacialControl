@@ -71,7 +71,11 @@ namespace Hidano.FacialControl.Timeline.Tracks
                 clips.Add(new FacialValueMixerBehaviour.ClipSample(
                     clip.start,
                     clip.end,
-                    valueClip.Axes));
+                    valueClip.Axes,
+                    valueClip.BlendShapeNames,
+                    valueClip.BlendShapeIndices,
+                    valueClip.Contributes,
+                    valueClip.Validity));
             }
 
             return clips.Count == 0

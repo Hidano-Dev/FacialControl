@@ -25,6 +25,7 @@ namespace Hidano.FacialControl.Timeline.Domain.Diagnostics
         LayerConnection,
         Analog,
         Gaze,
+        ValueProvider,
         Placement,
         Session,
     }
@@ -93,5 +94,19 @@ namespace Hidano.FacialControl.Timeline.Domain.Diagnostics
 
         // Session
         SessionConflict,
+
+        // ValueProvider
+        ValueProviderTakeoverAttached,
+        ValueProviderSourceNotFound,
+        ValueProviderOccupied,
+
+        /// <summary>Clip の BlendShape の一部がホストの BlendShape に対応しない（名前が無い / index が範囲外）。対応した分だけ再生する。</summary>
+        ValueProviderBlendShapeMismatch,
+
+        /// <summary>
+        /// 値提供型の入力源 id が Profile のどのレイヤーにも宣言されていない。乗っ取りはレイヤーの宣言スロットにしか届かないため
+        /// （実行時に後付け接続されたスロットは registry の置換を購読しない）、Timeline の値は合成されない。
+        /// </summary>
+        ValueProviderNotDeclared,
     }
 }

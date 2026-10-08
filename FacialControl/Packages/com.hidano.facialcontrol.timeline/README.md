@@ -21,21 +21,22 @@ Runtime asmdef は core と `Unity.Timeline` のみを参照し、rec への参�
 3. **PlayableDirector に TimelineAsset をセットする** — トラックの binding は設定しなくてよい（次の手順の Receiver が自動で埋める）
 4. **FacialController と同じ GameObject に `FacialTimelineReceiver` を追加する**
 
-これで Play を開始すると、表情（Expression のトリガーと BlendShape 値）・アナログ値・目線（Gaze）が録画どおりに再現される。
+これで Play を開始すると、表情（Expression のトリガーと BlendShape 値）・アナログ値・目線（Gaze）・値提供型の入力（iFacialMocap の ARKit 52 BlendShape や UDP LipSync の口形など）が録画どおりに再現される。
 
 - レイヤーは **Facial Expression Track のトラック名 = Profile のレイヤー名** で自動導出される（子トラック `{layer} Lane n` は親レイヤーに畳まれる）。名前が一致しないトラックは診断 `TrackLayerUnmatched` で知らせる
 - 値 sink（`timeline:{layer}`）は再生開始時にレイヤー入力源へ weight 1 で自動接続され、終了時に接続前の構成へ戻る。状態（どの Expression が on か）は overlay suppress と REC の観測にだけ供給され、レイヤー入力源にはならない
-- アナログ / Gaze は **Facial Value Track** の `ChannelSubId`（REC の入力源 id `slug:sub` そのもの）が指す registry エントリを再生中だけ乗っ取り（`Replace`）、終了時に元へ戻す
+- アナログ / Gaze / 値提供型は **Facial Value Track** の `ChannelSubId`（REC の入力源 id `slug:sub`、iFacialMocap の BlendShape なら `ifm` のように slug だけ）が指す registry エントリを再生中だけ乗っ取り（`Replace`）、終了時に元へ戻す。既に REC 再生などの注入型が占有していれば触らず、復元は registry のエントリが自分の差し込んだものと同じときだけ行う
+- 値提供型は、録画時と同じくその入力源 id を宣言しているレイヤー（Profile の Layer.inputSources）で合成される。Clip の BlendShape は名前で（名前が無ければ記録時の index で）モデルの BlendShape に対応付ける
 - Director は Receiver の上書き欄 → 同じ GameObject → 親階層 → シーン走査の順で解決する。Track binding は空のトラックだけ自分に設定し、他オブジェクトを指す binding は触らない
 - Profile SO の Adapter Bindings に Timeline が無い場合は Receiver が `BindingMissing` を出す。Timeline binding の **Enabled** をオフにすると Timeline からの受信を止める（`BindingDisabled`）
 
-TimelineAsset を手で作る場合も規則は同じ。**Facial Expression Track** をレイヤー名で作り、**Facial Expression Clip** に Expression id を設定する。アナログ / Gaze は **Facial Value Track** の `ChannelSubId` を乗っ取り先の入力源 id にし、**Facial Value Clip** の `AnimationCurve` で各軸を描く。
+TimelineAsset を手で作る場合も規則は同じ。**Facial Expression Track** をレイヤー名で作り、**Facial Expression Clip** に Expression id を設定する。アナログ / Gaze は **Facial Value Track** の `ChannelSubId` を乗っ取り先の入力源 id にし、**Facial Value Clip** の `AnimationCurve` で各軸を描く。値提供型（Channel Kind `ValueProvider`）の Clip は、軸ごとの値カーブに加えて BlendShape 名 / 記録時の index・寄与 mask（0/1）・有効状態（0/1）のカーブを持つ（REC Export が生成する。mask / 有効状態のカーブが空なら常に寄与・有効として扱う）。
 
 ## Clip 編集と自動再ベイク
 
 Timeline ウィンドウで Clip を移動・トリム・追加・削除・Undo すると、0.3 秒のデバウンス後に Bake が 1 回だけ自動で作り直され、全 Facial トラックの Bake 参照も書き直される。Profile SO / profile.json の変更でも再ベイクされる。Play 突入直前は Profile の JSON 書き出し（AutoExport 有効時）→ 鮮度照合 → 必要なら再ベイク、の順で直列に処理するため、Play では controller が読むのと同じ Profile で焼いた Bake が使われる。未保存の TimelineAsset は再ベイクの対象外（Receiver Inspector が保存を案内する）。
 
-Edit モードのスクラブは Play と同じレイヤー合成規則（オフラインの `LayerUseCase`）で SkinnedMeshRenderer と目ボーンへ反映する。
+Edit モードのスクラブは Play と同じレイヤー合成規則（オフラインの `LayerUseCase`）で SkinnedMeshRenderer と目ボーンへ反映する。値提供型トラックは、Profile のレイヤー宣言にある同じ id の位置へ Play と同じ型の sink を入れて合成する。値提供型 Clip の内容（値・mask・有効状態・BlendShape 対応）は Bake の Source ハッシュに含まれるため、編集すれば自動再ベイクの対象になる（値提供型の値そのものは Bake の値チャネルへ再サンプルせず、再生とプレビューが Clip の階段カーブを直接評価する）。
 
 ## Receiver Inspector の診断の読み方
 
@@ -63,7 +64,9 @@ Edit モードのスクラブは Play と同じレイヤー合成規則（オフ
 | LayerMatch | `TrackLayerUnmatched` / `LayerSinkIdFallback` | Warning / Info | トラック名を Profile のレイヤー名に合わせる / 非 ASCII などのレイヤー名には `timeline:layer{n}` 形の id を使う |
 | LayerConnection | `LegacyStateDeclaration` | Error | 旧 `timeline:{layer}:state` 宣言を削除する（「旧 timeline 宣言を削除」ボタン、Undo 可） |
 | LayerConnection | `LayerConnected` / `LayerConnectionSkippedDeclared` / `LayerConnectionFailed` | Info / Info / Warning | 接続済み / 旧 `timeline:{layer}` 宣言の weight を使用中 / controller の初期化とレイヤー名を確認する |
-| Analog / Gaze | `*TakeoverAttached` / `*SourceNotFound` / `*Occupied` | Info / Warning / Warning | 乗っ取り中 / `ChannelSubId` の入力源が registry に無い / REC 再生などが占有中 |
+| Analog / Gaze / 値提供型 | `*TakeoverAttached` / `*SourceNotFound` / `*Occupied` | Info / Warning / Warning | 乗っ取り中 / `ChannelSubId` の入力源が registry に無い（REC したときと同じ AdapterBinding が Profile にあるか確認する）/ REC 再生などが占有中 |
+| 値提供型 | `ValueProviderNotDeclared` | Warning | 入力源 id が Profile のどのレイヤーの Layer.inputSources にも宣言されていない。Timeline の乗っ取りは宣言スロットにだけ届く（実行時に後付け接続されたスロットは置き換わらない。REC 再生も同じ）ため、録画時に値を受けていたレイヤーにこの id を宣言する |
+| 値提供型 | `ValueProviderBlendShapeMismatch` | Warning | Clip の BlendShape の一部がこのモデルの BlendShape に対応しない（名前が無い / 記録時の index がモデルの BlendShape 数を超える）。対応した分だけ再生する。録画時と同じモデルか確認し、Profile の参照モデルを設定して再 Export すると名前で対応付く |
 | Placement | `ReceiverNotOnControllerObject` / `ControllerMissing` | Error | Receiver を FacialController と同じ GameObject に置く |
 | Session | `SessionConflict` | Error | 同じ Receiver を別の Director が再生している。片方を止める |
 
@@ -83,6 +86,7 @@ Edit モードのスクラブは Play と同じレイヤー合成規則（オフ
 ## 既知の制約
 
 - **Edit プレビューの Analog は analog expression 宣言のある binding だけ**。`IAnalogExpressionBindingDeclaration` を実装した binding（InputSystem）の消費者は Edit でも再現し、それ以外のアナログ消費者は Play でのみ反映される
+- **値提供型はレイヤー宣言のある入力源だけ**。Play の乗っ取り（registry の `Replace`）はレイヤーの宣言スロットにだけ届き、`FacialController.TryBindLayerInputSource` で実行時に後付け接続されたスロットは置き換わらない（REC 再生の注入も同じ）。Edit プレビューも宣言どおりに合成する。宣言の無い値提供型チャネルは診断 `ValueProviderNotDeclared` で知らせる
 - **InputSystem 以外で registry を購読しない analog 消費者には Timeline の Analog が届かない場合がある**。Timeline は registry の `Replace` でアナログ入力源を乗っ取るため、core の `AnalogExpressionInputSource` / `AnalogBlendShapeInputSource`（`IRegistryAttachableAnalogConsumer` で registry に接続済みのもの）には届くが、構築時に入力源を直接掴んだまま registry を購読しない独自の消費者は差し替えを追えない
 
 ## 再生時の挙動
@@ -97,12 +101,14 @@ Edit モードのスクラブは Play と同じレイヤー合成規則（オフ
 
 - トリガーの on/off は Expression ごとに **Facial Expression Clip** になり、重なりは `{layer} Lane n` の子トラックへ振り分けられる
 - アナログ / Gaze は入力源 id ごとに **Facial Value Track** 1 本になり、サンプルがキーフレームになる。`ChannelSubId` には REC の入力源 id がそのまま入る
-- Gaze かどうかは自動で判定し、ウィンドウに入力源 id ごとの判定結果と理由を読み取り専用で表示する（判定順: GazeChannel の明示 source id と一致 → 規約 id が GazeChannels にある → binding の gaze 宣言 → 2 軸でなければ Analog → 既定 Analog）。トリガー専用の入力源は表示しない
+- 値提供型（kind 7 の時刻付きレコードと kind 8 の基準）は入力源 id ごとに Channel Kind `ValueProvider` の **Facial Value Track** 1 本になる。基準を t=0 の状態とし、記録の差分（mask の変更・値だけの更新・有効状態だけの更新）を REC 再生と同じ規則で積み上げて、寄与したことのある BlendShape ごとに値・寄与 mask・有効状態の階段カーブを作る（次のレコードまで値を保持するので、サンプルの間でも REC 再生と同じ値になる）。形の合わないレコード（REC 再生でも捨てられるもの）は件数付きの Warning を出して読み飛ばす
+- 値提供型の BlendShape は記録では FacialController の index で入っている。Profile の **Reference Model**（参照モデル）の BlendShape 名が記録の mask 長と矛盾しなければ名前で保存し、メッシュの並びが変わっても名前で対応付く。参照モデルが無い / 合わないときは index で保存し、Export 1 回につき 1 回 Warning を出す
+- Gaze かどうかは自動で判定し、ウィンドウの **Detected Channels** に入力源 id ごとの判定結果と理由を読み取り専用で表示する（判定順: GazeChannel の明示 source id と一致 → 規約 id が GazeChannels にある → binding の gaze 宣言 → 2 軸でなければ Analog → 既定 Analog）。値提供型は `ValueProvider（N 個の BlendShape）` と、BlendShape を名前 / index のどちらで保存するかを表示する。トリガー専用の入力源と、寄与した BlendShape が 1 つも無い値提供型（有効になったことが無いもの）は表示しない
 - Export 完了後、ウィンドウに残りの手順（Director へのセット、Receiver の追加）を表示する
-- 値提供型・系1 のレコード kind（7 / 9 / 10）は Export 対象外として無視される。これらの kind が含まれていても読み込みは失敗せず、変換可能なレコードの Export を継続する
+- 系1 のレコード kind（9 / 10。`ExpressionUseCase` / `FacialController.Activate` 経由の Expression 操作）は Timeline に表すトラックが無いため Export 対象外として読み捨てる。読み込みは失敗せず、Export 1 回につき 1 回だけ件数付きの Warning（`[RecToTimelineExporter] ... expression activate/deactivate record(s) ...`）を出す
 - weight のレコード kind（レイヤー weight / 入力源 weight の時刻付きイベント 12 / 13、基準エントリ 14 / 15）も Export 対象外として無視される。weight を含む `.fcrec` も読み込みは失敗せず、トリガーとアナログ / Gaze だけが Export される。Timeline には weight を表すトラックが無いため、書き出した Timeline の再生では録画中の weight 変化は再現されない（再生中の weight はプロファイルの宣言値とライブの書込に従う）。時刻付き weight イベントを読み捨てたときは、Export 1 回につき 1 回だけ件数付きの Warning（`[RecToTimelineExporter] ... weight record(s) ...`）を出す。weight 変化まで含めて再現したい場合は REC の再生を使う
 - 出力先は `Assets/` または `Packages/` 配下。既存アセットの上書きは確認ダイアログを出す
-- REC の baseline（weight の基準エントリを含む）とトリガーの入力源 id は Timeline には変換されない
+- REC の baseline のうち値提供型以外（トリガー / アナログ / 系1 / weight の基準エントリ）とトリガーの入力源 id は Timeline には変換されない
 
 ## 検証
 

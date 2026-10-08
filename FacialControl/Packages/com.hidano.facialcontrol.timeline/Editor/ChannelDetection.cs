@@ -3,7 +3,7 @@ using Hidano.FacialControl.Timeline.Tracks;
 namespace Hidano.FacialControl.Timeline.Editor
 {
     /// <summary>
-    /// REC Export が値チャネルの種別（Analog / Gaze）を決めた理由（Req 10.1 / 10.3）。
+    /// REC Export が値チャネルの種別（Analog / Gaze / ValueProvider）を決めた理由（Req 10.1 / 10.3）。
     /// </summary>
     public enum ChannelDetectionReason
     {
@@ -24,10 +24,16 @@ namespace Hidano.FacialControl.Timeline.Editor
 
         /// <summary>呼び出し側の種別上書きを使った（プログラム・テスト用途）。</summary>
         Overridden = 5,
+
+        /// <summary>値提供型の記録（kind 7 / 8）。BlendShape は Profile の参照モデルの名前で保存する。</summary>
+        ValueProviderNamed = 6,
+
+        /// <summary>値提供型の記録（kind 7 / 8）。参照モデルが無い / 記録と合わないため BlendShape は記録時の index で保存する。</summary>
+        ValueProviderIndexed = 7,
     }
 
     /// <summary>
-    /// REC の source 1 つ分のチャネル検出結果（Analog イベントを持つ source のみ）。
+    /// REC の source 1 つ分のチャネル検出結果（Analog イベント、または寄与 BlendShape のある値提供型レコードを持つ source）。
     /// </summary>
     public readonly struct ChannelDetection
     {
@@ -46,7 +52,7 @@ namespace Hidano.FacialControl.Timeline.Editor
 
         public ChannelDetectionReason Reason { get; }
 
-        /// <summary>サンプルの最大軸数。</summary>
+        /// <summary>サンプルの最大軸数。値提供型は寄与した BlendShape の数。</summary>
         public int AxisCount { get; }
     }
 }

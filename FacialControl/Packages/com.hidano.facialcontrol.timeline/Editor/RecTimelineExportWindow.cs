@@ -18,9 +18,9 @@ namespace Hidano.FacialControl.Timeline.Editor
     /// <remarks>
     /// <para>入力は REC ファイル / Profile / 出力 TimelineAsset（任意）だけ。Director / Receiver の配線は Receiver が
     /// 再生開始時と Edit 評価時に自動で行うため指定欄を持たない（Req 10.5）。</para>
-    /// <para>チャネル種別（Analog / Gaze）は <see cref="RecToTimelineExporter.DetectChannels(RecBinaryFormat.ReadResult, FacialCharacterProfileSO)"/>
+    /// <para>チャネル種別（Analog / Gaze / ValueProvider）は <see cref="RecToTimelineExporter.DetectChannels(RecBinaryFormat.ReadResult, FacialCharacterProfileSO)"/>
     /// の自動判定に任せ、上書き欄（Source Overrides）は持たない。REC 読み込み後に検出結果（source id / 判定結果 / 理由）を
-    /// 読み取り専用で表示する。トリガー専用（Analog イベントを持たない）source は検出結果に含まれないため表示しない（Req 10.1 / 10.2）。</para>
+    /// 読み取り専用で表示する。トリガー専用の source は検出結果に含まれないため表示しない（Req 10.1 / 10.2）。</para>
     /// </remarks>
     public sealed class RecTimelineExportWindow : EditorWindow
     {
@@ -190,13 +190,14 @@ namespace Hidano.FacialControl.Timeline.Editor
 
             if (detections.Count == 0)
             {
-                _detectionList.Add(new Label("値チャネル（Analog / Gaze）はありません。"));
+                _detectionList.Add(new Label("値チャネル（Analog / Gaze / ValueProvider）はありません。"));
             }
 
             string message = $"Loaded {detections.Count} value channel(s) from REC.";
             if (profile == null)
             {
-                message += " Profile を選ぶと Gaze 判定に Profile の GazeChannels と binding の gaze 宣言が使われます。";
+                message += " Profile を選ぶと Gaze 判定に Profile の GazeChannels と binding の gaze 宣言が使われ、" +
+                    "値提供型の BlendShape は Profile の参照モデルの名前で保存されます。";
             }
 
             SetStatus(message, HelpBoxMessageType.Info);
@@ -214,8 +215,8 @@ namespace Hidano.FacialControl.Timeline.Editor
             sourceLabel.style.flexBasis = 0f;
             row.Add(sourceLabel);
 
-            var kindLabel = new Label($"{detection.Kind}（{detection.AxisCount} 軸）");
-            kindLabel.style.width = 110f;
+            var kindLabel = new Label(KindLabel(detection));
+            kindLabel.style.width = 200f;
             row.Add(kindLabel);
 
             var reasonLabel = new Label(ReasonLabel(detection.Reason));
@@ -226,11 +227,23 @@ namespace Hidano.FacialControl.Timeline.Editor
             return row;
         }
 
+        /// <summary>種別の表示文（例: <c>Analog（1 軸）</c> / <c>ValueProvider（52 個の BlendShape）</c>）。</summary>
+        internal static string KindLabel(ChannelDetection detection)
+        {
+            return detection.Kind == FacialValueChannelKind.ValueProvider
+                ? $"{detection.Kind}（{detection.AxisCount} 個の BlendShape）"
+                : $"{detection.Kind}（{detection.AxisCount} 軸）";
+        }
+
         /// <summary>判定理由の表示文。</summary>
         internal static string ReasonLabel(ChannelDetectionReason reason)
         {
             switch (reason)
             {
+                case ChannelDetectionReason.ValueProviderNamed:
+                    return "値提供型の記録（BlendShape を参照モデルの名前で保存）";
+                case ChannelDetectionReason.ValueProviderIndexed:
+                    return "値提供型の記録（参照モデルが無い / 記録と合わないため BlendShape を index で保存）";
                 case ChannelDetectionReason.ExplicitGazeSourceId:
                     return "Profile の GazeChannel の source id と一致";
                 case ChannelDetectionReason.ConventionGazeChannel:

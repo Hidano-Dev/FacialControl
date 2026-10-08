@@ -56,6 +56,21 @@ namespace Hidano.FacialControl.Timeline.Tests.PlayMode
         public const string SmileBlendShape = "Smile";
         public const string SquintBlendShape = "Squint";
         public const string BlinkBlendShape = "Blink";
+        public const string JawOpenBlendShape = "JawOpen";
+        public const string EyeWideBlendShape = "EyeWide";
+
+        /// <summary>値提供型（<see cref="RecFixtureWriter.ValueProviderSourceId"/>）を宣言するレイヤー。</summary>
+        public const string FaceLayer = "face";
+
+        /// <summary>e2e キャラクターのメッシュの BlendShape（FacialController の index 順）。</summary>
+        public static readonly string[] MeshBlendShapes =
+        {
+            SmileBlendShape,
+            SquintBlendShape,
+            BlinkBlendShape,
+            JawOpenBlendShape,
+            EyeWideBlendShape,
+        };
         public const float SmileExpressionValue = 1f;
         public const float SquintExpressionValue = 0.8f;
         public const string LeftEyeName = "LeftEye";
@@ -130,6 +145,21 @@ namespace Hidano.FacialControl.Timeline.Tests.PlayMode
             List<AdapterBindingBase> bindings = GetWritableAdapterBindings(profileAsset);
             bindings.Add(timelineBinding);
             bindings.Add(fakeBinding);
+            if (recording.IncludeValueProvider)
+            {
+                // iFacialMocap と同じく slug だけの id で値提供型を登録し、face レイヤーが宣言で受ける。
+                bindings.Add(new FakeValueProviderAdapterBinding());
+                profileAsset.Layers.Add(new LayerDefinitionSerializable
+                {
+                    name = FaceLayer,
+                    priority = 2,
+                    exclusionMode = ExclusionMode.LastWins,
+                    inputSources = new List<InputSourceDeclarationSerializable>
+                    {
+                        new InputSourceDeclarationSerializable { id = RecFixtureWriter.ValueProviderSourceId, weight = 1f },
+                    },
+                });
+            }
 
             configureProfile?.Invoke(profileAsset);
             AssetDatabase.CreateAsset(profileAsset, folderPath + "/" + profileAsset.name + ".asset");
@@ -138,14 +168,30 @@ namespace Hidano.FacialControl.Timeline.Tests.PlayMode
             RecFixtureWriter.Write(recordingPath, recording);
             AssetDatabase.Refresh();
 
-            if (!RecToTimelineExporter.TryExportTimelineAsset(
-                    recordingPath,
-                    profileAsset,
-                    folderPath + "/Exported.playable",
-                    out RecToTimelineExporter.ExportResult result))
+            // 値提供型の BlendShape 名は Profile の参照モデルから解決される。録画時と同じメッシュを一時的に参照させて Export する。
+            GameObject referenceModel = recording.IncludeValueProvider ? CreateReferenceModel(out Mesh referenceMesh) : null;
+            RecToTimelineExporter.ExportResult result;
+            try
             {
-                AssetDatabase.DeleteAsset(folderPath);
-                throw new InvalidOperationException("fixture: REC Export に失敗しました。");
+                profileAsset.ReferenceModel = referenceModel;
+                if (!RecToTimelineExporter.TryExportTimelineAsset(
+                        recordingPath,
+                        profileAsset,
+                        folderPath + "/Exported.playable",
+                        out result))
+                {
+                    AssetDatabase.DeleteAsset(folderPath);
+                    throw new InvalidOperationException("fixture: REC Export に失敗しました。");
+                }
+            }
+            finally
+            {
+                profileAsset.ReferenceModel = null;
+                if (referenceModel != null)
+                {
+                    UnityEngine.Object.DestroyImmediate(referenceModel.GetComponentInChildren<SkinnedMeshRenderer>().sharedMesh);
+                    UnityEngine.Object.DestroyImmediate(referenceModel);
+                }
             }
 
             return new TimelineE2EFixture(
@@ -243,6 +289,17 @@ namespace Hidano.FacialControl.Timeline.Tests.PlayMode
             }
 
             AssetDatabase.Refresh();
+        }
+
+        /// <summary>e2e キャラクターと同じ BlendShape を持つ参照モデル（Export の名前解決用）。</summary>
+        private static GameObject CreateReferenceModel(out Mesh mesh)
+        {
+            var model = new GameObject("TimelineE2EReferenceModel");
+            var face = new GameObject("Face");
+            face.transform.SetParent(model.transform, false);
+            mesh = TimelineE2ECharacter.CreateMesh("TimelineE2E_ReferenceMesh");
+            face.AddComponent<SkinnedMeshRenderer>().sharedMesh = mesh;
+            return model;
         }
 
         private static void ConfigureDefaultProfile(FacialCharacterProfileSO profileAsset)
@@ -365,23 +422,7 @@ namespace Hidano.FacialControl.Timeline.Tests.PlayMode
             var face = new GameObject("Face");
             face.transform.SetParent(root.transform, false);
             var renderer = face.AddComponent<SkinnedMeshRenderer>();
-            var mesh = new Mesh
-            {
-                name = "TimelineE2E_Mesh",
-                vertices = new[] { Vector3.zero, Vector3.right, Vector3.up },
-                triangles = new[] { 0, 1, 2 },
-            };
-            string[] blendShapeNames =
-            {
-                TimelineE2EFixture.SmileBlendShape,
-                TimelineE2EFixture.SquintBlendShape,
-                TimelineE2EFixture.BlinkBlendShape,
-            };
-            for (int i = 0; i < blendShapeNames.Length; i++)
-            {
-                mesh.AddBlendShapeFrame(blendShapeNames[i], 100f, new Vector3[3], null, null);
-            }
-
+            Mesh mesh = CreateMesh("TimelineE2E_Mesh");
             renderer.sharedMesh = mesh;
 
             Transform leftEye = CreateChild(root.transform, TimelineE2EFixture.LeftEyeName, new Vector3(-0.03f, 0f, 0f));
@@ -433,6 +474,24 @@ namespace Hidano.FacialControl.Timeline.Tests.PlayMode
                 leftEye,
                 rightEye,
                 mesh);
+        }
+
+        /// <summary><see cref="TimelineE2EFixture.MeshBlendShapes"/> を持つ 1 三角形のメッシュ。</summary>
+        public static Mesh CreateMesh(string name)
+        {
+            var mesh = new Mesh
+            {
+                name = name,
+                vertices = new[] { Vector3.zero, Vector3.right, Vector3.up },
+                triangles = new[] { 0, 1, 2 },
+            };
+            string[] blendShapeNames = TimelineE2EFixture.MeshBlendShapes;
+            for (int i = 0; i < blendShapeNames.Length; i++)
+            {
+                mesh.AddBlendShapeFrame(blendShapeNames[i], 100f, new Vector3[3], null, null);
+            }
+
+            return mesh;
         }
 
         /// <summary>renderer の BlendShape weight（0..100）。</summary>

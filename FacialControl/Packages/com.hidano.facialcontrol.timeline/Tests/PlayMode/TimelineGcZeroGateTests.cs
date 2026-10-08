@@ -11,6 +11,7 @@ using Hidano.FacialControl.Timeline.Adapters.InputSources;
 using Hidano.FacialControl.Timeline.Clips;
 using Hidano.FacialControl.Timeline.Domain.Diagnostics;
 using Hidano.FacialControl.Timeline.Editor;
+using Hidano.FacialControl.Timeline.Tests.Shared;
 using Hidano.FacialControl.Timeline.Tracks;
 using NUnit.Framework;
 using UnityEngine;
@@ -40,6 +41,7 @@ namespace Hidano.FacialControl.Timeline.Tests.PlayMode
         private const string ExpressionLayerName = "Expressions";
         private const string ExpressionId = "smile";
         private static readonly string[] BlendShapeNames = { "Smile" };
+        private const string ValueProviderId = "ifm";
 
         private static object s_allocationSink;
 
@@ -67,6 +69,22 @@ namespace Hidano.FacialControl.Timeline.Tests.PlayMode
 
             Assert.That(allocated, Is.EqualTo(0L),
                 "Timeline steady-state playback hot path must not allocate GC.");
+        }
+
+        [Test]
+        public void TimelinePlayback_WithValueProviderTrack_SteadyState_AllocatesZeroGC()
+        {
+            using var fixture = new TimelinePlaybackFixture(withValueProviderTrack: true);
+            Assert.That(
+                fixture.Rig.Receiver.TryGetValueProviderSink(ValueProviderId, out TimelineValueProviderInputSource sink),
+                Is.True,
+                "fixture: 値提供型トラックが乗っ取りを済ませている");
+
+            long allocated = MeasureFrames(() => fixture.AdvanceLinearly(FrameDeltaTime));
+
+            Assert.That(sink.IsValid, Is.True, "fixture: 計測中も値提供型の値を書いている");
+            Assert.That(allocated, Is.EqualTo(0L),
+                "Timeline playback with a value-provider track must not allocate GC.");
         }
 
         [Test]
@@ -183,6 +201,29 @@ namespace Hidano.FacialControl.Timeline.Tests.PlayMode
                 });
         }
 
+        /// <summary>BlendShape "Smile" を値ごと・寄与 mask・有効状態の階段カーブで動かす値提供型トラックを足す。</summary>
+        private static void AddValueProviderTrack(TimelineAsset timeline)
+        {
+            var track = timeline.CreateTrack<FacialValueTrack>(null, ValueProviderId);
+            track.ChannelSubId = ValueProviderId;
+            track.ChannelKind = FacialValueChannelKind.ValueProvider;
+            TimelineClip clip = track.CreateClip<FacialValueClip>();
+            clip.start = 0d;
+            clip.duration = 10d;
+            var keys = new Keyframe[60];
+            for (int i = 0; i < keys.Length; i++)
+            {
+                keys[i] = new Keyframe(i / 30f, (i % 10) / 10f, float.PositiveInfinity, float.PositiveInfinity);
+            }
+
+            var valueClip = (FacialValueClip)clip.asset;
+            valueClip.Axes = new[] { new AnimationCurve(keys) };
+            valueClip.BlendShapeNames = new[] { BlendShapeNames[0] };
+            valueClip.BlendShapeIndices = new[] { 0 };
+            valueClip.Contributes = new[] { new AnimationCurve(new Keyframe(0f, 1f, float.PositiveInfinity, float.PositiveInfinity)) };
+            valueClip.Validity = new AnimationCurve(new Keyframe(0f, 1f, float.PositiveInfinity, float.PositiveInfinity));
+        }
+
         private static TimelineAsset CreateTimeline()
         {
             var timeline = ScriptableObject.CreateInstance<TimelineAsset>();
@@ -211,12 +252,27 @@ namespace Hidano.FacialControl.Timeline.Tests.PlayMode
             private readonly GameObject _conflictObject;
             private readonly PlayableDirector _conflictDirector;
 
-            public TimelinePlaybackFixture(bool withConflictingDirector = false)
+            public TimelinePlaybackFixture(bool withConflictingDirector = false, bool withValueProviderTrack = false)
             {
                 FacialProfile profile = CreateProfile();
                 _timeline = CreateTimeline();
+                if (withValueProviderTrack)
+                {
+                    AddValueProviderTrack(_timeline);
+                }
+
                 _bake = TimelineBakeService.Bake(_timeline, profile);
-                Rig = TimelinePlayModeRig.CreateActive("TimelineGcZeroGateTests", profile, BlendShapeNames, _timeline, _bake);
+                Rig = TimelinePlayModeRig.CreateActive(
+                    "TimelineGcZeroGateTests",
+                    profile,
+                    BlendShapeNames,
+                    _timeline,
+                    _bake,
+                    withValueProviderTrack
+                        ? rig => rig.Controller.InputSourceRegistry.Register(
+                            AdapterSlug.Parse(ValueProviderId),
+                            new FakeLiveValueProvider(InputSourceId.Parse(ValueProviderId), BlendShapeNames.Length))
+                        : (Action<TimelinePlayModeRig>)null);
                 _valueSink = Rig.GetValueSink(ExpressionLayerName);
 
                 if (withConflictingDirector)

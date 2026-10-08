@@ -17,6 +17,11 @@ namespace Hidano.FacialControl.Timeline.Playables
         private FacialTimelineReceiver _receiver;
         private TimelineAnalogInputSource _analogSink;
         private TimelineGazeInputSource _gazeSink;
+        private TimelineValueProviderInputSource _valueProviderSink;
+
+        // 値提供型: Clip ごとの「軸 → ホスト BlendShape index」の対応表（Configure で確保し、sink が変わったときだけ埋め直す）。
+        private int[][] _hostIndexMaps = Array.Empty<int[]>();
+        private TimelineValueProviderInputSource _mappedSink;
         private float[] _axisBuffer = Array.Empty<float>();
         private bool _isPlaying;
 
@@ -31,6 +36,16 @@ namespace Hidano.FacialControl.Timeline.Playables
             _clips = clips ?? Array.Empty<ClipSample>();
             _channelSubId = channelSubId ?? string.Empty;
             _channelKind = channelKind;
+            _hostIndexMaps = Array.Empty<int[]>();
+            if (_channelKind == FacialValueChannelKind.ValueProvider && _clips.Length > 0)
+            {
+                _hostIndexMaps = new int[_clips.Length][];
+                for (int i = 0; i < _clips.Length; i++)
+                {
+                    _hostIndexMaps[i] = new int[_clips[i].Axes.Length];
+                }
+            }
+
             ReleaseCachedSinks();
         }
 
@@ -70,16 +85,21 @@ namespace Hidano.FacialControl.Timeline.Playables
                 evaluatedTrackTime += info.deltaTime;
             }
 
-            if (!TryGetActiveClip(evaluatedTrackTime, out ClipSample clip, out float clipTime))
+            if (!TryGetActiveClip(evaluatedTrackTime, out int clipIndex, out float clipTime))
             {
                 InvalidateResolvedSink();
                 return;
             }
 
+            ClipSample clip = _clips[clipIndex];
             switch (_channelKind)
             {
                 case FacialValueChannelKind.Gaze:
                     PublishGaze(clip.Axes, clipTime);
+                    break;
+
+                case FacialValueChannelKind.ValueProvider:
+                    PublishValueProvider(clip, clipIndex, clipTime);
                     break;
 
                 default:
@@ -110,18 +130,24 @@ namespace Hidano.FacialControl.Timeline.Playables
                 _receiver = receiver;
                 _analogSink = null;
                 _gazeSink = null;
+                _valueProviderSink = null;
             }
 
             // 乗っ取り sink はセッションごとに作り直されるため、毎回 Receiver から引く（線形探索のみで確保なし）。
-            if (_channelKind == FacialValueChannelKind.Gaze)
+            switch (_channelKind)
             {
-                return receiver.TryGetGazeSink(_channelSubId, out _gazeSink);
-            }
+                case FacialValueChannelKind.Gaze:
+                    return receiver.TryGetGazeSink(_channelSubId, out _gazeSink);
 
-            return receiver.TryGetAnalogSink(_channelSubId, out _analogSink);
+                case FacialValueChannelKind.ValueProvider:
+                    return receiver.TryGetValueProviderSink(_channelSubId, out _valueProviderSink);
+
+                default:
+                    return receiver.TryGetAnalogSink(_channelSubId, out _analogSink);
+            }
         }
 
-        private bool TryGetActiveClip(double evaluatedTrackTime, out ClipSample clip, out float clipTime)
+        private bool TryGetActiveClip(double evaluatedTrackTime, out int clipIndex, out float clipTime)
         {
             for (int i = _clips.Length - 1; i >= 0; i--)
             {
@@ -131,12 +157,12 @@ namespace Hidano.FacialControl.Timeline.Playables
                     continue;
                 }
 
-                clip = candidate;
+                clipIndex = i;
                 clipTime = (float)(evaluatedTrackTime - candidate.StartTime);
                 return true;
             }
 
-            clip = default;
+            clipIndex = -1;
             clipTime = 0f;
             return false;
         }
@@ -177,6 +203,27 @@ namespace Hidano.FacialControl.Timeline.Playables
             _gazeSink.Publish(x, y);
         }
 
+        private void PublishValueProvider(in ClipSample clip, int clipIndex, float clipTime)
+        {
+            if (_valueProviderSink == null || (uint)clipIndex >= (uint)_hostIndexMaps.Length)
+            {
+                return;
+            }
+
+            if (!ReferenceEquals(_mappedSink, _valueProviderSink))
+            {
+                // sink（= ホストの BlendShape 並び）が変わったときだけ対応表を埋め直す。確保は Configure 済み。
+                for (int i = 0; i < _clips.Length; i++)
+                {
+                    _valueProviderSink.FillHostIndexMap(_clips[i].BlendShapeNames, _clips[i].BlendShapeIndices, _hostIndexMaps[i]);
+                }
+
+                _mappedSink = _valueProviderSink;
+            }
+
+            _valueProviderSink.PublishClip(clip.Axes, clip.Contributes, clip.Validity, _hostIndexMaps[clipIndex], clipTime);
+        }
+
         private void EnsureAxisBuffer(int axisCount)
         {
             if (_axisBuffer.Length >= axisCount)
@@ -189,13 +236,20 @@ namespace Hidano.FacialControl.Timeline.Playables
 
         private void InvalidateResolvedSink()
         {
-            if (_channelKind == FacialValueChannelKind.Gaze)
+            switch (_channelKind)
             {
-                _gazeSink?.Invalidate();
-                return;
-            }
+                case FacialValueChannelKind.Gaze:
+                    _gazeSink?.Invalidate();
+                    return;
 
-            _analogSink?.Invalidate();
+                case FacialValueChannelKind.ValueProvider:
+                    _valueProviderSink?.Invalidate();
+                    return;
+
+                default:
+                    _analogSink?.Invalidate();
+                    return;
+            }
         }
 
         private static FacialTimelineReceiver ResolveReceiver(object playerData)
@@ -233,15 +287,33 @@ namespace Hidano.FacialControl.Timeline.Playables
             _receiver = null;
             _analogSink = null;
             _gazeSink = null;
+            _valueProviderSink = null;
+            _mappedSink = null;
         }
 
         public readonly struct ClipSample
         {
             public ClipSample(double startTime, double endTime, AnimationCurve[] axes)
+                : this(startTime, endTime, axes, null, null, null, null)
+            {
+            }
+
+            public ClipSample(
+                double startTime,
+                double endTime,
+                AnimationCurve[] axes,
+                string[] blendShapeNames,
+                int[] blendShapeIndices,
+                AnimationCurve[] contributes,
+                AnimationCurve validity)
             {
                 StartTime = startTime;
                 EndTime = endTime;
                 Axes = axes ?? Array.Empty<AnimationCurve>();
+                BlendShapeNames = blendShapeNames ?? Array.Empty<string>();
+                BlendShapeIndices = blendShapeIndices ?? Array.Empty<int>();
+                Contributes = contributes ?? Array.Empty<AnimationCurve>();
+                Validity = validity;
             }
 
             public double StartTime { get; }
@@ -249,6 +321,18 @@ namespace Hidano.FacialControl.Timeline.Playables
             public double EndTime { get; }
 
             public AnimationCurve[] Axes { get; }
+
+            /// <summary>値提供型のみ。軸ごとの BlendShape 名。</summary>
+            public string[] BlendShapeNames { get; }
+
+            /// <summary>値提供型のみ。軸ごとの記録時の BlendShape index。</summary>
+            public int[] BlendShapeIndices { get; }
+
+            /// <summary>値提供型のみ。軸ごとの寄与 mask カーブ。</summary>
+            public AnimationCurve[] Contributes { get; }
+
+            /// <summary>値提供型のみ。有効状態カーブ（null / キー無しは常に有効）。</summary>
+            public AnimationCurve Validity { get; }
         }
     }
 }
