@@ -10,10 +10,11 @@
 - Gaze 広告（`/_facialcontrol/gaze`）に、チャネルごとの目ボーン path（`bone.left=<path>` / `bone.right=<path>`、送信側で指定した側のみ）と可動範囲（`range=<lookUp>,<lookDown>,<outerYaw>,<innerYaw>`、毎回）を属性ペアとして載せるようにした。`OscSenderAdapterBinding` は `IGazeChannelSettingsConsumer` で Profile の目線設定を受け取り、heartbeat のたびに設定の変化を確かめて、変わっていれば広告を組み直す
 - `OscReceiverAdapterBinding` が広告の属性ペアを `IGazeChannelOverrideProvider` として公開し、`FacialController` がローカルの目線設定より優先して使う。FacialControl 同士の送受信では、受信側は目線タブを設定しなくても送信側と同じ目ボーン・可動範囲で目線が動く。属性ペアの解析は広告の中身が変わったときだけ行う
 - `GazeChannelOverrideTable` — 広告の属性ペアからチャネルごとの上書きを保持し、内容が変わったときだけ version を進める
-- `OscReceiverAdapterBinding` に **対象レイヤー**（`TargetLayer`）を追加した。起動時に、対象レイヤーの入力源宣言へ受信 slug を自動で補う（Profile アセットは書き換えない）。未指定ならプロファイルの先頭レイヤー、指定したレイヤーが無ければ補わず警告を 1 回出す。slug がどこかのレイヤーに手で宣言済みなら何もしない（従来の手動宣言はそのまま動く）。Inspector ではプロファイルのレイヤー一覧から選ぶ
+- `OscReceiverAdapterBinding` に **対象レイヤー**（`TargetLayer`）を追加した。起動時に、対象レイヤーの入力源宣言へ受信 slug を自動で補う（Profile アセットは書き換えない）。未指定ならプロファイルの先頭レイヤー、指定したレイヤーが無ければ補わず初期化のたびに警告を出す。slug がどこかのレイヤーに手で宣言済みなら何もしない（従来の手動宣言はそのまま動く）。Inspector ではプロファイルのレイヤー一覧から選ぶ
 
 ### Changed
 
+- 受信 slug をどのレイヤーにも宣言していない既存の Profile でも、起動時に先頭レイヤー（対象レイヤー未指定時）へ受信値が合成されるようになった。意図して受信をレイヤーに繋いでいなかった場合は、対象レイヤーを選び直すか、受信値を入れたいレイヤーへ slug を手で宣言する
 - 属性ペアを知らない旧バージョンの受信側は、新しい送信側の広告を受け取ると未知の形式として警告を 1 回出してスキップする（route と目線の動作は従来どおり）
 - **破壊的変更**: OSC の受信ポートを `OscReceiverAdapterBinding` 本体、送信先リストを `OscSenderAdapterBinding` 本体に移した。Adapter Bindings から直接確認・変更できる。新規の Sender binding は送信先 1 件（`127.0.0.1:9000`）で始まる
 - **破壊的変更**: `OscRuntimeSettingsSO` を受信用 `OscReceiverRuntimeSettingsSO`（`stalenessSeconds` / `failSafeMode` / `consistencyCheckWarnLog` / `bundleMode` / `bundleAccumulationTimeoutMs`）と送信用 `OscSenderRuntimeSettingsSO`（`heartbeatIntervalSeconds` / `suppressLoopback`）に分けた。どちらも binding の Foldout「上級設定」から任意で割り当て、未割り当てなら既定値で動く

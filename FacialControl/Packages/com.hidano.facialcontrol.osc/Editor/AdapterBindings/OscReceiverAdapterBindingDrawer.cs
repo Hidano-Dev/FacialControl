@@ -24,6 +24,8 @@ namespace Hidano.FacialControl.Osc.Editor.AdapterBindings
         private const string TargetLayerFieldName = "_targetLayer";
         private const string LayersFieldName = "_layers";
         private const string LayerNameFieldName = "name";
+        private const string LayerInputSourcesFieldName = "inputSources";
+        private const string InputSourceIdFieldName = "id";
 
         /// <summary>対象レイヤー未指定（先頭レイヤーへ補う）を表す選択肢。</summary>
         public const string TargetLayerUnspecifiedChoice = "(未指定: 先頭レイヤー)";
@@ -41,6 +43,7 @@ namespace Hidano.FacialControl.Osc.Editor.AdapterBindings
         public const string RootClassName = "facial-control-osc-adapter-binding";
         public const string PortFieldElementName = "osc-adapter-binding-port";
         public const string TargetLayerFieldElementName = "osc-adapter-binding-target-layer";
+        public const string TargetLayerManualNoteName = "osc-adapter-binding-target-layer-manual-note";
         public const string AdvancedFoldoutName = "osc-adapter-binding-advanced";
         public const string AdvancedSettingsFieldElementName = "osc-adapter-binding-advanced-settings";
         public const string LegacyMigrationContainerName = "osc-adapter-binding-legacy-migration";
@@ -118,6 +121,11 @@ namespace Hidano.FacialControl.Osc.Editor.AdapterBindings
                     + "slug がどこかのレイヤーに宣言済みなら何もしない。未指定なら先頭レイヤー。",
             };
 
+            var manualNote = new HelpBox(string.Empty, HelpBoxMessageType.Info)
+            {
+                name = TargetLayerManualNoteName,
+            };
+            SerializedProperty slugProp = property.FindPropertyRelative(SlugFieldName);
             List<string> layerNames = new List<string>();
 
             void Refresh()
@@ -127,6 +135,15 @@ namespace Hidano.FacialControl.Osc.Editor.AdapterBindings
                 List<string> choices = BuildTargetLayerChoices(layerNames, targetProp.stringValue, out int selected);
                 dropdown.choices = choices;
                 dropdown.SetValueWithoutNotify(choices[selected]);
+
+                // 手動宣言があると対象レイヤーは使われない（ランタイムは宣言済みの slug を補わない）。
+                string declaringLayer = slugProp != null
+                    ? FindLayerDeclaringInputSource(serializedObject, slugProp.stringValue)
+                    : null;
+                manualNote.text = declaringLayer != null
+                    ? $"slug '{slugProp.stringValue}' はレイヤー '{declaringLayer}' の入力源に宣言済みのため、対象レイヤーは使われません（宣言どおりに合成します）。"
+                    : string.Empty;
+                manualNote.style.display = declaringLayer != null ? DisplayStyle.Flex : DisplayStyle.None;
             }
 
             dropdown.RegisterValueChangedCallback(_ =>
@@ -144,6 +161,11 @@ namespace Hidano.FacialControl.Osc.Editor.AdapterBindings
 
             Refresh();
             dropdown.TrackPropertyValue(targetProp, _ => Refresh());
+            if (slugProp != null)
+            {
+                dropdown.TrackPropertyValue(slugProp, _ => Refresh());
+            }
+
             SerializedProperty layersProp = serializedObject.FindProperty(LayersFieldName);
             if (layersProp != null)
             {
@@ -151,6 +173,43 @@ namespace Hidano.FacialControl.Osc.Editor.AdapterBindings
             }
 
             root.Add(dropdown);
+            root.Add(manualNote);
+        }
+
+        private static string FindLayerDeclaringInputSource(SerializedObject serializedObject, string inputSourceId)
+        {
+            if (string.IsNullOrWhiteSpace(inputSourceId))
+            {
+                return null;
+            }
+
+            SerializedProperty layersProp = serializedObject.FindProperty(LayersFieldName);
+            if (layersProp == null || !layersProp.isArray)
+            {
+                return null;
+            }
+
+            for (int i = 0; i < layersProp.arraySize; i++)
+            {
+                SerializedProperty layerProp = layersProp.GetArrayElementAtIndex(i);
+                SerializedProperty sourcesProp = layerProp.FindPropertyRelative(LayerInputSourcesFieldName);
+                if (sourcesProp == null || !sourcesProp.isArray)
+                {
+                    continue;
+                }
+
+                for (int j = 0; j < sourcesProp.arraySize; j++)
+                {
+                    SerializedProperty idProp = sourcesProp.GetArrayElementAtIndex(j).FindPropertyRelative(InputSourceIdFieldName);
+                    if (idProp != null && string.Equals(idProp.stringValue, inputSourceId, StringComparison.Ordinal))
+                    {
+                        SerializedProperty nameProp = layerProp.FindPropertyRelative(LayerNameFieldName);
+                        return nameProp != null ? nameProp.stringValue : string.Empty;
+                    }
+                }
+            }
+
+            return null;
         }
 
         /// <summary>

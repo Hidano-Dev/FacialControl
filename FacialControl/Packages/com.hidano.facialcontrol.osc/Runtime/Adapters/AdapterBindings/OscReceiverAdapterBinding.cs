@@ -447,8 +447,11 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
         /// <inheritdoc />
         string IAdapterBindingTargetLayerInput.TargetLayerName => _targetLayer;
 
-        /// <inheritdoc />
-        string IAdapterBindingTargetLayerInput.TargetLayerInputSourceId => Slug;
+        /// <summary>
+        /// 起動して入力源を登録できたときだけ slug を返す。ポート不正・slug 不正等で起動しなかった場合は
+        /// 解決できない宣言を補わない（毎回の解決失敗警告を出さない）。
+        /// </summary>
+        string IAdapterBindingTargetLayerInput.TargetLayerInputSourceId => _started ? Slug : null;
 
         public FailSafeMode FailSafeMode
         {

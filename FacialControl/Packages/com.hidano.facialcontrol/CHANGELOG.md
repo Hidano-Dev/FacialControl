@@ -6,7 +6,7 @@
 
 ### Added
 
-- `IAdapterBindingTargetLayerInput` / `TargetLayerInputSourceResolver` — adapter binding が登録する入力源を、起動時に既存レイヤーの入力源宣言へ自動で補う契約。`FacialController` は解決結果だけに補い、Profile アセットは書き換えない。入力源 id がどこかのレイヤーに宣言済みなら何もしない。対象レイヤー名が未指定なら先頭レイヤー、プロファイルに無ければ補わず警告を出す
+- `IAdapterBindingTargetLayerInput` / `TargetLayerInputSourceResolver` — adapter binding が登録する入力源を、起動時に既存レイヤーの入力源宣言へ自動で補う契約。`FacialController` は解決結果だけに補い、Profile アセットは書き換えない。入力源 id がどこかのレイヤーに宣言済みなら何もしない。対象レイヤー名が未指定なら先頭レイヤー、プロファイルに無ければ補わず警告を出す。入力源 id が null / 空白の binding（起動しなかった等）は補わない
 - `IAnalogExpressionBindingDeclaration` — adapter binding が `<slug>:analog-expression` の `AnalogExpressionInputSource` へ渡す binding 構成を、`OnStart` を呼ばずに列挙する契約。Timeline の Edit プレビューが Play と同じ analog 消費者をオフラインに組むために使う
 - `IAdapterBindingHeaderSummaryProvider` / `AdapterBindingHeaderSummary` — Adapter Binding の PropertyDrawer が任意で実装すると、Adapter Bindings タブの Foldout ヘッダーに要約（接続先など）とツールチップを表示する拡張ポイント。binding の値を変えるとヘッダーも即座に更新する。実装しない binding は従来どおり表示名と slug だけを出す
 - `IGazeChannelOverrideProvider` / `GazeChannelOverride` — adapter binding が Gaze チャネルの目ボーン path・可動範囲を外部から上書きする契約。`FacialController` は上書きの version が変わったときだけ目ボーン provider を作り直す。上書きを使うのは、そのチャネルの入力源を実際に提供している binding（slug が一致するもの）だけ。上書き path のボーンがローカル path と異なる側は、rest 回転・yaw / pitch 軸を Humanoid fallback と同じ規則で導出する。導出に使うのは初期化時の姿勢で、上書き binding があるときだけ初期化時に配下の Transform について記録しておく。上書き path がローカル path と同じボーンを指す場合は、エディタで保存した値をそのまま使う。path が見つからなければ警告を 1 回出してローカルの規則に戻す

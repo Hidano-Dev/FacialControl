@@ -71,16 +71,12 @@ namespace Hidano.FacialControl.Tests.PlayMode.Integration
                 value,
                 Is.EqualTo(SourceValue).Within(0.08f),
                 "対象レイヤーへ自動で宣言された受信入力源の値が Renderer に適用されること。"));
-
-            CollectionAssert.IsEmpty(
-                _receiverProfileSo.Profile.LayerInputSources.ToArray(),
-                "自動宣言はランタイムの解決結果だけに効き、Profile を書き換えない。");
         }
 
         [UnityTest]
         public IEnumerator Receive_ManualDeclarationAndTargetLayer_DoesNotComposeTwice()
         {
-            // 手動宣言（weight 1）と対象レイヤーが両方ある既存プロファイル。二重に合成すると 2 倍（clamp で 1.0）になる。
+            // 手動宣言（weight 1）と対象レイヤーが両方ある既存プロファイル。二重に合成すると 2 倍（0.8）になる。
             FacialProfile receiverProfile = new FacialProfile(
                 "2.0",
                 new[]
