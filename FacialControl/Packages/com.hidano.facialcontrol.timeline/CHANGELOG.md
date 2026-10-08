@@ -37,6 +37,8 @@ Timeline 再生の手順を「REC → Export → Director にセット → Recei
 ### Fixed
 
 - REC Export で値提供型（iFacialMocap 等）の BlendShape が 1 つ前にずれて動くことがあった。Profile の参照モデルから BlendShape 名を集め、名前数と記録の mask バイト数（8 個単位）が合えば一致とみなしていたため、録画時と BlendShape が 1 つ違うモデルでも名前が 1 つずつずれて割り当てられていた。Export は REC に記録された録画時の BlendShape 名だけを使い、参照モデルから推測しないようにした（HID-180）
+- Edit プレビューを解除しても BlendShape が変形したまま戻らなかった。プレビュー開始時に登録する復元対象を `FacialController.SkinnedMeshRenderers`（手動オーバーライド欄）からしか集めておらず、Edit 中で空のときは何も登録していなかったため、プレビューが書き込むのと同じ renderer（手動オーバーライド → 子の SkinnedMeshRenderer）を登録するようにした（HID-181）
+- Edit プレビューが非アクティブな子の SkinnedMeshRenderer も集めていたため、Play（アクティブな子だけを集める）と BlendShape の並びがずれ、値提供型を index で再生するトラックが別の BlendShape を動かすことがあった。プレビューもアクティブな子だけを集めるようにした（HID-181）
 
 ### Removed
 

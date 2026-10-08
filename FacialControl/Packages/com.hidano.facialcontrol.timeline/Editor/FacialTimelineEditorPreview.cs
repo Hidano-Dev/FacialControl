@@ -325,11 +325,9 @@ namespace Hidano.FacialControl.Timeline.Editor
 
         private static void RegisterBlendShapeProperties(FacialController controller, IPropertyCollector collector)
         {
-            SkinnedMeshRenderer[] renderers = controller.SkinnedMeshRenderers;
-            if (renderers == null)
-            {
-                return;
-            }
+            // プレビューが書き込むのと同じ renderer を登録する（手動オーバーライドが空なら子の SkinnedMeshRenderer）。
+            // 書き込み先と食い違うと、プレビュー終了後に BlendShape が元に戻らない。
+            SkinnedMeshRenderer[] renderers = TimelinePreviewCompositor.ResolveRenderers(controller);
 
             for (int i = 0; i < renderers.Length; i++)
             {
