@@ -92,7 +92,51 @@ namespace Hidano.FacialControl.Osc.Tests.EditMode.Adapters.OSC
         }
 
         [Test]
-        public void ObserveFrameVersion_BackToReadyVersion_ClearsPending()
+        public void TryTakeWarning_PendingPastThreshold_WarnsOnceUntilReadyAgain()
+        {
+            var scheduler = new OscLayoutRequestScheduler(Retry, WarnAfter);
+            scheduler.ObserveFrameVersion(10, 0d);
+
+            scheduler.ObserveFrameVersion(10, 2.9d);
+            Assert.That(scheduler.TryTakeWarning(2.9d), Is.False);
+            scheduler.ObserveFrameVersion(10, 3d);
+            Assert.That(scheduler.TryTakeWarning(3d), Is.True);
+            scheduler.ObserveFrameVersion(10, 5d);
+            Assert.That(scheduler.TryTakeWarning(5d), Is.False);
+
+            scheduler.ObserveFrameVersion(11, 6d);
+            Assert.That(scheduler.TryTakeWarning(6d), Is.False, "待ち中にバージョンが変わっても同じ待ち状態として扱う");
+
+            scheduler.MarkReady(11);
+            scheduler.ObserveFrameVersion(12, 30d);
+            scheduler.ObserveFrameVersion(12, 32d);
+            Assert.That(scheduler.TryTakeWarning(32d), Is.False);
+            scheduler.ObserveFrameVersion(12, 33d);
+            Assert.That(scheduler.TryTakeWarning(33d), Is.True);
+        }
+
+        [Test]
+        public void TryTakeWarning_AbandonedPendingThenNewStall_WarnsAgain()
+        {
+            var scheduler = new OscLayoutRequestScheduler(Retry, WarnAfter);
+            scheduler.ObserveFrameVersion(10, 0d);
+            scheduler.MarkReady(10);
+            scheduler.ObserveFrameVersion(11, 1d);
+            scheduler.ObserveFrameVersion(11, 4d);
+            Assert.That(scheduler.TryTakeWarning(4d), Is.True);
+
+            // 送信側が 10 に戻り、11 は届かなくなる。
+            scheduler.ObserveFrameVersion(10, 8d);
+            Assert.That(scheduler.TryTakeWarning(8d), Is.False);
+            Assert.That(scheduler.HasPending, Is.False);
+
+            scheduler.ObserveFrameVersion(12, 9d);
+            scheduler.ObserveFrameVersion(12, 12d);
+            Assert.That(scheduler.TryTakeWarning(12d), Is.True);
+        }
+
+        [Test]
+        public void ObserveFrameVersion_OnlyReadyVersionArrivesPastThreshold_DropsAbandonedPending()
         {
             var scheduler = new OscLayoutRequestScheduler(Retry, WarnAfter);
             scheduler.ObserveFrameVersion(10, 0d);
@@ -100,28 +144,57 @@ namespace Hidano.FacialControl.Osc.Tests.EditMode.Adapters.OSC
             scheduler.ObserveFrameVersion(11, 1d);
 
             scheduler.ObserveFrameVersion(10, 1.1d);
+            scheduler.ObserveFrameVersion(10, 3d);
+            Assert.That(scheduler.HasPending, Is.True, "閾値までは待ち状態を保つ");
+            scheduler.ObserveFrameVersion(10, 4.5d);
 
+            Assert.That(scheduler.TryTakeRequest(4.5d), Is.False);
             Assert.That(scheduler.HasPending, Is.False);
-            Assert.That(scheduler.TryTakeRequest(2d), Is.False);
+            Assert.That(scheduler.TryTakeWarning(10d), Is.False);
+            Assert.That(scheduler.IsReady(10), Is.True);
         }
 
         [Test]
-        public void TryTakeWarning_PendingPastThreshold_WarnsOnceUntilReadyAgain()
+        public void ObserveFrameVersion_StaleReadyFramesInterleaved_KeepsRetryIntervalAndWarningClock()
         {
             var scheduler = new OscLayoutRequestScheduler(Retry, WarnAfter);
             scheduler.ObserveFrameVersion(10, 0d);
+            scheduler.MarkReady(10);
+            scheduler.ObserveFrameVersion(11, 0d);
+            Assert.That(scheduler.TryTakeRequest(0d), Is.True);
 
-            Assert.That(scheduler.TryTakeWarning(2.9d), Is.False);
+            // 0.125 秒刻み（2 進で誤差なく表せる）で、古い 10 と新しい 11 の値フレームが交互に届く。
+            for (int i = 1; i <= 23; i++)
+            {
+                double now = i * 0.125d;
+                scheduler.ObserveFrameVersion(10, now);
+                scheduler.ObserveFrameVersion(11, now);
+                bool expectRequest = i % 4 == 0;
+                Assert.That(scheduler.TryTakeRequest(now), Is.EqualTo(expectRequest), "step " + i);
+                Assert.That(scheduler.TryTakeWarning(now), Is.False, "step " + i);
+            }
+
+            scheduler.ObserveFrameVersion(11, 3d);
             Assert.That(scheduler.TryTakeWarning(3d), Is.True);
-            Assert.That(scheduler.TryTakeWarning(10d), Is.False);
+            Assert.That(scheduler.IsReady(10), Is.True);
+            Assert.That(scheduler.IsReady(11), Is.False);
+        }
 
-            scheduler.ObserveFrameVersion(11, 11d);
-            Assert.That(scheduler.TryTakeWarning(20d), Is.False);
+        [Test]
+        public void MarkReady_OlderVersionWhileNewerPending_AcceptsOlderFramesButKeepsWaitingAndWarning()
+        {
+            var scheduler = new OscLayoutRequestScheduler(Retry, WarnAfter);
+            scheduler.ObserveFrameVersion(11, 0d);
+            scheduler.ObserveFrameVersion(12, 1d);
+            scheduler.ObserveFrameVersion(12, 3d);
+            Assert.That(scheduler.TryTakeWarning(3d), Is.True);
 
             scheduler.MarkReady(11);
-            scheduler.ObserveFrameVersion(12, 30d);
-            Assert.That(scheduler.TryTakeWarning(32d), Is.False);
-            Assert.That(scheduler.TryTakeWarning(33d), Is.True);
+
+            Assert.That(scheduler.IsReady(11), Is.True);
+            Assert.That(scheduler.PendingVersion, Is.EqualTo(12));
+            scheduler.ObserveFrameVersion(12, 3.5d);
+            Assert.That(scheduler.TryTakeWarning(3.5d), Is.False, "同じ待ち状態で 2 回目の警告は出さない");
         }
 
         [Test]

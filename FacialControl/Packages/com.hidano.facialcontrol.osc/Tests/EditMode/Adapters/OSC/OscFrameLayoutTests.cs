@@ -78,7 +78,7 @@ namespace Hidano.FacialControl.Osc.Tests.EditMode.Adapters.OSC
         }
 
         [Test]
-        public void TryFromEntries_BlendShapeAfterGazeChannel_KeepsBlendShapeSlotsBeforeGaze()
+        public void TryFromEntries_BlendShapeAfterGazeChannel_ReturnsFalse()
         {
             var entries = new[]
             {
@@ -86,11 +86,15 @@ namespace Hidano.FacialControl.Osc.Tests.EditMode.Adapters.OSC
                 new OscFrameLayoutEntry(OscFrameLayoutEntryKind.BlendShape, "Smile")
             };
 
-            bool built = OscFrameLayout.TryFromEntries(1, entries, out OscFrameLayout layout);
+            Assert.That(OscFrameLayout.TryFromEntries(1, entries, out _), Is.False);
+        }
 
-            Assert.That(built, Is.True);
-            Assert.That(layout.BlendShapeNames, Is.EqualTo(new[] { "Smile" }));
-            Assert.That(layout.GetGazeSlotIndex(0), Is.EqualTo(1));
+        [Test]
+        public void EntryConstructor_ValueContainsNul_ReplacesNulSoOscStringStaysIntact()
+        {
+            var entry = new OscFrameLayoutEntry(OscFrameLayoutEntryKind.BlendShape, "A\0B");
+
+            Assert.That(entry.Value, Is.EqualTo("A\uFFFDB"));
         }
     }
 }

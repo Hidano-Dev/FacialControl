@@ -34,6 +34,12 @@ namespace Hidano.FacialControl.Adapters.OSC
         /// <summary>UDP 1 パケットに収める OSC メッセージの目安（バイト）。</summary>
         public const int DefaultMaxMessageBytes = 1400;
 
+        /// <summary>
+        /// 対応表のチャンク総数の上限。受信側はこれを超えるチャンク総数を不正として捨てる
+        /// （ネットワークから来た値で巨大な配列を確保しないため）。1 チャンク 1 項目でも 4,096 項目まで送れる。
+        /// </summary>
+        public const int MaxLayoutChunkCount = 4096;
+
         private const byte TypeInt = (byte)'i';
         private const byte TypeFloat = (byte)'f';
         private const byte TypeString = (byte)'s';
@@ -208,12 +214,33 @@ namespace Hidano.FacialControl.Adapters.OSC
                 return false;
             }
 
-            if (offset > slots.Length || count > slots.Length - offset)
+            if (!TryCopyValues(in message, offset, count, slots))
+            {
+                return false;
+            }
+
+            writtenCount = count;
+            return true;
+        }
+
+        /// <summary>
+        /// <see cref="TryReadValuesHeader"/> で読んだ offset と値の数を使って値を書き込む（型タグを読み直さない）。
+        /// 引数の長さが合わない、または slot の範囲を超える場合は何も書かずに false。ヒープ確保をしない。
+        /// </summary>
+        public static bool TryCopyValues(in OscMessageView message, int offset, int valueCount, Span<float> slots)
+        {
+            if (offset < 0 || valueCount < 0 || offset > slots.Length || valueCount > slots.Length - offset)
             {
                 return false;
             }
 
             ReadOnlySpan<byte> arguments = message.Arguments;
+            if (arguments.Length != (ValuesHeaderArgumentCount + valueCount) * 4)
+            {
+                return false;
+            }
+
+            int count = valueCount;
             int position = ValuesHeaderArgumentCount * 4;
             for (int i = 0; i < count; i++)
             {
@@ -222,7 +249,6 @@ namespace Hidano.FacialControl.Adapters.OSC
                 position += 4;
             }
 
-            writtenCount = count;
             return true;
         }
 
@@ -294,7 +320,7 @@ namespace Hidano.FacialControl.Adapters.OSC
             IReadOnlyList<OscFrameLayoutEntry> entries,
             OscFrameLayoutChunk chunk)
         {
-            if (chunkCount <= 0)
+            if (chunkCount <= 0 || chunkCount > MaxLayoutChunkCount)
             {
                 throw new ArgumentOutOfRangeException(nameof(chunkCount));
             }
@@ -377,7 +403,10 @@ namespace Hidano.FacialControl.Adapters.OSC
                 return false;
             }
 
-            if (readChunkCount <= 0 || readChunkIndex < 0 || readChunkIndex >= readChunkCount)
+            if (readChunkCount <= 0
+                || readChunkCount > MaxLayoutChunkCount
+                || readChunkIndex < 0
+                || readChunkIndex >= readChunkCount)
             {
                 return false;
             }

@@ -69,15 +69,57 @@ namespace Hidano.FacialControl.Osc.Tests.EditMode.Adapters.OSC
         }
 
         [Test]
-        public void TryAddChunk_ChunkCountDiffersWithinVersion_RejectsChunk()
+        public void TryAddChunk_ChunkCountChangesWithinVersion_RestartsWithNewChunking()
+        {
+            var assembler = new OscFrameLayoutAssembler();
+            var missing = new List<int>();
+            assembler.Reset(10);
+            Assert.That(assembler.TryAddChunk(10, 0, 2, Entries("A", "B")), Is.True);
+
+            Assert.That(assembler.TryAddChunk(10, 1, 3, Entries("B")), Is.True);
+
+            Assert.That(assembler.ChunkCount, Is.EqualTo(3));
+            Assert.That(assembler.ReceivedChunkCount, Is.EqualTo(1));
+            assembler.GetMissingChunkIndices(missing);
+            Assert.That(missing, Is.EqualTo(new[] { 0, 2 }));
+            Assert.That(assembler.TryAddChunk(10, 0, 3, Entries("A")), Is.True);
+            Assert.That(assembler.TryAddChunk(10, 2, 3, Entries("C")), Is.True);
+            Assert.That(assembler.TryBuild(out OscFrameLayout layout), Is.True);
+            Assert.That(layout.BlendShapeNames, Is.EqualTo(new[] { "A", "B", "C" }));
+        }
+
+        [Test]
+        public void TryAddChunk_ChunkCountAboveLimit_RejectsWithoutAllocatingChunks()
         {
             var assembler = new OscFrameLayoutAssembler();
             assembler.Reset(10);
-            Assert.That(assembler.TryAddChunk(10, 0, 2, Entries("A")), Is.True);
 
-            Assert.That(assembler.TryAddChunk(10, 1, 3, Entries("B")), Is.False);
-            Assert.That(assembler.ChunkCount, Is.EqualTo(2));
-            Assert.That(assembler.ReceivedChunkCount, Is.EqualTo(1));
+            Assert.That(
+                assembler.TryAddChunk(10, 0, OscIndexedFrameCodec.MaxLayoutChunkCount + 1, Entries("A")),
+                Is.False);
+            Assert.That(assembler.TryAddChunk(10, 0, int.MaxValue, Entries("A")), Is.False);
+            Assert.That(assembler.ChunkCount, Is.EqualTo(0));
+        }
+
+        [Test]
+        public void TryBuild_CompleteButInvalidOrder_DiscardsChunksSoAllAreRequestedAgain()
+        {
+            var assembler = new OscFrameLayoutAssembler();
+            var missing = new List<int>();
+            assembler.Reset(10);
+            var invalid = new[] { new OscFrameLayoutEntry(OscFrameLayoutEntryKind.GazeAttribute, "range=1,1,1,1") };
+            Assert.That(assembler.TryAddChunk(10, 0, 1, invalid), Is.True);
+            Assert.That(assembler.IsComplete, Is.True);
+
+            Assert.That(assembler.TryBuild(out _), Is.False);
+
+            Assert.That(assembler.IsComplete, Is.False);
+            Assert.That(assembler.ChunkCount, Is.EqualTo(0));
+            assembler.GetMissingChunkIndices(missing);
+            Assert.That(missing, Is.Empty);
+            Assert.That(assembler.TryAddChunk(10, 0, 1, Entries("A")), Is.True);
+            Assert.That(assembler.TryBuild(out OscFrameLayout layout), Is.True);
+            Assert.That(layout.BlendShapeNames, Is.EqualTo(new[] { "A" }));
         }
 
         [Test]

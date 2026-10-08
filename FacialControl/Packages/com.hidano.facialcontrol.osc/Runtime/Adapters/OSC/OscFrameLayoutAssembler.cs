@@ -31,8 +31,10 @@ namespace Hidano.FacialControl.Adapters.OSC
         }
 
         /// <summary>
-        /// チャンクを加える。バージョンが違う、チャンク番号が範囲外、同じバージョンなのにチャンク総数が
-        /// 食い違う場合は捨てて false。既に届いているチャンクの重複は無視して true。
+        /// チャンクを加える。バージョンが違う、チャンク総数が 0 以下か
+        /// <see cref="OscIndexedFrameCodec.MaxLayoutChunkCount"/> を超える、チャンク番号が範囲外なら捨てて false。
+        /// 既に届いているチャンクの重複は無視して true。同じバージョンでチャンク総数が変わった場合
+        /// （送信側が分け方を変えた）は、それまでのチャンクを捨てて新しい分け方で組み立て直す。
         /// </summary>
         public bool TryAddChunk(
             int version,
@@ -45,19 +47,19 @@ namespace Hidano.FacialControl.Adapters.OSC
                 return false;
             }
 
-            if (chunkCount <= 0 || chunkIndex < 0 || chunkIndex >= chunkCount)
+            if (chunkCount <= 0
+                || chunkCount > OscIndexedFrameCodec.MaxLayoutChunkCount
+                || chunkIndex < 0
+                || chunkIndex >= chunkCount)
             {
                 return false;
             }
 
-            if (ChunkCount == 0)
+            if (ChunkCount != chunkCount)
             {
                 ChunkCount = chunkCount;
+                ReceivedChunkCount = 0;
                 _chunks = new OscFrameLayoutEntry[chunkCount][];
-            }
-            else if (ChunkCount != chunkCount)
-            {
-                return false;
             }
 
             if (_chunks[chunkIndex] != null)
@@ -98,7 +100,10 @@ namespace Hidano.FacialControl.Adapters.OSC
             }
         }
 
-        /// <summary>全チャンクが揃っていれば、チャンク番号順に項目を連結して対応表を組み立てる。</summary>
+        /// <summary>
+        /// 全チャンクが揃っていれば、チャンク番号順に項目を連結して対応表を組み立てる。揃っているのに項目の
+        /// 並びが不正で組み立てられない場合は、届いたチャンクを捨てて false を返す（次は全チャンクを要求し直す）。
+        /// </summary>
         public bool TryBuild(out OscFrameLayout layout)
         {
             layout = null;
@@ -119,7 +124,13 @@ namespace Hidano.FacialControl.Adapters.OSC
                 entries.AddRange(_chunks[i]);
             }
 
-            return OscFrameLayout.TryFromEntries(Version, entries, out layout);
+            if (OscFrameLayout.TryFromEntries(Version, entries, out layout))
+            {
+                return true;
+            }
+
+            Reset(Version);
+            return false;
         }
     }
 }

@@ -26,10 +26,24 @@ namespace Hidano.FacialControl.Adapters.OSC
         public readonly OscFrameLayoutEntryKind Kind;
         public readonly string Value;
 
+        /// <summary>
+        /// OSC 文字列は NUL 終端なので、値に含まれる U+0000 は U+FFFD に置き換える
+        /// （そのまま送ると読み取り側で値が途中で切れ、チャンク全体が壊れる）。
+        /// </summary>
         public OscFrameLayoutEntry(OscFrameLayoutEntryKind kind, string value)
         {
             Kind = kind;
-            Value = value ?? string.Empty;
+            Value = SanitizeValue(value);
+        }
+
+        private static string SanitizeValue(string value)
+        {
+            if (string.IsNullOrEmpty(value))
+            {
+                return string.Empty;
+            }
+
+            return value.IndexOf('\0') < 0 ? value : value.Replace('\0', '\uFFFD');
         }
 
         public static bool IsDefinedKind(int kind)
@@ -181,8 +195,9 @@ namespace Hidano.FacialControl.Adapters.OSC
         }
 
         /// <summary>
-        /// 受信した項目の並びから対応表を組み立てる。チャネルより前に属性がある、または未知の種類が
-        /// 含まれる場合は false。
+        /// 受信した項目の並びから対応表を組み立てる。項目は BlendShape をすべて並べた後に gaze チャネル
+        /// （とその属性）を並べる順でなければならない。gaze チャネルの後に BlendShape がある、チャネルより
+        /// 前に属性がある、または未知の種類が含まれる場合は false。
         /// </summary>
         public static bool TryFromEntries(
             int version,
@@ -204,6 +219,11 @@ namespace Hidano.FacialControl.Adapters.OSC
                 switch (entry.Kind)
                 {
                     case OscFrameLayoutEntryKind.BlendShape:
+                        if (gazeIds.Count > 0)
+                        {
+                            return false;
+                        }
+
                         blendShapeNames.Add(entry.Value);
                         break;
                     case OscFrameLayoutEntryKind.GazeChannel:

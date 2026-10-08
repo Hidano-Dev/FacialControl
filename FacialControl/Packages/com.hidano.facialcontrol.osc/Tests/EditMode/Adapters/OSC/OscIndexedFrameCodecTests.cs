@@ -115,6 +115,21 @@ namespace Hidano.FacialControl.Osc.Tests.EditMode.Adapters.OSC
         }
 
         [Test]
+        public void TryCopyValues_WithParsedHeader_CopiesWithoutRereadingTypeTags()
+        {
+            var buffer = new byte[128];
+            int length = OscIndexedFrameCodec.WriteValuesMessage(buffer, 4, 1, new[] { 0.5f, 0.75f });
+            var reader = new OscPacketReader(Slice(buffer, length));
+            Assert.That(reader.TryReadNext(out OscMessageView view), Is.True);
+            Assert.That(OscIndexedFrameCodec.TryReadValuesHeader(in view, out _, out int offset, out int count), Is.True);
+            var slots = new float[3];
+
+            Assert.That(OscIndexedFrameCodec.TryCopyValues(in view, offset, count, slots), Is.True);
+            Assert.That(slots, Is.EqualTo(new[] { 0f, 0.5f, 0.75f }));
+            Assert.That(OscIndexedFrameCodec.TryCopyValues(in view, offset, count + 1, new float[8]), Is.False);
+        }
+
+        [Test]
         public void TryCopyValues_RangeBeyondSlots_ReturnsFalseAndWritesNothing()
         {
             var buffer = new byte[128];
@@ -290,6 +305,35 @@ namespace Hidano.FacialControl.Osc.Tests.EditMode.Adapters.OSC
             var received = new List<OscFrameLayoutEntry> { new OscFrameLayoutEntry(OscFrameLayoutEntryKind.BlendShape, "stale") };
             Assert.That(OscIndexedFrameCodec.TryReadLayoutMessage(in view, out _, out _, out _, received), Is.False);
             Assert.That(received, Is.Empty);
+        }
+
+        [Test]
+        public void TryReadLayoutMessage_ChunkCountAboveLimit_ReturnsFalse()
+        {
+            OscFrameLayoutEntry[] entries = OscFrameLayout.ToEntries(new[] { "Smile" }, null);
+            byte[] packet = OscIndexedFrameCodec.WriteLayoutMessage(1, 0, 1, entries, new OscFrameLayoutChunk(0, 1));
+            int argumentsStart = GetLayoutArgumentsStart(1);
+            BinaryPrimitives.WriteInt32BigEndian(new Span<byte>(packet, argumentsStart + 8, 4), int.MaxValue);
+
+            var reader = new OscPacketReader(packet);
+            Assert.That(reader.TryReadNext(out OscMessageView view), Is.True);
+            Assert.That(OscIndexedFrameCodec.TryReadLayoutMessage(in view, out _, out _, out _, new List<OscFrameLayoutEntry>()), Is.False);
+        }
+
+        [Test]
+        public void LayoutMessage_NameWithNul_RoundTripsWithReplacementCharacter()
+        {
+            OscFrameLayoutEntry[] entries = OscFrameLayout.ToEntries(new[] { "A\0B", "C" }, null);
+            OscFrameLayoutChunk[] chunks = OscIndexedFrameCodec.SplitLayout(entries, Budget);
+            byte[] packet = OscIndexedFrameCodec.WriteLayoutMessage(1, 0, chunks.Length, entries, chunks[0]);
+
+            var reader = new OscPacketReader(packet);
+            Assert.That(reader.TryReadNext(out OscMessageView view), Is.True);
+            var received = new List<OscFrameLayoutEntry>();
+            Assert.That(OscIndexedFrameCodec.TryReadLayoutMessage(in view, out _, out _, out _, received), Is.True);
+            Assert.That(received.Count, Is.EqualTo(2));
+            Assert.That(received[0].Value, Is.EqualTo("A\uFFFDB"));
+            Assert.That(received[1].Value, Is.EqualTo("C"));
         }
 
         [Test]

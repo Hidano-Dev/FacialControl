@@ -6,6 +6,11 @@ namespace Hidano.FacialControl.Adapters.OSC
     /// 受信側が送信元 1 つに対して対応表をいつ要求するかを決める。要求も返信も UDP で消える前提で、
     /// 未知のバージョンを見たら即座に要求し、揃うまで一定間隔で再要求する。揃わない状態が続いたら
     /// 警告を 1 回だけ出させる。時刻は呼び出し側から秒で受け取る（Unity の時刻 API に依存しない）。
+    /// <para>
+    /// 新しいバージョンを待っている間に、揃っている古いバージョンの値フレームが混ざって届いても待ち状態は
+    /// 崩さない（再要求の間隔と警告までの時間を保つ）。待っているバージョンの値フレームが警告の閾値の間
+    /// 届かなければ、送信側がそのバージョンをやめたとみなして待ち状態を捨てる。
+    /// </para>
     /// </summary>
     public sealed class OscLayoutRequestScheduler
     {
@@ -16,6 +21,7 @@ namespace Hidano.FacialControl.Adapters.OSC
         private readonly double _warnAfterSeconds;
         private double _notReadySinceSeconds;
         private double _nextRequestAtSeconds;
+        private double _pendingLastSeenSeconds;
         private bool _warnedSinceLastReady;
 
         public OscLayoutRequestScheduler(
@@ -63,12 +69,12 @@ namespace Hidano.FacialControl.Adapters.OSC
 
             if (version == ReadyVersion)
             {
-                PendingVersion = OscFrameLayoutVersion.Unknown;
                 return;
             }
 
             if (version == PendingVersion)
             {
+                _pendingLastSeenSeconds = nowSeconds;
                 return;
             }
 
@@ -79,11 +85,13 @@ namespace Hidano.FacialControl.Adapters.OSC
 
             PendingVersion = version;
             _nextRequestAtSeconds = nowSeconds;
+            _pendingLastSeenSeconds = nowSeconds;
         }
 
         /// <summary>今要求を送るべきなら true を返し、次の再要求を一定間隔後に予約する。</summary>
         public bool TryTakeRequest(double nowSeconds)
         {
+            DropPendingIfAbandoned(nowSeconds);
             if (!HasPending || nowSeconds < _nextRequestAtSeconds)
             {
                 return false;
@@ -98,6 +106,7 @@ namespace Hidano.FacialControl.Adapters.OSC
         /// </summary>
         public bool TryTakeWarning(double nowSeconds)
         {
+            DropPendingIfAbandoned(nowSeconds);
             if (!HasPending || _warnedSinceLastReady)
             {
                 return false;
@@ -120,7 +129,11 @@ namespace Hidano.FacialControl.Adapters.OSC
             return HasPending ? Math.Max(0d, nowSeconds - _notReadySinceSeconds) : 0d;
         }
 
-        /// <summary><paramref name="version"/> の対応表が揃ったことを記録する。</summary>
+        /// <summary>
+        /// <paramref name="version"/> の対応表が揃ったことを記録する。待っていたバージョンなら待ち状態を解き、
+        /// 次に揃わなくなったときに再び警告できるようにする。待っていたのと別の（遅れて揃った古い）
+        /// バージョンなら、そのバージョンの値フレームは適用してよくなるが、待ち状態と警告は続ける。
+        /// </summary>
         public void MarkReady(int version)
         {
             if (version == OscFrameLayoutVersion.Unknown)
@@ -129,21 +142,39 @@ namespace Hidano.FacialControl.Adapters.OSC
             }
 
             ReadyVersion = version;
-            if (PendingVersion == version)
+            if (!HasPending || PendingVersion == version)
             {
-                PendingVersion = OscFrameLayoutVersion.Unknown;
+                ClearPending();
             }
-
-            _warnedSinceLastReady = false;
         }
 
         /// <summary>送信元を見失った等で、揃った対応表も待ち状態も捨てる。</summary>
         public void Reset()
         {
             ReadyVersion = OscFrameLayoutVersion.Unknown;
+            ClearPending();
+        }
+
+        /// <summary>
+        /// 待っているバージョンの値フレームが警告の閾値（再要求間隔の 4 倍より短い場合はそちら）の間
+        /// 届いていなければ、送信側がそのバージョンをやめた（揃っている元のバージョンへ戻った、または止まった）
+        /// とみなして待ち状態を捨てる。
+        /// </summary>
+        private void DropPendingIfAbandoned(double nowSeconds)
+        {
+            double abandonAfterSeconds = Math.Max(_warnAfterSeconds, _retryIntervalSeconds * 4d);
+            if (HasPending && nowSeconds - _pendingLastSeenSeconds > abandonAfterSeconds)
+            {
+                ClearPending();
+            }
+        }
+
+        private void ClearPending()
+        {
             PendingVersion = OscFrameLayoutVersion.Unknown;
             _notReadySinceSeconds = 0d;
             _nextRequestAtSeconds = 0d;
+            _pendingLastSeenSeconds = 0d;
             _warnedSinceLastReady = false;
         }
     }
