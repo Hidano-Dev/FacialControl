@@ -36,11 +36,12 @@
 
 ## 記録対象と明示的除外
 
-観測対象はトリガー、アナログ・gaze、値提供型、系1 の 4 系統です。入力源分類カタログと 1:1 に対応する明示的除外は次の 7 型です。
+観測対象はトリガー、アナログ・gaze、値提供型、系1 の 4 系統です。入力源分類カタログと 1:1 に対応する明示的除外は次の 8 型です。
 
 | 型 | 区分 | 理由 |
 |---|---|---|
 | `TimelineGazeInputSource` | InjectionSource | 他注入者の注入ソースで、REC と排他 |
+| `TimelineValueProviderInputSource` | InjectionSource | 他注入者（Timeline 再生）の値提供型の注入ソースで、REC と排他 |
 | `RecPlaybackAnalogSource` | InjectionSource | REC の再生注入用内部ソース |
 | `RecPlaybackValueProviderSource` | InjectionSource | REC の値提供型再生注入用内部ソース |
 | `InputActionAnalogSource` | WrappedByObservedSource | 観測対象 wrapper 経由で registry に登録される |
@@ -84,4 +85,17 @@ baseline 値を seed にした再生用 source に置換し、その他の sourc
 - 値提供型の基準捕捉は `StartRecording` の Update 時点の読取です。同一フレームの LateUpdate までに届いた値は t≈0 のイベントとして記録されます。
 - 再生中の記録には REC の注入イベント（系1 を含む）が残ります。
 
-Timeline REC Export は weight kind 12〜15 を含む `.fcrec` も読み込めますが、weight は Export 対象外として無視します（Timeline に weight を表すトラックが無いため。時刻付き weight イベントがあれば Export 時に 1 回 Warning を出します）。録画中の weight 変化まで再現したい場合は REC の再生を使ってください。
+## Timeline への書き出し（REC Export）
+
+Timeline REC Export（`com.hidano.facialcontrol.timeline`）が書き出す kind と扱いは次のとおりです。
+
+| kind | 扱い |
+|---|---|
+| 2 / 3（トリガー） | Expression ごとの Clip |
+| 4（アナログ・gaze） | 入力源 id ごとの Value トラック（Analog / Gaze） |
+| 7 / 8（値提供型） | 入力源 id ごとの Value トラック（ValueProvider）。kind 8 の基準を t=0 の状態とし、kind 7 の差分を REC 再生と同じ規則で積み上げて、BlendShape ごとの値・寄与 mask・有効状態の階段カーブにする。BlendShape は Profile の参照モデルの名前が記録の mask 長と矛盾しなければ名前、そうでなければ記録時の index で保存する |
+| 9 / 10（系1） | Export 対象外。時刻付きレコードがあれば Export 1 回につき 1 回、件数付きの Warning |
+| 12 / 13（weight） | Export 対象外。時刻付きレコードがあれば Export 1 回につき 1 回、件数付きの Warning |
+| 5 / 6 / 11 / 14 / 15（値提供型以外の基準） | 変換しない |
+
+Timeline に系1・weight を表すトラックは無いため、書き出した Timeline の再生では録画中のそれらの変化は再現されません。再現したい場合は REC の再生を使ってください。

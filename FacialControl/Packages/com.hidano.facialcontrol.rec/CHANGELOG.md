@@ -6,6 +6,8 @@
 
 ### Added
 
+- 入力源分類カタログに `TimelineValueProviderInputSource`（Timeline の値提供型の注入ソース）を InjectionSource として追加した（観測対象 13 / 明示的除外 8）。timeline REC Export は値提供型（kind 7 / 8）を Value トラックとして書き出すようになり、系1（kind 9 / 10）を読み捨てたときは Export 時に 1 回、件数付きの Warning を出す（HID-178）
+
 - `rec-weight-coverage` によりレイヤー weight / 入力源 weight の基準・時刻付きレコード（kind 12〜15）とヘッダ `flags` bit1（`WeightBaseline`）を追加し、再生中はライブ書込を遮断して宣言値リセット → 基準確立 → REC 注入を行うよう文書化した。停止後は停止時点の weight を維持する。timeline REC Export は kind 12〜15 を含む `.fcrec` を読み込み、weight を Export 対象外として無視する（時刻付き weight イベントがあれば Export 時に 1 回 Warning）
 
 - REC の記録・遮断・注入対象を FacialControl で動く全入力源に拡張した（HID-35）。値提供型入力源（OSC / iFacialMocap / uLipSync 音素オーバーレイ / Timeline ベイク値 / Overlay）は mask 順の疎な値を差分形式（`RecValueProviderFlags` の IsValid / HasMask / HasValues）で記録し、再生中は `RecPlaybackValueProviderSource` に置換する。系1（`FacialController.Activate/Deactivate` 直呼び）は予約 source `@expression` で記録し、再生中は `IExpressionActivationGate` 経由で遮断・注入する。基準状態（`RecBaselineState`）に値提供型と系1のエントリを追加した（4 引数コンストラクタ。2 引数版は「値提供型 / 系1の基準なし」として互換維持）

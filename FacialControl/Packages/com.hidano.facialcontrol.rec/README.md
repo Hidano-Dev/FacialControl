@@ -33,11 +33,12 @@ REC は次の 5 系統を、入力源の消費点で記録します。
 | 系1 | `ExpressionUseCase` / `FacialController.Activate` 経由の Expression 操作 |
 | weight | レイヤー weight と入力源 weight の変更（kind 12〜15 の基準・時刻付き値） |
 
-明示的除外は、入力源分類カタログと同じ次の 7 型です。これらは観測対象のレコードとして扱いません。
+明示的除外は、入力源分類カタログと同じ次の 8 型です。これらは観測対象のレコードとして扱いません。
 
 | 型 | 除外区分 | 理由 |
 |---|---|---|
 | `Hidano.FacialControl.Timeline.Adapters.InputSources.TimelineGazeInputSource` | InjectionSource | `FacialTimelineReceiver` の注入ソース。注入者の占有規則により REC と排他 |
+| `Hidano.FacialControl.Timeline.Adapters.InputSources.TimelineValueProviderInputSource` | InjectionSource | `FacialTimelineReceiver` の値提供型の注入ソース。注入者の占有規則により REC と排他 |
 | `Hidano.FacialControl.Rec.Adapters.Playback.RecPlaybackAnalogSource` | InjectionSource | REC 自身の再生注入用内部ソース |
 | `Hidano.FacialControl.Rec.Adapters.Playback.RecPlaybackValueProviderSource` | InjectionSource | REC 自身の値提供型再生注入用内部ソース |
 | `Hidano.FacialControl.Adapters.InputSources.InputActionAnalogSource` | WrappedByObservedSource | registry には観測対象の wrapper 経由で登録され、元型を直接記録しない |
@@ -89,7 +90,7 @@ REC は次の 5 系統を、入力源の消費点で記録します。
 
 ## 構成
 
-`Runtime/` に Domain / Application / Adapters、`Editor/` に Inspector、`Tests/` に EditMode / PlayMode テスト、`Documentation~/` に詳細ドキュメントを配置しています。Timeline への書き出しは `com.hidano.facialcontrol.timeline` の **Tools → FacialControl → Timeline → REC Export** を使用します。REC Export は weight kind 12〜15 を含む `.fcrec` も読み込めますが、weight は Timeline に表現するトラックが無いため Export 対象外として無視します（時刻付き weight イベントがあれば Export 時に 1 回 Warning を出します）。録画中の weight 変化まで再現したい場合は REC の再生を使ってください。
+`Runtime/` に Domain / Application / Adapters、`Editor/` に Inspector、`Tests/` に EditMode / PlayMode テスト、`Documentation~/` に詳細ドキュメントを配置しています。Timeline への書き出しは `com.hidano.facialcontrol.timeline` の **Tools → FacialControl → Timeline → REC Export** を使用します。トリガー（kind 2 / 3）・アナログ / gaze（kind 4）に加え、値提供型（kind 7 と基準の kind 8。iFacialMocap の BlendShape や UDP LipSync など）も入力源 id ごとの Value トラックとして書き出され、Timeline の再生で REC 再生と同じ値が再現されます。値提供型の BlendShape は、Profile の参照モデルの名前が記録と矛盾しなければ名前で、そうでなければ記録時の index で保存されます。系1（kind 9 / 10）と weight（kind 12〜15）は Timeline に表現するトラックが無いため Export 対象外として読み捨て、時刻付きのレコードがあれば Export 時に種類ごとに 1 回、件数付きの Warning を出します。録画中の系1・weight の変化まで再現したい場合は REC の再生を使ってください。
 
 ## ライセンス
 

@@ -21,6 +21,10 @@ Timeline 再生の手順を「REC → Export → Director にセット → Recei
 
 ### Added
 
+- REC Export が値提供型（kind 7 / 基準 kind 8。iFacialMocap の BlendShape / UDP LipSync など）を入力源 id ごとの Value トラック（`FacialValueChannelKind.ValueProvider`）として書き出すようにした（HID-178）。基準を t=0 の状態とし、記録の差分を REC 再生と同じ規則で積み上げて、BlendShape ごとの値・寄与 mask・有効状態の階段カーブにする。BlendShape は Profile の参照モデルの名前が記録と矛盾しなければ名前で、そうでなければ記録時の index で保存する（index 保存時は Export で 1 回 Warning）。Detected Channels に `ValueProvider（N 個の BlendShape）` と保存方法を表示する
+- 値提供型トラックの再生: `ChannelSubId` の registry エントリを再生中だけ `TimelineValueProviderInputSource` で乗っ取り（Analog / Gaze と同じ占有規則）、停止時に戻す。Edit プレビューは Profile のレイヤー宣言どおりに同じ型の sink を合成する。Receiver の診断に値提供型領域（`ValueProviderTakeoverAttached` / `ValueProviderSourceNotFound` / `ValueProviderOccupied` / `ValueProviderBlendShapeMismatch`）を追加した
+- REC Export が系1（kind 9 / 10）を読み捨てたとき、Export 1 回につき 1 回、件数付きの Warning を出すようにした（従来は無言で捨てていた）
+- `FacialValueClip` に値提供型用の `BlendShapeNames` / `BlendShapeIndices` / `Contributes` / `Validity` を追加した。どれも持たない Clip（Analog / Gaze）の Source ハッシュは変わらない。値提供型トラックは Bake の `ValueBakes` に再サンプルしない（Clip の階段カーブを再生・プレビューが直接評価する）
 - `FacialTimelineReceiver` の Director 自動解決（上書き → 同 GameObject → 親階層 → シーン走査）と、空の Facial トラック binding の自動設定
 - 全 Facial トラックの Bake 参照の自動解決（`FacialTimelineBakeLocator`）。Receiver の BakeAsset 欄は上書き用になった
 - 診断モデル（`FacialTimelineDiagnostics` / `TimelineDiagnosticCode`）と UI Toolkit の Receiver Inspector。Play を待たずに Director / Track binding / Bake / Profile / binding / レイヤー一致 / 配置を検査し、直し方を表示する。Console への出力は同じ原因につき 1 回
