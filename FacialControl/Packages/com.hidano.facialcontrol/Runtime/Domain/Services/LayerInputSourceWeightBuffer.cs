@@ -173,19 +173,16 @@ namespace Hidano.FacialControl.Domain.Services
             writeBuffer[flatIdx] = clamped;
         }
 
+        // 遮断/拡張のフラグはフルフェンスで立てた後に呼ぶ。以降に入る writer はフラグを見て即座に抜け、
+        // 書込区間はブロックしない短い処理だけなので、in-flight が 0 になるまで待っても終わる。
+        // 固定回数で打ち切ると、プリエンプトされた writer が baseline 注入後に書いたり、
+        // 破棄済みの NativeArray に触れたりし得るため、打ち切らない（SpinWait は回数に応じて Yield / Sleep へ移る）。
         private void WaitForLiveWriters()
         {
             var spinner = new SpinWait();
-            const int maxIterations = 64;
-            for (int i = 0; i < maxIterations && Volatile.Read(ref _liveWritersInFlight) != 0; i++)
+            while (Volatile.Read(ref _liveWritersInFlight) != 0)
             {
                 spinner.SpinOnce();
-            }
-
-            if (Volatile.Read(ref _liveWritersInFlight) != 0)
-            {
-                Debug.LogWarning(
-                    "LayerInputSourceWeightBuffer: live writers did not drain within the suspend window.");
             }
         }
 

@@ -128,6 +128,70 @@ namespace Hidano.FacialControl.Tests.EditMode.Domain
             AssertNoWorkerFailures(failures);
         }
 
+        [Test]
+        public void SuspendLiveWrites_WriterStillInFlight_DoesNotReturnUntilWriterDrains()
+        {
+            using var buffer = new LayerInputSourceWeightBuffer(layerCount: 1, maxSourcesPerLayer: 1);
+            // フラグ確認後にプリエンプトされた writer を模擬する（固定回数のスピンを超えて居座る）
+            SetLiveWritersInFlight(buffer, 1);
+
+            bool returned = false;
+            var suspender = new Thread(() =>
+            {
+                buffer.SuspendLiveWrites();
+                Volatile.Write(ref returned, true);
+            });
+            suspender.IsBackground = true;
+            suspender.Start();
+
+            try
+            {
+                Thread.Sleep(200);
+                Assert.IsFalse(Volatile.Read(ref returned), "in-flight の writer が残っている間は遮断完了を返さないべき。");
+            }
+            finally
+            {
+                SetLiveWritersInFlight(buffer, 0);
+            }
+
+            Assert.IsTrue(suspender.Join(5000), "writer が抜けたら遮断完了を返すべき。");
+            Assert.IsTrue(buffer.IsLiveWritesSuspended);
+        }
+
+        [Test]
+        public void EnsureMaxSourcesPerLayer_WriterStillInFlight_DoesNotSwapBuffersUntilWriterDrains()
+        {
+            using var buffer = new LayerInputSourceWeightBuffer(layerCount: 1, maxSourcesPerLayer: 1);
+            SetLiveWritersInFlight(buffer, 1);
+
+            var resizer = new Thread(() => buffer.EnsureMaxSourcesPerLayer(4));
+            resizer.IsBackground = true;
+            resizer.Start();
+
+            try
+            {
+                Thread.Sleep(200);
+                Assert.AreEqual(1, buffer.MaxSourcesPerLayer, "in-flight の writer が残っている間はバッファを差し替えないべき。");
+            }
+            finally
+            {
+                SetLiveWritersInFlight(buffer, 0);
+            }
+
+            Assert.IsTrue(resizer.Join(5000), "writer が抜けたら拡張を完了するべき。");
+            Assert.AreEqual(4, buffer.MaxSourcesPerLayer);
+        }
+
+        private static void SetLiveWritersInFlight(LayerInputSourceWeightBuffer buffer, int value)
+        {
+            var field = typeof(LayerInputSourceWeightBuffer).GetField(
+                "_liveWritersInFlight",
+                System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+            Assert.IsNotNull(field, "_liveWritersInFlight が見つからない。");
+            field.SetValue(buffer, value);
+            Thread.MemoryBarrier();
+        }
+
         private static Thread[] StartWorkers(
             int count,
             CancellationToken token,
