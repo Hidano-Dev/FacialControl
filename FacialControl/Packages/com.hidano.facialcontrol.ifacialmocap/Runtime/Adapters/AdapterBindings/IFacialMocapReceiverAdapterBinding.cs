@@ -391,16 +391,17 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
                     continue;
                 }
 
-                if (!meshNameToIndex.TryGetValue(targetName, out int meshIndex))
-                {
-                    continue;
-                }
-
                 // オフのマッピングは slot を割り当てず ContributeMask にも立てない（値を出力しない）。
                 // 名前は採用済みとして扱い、同じ iFacialMocap 名の後続マッピングへ出力先が移らないようにする。
+                // 出力先がメッシュに無くなっていても（モデル差し替え・リネーム）予約するため、ターゲット解決より先に判定する。
                 if (!mapping.EffectiveEnabled)
                 {
                     disabledNames.Add(ifmName);
+                    continue;
+                }
+
+                if (!meshNameToIndex.TryGetValue(targetName, out int meshIndex))
+                {
                     continue;
                 }
 
