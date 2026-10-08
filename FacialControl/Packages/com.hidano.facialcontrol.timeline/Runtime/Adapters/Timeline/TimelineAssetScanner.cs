@@ -74,6 +74,30 @@ namespace Hidano.FacialControl.Timeline.Adapters.Scanning
             return new TimelineScanResult(descriptors.ToArray(), trackAssets.ToArray());
         }
 
+        /// <summary>
+        /// レイヤー weight トラック（<see cref="FacialLayerWeightTrack"/>）を出力トラック順に集める。
+        /// レイヤー weight は Bake・チャネル導出の対象ではないため <see cref="Scan"/> の結果には含めない。
+        /// </summary>
+        public static IReadOnlyList<FacialLayerWeightTrack> CollectLayerWeightTracks(TimelineAsset timeline)
+        {
+            if (timeline == null)
+            {
+                return Array.Empty<FacialLayerWeightTrack>();
+            }
+
+            List<FacialLayerWeightTrack> tracks = null;
+            foreach (TrackAsset track in timeline.GetOutputTracks())
+            {
+                if (track is FacialLayerWeightTrack weightTrack)
+                {
+                    tracks ??= new List<FacialLayerWeightTrack>();
+                    tracks.Add(weightTrack);
+                }
+            }
+
+            return tracks != null ? tracks.ToArray() : Array.Empty<FacialLayerWeightTrack>();
+        }
+
         private static void AppendTrack(
             TrackAsset track,
             bool isChild,

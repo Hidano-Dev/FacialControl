@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using Hidano.FacialControl.Domain.Models;
 using Hidano.FacialControl.Rec.Domain.Models;
 using Hidano.FacialControl.Timeline.Domain.Models;
 
@@ -33,14 +34,33 @@ namespace Hidano.FacialControl.Timeline.Editor
                     ToArray(entry.Values)));
             }
 
+            // レイヤー weight の基準は t=0 の状態として先頭に置く（REC 再生が注入開始時に適用するのと同じ）。
+            var layerWeights = new List<RecordedLayerWeightSample>();
+            IReadOnlyList<LayerWeightEntry> baselineLayerWeights = timeline.Baseline.LayerWeightEntries;
+            for (int i = 0; i < baselineLayerWeights.Count; i++)
+            {
+                layerWeights.Add(new RecordedLayerWeightSample(0d, baselineLayerWeights[i].LayerName, baselineLayerWeights[i].Weight));
+            }
+
             int skippedWeightEvents = 0;
             int skippedExpressionEvents = 0;
             for (int i = 0; i < timeline.Events.Count; i++)
             {
-                RecEventKind kind = timeline.Events[i].Kind;
-                if (kind == RecEventKind.LayerWeightSample || kind == RecEventKind.InputSourceWeightSample)
+                RecEvent recEvent = timeline.Events[i];
+                RecEventKind kind = recEvent.Kind;
+                if (kind == RecEventKind.LayerWeightSample)
                 {
-                    // weight（レイヤー / 入力源）は Timeline に表現するトラックが無いため Export 対象外（rec-weight-coverage Req 7.7）。
+                    // レイヤー weight はレイヤー weight トラックとして Export する（HID-182）。
+                    layerWeights.Add(new RecordedLayerWeightSample(
+                        recEvent.TimestampSeconds,
+                        timeline.LayerIds[recEvent.LayerIdIndex],
+                        timeline.GetPayloadSpan(i)[0]));
+                    continue;
+                }
+
+                if (kind == RecEventKind.InputSourceWeightSample)
+                {
+                    // 入力源 weight は Timeline に表現するトラックが無いため Export 対象外（rec-weight-coverage Req 7.7）。
                     // 無言で捨てないよう件数だけ数え、Export 時に RecToTimelineExporter が 1 回だけ警告する。
                     skippedWeightEvents++;
                     continue;
@@ -61,6 +81,7 @@ namespace Hidano.FacialControl.Timeline.Editor
             }
 
             _events = events.ToArray();
+            LayerWeightSamples = layerWeights.ToArray();
             SkippedWeightEventCount = skippedWeightEvents;
             SkippedExpressionEventCount = skippedExpressionEvents;
         }
@@ -75,8 +96,13 @@ namespace Hidano.FacialControl.Timeline.Editor
         public int Count => _events.Length;
 
         /// <summary>
-        /// Export 対象外として読み捨てた時刻付き weight レコード（<see cref="RecEventKind.LayerWeightSample"/> /
-        /// <see cref="RecEventKind.InputSourceWeightSample"/>）の件数。weight の基準エントリはイベント列に含まれないため数えない。
+        /// レイヤー weight の記録（基準を t=0 として先頭に置き、続けて <see cref="RecEventKind.LayerWeightSample"/> を記録順に並べる）。
+        /// </summary>
+        public IReadOnlyList<RecordedLayerWeightSample> LayerWeightSamples { get; }
+
+        /// <summary>
+        /// Export 対象外として読み捨てた時刻付き入力源 weight レコード（<see cref="RecEventKind.InputSourceWeightSample"/>）の件数。
+        /// 入力源 weight の基準エントリはイベント列に含まれないため数えない。
         /// </summary>
         public int SkippedWeightEventCount { get; }
 

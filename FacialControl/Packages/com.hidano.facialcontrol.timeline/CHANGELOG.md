@@ -21,6 +21,8 @@ Timeline 再生の手順を「REC → Export → Director にセット → Recei
 
 ### Added
 
+- REC Export がレイヤー weight（基準 kind 14 と時刻付き kind 12。UDP LipSync の発話ゲートなどが `FacialController.SetLayerWeight` で書く inter-layer weight）を、レイヤーごとの `FacialLayerWeightTrack`（トラック名 `{layer} (weight)`、階段カーブの `FacialLayerWeightClip`）として書き出すようにした（HID-182）。従来は読み捨てていたため、発話ゲートが開いていた区間（リップシンクだけで口を動かした区間）が Export した Timeline では再現されなかった。宣言値 1 のまま変わらないレイヤーはトラックにしない。入力源 weight（kind 13）は従来どおり読み捨て、Warning の件数は入力源 weight だけを数える
+- レイヤー weight トラックの再生: Timeline にレイヤー weight トラックがあると、Receiver は再生中だけ live のレイヤー weight 書き込みを止め（REC 再生と同じ `IWeightInjectionGate`）、トラックの値を毎フレーム注入する。Clip の外とトラックの無いレイヤーは宣言値 1。停止時は再生前の weight に戻して live の書き込みを再開する。レイヤー weight トラックの無い Timeline の挙動は変わらない。Edit プレビューも同じ規則で合成に掛ける。レイヤー weight は Bake 済みのレイヤー値に再生時に掛かるため、Bake と Source ハッシュには含めない
 - REC Export が値提供型（kind 7 / 基準 kind 8。iFacialMocap の BlendShape / UDP LipSync など）を入力源 id ごとの Value トラック（`FacialValueChannelKind.ValueProvider`）として書き出すようにした（HID-178）。基準を t=0 の状態とし、記録の差分を REC 再生と同じ規則で積み上げて、BlendShape ごとの値・寄与 mask・有効状態の階段カーブにする。BlendShape は REC に記録された録画時の BlendShape 名で、名前の記録が無ければ記録時の index で保存する（index 保存時は Export で 1 回 Warning）。Detected Channels に `ValueProvider（N 個の BlendShape）` と保存方法を表示する
 - 値提供型トラックの再生: `ChannelSubId` の registry エントリを再生中だけ `TimelineValueProviderInputSource` で乗っ取り（Analog / Gaze と同じ占有規則）、停止時に戻す。Edit プレビューは Profile のレイヤー宣言どおりに同じ型の sink を合成する。Receiver の診断に値提供型領域（`ValueProviderTakeoverAttached` / `ValueProviderSourceNotFound` / `ValueProviderOccupied` / `ValueProviderBlendShapeMismatch` / `ValueProviderNotDeclared`）を追加した。乗っ取りはレイヤーの宣言スロットにだけ届く（後付け接続のスロットは置き換わらない。REC 再生と同じ）ため、宣言の無い値提供型チャネルは `ValueProviderNotDeclared` で知らせる
 - REC Export が系1（kind 9 / 10）を読み捨てたとき、Export 1 回につき 1 回、件数付きの Warning を出すようにした（従来は無言で捨てていた）

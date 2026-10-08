@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using Hidano.FacialControl.Domain.Models;
 using Hidano.FacialControl.Rec.Domain.Models;
 using Hidano.FacialControl.Rec.Domain.Services;
 
@@ -54,7 +55,29 @@ namespace Hidano.FacialControl.Timeline.Tests.Shared
             /// null なら記録しない（BlendShape 名を記録しない旧 REC と同じ）。
             /// </summary>
             public string[] BlendShapeNames { get; set; }
+
+            /// <summary>
+            /// レイヤー weight（<see cref="LayerWeightLayer"/> の基準と <see cref="LayerWeightSamples"/>）を含めるか。
+            /// 発話ゲートが lipsync レイヤーの weight を上下させるのと同じ形の記録。
+            /// </summary>
+            public bool IncludeLayerWeights { get; set; }
         }
+
+        /// <summary>レイヤー weight を記録するレイヤー（trigger の Expression が乗るレイヤー）。</summary>
+        public const string LayerWeightLayer = "emotion";
+
+        /// <summary>レイヤー weight の基準（t=0）。</summary>
+        public const float LayerWeightBaseline = 1f;
+
+        /// <summary>
+        /// レイヤー weight の時刻付きレコード（trigger の on 区間 0.2〜0.8 秒の途中で 0 にして戻す）。
+        /// 時刻は 1/60 秒の格子に乗らないようにずらす。
+        /// </summary>
+        public static IReadOnlyList<(double TimeSeconds, float Weight)> LayerWeightSamples { get; } = new[]
+        {
+            (0.41d, 0f),
+            (0.61d, 1f),
+        };
 
         /// <summary>値提供型の source id（iFacialMocap の BlendShape 受信と同じく slug だけ）。</summary>
         public const string ValueProviderSourceId = "ifm";
@@ -170,6 +193,27 @@ namespace Hidano.FacialControl.Timeline.Tests.Shared
                 }
             }
 
+            string[] layerIds = null;
+            if (recording.IncludeLayerWeights)
+            {
+                layerIds = new[] { LayerWeightLayer };
+                baseline = new RecBaselineState(
+                    null,
+                    null,
+                    baseline.ValueProviderEntries,
+                    null,
+                    new[] { new LayerWeightEntry(LayerWeightLayer, LayerWeightBaseline) },
+                    null,
+                    baseline.BlendShapeNames);
+                for (int i = 0; i < LayerWeightSamples.Count; i++)
+                {
+                    events.Add((
+                        RecEvent.CreateLayerWeightSample(LayerWeightSamples[i].TimeSeconds, 0),
+                        new[] { LayerWeightSamples[i].Weight },
+                        null));
+                }
+            }
+
             // 記録は時刻の非減少順でなければならない（同時刻は追加順を保つ安定ソート）。
             var ordered = new List<(RecEvent Event, IReadOnlyList<float> Axes, IReadOnlyList<byte> Mask)>(events.Count);
             for (int i = 0; i < events.Count; i++)
@@ -198,6 +242,7 @@ namespace Hidano.FacialControl.Timeline.Tests.Shared
                 recEvents,
                 sourceIds,
                 new[] { recording.ExpressionId },
+                layerIds,
                 recording.DurationSeconds,
                 axes,
                 masks);

@@ -89,6 +89,7 @@ namespace Hidano.FacialControl.Timeline.Adapters
         private bool _hasBinding;
         private TimelineLayerConnector _connector;
         private TimelineChannelTakeover _takeover;
+        private readonly TimelineLayerWeightOverride _layerWeightOverride = new TimelineLayerWeightOverride();
 
         private TimelineSessionState _state = TimelineSessionState.Idle;
         private TimelineAsset _activeTimeline;
@@ -316,6 +317,12 @@ namespace Hidano.FacialControl.Timeline.Adapters
             _takeover ??= new TimelineChannelTakeover(_binding.Registry, _binding.Slug);
             _takeover.Attach(derivation.Channels, _diagnostics, _binding.BlendShapeNames, CollectDeclaredLayerSourceIds(profile));
 
+            // レイヤー weight トラックがある Timeline だけ live のレイヤー weight を止める（無い Timeline の挙動は変えない）。
+            if (TimelineAssetScanner.CollectLayerWeightTracks(timeline).Count > 0)
+            {
+                _layerWeightOverride.Begin(controller.WeightInjectionGate);
+            }
+
             _sessionBake = located.Bake;
             BuildExpressionBakePlaybacks(derivation, located.Bake);
             _diagnostics.ReplaceArea(TimelineDiagnosticArea.Session, EmptyItems);
@@ -343,6 +350,8 @@ namespace Hidano.FacialControl.Timeline.Adapters
         /// </summary>
         public void ReleaseAll()
         {
+            // live の weight を先に戻す（停止中の入力源スロット解放は宣言 weight 側にしか反映されないため）。
+            _layerWeightOverride.End();
             _takeover?.Release();
             _connector?.Disconnect();
             _sessionBake = null;
@@ -579,6 +588,23 @@ namespace Hidano.FacialControl.Timeline.Adapters
             }
         }
 
+        /// <summary>
+        /// レイヤー weight トラックの値を注入する（Active なセッションでのみ有効。live の weight を止められなかった場合は何もしない）。
+        /// ヒープ確保しない（未知レイヤーの初回警告を除く）。
+        /// </summary>
+        public void ApplyLayerWeight(string layerName, float weight)
+        {
+            if (_state != TimelineSessionState.Active)
+            {
+                return;
+            }
+
+            _layerWeightOverride.Apply(layerName, weight);
+        }
+
+        /// <summary>live のレイヤー weight を止めて Timeline のレイヤー weight を注入中か。</summary>
+        public bool IsLayerWeightOverrideActive => _layerWeightOverride.IsActive;
+
         /// <param name="channelSubId">Value トラックの ChannelSubId（乗っ取り先の registry id）。</param>
         public bool TryGetAnalogSink(string channelSubId, out TimelineAnalogInputSource sink)
         {
@@ -774,6 +800,7 @@ namespace Hidano.FacialControl.Timeline.Adapters
 
         private void EnterFailed(in TimelineDiagnosticItem firstError)
         {
+            _layerWeightOverride.End();
             _connector?.Disconnect();
             _takeover?.Release();
             _activeTimeline = null;

@@ -8,6 +8,7 @@ using Hidano.FacialControl.Rec.Domain.Models;
 using Hidano.FacialControl.Timeline.Editor;
 using Hidano.FacialControl.Timeline.Clips;
 using Hidano.FacialControl.Timeline.Domain.Models;
+using Hidano.FacialControl.Timeline.Playables;
 using Hidano.FacialControl.Timeline.Tracks;
 using NUnit.Framework;
 using UnityEngine;
@@ -286,10 +287,11 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
         }
 
         [Test]
-        public void RecEventSequenceAdapter_WeightKinds_AreSkippedAndCountedWithoutThrowing()
+        public void RecEventSequenceAdapter_WeightKinds_LayerWeightsCollectedAndInputSourceWeightsCounted()
         {
             // rec-weight-coverage Req 7.7: weight の時刻付き kind（12 / 13）を含む REC でも例外にせず、
-            // Export 対象のレコードだけを残す。読み捨てた件数は Export 時の警告用に保持する。
+            // レイヤー weight（基準 + kind 12）はレイヤー weight トラック用に集め（HID-182）、
+            // 入力源 weight（kind 13）は読み捨てて件数を Export 時の警告用に保持する。
             var baseline = new RecBaselineState(
                 null, null, null, null,
                 new[] { new LayerWeightEntry("emotion", 1f) },
@@ -324,7 +326,156 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
             Assert.That(sequence[1].Kind, Is.EqualTo(RecordedEventKind.AnalogValue));
             Assert.That(sequence[1].SourceId, Is.EqualTo("analog:mouth"));
             Assert.That(sequence[2].Kind, Is.EqualTo(RecordedEventKind.TriggerOff));
-            Assert.That(sequence.SkippedWeightEventCount, Is.EqualTo(2));
+            Assert.That(sequence.SkippedWeightEventCount, Is.EqualTo(1), "入力源 weight（kind 13）だけを読み捨てる");
+
+            IReadOnlyList<RecordedLayerWeightSample> layerWeights = sequence.LayerWeightSamples;
+            Assert.That(layerWeights.Count, Is.EqualTo(2));
+            Assert.That(layerWeights[0].TimeSeconds, Is.EqualTo(0d), "基準は t=0 の状態");
+            Assert.That(layerWeights[0].LayerName, Is.EqualTo("emotion"));
+            Assert.That(layerWeights[0].Weight, Is.EqualTo(1f));
+            Assert.That(layerWeights[1].TimeSeconds, Is.EqualTo(0.20d));
+            Assert.That(layerWeights[1].LayerName, Is.EqualTo("emotion"));
+            Assert.That(layerWeights[1].Weight, Is.EqualTo(0.5f));
+        }
+
+        // ================================================================
+        // レイヤー weight トラック（HID-182）
+        // ================================================================
+
+        [Test]
+        public void CreateTimelineAsset_LayerWeightRecords_BuildsStepCurveTrackPerChangedLayer()
+        {
+            var baseline = new RecBaselineState(
+                null, null, null, null,
+                new[] { new LayerWeightEntry("emotion", 1f), new LayerWeightEntry("lipsync", 0f) },
+                null);
+            var recTimeline = new RecTimeline(
+                baseline,
+                new[]
+                {
+                    RecEvent.CreateLayerWeightSample(0.25d, 1),
+                    RecEvent.CreateLayerWeightSample(0.50d, 1),
+                    RecEvent.CreateLayerWeightSample(0.75d, 1),
+                    RecEvent.CreateLayerWeightSample(0.75d, 1),
+                },
+                Array.Empty<string>(),
+                Array.Empty<string>(),
+                new[] { "emotion", "lipsync" },
+                2.0d,
+                new IReadOnlyList<float>[] { new[] { 0.5f }, new[] { 1f }, new[] { 0.4f }, new[] { 0f } });
+
+            TimelineAsset timeline = null;
+            try
+            {
+                timeline = Editor.RecToTimelineExporter.CreateTimelineAsset(new RecEventSequenceAdapter(recTimeline), CreateProfile());
+
+                FacialLayerWeightTrack[] weightTracks = FindLayerWeightTracks(timeline);
+                Assert.That(weightTracks, Has.Length.EqualTo(1), "宣言値 1 のまま変わらないレイヤー（emotion）はトラックにしない");
+                FacialLayerWeightTrack track = weightTracks[0];
+                Assert.That(track.LayerName, Is.EqualTo("lipsync"));
+                Assert.That(track.name, Is.EqualTo("lipsync (weight)"));
+
+                TimelineClip clip = ToArray(track.GetClips())[0];
+                Assert.That(clip.start, Is.EqualTo(0d), "基準があれば t=0 から");
+                Assert.That(clip.end, Is.EqualTo(2.0d).Within(1e-9d));
+
+                AnimationCurve curve = ((FacialLayerWeightClip)clip.asset).Weight;
+                AssertCurve(curve, (0.1f, 0f), (0.3f, 0.5f), (0.6f, 1f), (1.5f, 0f));
+                Assert.That(float.IsPositiveInfinity(curve.keys[0].outTangent), Is.True, "REC 再生と同じく次のサンプルまで値を保持する（階段）");
+                Assert.That(curve.keys[curve.length - 1].time, Is.EqualTo(0.75f).Within(1e-6f), "同時刻のサンプルは後勝ちで 1 キーにまとめる");
+            }
+            finally
+            {
+                if (timeline != null)
+                {
+                    UnityEngine.Object.DestroyImmediate(timeline);
+                }
+            }
+        }
+
+        [Test]
+        public void CreateTimelineAsset_LayerWeightWithoutBaseline_StartsAtFirstSample()
+        {
+            var recTimeline = new RecTimeline(
+                RecBaselineState.Empty,
+                new[] { RecEvent.CreateLayerWeightSample(0.4d, 0) },
+                Array.Empty<string>(),
+                Array.Empty<string>(),
+                new[] { "lipsync" },
+                1.0d,
+                new IReadOnlyList<float>[] { new[] { 0.3f } });
+
+            TimelineAsset timeline = null;
+            try
+            {
+                timeline = Editor.RecToTimelineExporter.CreateTimelineAsset(new RecEventSequenceAdapter(recTimeline), CreateProfile());
+
+                FacialLayerWeightTrack[] weightTracks = FindLayerWeightTracks(timeline);
+                Assert.That(weightTracks, Has.Length.EqualTo(1));
+                TimelineClip clip = ToArray(weightTracks[0].GetClips())[0];
+                Assert.That(clip.start, Is.EqualTo(0.4d).Within(1e-9d), "基準が無ければ最初のサンプルから（それより前は宣言値 1）");
+                AssertCurve(((FacialLayerWeightClip)clip.asset).Weight, (0f, 0.3f), (0.5f, 0.3f));
+            }
+            finally
+            {
+                if (timeline != null)
+                {
+                    UnityEngine.Object.DestroyImmediate(timeline);
+                }
+            }
+        }
+
+        [Test]
+        public void CreateTimelineAsset_NonAdapterSequence_CreatesNoLayerWeightTrack()
+        {
+            var sequence = new FakeRecordedEventSequence(
+                1.0d,
+                new[] { new RecordedEvent(0.1d, RecordedEventKind.TriggerOn, expressionId: "smile") });
+
+            TimelineAsset timeline = null;
+            try
+            {
+                timeline = Editor.RecToTimelineExporter.CreateTimelineAsset(sequence, CreateProfile());
+
+                Assert.That(FindLayerWeightTracks(timeline), Is.Empty);
+            }
+            finally
+            {
+                if (timeline != null)
+                {
+                    UnityEngine.Object.DestroyImmediate(timeline);
+                }
+            }
+        }
+
+        [Test]
+        public void LayerWeightMixer_Evaluate_UsesLastCoveringClipAndDeclaredWeightOutsideClips()
+        {
+            var clips = new[]
+            {
+                new FacialLayerWeightMixerBehaviour.ClipSample(0.5d, 1.5d, AnimationCurve.Constant(0f, 1f, 0.25f)),
+                new FacialLayerWeightMixerBehaviour.ClipSample(1.0d, 2.0d, AnimationCurve.Constant(0f, 1f, 0.75f)),
+            };
+
+            Assert.That(FacialLayerWeightMixerBehaviour.Evaluate(clips, 0.2d), Is.EqualTo(1f), "Clip 外は宣言値 1");
+            Assert.That(FacialLayerWeightMixerBehaviour.Evaluate(clips, 0.7d), Is.EqualTo(0.25f));
+            Assert.That(FacialLayerWeightMixerBehaviour.Evaluate(clips, 1.2d), Is.EqualTo(0.75f), "重なりは後ろの Clip");
+            Assert.That(FacialLayerWeightMixerBehaviour.Evaluate(clips, 2.0d), Is.EqualTo(1f), "終端は含まない");
+            Assert.That(FacialLayerWeightMixerBehaviour.Evaluate(null, 0d), Is.EqualTo(1f));
+        }
+
+        private static FacialLayerWeightTrack[] FindLayerWeightTracks(TimelineAsset timeline)
+        {
+            var tracks = new List<FacialLayerWeightTrack>();
+            foreach (TrackAsset track in timeline.GetOutputTracks())
+            {
+                if (track is FacialLayerWeightTrack weightTrack)
+                {
+                    tracks.Add(weightTrack);
+                }
+            }
+
+            return tracks.ToArray();
         }
 
         [Test]

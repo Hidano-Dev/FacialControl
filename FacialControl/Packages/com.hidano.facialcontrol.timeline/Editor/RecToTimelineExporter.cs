@@ -26,6 +26,9 @@ namespace Hidano.FacialControl.Timeline.Editor
         private const string DefaultBakeAssetName = "FacialTimelineBake";
         private const string OverwriteDialogTitle = "Overwrite Timeline Export";
 
+        // FacialExpressionTrack はトラック名がレイヤー名なので、同名にならないよう区別する。
+        private const string LayerWeightTrackNameSuffix = " (weight)";
+
         public static Func<string, string, string, string, bool> ConfirmOverwriteDialog =
             (title, message, ok, cancel) => EditorUtility.DisplayDialog(title, message, ok, cancel);
 
@@ -123,6 +126,10 @@ namespace Hidano.FacialControl.Timeline.Editor
             List<ValueProviderTrackBuilder.SourceTrack> valueProviderTracks =
                 BuildValueProviderTracks(sequence, referenceBlendShapeNames, detections, warn: true);
             CreateValueProviderTracks(timeline, valueProviderTracks, sequence.DurationSeconds);
+
+            // レイヤー weight（発話ゲート等が書く inter-layer weight）は REC 再生と同じ結果にするためトラックにする（HID-182）。
+            IReadOnlyList<RecordedLayerWeightSample> layerWeights = (sequence as RecEventSequenceAdapter)?.LayerWeightSamples;
+            CreateLayerWeightTracks(timeline, LayerWeightTrackBuilder.Build(layerWeights), sequence.DurationSeconds);
 
             detections.Sort((left, right) => string.CompareOrdinal(left.SourceId, right.SourceId));
             return detections;
@@ -241,12 +248,13 @@ namespace Hidano.FacialControl.Timeline.Editor
         }
 
         /// <summary>
-        /// 時刻付き weight レコードを Export 対象外として読み捨てたことを、Export 1 回につき 1 回だけ警告する。
+        /// 時刻付き入力源 weight レコードを Export 対象外として読み捨てたことを、Export 1 回につき 1 回だけ警告する。
         /// </summary>
         /// <remarks>
-        /// rec-weight-coverage Req 7.7 は「Export 対象としない kind は無視してよい」とするが、weight の変化は REC 再生では
-        /// 再現される一方、Export した Timeline の再生では再現されない（Timeline 再生中のレイヤー / 入力源 weight は
+        /// rec-weight-coverage Req 7.7 は「Export 対象としない kind は無視してよい」とするが、入力源 weight の変化は REC 再生では
+        /// 再現される一方、Export した Timeline の再生では再現されない（Timeline 再生中の入力源 weight は
         /// プロファイルの宣言値とライブの書込に従う）。再生に必要な情報が失われることを利用者が気付けるよう、無言では捨てない。
+        /// レイヤー weight はレイヤー weight トラックとして Export するため対象外（HID-182）。
         /// 件数は 1 行にまとめ、レコードごとには出さない（Console を埋めないため）。
         /// </remarks>
         private static void WarnSkippedWeightRecords(RecEventSequenceAdapter sequence, string recordingPath)
@@ -257,9 +265,9 @@ namespace Hidano.FacialControl.Timeline.Editor
             }
 
             Debug.LogWarning(
-                $"[RecToTimelineExporter] '{recordingPath}' contains {sequence.SkippedWeightEventCount} weight record(s) " +
-                "(layer weight / input source weight changes). Timeline has no track for weights, so they are not exported " +
-                "and the exported Timeline does not reproduce weight changes made during recording.");
+                $"[RecToTimelineExporter] '{recordingPath}' contains {sequence.SkippedWeightEventCount} input source weight record(s). " +
+                "Timeline has no track for input source weights, so they are not exported " +
+                "and the exported Timeline does not reproduce input source weight changes made during recording.");
         }
 
         /// <summary>
@@ -364,6 +372,24 @@ namespace Hidano.FacialControl.Timeline.Editor
             }
 
             return false;
+        }
+
+        private static void CreateLayerWeightTracks(
+            TimelineAsset timeline,
+            List<LayerWeightTrackBuilder.LayerTrack> tracks,
+            double durationSeconds)
+        {
+            for (int i = 0; i < tracks.Count; i++)
+            {
+                LayerWeightTrackBuilder.LayerTrack trackInfo = tracks[i];
+                var track = timeline.CreateTrack<FacialLayerWeightTrack>(null, trackInfo.LayerName + LayerWeightTrackNameSuffix);
+                track.LayerName = trackInfo.LayerName;
+
+                TimelineClip clip = track.CreateClip<FacialLayerWeightClip>();
+                clip.start = trackInfo.ClipStart;
+                clip.duration = Math.Max(MinimumClipDuration, durationSeconds - trackInfo.ClipStart);
+                ((FacialLayerWeightClip)clip.asset).Weight = trackInfo.Curve;
+            }
         }
 
         private static void CreateValueProviderTracks(

@@ -157,7 +157,7 @@ namespace Hidano.FacialControl.Timeline.Adapters.Session
                 throw new ArgumentNullException(nameof(writer));
             }
 
-            IReadOnlyList<TrackAsset> tracks = TimelineAssetScanner.Scan(timeline).TrackAssets;
+            List<TrackAsset> tracks = CollectBindableTracks(timeline);
             int assigned = 0;
             int alreadyBound = 0;
             List<TrackAsset> boundToOther = null;
@@ -196,7 +196,7 @@ namespace Hidano.FacialControl.Timeline.Adapters.Session
                 return false;
             }
 
-            IReadOnlyList<TrackAsset> tracks = TimelineAssetScanner.Scan(timeline).TrackAssets;
+            List<TrackAsset> tracks = CollectBindableTracks(timeline);
             for (int i = 0; i < tracks.Count; i++)
             {
                 if (PointsTo(director.GetGenericBinding(tracks[i]), receiver))
@@ -206,6 +206,14 @@ namespace Hidano.FacialControl.Timeline.Adapters.Session
             }
 
             return false;
+        }
+
+        /// <summary>Receiver を binding する全トラック（Facial トラック + レイヤー weight トラック）。</summary>
+        private static List<TrackAsset> CollectBindableTracks(TimelineAsset timeline)
+        {
+            var tracks = new List<TrackAsset>(TimelineAssetScanner.Scan(timeline).TrackAssets);
+            tracks.AddRange(TimelineAssetScanner.CollectLayerWeightTracks(timeline));
+            return tracks;
         }
 
         private static bool PointsTo(UnityEngine.Object binding, FacialTimelineReceiver receiver)
