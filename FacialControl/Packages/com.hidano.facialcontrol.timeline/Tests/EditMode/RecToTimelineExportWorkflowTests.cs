@@ -321,6 +321,108 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
             }
         }
 
+        [Test]
+        public void TryExportTimelineAsset_RecWithExpressionActivateRecords_WarnsOnceWithCount()
+        {
+            // 既定 fixture は kind 9 / 10（系1 の activate / deactivate）を 1 件ずつ含む。Timeline に表現が無いため読み捨てるが、
+            // weight と同じく Export 1 回につき 1 回、件数付きで警告する（無言で捨てない）。
+            ExportFixture fixture = ExportFixture.Create();
+
+            try
+            {
+                LogAssert.Expect(
+                    LogType.Warning,
+                    new System.Text.RegularExpressions.Regex(@"\[RecToTimelineExporter\].*2 expression activate/deactivate record"));
+
+                bool success = RecToTimelineExporter.TryExportTimelineAsset(
+                    fixture.RecordingAbsolutePath,
+                    fixture.Profile,
+                    fixture.TimelinePath,
+                    out _);
+
+                Assert.That(success, Is.True);
+                LogAssert.NoUnexpectedReceived();
+            }
+            finally
+            {
+                fixture.Dispose();
+            }
+        }
+
+        [Test]
+        public void TryExportTimelineAsset_ValueProviderRecording_ExportsValueProviderTrackWithNamesFromReferenceModel()
+        {
+            ExportFixture fixture = ExportFixture.Create(valueProvider: true);
+            var model = new GameObject("RecToTimelineExportReferenceModel");
+            var mesh = new Mesh { name = "RecToTimelineExportReferenceMesh", vertices = new[] { Vector3.zero, Vector3.right, Vector3.up } };
+            mesh.AddBlendShapeFrame("eyeBlinkLeft", 100f, new Vector3[3], null, null);
+            mesh.AddBlendShapeFrame("jawOpen", 100f, new Vector3[3], null, null);
+            new GameObject("Face").transform.SetParent(model.transform, false);
+            model.transform.GetChild(0).gameObject.AddComponent<SkinnedMeshRenderer>().sharedMesh = mesh;
+
+            try
+            {
+                fixture.Profile.ReferenceModel = model;
+
+                bool success = RecToTimelineExporter.TryExportTimelineAsset(
+                    fixture.RecordingAbsolutePath,
+                    fixture.Profile,
+                    fixture.TimelinePath,
+                    out RecToTimelineExporter.ExportResult result);
+
+                Assert.That(success, Is.True);
+                ChannelDetection detection = default;
+                foreach (ChannelDetection candidate in result.ChannelDetections)
+                {
+                    if (candidate.SourceId == "ifm")
+                    {
+                        detection = candidate;
+                    }
+                }
+
+                Assert.That(detection.Kind, Is.EqualTo(FacialValueChannelKind.ValueProvider));
+                Assert.That(detection.Reason, Is.EqualTo(ChannelDetectionReason.ValueProviderNamed));
+                Assert.That(detection.AxisCount, Is.EqualTo(2));
+
+                FacialValueTrack track = null;
+                foreach (TrackAsset candidate in result.Timeline.GetRootTracks())
+                {
+                    if (candidate is FacialValueTrack valueTrack && valueTrack.ChannelSubId == "ifm")
+                    {
+                        track = valueTrack;
+                    }
+                }
+
+                Assert.That(track, Is.Not.Null);
+                var clip = (FacialValueClip)ToArray(track.GetClips())[0].asset;
+                Assert.That(clip.BlendShapeNames, Is.EqualTo(new[] { "eyeBlinkLeft", "jawOpen" }));
+
+                var derivation = Hidano.FacialControl.Timeline.Domain.Services.TimelineChannelDeriver.Derive(
+                    TimelineAssetScanner.Scan(result.Timeline).Tracks, TimelineProfileSource.Resolve(fixture.Profile));
+                Assert.That(derivation.InvalidChannelSubIds, Is.Empty);
+                var channel = derivation.Channels[0];
+                foreach (var candidate in derivation.Channels)
+                {
+                    if (candidate.ChannelSubId == "ifm")
+                    {
+                        channel = candidate;
+                    }
+                }
+
+                Assert.That(channel.Kind, Is.EqualTo(FacialValueChannelKind.ValueProvider));
+                Assert.That(channel.BlendShapeBindings.Count, Is.EqualTo(2));
+                Assert.That(channel.BlendShapeBindings[1].Name, Is.EqualTo("jawOpen"));
+                Assert.That(channel.BlendShapeBindings[1].RecordedIndex, Is.EqualTo(1));
+            }
+            finally
+            {
+                fixture.Profile.ReferenceModel = null;
+                UnityEngine.Object.DestroyImmediate(model);
+                UnityEngine.Object.DestroyImmediate(mesh);
+                fixture.Dispose();
+            }
+        }
+
         private static RecTimeline CreateSingleTriggerRecording(string expressionId)
         {
             return new RecTimeline(
@@ -410,7 +512,10 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
 
             public string RecordingAbsolutePath { get; }
 
-            public static ExportFixture Create(bool overlappingTriggers = false, bool includeWeightRecords = false)
+            public static ExportFixture Create(
+                bool overlappingTriggers = false,
+                bool includeWeightRecords = false,
+                bool valueProvider = false)
             {
                 string folderName = "RecToTimelineExportWorkflowTests_" + Guid.NewGuid().ToString("N");
                 string folderPath = "Assets/" + folderName;
@@ -460,7 +565,9 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
                 });
                 AssetDatabase.CreateAsset(profile, profilePath);
 
-                RecTimeline timeline = includeWeightRecords
+                RecTimeline timeline = valueProvider
+                    ? CreateValueProviderRecordingTimeline()
+                    : includeWeightRecords
                     ? CreateRecordingTimelineWithWeights()
                     : overlappingTriggers
                         ? CreateOverlappingRecordingTimeline()
@@ -561,6 +668,28 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
                         new[] { 0.75f },
                         Array.Empty<float>(),
                     });
+            }
+
+            /// <summary>値提供型（slug だけの source id <c>ifm</c>、BlendShape 2 個）の基準と時刻付きレコード。</summary>
+            private static RecTimeline CreateValueProviderRecordingTimeline()
+            {
+                var baseline = new RecBaselineState(
+                    null,
+                    null,
+                    new[] { new RecBaselineState.ValueProviderEntry("ifm", true, new byte[] { 0b0000_0011 }, new[] { 0.1f, 0.2f }) },
+                    null);
+                return new RecTimeline(
+                    baseline,
+                    new[]
+                    {
+                        RecEvent.CreateValueProviderSample(
+                            0.5d, 0, RecValueProviderFlags.IsValid | RecValueProviderFlags.HasValues, 2, 0),
+                    },
+                    new[] { "ifm" },
+                    Array.Empty<string>(),
+                    1.0d,
+                    new IReadOnlyList<float>[] { new[] { 0.6f, 0.7f } },
+                    new IReadOnlyList<byte>[] { Array.Empty<byte>() });
             }
 
             private static RecTimeline CreateRecordingTimeline()

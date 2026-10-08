@@ -36,7 +36,7 @@ namespace Hidano.FacialControl.Timeline.Adapters.Session
     }
 
     /// <summary>
-    /// Analog / Gaze チャネルを ChannelSubId の registry エントリへ Replace で乗っ取り、解放時に原本を復元する（D3 / D4）。
+    /// Analog / Gaze / 値提供型チャネルを ChannelSubId の registry エントリへ Replace で乗っ取り、解放時に原本を復元する（D3 / D4）。
     /// </summary>
     /// <remarks>
     /// <para>乗っ取り先は ChannelSubId（REC の source id）そのもの。最初の <c>:</c> で slug / sub に分けて Replace する。
@@ -44,6 +44,7 @@ namespace Hidano.FacialControl.Timeline.Adapters.Session
     /// <para>占有規則（<see cref="IInjectedInputSource"/>）に従い、既存エントリが注入型なら触らない。
     /// 復元は現エントリが自分の sink と参照同一のときだけ行う。</para>
     /// <para>Analog の値は registry 購読型の消費者（<c>IRegistryAttachableAnalogConsumer</c>）が Replace 通知で読む先を差し替えることで届く。
+    /// 値提供型はレイヤーのスロットが Replace 通知で sink に差し替わる（REC 再生の注入と同じ経路）。
     /// 本クラスは消費者を知らず、Replace 以外のことをしない。</para>
     /// <para>メインスレッド専用。呼び出しはセッション開始 / 終了時のみ。</para>
     /// </remarks>
@@ -51,12 +52,18 @@ namespace Hidano.FacialControl.Timeline.Adapters.Session
     {
         private const string AttachedAnalogDetail = "registry 購読型の消費者に Timeline の値を反映します。";
         private const string AttachedGazeDetail = "目線の入力を Timeline の値で置き換えます。";
+        private const string AttachedValueProviderDetail = "この入力源の BlendShape 値を Timeline の値で置き換えます。";
         private const string NotFoundDetail =
             "この id の入力源が登録されていないため、このチャネルは再生されません。REC したときと同じ AdapterBinding が Profile にあるか確認してください。";
         private const string OccupiedDetail =
             "他の注入者（REC 再生など）がこの入力源を使用中のため、このチャネルは再生されません。";
         private const string AxisCountInvalidDetail = "軸数が 0 のため、このチャネルは再生されません。再 Export してください。";
         private const string InvalidIdDetail = "ChannelSubId を入力源 id として解釈できないため、このチャネルは再生されません。";
+        private const string BlendShapeMismatchDetailFormat =
+            "Clip の BlendShape {0} 個のうち {1} 個がこのモデルの BlendShape に対応しないため、その分は再生されません" +
+            "（BlendShape 数 {2}）。録画時と同じモデルか確認し、Profile の参照モデルを設定して再 Export すると名前で対応付けます。";
+
+        private static readonly IReadOnlyList<string> EmptyNames = Array.Empty<string>();
 
         private readonly IInputSourceRegistry _registry;
         private readonly AdapterSlug _slug;
@@ -82,9 +89,13 @@ namespace Hidano.FacialControl.Timeline.Adapters.Session
         public IReadOnlyList<TimelineTakeoverEntry> Entries { get; }
 
         /// <summary>
-        /// チャネルごとに乗っ取りを試み、Analog / Gaze 領域の診断を置換する。既に乗っ取り中なら先に解放する。
+        /// チャネルごとに乗っ取りを試み、Analog / Gaze / ValueProvider 領域の診断を置換する。既に乗っ取り中なら先に解放する。
         /// </summary>
-        public void Attach(IReadOnlyList<TimelineChannelDescriptor> channels, FacialTimelineDiagnostics diagnostics)
+        /// <param name="hostBlendShapeNames">ホストの BlendShape 名列（値提供型 sink の大きさと名前の対応付けに使う）。</param>
+        public void Attach(
+            IReadOnlyList<TimelineChannelDescriptor> channels,
+            FacialTimelineDiagnostics diagnostics,
+            IReadOnlyList<string> hostBlendShapeNames = null)
         {
             if (channels == null)
             {
@@ -98,27 +109,47 @@ namespace Hidano.FacialControl.Timeline.Adapters.Session
 
             Release();
 
+            IReadOnlyList<string> hostNames = hostBlendShapeNames ?? EmptyNames;
             var analogItems = new List<TimelineDiagnosticItem>();
             var gazeItems = new List<TimelineDiagnosticItem>();
+            var valueProviderItems = new List<TimelineDiagnosticItem>();
             for (int i = 0; i < channels.Count; i++)
             {
                 TimelineChannelDescriptor channel = channels[i];
-                bool isGaze = channel.Kind == FacialValueChannelKind.Gaze;
-                List<TimelineDiagnosticItem> items = isGaze ? gazeItems : analogItems;
-                TimelineDiagnosticArea area = isGaze ? TimelineDiagnosticArea.Gaze : TimelineDiagnosticArea.Analog;
-                string id = channel.ChannelSubId;
+                List<TimelineDiagnosticItem> items;
+                TimelineDiagnosticArea area;
+                switch (channel.Kind)
+                {
+                    case FacialValueChannelKind.Gaze:
+                        items = gazeItems;
+                        area = TimelineDiagnosticArea.Gaze;
+                        break;
+                    case FacialValueChannelKind.ValueProvider:
+                        items = valueProviderItems;
+                        area = TimelineDiagnosticArea.ValueProvider;
+                        break;
+                    default:
+                        items = analogItems;
+                        area = TimelineDiagnosticArea.Analog;
+                        break;
+                }
 
-                TimelineDiagnosticCode status = TryAttach(channel, isGaze, out string detail);
-                TimelineDiagnosticSeverity severity = status == TimelineDiagnosticCode.AnalogTakeoverAttached
-                    || status == TimelineDiagnosticCode.GazeTakeoverAttached
-                    ? TimelineDiagnosticSeverity.Info
-                    : TimelineDiagnosticSeverity.Warning;
+                string id = channel.ChannelSubId;
+                TimelineDiagnosticCode status = TryAttach(channel, hostNames, out string detail, out ITimelineTakeoverSink sink);
+                bool attached = sink != null;
+                TimelineDiagnosticSeverity severity = attached ? TimelineDiagnosticSeverity.Info : TimelineDiagnosticSeverity.Warning;
                 items.Add(new TimelineDiagnosticItem(area, status, severity, id, detail));
-                _entries.Add(new TimelineTakeoverEntry(id, channel.Kind, severity == TimelineDiagnosticSeverity.Info, status));
+                _entries.Add(new TimelineTakeoverEntry(id, channel.Kind, attached, status));
+
+                if (attached && sink is TimelineValueProviderInputSource valueProviderSink)
+                {
+                    AddBlendShapeMismatch(channel, valueProviderSink, valueProviderItems);
+                }
             }
 
             diagnostics.ReplaceArea(TimelineDiagnosticArea.Analog, analogItems.ToArray());
             diagnostics.ReplaceArea(TimelineDiagnosticArea.Gaze, gazeItems.ToArray());
+            diagnostics.ReplaceArea(TimelineDiagnosticArea.ValueProvider, valueProviderItems.ToArray());
         }
 
         /// <summary>
@@ -129,7 +160,7 @@ namespace Hidano.FacialControl.Timeline.Adapters.Session
             for (int i = _takeovers.Count - 1; i >= 0; i--)
             {
                 Takeover takeover = _takeovers[i];
-                TimelineAnalogInputSource sink = takeover.Sink;
+                ITimelineTakeoverSink sink = takeover.Sink;
                 if (!_registry.TryResolve(takeover.ChannelSubId, out IInputSource current)
                     || !ReferenceEquals(current, sink))
                 {
@@ -152,7 +183,7 @@ namespace Hidano.FacialControl.Timeline.Adapters.Session
         public bool TryGetAnalogSink(string channelSubId, out TimelineAnalogInputSource sink)
         {
             int index = Find(channelSubId, FacialValueChannelKind.Analog);
-            sink = index >= 0 ? _takeovers[index].Sink : null;
+            sink = index >= 0 ? _takeovers[index].Sink as TimelineAnalogInputSource : null;
             return sink != null;
         }
 
@@ -163,50 +194,143 @@ namespace Hidano.FacialControl.Timeline.Adapters.Session
             return sink != null;
         }
 
+        public bool TryGetValueProviderSink(string channelSubId, out TimelineValueProviderInputSource sink)
+        {
+            int index = Find(channelSubId, FacialValueChannelKind.ValueProvider);
+            sink = index >= 0 ? _takeovers[index].Sink as TimelineValueProviderInputSource : null;
+            return sink != null;
+        }
+
         public void Dispose()
         {
             Release();
         }
 
-        private TimelineDiagnosticCode TryAttach(TimelineChannelDescriptor channel, bool isGaze, out string detail)
+        private TimelineDiagnosticCode TryAttach(
+            TimelineChannelDescriptor channel,
+            IReadOnlyList<string> hostBlendShapeNames,
+            out string detail,
+            out ITimelineTakeoverSink attachedSink)
         {
-            TimelineDiagnosticCode notFound = isGaze ? TimelineDiagnosticCode.GazeSourceNotFound : TimelineDiagnosticCode.AnalogSourceNotFound;
+            attachedSink = null;
+            FacialValueChannelKind kind = channel.Kind;
             string id = channel.ChannelSubId;
 
-            if (!isGaze && channel.AxisCount <= 0)
+            if (kind == FacialValueChannelKind.Analog && channel.AxisCount <= 0)
             {
                 detail = AxisCountInvalidDetail;
                 return TimelineDiagnosticCode.AnalogAxisCountInvalid;
             }
 
-            if (Find(id, channel.Kind) >= 0 || !InputSourceId.TryParse(id, out InputSourceId sinkId)
+            if (Find(id, kind) >= 0 || !InputSourceId.TryParse(id, out InputSourceId sinkId)
                 || !TrySplit(id, out AdapterSlug targetSlug, out string targetSub))
             {
                 detail = InvalidIdDetail;
-                return notFound;
+                return NotFoundCode(kind);
             }
 
             if (!_registry.TryResolve(id, out IInputSource original) || original == null)
             {
                 detail = NotFoundDetail;
-                return notFound;
+                return NotFoundCode(kind);
             }
 
             if (original is IInjectedInputSource)
             {
                 detail = OccupiedDetail;
-                return isGaze ? TimelineDiagnosticCode.GazeOccupied : TimelineDiagnosticCode.AnalogOccupied;
+                return OccupiedCode(kind);
             }
 
-            TimelineAnalogInputSource sink = isGaze
-                ? new TimelineGazeInputSource(sinkId)
-                : new TimelineAnalogInputSource(sinkId, channel.AxisCount);
+            ITimelineTakeoverSink sink;
+            switch (kind)
+            {
+                case FacialValueChannelKind.Gaze:
+                    sink = new TimelineGazeInputSource(sinkId);
+                    detail = AttachedGazeDetail;
+                    break;
+                case FacialValueChannelKind.ValueProvider:
+                    sink = new TimelineValueProviderInputSource(sinkId, hostBlendShapeNames);
+                    detail = AttachedValueProviderDetail;
+                    break;
+                default:
+                    sink = new TimelineAnalogInputSource(sinkId, channel.AxisCount);
+                    detail = AttachedAnalogDetail;
+                    break;
+            }
+
             sink.AttachReplacement(original);
             ReplaceEntry(targetSlug, targetSub, sink);
-            _takeovers.Add(new Takeover(id, channel.Kind, targetSlug, targetSub, sink));
+            _takeovers.Add(new Takeover(id, kind, targetSlug, targetSub, sink));
+            attachedSink = sink;
+            return AttachedCode(kind);
+        }
 
-            detail = isGaze ? AttachedGazeDetail : AttachedAnalogDetail;
-            return isGaze ? TimelineDiagnosticCode.GazeTakeoverAttached : TimelineDiagnosticCode.AnalogTakeoverAttached;
+        /// <summary>Clip の BlendShape のうちホストに対応しないものがあれば Warning を足す（対応した分は再生する）。</summary>
+        private static void AddBlendShapeMismatch(
+            TimelineChannelDescriptor channel,
+            TimelineValueProviderInputSource sink,
+            List<TimelineDiagnosticItem> items)
+        {
+            IReadOnlyList<TimelineBlendShapeBinding> bindings = channel.BlendShapeBindings;
+            int unmapped = 0;
+            for (int i = 0; i < bindings.Count; i++)
+            {
+                if (sink.ResolveHostIndex(bindings[i].Name, bindings[i].RecordedIndex) < 0)
+                {
+                    unmapped++;
+                }
+            }
+
+            if (unmapped == 0)
+            {
+                return;
+            }
+
+            items.Add(new TimelineDiagnosticItem(
+                TimelineDiagnosticArea.ValueProvider,
+                TimelineDiagnosticCode.ValueProviderBlendShapeMismatch,
+                TimelineDiagnosticSeverity.Warning,
+                channel.ChannelSubId,
+                string.Format(BlendShapeMismatchDetailFormat, bindings.Count, unmapped, sink.BlendShapeCount)));
+        }
+
+        private static TimelineDiagnosticCode NotFoundCode(FacialValueChannelKind kind)
+        {
+            switch (kind)
+            {
+                case FacialValueChannelKind.Gaze:
+                    return TimelineDiagnosticCode.GazeSourceNotFound;
+                case FacialValueChannelKind.ValueProvider:
+                    return TimelineDiagnosticCode.ValueProviderSourceNotFound;
+                default:
+                    return TimelineDiagnosticCode.AnalogSourceNotFound;
+            }
+        }
+
+        private static TimelineDiagnosticCode OccupiedCode(FacialValueChannelKind kind)
+        {
+            switch (kind)
+            {
+                case FacialValueChannelKind.Gaze:
+                    return TimelineDiagnosticCode.GazeOccupied;
+                case FacialValueChannelKind.ValueProvider:
+                    return TimelineDiagnosticCode.ValueProviderOccupied;
+                default:
+                    return TimelineDiagnosticCode.AnalogOccupied;
+            }
+        }
+
+        private static TimelineDiagnosticCode AttachedCode(FacialValueChannelKind kind)
+        {
+            switch (kind)
+            {
+                case FacialValueChannelKind.Gaze:
+                    return TimelineDiagnosticCode.GazeTakeoverAttached;
+                case FacialValueChannelKind.ValueProvider:
+                    return TimelineDiagnosticCode.ValueProviderTakeoverAttached;
+                default:
+                    return TimelineDiagnosticCode.AnalogTakeoverAttached;
+            }
         }
 
         private void ReplaceEntry(AdapterSlug slug, string sub, IInputSource source)
@@ -255,7 +379,7 @@ namespace Hidano.FacialControl.Timeline.Adapters.Session
                 FacialValueChannelKind kind,
                 AdapterSlug targetSlug,
                 string targetSub,
-                TimelineAnalogInputSource sink)
+                ITimelineTakeoverSink sink)
             {
                 ChannelSubId = channelSubId;
                 Kind = kind;
@@ -268,7 +392,7 @@ namespace Hidano.FacialControl.Timeline.Adapters.Session
             public FacialValueChannelKind Kind { get; }
             public AdapterSlug TargetSlug { get; }
             public string TargetSub { get; }
-            public TimelineAnalogInputSource Sink { get; }
+            public ITimelineTakeoverSink Sink { get; }
         }
     }
 }

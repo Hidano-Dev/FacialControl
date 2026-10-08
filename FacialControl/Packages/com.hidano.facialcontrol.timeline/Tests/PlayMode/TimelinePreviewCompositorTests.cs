@@ -46,6 +46,8 @@ namespace Hidano.FacialControl.Timeline.Tests.PlayMode
             TimelineE2EFixture.SmileBlendShape,
             TimelineE2EFixture.SquintBlendShape,
             TimelineE2EFixture.BlinkBlendShape,
+            TimelineE2EFixture.JawOpenBlendShape,
+            TimelineE2EFixture.EyeWideBlendShape,
         };
 
         /// <summary>JSON だけを書き換えるときの smile の Expression 値（Bake は 1.0 で焼いてある）。</summary>
@@ -124,6 +126,25 @@ namespace Hidano.FacialControl.Timeline.Tests.PlayMode
             yield return AssertEditMatchesPlay(character, _compositor, result);
 
             Assert.That(result.MaxSquint, Is.GreaterThan(1f), "前提: 比較時刻に Analog 消費者経由の squint が出ている時刻を含む");
+        }
+
+        /// <summary>
+        /// 値提供型（REC の kind 7 / 8）の記録でも、Edit プレビューは値提供型 Value トラックの sink を Profile のレイヤー宣言
+        /// （<c>face</c> レイヤーの <c>ifm</c>）どおりに合成し、比較時刻ごとに Play と一致する（HID-178）。
+        /// </summary>
+        [UnityTest]
+        public IEnumerator Evaluate_ValueProviderChannel_MatchesDirectorPlaybackAtComparisonTimes()
+        {
+            _fixture = TimelineE2EFixture.Create(new RecFixtureWriter.Recording { AnalogValue = 0f, IncludeValueProvider = true });
+            PrepareSameSnapshot(_fixture);
+            TimelineE2ECharacter character = _fixture.Spawn(TimelineE2EPlacement.SameObject);
+            _compositor = CreateCompositor(character);
+            Assert.That(_compositor.CanRender, Is.True, "前提: Bake を解決できる");
+
+            var result = new ComparisonResult();
+            yield return AssertEditMatchesPlay(character, _compositor, result);
+
+            Assert.That(result.MaxValueProvider, Is.GreaterThan(1f), "前提: 比較時刻に値提供型の BlendShape が出ている時刻を含む");
         }
 
         [UnityTest]
@@ -272,6 +293,10 @@ namespace Hidano.FacialControl.Timeline.Tests.PlayMode
 
                 result.MaxSmile = Math.Max(result.MaxSmile, played[0]);
                 result.MaxSquint = Math.Max(result.MaxSquint, played[1]);
+                for (int i = 2; i < played.Length; i++)
+                {
+                    result.MaxValueProvider = Math.Max(result.MaxValueProvider, played[i]);
+                }
                 result.SawGaze |= Quaternion.Angle(playedLeft, Quaternion.identity) > 1f;
             }
         }
@@ -353,6 +378,9 @@ namespace Hidano.FacialControl.Timeline.Tests.PlayMode
             public float MaxSmile { get; set; }
 
             public float MaxSquint { get; set; }
+
+            /// <summary>値提供型が動かす BlendShape（Blink / JawOpen / EyeWide）の Play 側の最大値。</summary>
+            public float MaxValueProvider { get; set; }
 
             public bool SawGaze { get; set; }
         }

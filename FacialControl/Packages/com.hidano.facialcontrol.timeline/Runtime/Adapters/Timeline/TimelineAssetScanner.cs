@@ -114,7 +114,10 @@ namespace Hidano.FacialControl.Timeline.Adapters.Scanning
                     hasBake,
                     bakeInstanceId,
                     isChild,
-                    parentIndex);
+                    parentIndex,
+                    valueTrack.ChannelKind == FacialValueChannelKind.ValueProvider
+                        ? CollectBlendShapeBindings(valueTrack)
+                        : null);
             }
 
             return new TimelineTrackDescriptor(
@@ -142,6 +145,34 @@ namespace Hidano.FacialControl.Timeline.Adapters.Scanning
             }
 
             return max;
+        }
+
+        /// <summary>値提供型トラックの全 Clip の軸を (BlendShape 名, 記録時 index) の和集合として初出順に集める。</summary>
+        private static TimelineBlendShapeBinding[] CollectBlendShapeBindings(FacialValueTrack track)
+        {
+            var bindings = new List<TimelineBlendShapeBinding>();
+            var seen = new HashSet<(string, int)>();
+            foreach (TimelineClip clip in track.GetClips())
+            {
+                if (!(clip.asset is FacialValueClip valueClip) || valueClip.Axes == null)
+                {
+                    continue;
+                }
+
+                string[] names = valueClip.BlendShapeNames;
+                int[] indices = valueClip.BlendShapeIndices;
+                for (int axis = 0; axis < valueClip.Axes.Length; axis++)
+                {
+                    string name = names != null && axis < names.Length ? names[axis] ?? string.Empty : string.Empty;
+                    int index = indices != null && axis < indices.Length ? indices[axis] : axis;
+                    if (seen.Add((name, index)))
+                    {
+                        bindings.Add(new TimelineBlendShapeBinding(name, index));
+                    }
+                }
+            }
+
+            return bindings.ToArray();
         }
 
         private static bool IsFacialTrack(TrackAsset track)

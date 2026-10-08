@@ -121,7 +121,10 @@ namespace Hidano.FacialControl.Timeline.Editor
                     stateEvents.AddRange(TimelineStateEventCollector.Collect(expressionTrack));
                 }
 
-                if (rootTrack is FacialValueTrack valueTrack)
+                // 値提供型トラックは ValueBakes に焼かない。再生（Mixer）と Edit プレビューは Clip の階段カーブを直接評価し、
+                // BlendShape ごとに sampleRate で再サンプルすると Bake が録画長 × BlendShape 数で肥大する（ValueBakes は再生に使わない）。
+                // Clip の内容は Source ハッシュに含まれるため、編集すれば通常どおり再ベイク対象になる。
+                if (rootTrack is FacialValueTrack valueTrack && valueTrack.ChannelKind != FacialValueChannelKind.ValueProvider)
                 {
                     valueBakes.Add(BakeValueTrack(valueTrack, sampleRate));
                 }

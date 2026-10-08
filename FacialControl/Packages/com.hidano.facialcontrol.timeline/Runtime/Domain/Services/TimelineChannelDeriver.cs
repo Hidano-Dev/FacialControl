@@ -66,7 +66,8 @@ namespace Hidano.FacialControl.Timeline.Domain.Services
                         continue;
                     }
 
-                    channels.Add(new TimelineChannelDescriptor(subId, track.ChannelKind, track.MaxAxisCount, track.TrackIndex));
+                    channels.Add(new TimelineChannelDescriptor(
+                        subId, track.ChannelKind, track.MaxAxisCount, track.TrackIndex, track.BlendShapeBindings));
                 }
             }
 

@@ -199,7 +199,50 @@ namespace Hidano.FacialControl.Timeline.Domain.Services
                 {
                     WriteCurve(ref writer, axes[axisIndex]);
                 }
+
+                if (asset != null)
+                {
+                    WriteValueProviderClipData(ref writer, asset);
+                }
             }
+        }
+
+        /// <summary>
+        /// 値提供型の Clip データ（BlendShape 対応・寄与 mask・有効状態）を書く。どれも持たない Clip（Analog / Gaze と
+        /// 本データ導入前の Clip）は何も書かず、既存 Timeline の Source ハッシュを変えない。
+        /// </summary>
+        private static void WriteValueProviderClipData(ref Fnv1A64Writer writer, FacialValueClip asset)
+        {
+            string[] names = asset.BlendShapeNames ?? Array.Empty<string>();
+            int[] indices = asset.BlendShapeIndices ?? Array.Empty<int>();
+            AnimationCurve[] contributes = asset.Contributes ?? Array.Empty<AnimationCurve>();
+            AnimationCurve validity = asset.Validity;
+            bool hasValidity = validity != null && validity.length > 0;
+            if (names.Length == 0 && indices.Length == 0 && contributes.Length == 0 && !hasValidity)
+            {
+                return;
+            }
+
+            writer.WriteString("value-provider");
+            writer.WriteInt32(names.Length);
+            for (int i = 0; i < names.Length; i++)
+            {
+                writer.WriteString(names[i] ?? string.Empty);
+            }
+
+            writer.WriteInt32(indices.Length);
+            for (int i = 0; i < indices.Length; i++)
+            {
+                writer.WriteInt32(indices[i]);
+            }
+
+            writer.WriteInt32(contributes.Length);
+            for (int i = 0; i < contributes.Length; i++)
+            {
+                WriteCurve(ref writer, contributes[i]);
+            }
+
+            WriteCurve(ref writer, hasValidity ? validity : null);
         }
 
         private static void WriteProfile(ref Fnv1A64Writer writer, in FacialProfile profile)

@@ -108,6 +108,8 @@ namespace Hidano.FacialControl.Timeline.Editor.Inspector
                     return "Analog";
                 case TimelineDiagnosticArea.Gaze:
                     return "Gaze";
+                case TimelineDiagnosticArea.ValueProvider:
+                    return "値提供型（BlendShape）";
                 case TimelineDiagnosticArea.Placement:
                     return "配置";
                 case TimelineDiagnosticArea.Session:

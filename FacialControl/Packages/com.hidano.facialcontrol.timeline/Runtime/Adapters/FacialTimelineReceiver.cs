@@ -143,7 +143,7 @@ namespace Hidano.FacialControl.Timeline.Adapters
         /// <summary>直近のセッション開始で解決した Bake の結果。</summary>
         public BakeLocateResult LastBakeLocate => _lastBakeLocate;
 
-        /// <summary>Analog / Gaze の乗っ取りエントリ（Inspector 表示用）。</summary>
+        /// <summary>Analog / Gaze / 値提供型の乗っ取りエントリ（Inspector 表示用）。</summary>
         public IReadOnlyList<TimelineTakeoverEntry> TakeoverEntries =>
             _takeover != null ? _takeover.Entries : EmptyTakeoverEntries;
 
@@ -314,7 +314,7 @@ namespace Hidano.FacialControl.Timeline.Adapters
             }
 
             _takeover ??= new TimelineChannelTakeover(_binding.Registry, _binding.Slug);
-            _takeover.Attach(derivation.Channels, _diagnostics);
+            _takeover.Attach(derivation.Channels, _diagnostics, _binding.BlendShapeNames);
 
             _sessionBake = located.Bake;
             BuildExpressionBakePlaybacks(derivation, located.Bake);
@@ -601,6 +601,18 @@ namespace Hidano.FacialControl.Timeline.Adapters
             }
 
             return _takeover.TryGetGazeSink(channelSubId, out sink);
+        }
+
+        /// <param name="channelSubId">値提供型 Value トラックの ChannelSubId（乗っ取り先の registry id）。</param>
+        public bool TryGetValueProviderSink(string channelSubId, out TimelineValueProviderInputSource sink)
+        {
+            if (_takeover == null)
+            {
+                sink = null;
+                return false;
+            }
+
+            return _takeover.TryGetValueProviderSink(channelSubId, out sink);
         }
 
         // ================================================================

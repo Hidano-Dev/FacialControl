@@ -42,7 +42,56 @@ namespace Hidano.FacialControl.Timeline.Tests.Shared
             public float GazeY { get; set; } = 0.25f;
 
             public double DurationSeconds { get; set; } = 2.0d;
+
+            /// <summary>値提供型（<see cref="ValueProviderSourceId"/>）の基準と時刻付きレコードを含めるか。</summary>
+            public bool IncludeValueProvider { get; set; }
+
+            /// <summary>値提供型の mask バイト数（記録時の FacialController の BlendShape 数 / 8 の切り上げ）。</summary>
+            public int ValueProviderMaskByteCount { get; set; } = 1;
         }
+
+        /// <summary>値提供型の source id（iFacialMocap の BlendShape 受信と同じく slug だけ）。</summary>
+        public const string ValueProviderSourceId = "ifm";
+
+        /// <summary>値提供型の 1 レコード（記録と同じ差分形式。空の mask / 値は「従来のまま」）。</summary>
+        public readonly struct ValueProviderRecord
+        {
+            public ValueProviderRecord(double timeSeconds, bool isValid, byte[] maskBytes, float[] values)
+            {
+                TimeSeconds = timeSeconds;
+                IsValid = isValid;
+                MaskBytes = maskBytes ?? Array.Empty<byte>();
+                Values = values ?? Array.Empty<float>();
+            }
+
+            public double TimeSeconds { get; }
+
+            public bool IsValid { get; }
+
+            public byte[] MaskBytes { get; }
+
+            public float[] Values { get; }
+        }
+
+        /// <summary>
+        /// 値提供型の基準（t=0 として扱う）。BlendShape index 2 / 3 が寄与（e2e のメッシュでは Blink / JawOpen）。
+        /// </summary>
+        public static ValueProviderRecord ValueProviderBaseline =>
+            new ValueProviderRecord(0d, true, new byte[] { 0b0000_1100 }, new[] { 0.2f, 0.4f });
+
+        /// <summary>
+        /// 値提供型の時刻付きレコード。値だけの更新 / mask の変更 / 無効化 / 再有効化 / 形の合わないレコード（REC 再生でも拒否）を含む。
+        /// 時刻は 1/60 秒の格子に乗らないようにずらす（フレーム評価がレコードの境界を跨ぐ順序に依存しないため）。
+        /// </summary>
+        public static IReadOnlyList<ValueProviderRecord> ValueProviderSamples { get; } = new[]
+        {
+            new ValueProviderRecord(0.31d, true, null, new[] { 0.5f, 0.1f }),
+            new ValueProviderRecord(0.61d, true, new byte[] { 0b0001_1000 }, new[] { 0.7f, 0.9f }),
+            new ValueProviderRecord(0.91d, false, null, null),
+            new ValueProviderRecord(1.21d, true, null, new[] { 0.3f, 0.6f }),
+            new ValueProviderRecord(1.51d, true, null, new[] { 1f, 1f, 1f }),
+            new ValueProviderRecord(1.81d, true, null, new[] { 1f, 0f }),
+        };
 
         /// <summary>記録を <see cref="RecTimeline"/> に組み立てる。</summary>
         public static RecTimeline CreateTimeline(Recording recording)
@@ -55,21 +104,64 @@ namespace Hidano.FacialControl.Timeline.Tests.Shared
             const ushort triggerSource = 0;
             const ushort analogSource = 1;
             const ushort gazeSource = 2;
+            const ushort valueProviderSource = 3;
             const ushort expression = 0;
 
             double lastSample = recording.DurationSeconds - 0.05d;
-            var events = new List<(RecEvent Event, IReadOnlyList<float> Axes)>
+            var events = new List<(RecEvent Event, IReadOnlyList<float> Axes, IReadOnlyList<byte> Mask)>
             {
-                (RecEvent.CreateAnalogSample(recording.FirstSampleSeconds, analogSource, 1), new[] { recording.AnalogValue }),
-                (RecEvent.CreateAnalogSample(recording.FirstSampleSeconds, gazeSource, 2), new[] { recording.GazeX, recording.GazeY }),
-                (RecEvent.CreateTriggerOn(recording.TriggerOnSeconds, triggerSource, expression), Array.Empty<float>()),
-                (RecEvent.CreateTriggerOff(recording.TriggerOffSeconds, triggerSource, expression), Array.Empty<float>()),
-                (RecEvent.CreateAnalogSample(lastSample, analogSource, 1), new[] { recording.AnalogValue }),
-                (RecEvent.CreateAnalogSample(lastSample, gazeSource, 2), new[] { recording.GazeX, recording.GazeY }),
+                (RecEvent.CreateAnalogSample(recording.FirstSampleSeconds, analogSource, 1), new[] { recording.AnalogValue }, null),
+                (RecEvent.CreateAnalogSample(recording.FirstSampleSeconds, gazeSource, 2), new[] { recording.GazeX, recording.GazeY }, null),
+                (RecEvent.CreateTriggerOn(recording.TriggerOnSeconds, triggerSource, expression), Array.Empty<float>(), null),
+                (RecEvent.CreateTriggerOff(recording.TriggerOffSeconds, triggerSource, expression), Array.Empty<float>(), null),
+                (RecEvent.CreateAnalogSample(lastSample, analogSource, 1), new[] { recording.AnalogValue }, null),
+                (RecEvent.CreateAnalogSample(lastSample, gazeSource, 2), new[] { recording.GazeX, recording.GazeY }, null),
             };
 
+            var sourceIds = new List<string> { TriggerSourceId, AnalogSourceId, GazeSourceId };
+            RecBaselineState baseline = RecBaselineState.Empty;
+            if (recording.IncludeValueProvider)
+            {
+                sourceIds.Add(ValueProviderSourceId);
+                ValueProviderRecord baselineRecord = ExpandMask(ValueProviderBaseline, recording.ValueProviderMaskByteCount);
+                baseline = new RecBaselineState(
+                    null,
+                    null,
+                    new[]
+                    {
+                        new RecBaselineState.ValueProviderEntry(
+                            ValueProviderSourceId, baselineRecord.IsValid, baselineRecord.MaskBytes, baselineRecord.Values),
+                    },
+                    null);
+
+                for (int i = 0; i < ValueProviderSamples.Count; i++)
+                {
+                    ValueProviderRecord record = ExpandMask(ValueProviderSamples[i], recording.ValueProviderMaskByteCount);
+                    RecValueProviderFlags flags = record.IsValid ? RecValueProviderFlags.IsValid : RecValueProviderFlags.None;
+                    if (record.MaskBytes.Length > 0)
+                    {
+                        flags |= RecValueProviderFlags.HasMask;
+                    }
+
+                    if (record.Values.Length > 0)
+                    {
+                        flags |= RecValueProviderFlags.HasValues;
+                    }
+
+                    events.Add((
+                        RecEvent.CreateValueProviderSample(
+                            record.TimeSeconds,
+                            valueProviderSource,
+                            flags,
+                            checked((ushort)record.Values.Length),
+                            checked((ushort)record.MaskBytes.Length)),
+                        record.Values,
+                        record.MaskBytes));
+                }
+            }
+
             // 記録は時刻の非減少順でなければならない（同時刻は追加順を保つ安定ソート）。
-            var ordered = new List<(RecEvent Event, IReadOnlyList<float> Axes)>(events.Count);
+            var ordered = new List<(RecEvent Event, IReadOnlyList<float> Axes, IReadOnlyList<byte> Mask)>(events.Count);
             for (int i = 0; i < events.Count; i++)
             {
                 int insertAt = ordered.Count;
@@ -83,19 +175,35 @@ namespace Hidano.FacialControl.Timeline.Tests.Shared
 
             var recEvents = new RecEvent[ordered.Count];
             var axes = new IReadOnlyList<float>[ordered.Count];
+            var masks = new IReadOnlyList<byte>[ordered.Count];
             for (int i = 0; i < ordered.Count; i++)
             {
                 recEvents[i] = ordered[i].Event;
                 axes[i] = ordered[i].Axes;
+                masks[i] = ordered[i].Mask ?? Array.Empty<byte>();
             }
 
             return new RecTimeline(
-                RecBaselineState.Empty,
+                baseline,
                 recEvents,
-                new[] { TriggerSourceId, AnalogSourceId, GazeSourceId },
+                sourceIds,
                 new[] { recording.ExpressionId },
                 recording.DurationSeconds,
-                axes);
+                axes,
+                masks);
+        }
+
+        /// <summary>mask を記録時の BlendShape 数に合わせたバイト数へ広げる（上位バイトは 0）。</summary>
+        public static ValueProviderRecord ExpandMask(ValueProviderRecord record, int maskByteCount)
+        {
+            if (record.MaskBytes.Length == 0 || record.MaskBytes.Length >= maskByteCount)
+            {
+                return record;
+            }
+
+            var mask = new byte[maskByteCount];
+            Array.Copy(record.MaskBytes, mask, record.MaskBytes.Length);
+            return new ValueProviderRecord(record.TimeSeconds, record.IsValid, mask, record.Values);
         }
 
         /// <summary>記録を <c>.fcrec</c> として書き出す。親ディレクトリは呼び出し側が用意する。</summary>

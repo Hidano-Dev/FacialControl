@@ -25,6 +25,7 @@ namespace Hidano.FacialControl.Timeline.Domain.Diagnostics
         LayerConnection,
         Analog,
         Gaze,
+        ValueProvider,
         Placement,
         Session,
     }
@@ -93,5 +94,13 @@ namespace Hidano.FacialControl.Timeline.Domain.Diagnostics
 
         // Session
         SessionConflict,
+
+        // ValueProvider
+        ValueProviderTakeoverAttached,
+        ValueProviderSourceNotFound,
+        ValueProviderOccupied,
+
+        /// <summary>Clip の BlendShape の一部がホストの BlendShape に対応しない（名前が無い / index が範囲外）。対応した分だけ再生する。</summary>
+        ValueProviderBlendShapeMismatch,
     }
 }

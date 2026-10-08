@@ -290,8 +290,95 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
         }
 
         // ================================================================
+        // 値提供型
+        // ================================================================
+
+        private const string ValueProviderId = "ifm";
+        private static readonly string[] HostBlendShapes = { "eyeBlinkLeft", "jawOpen", "mouthSmileLeft" };
+
+        [Test]
+        public void Attach_RegisteredValueProvider_ReplacesSlugEntryWithHostSizedSink()
+        {
+            var original = new FakeInjectedFreeValueProvider("ifm", HostBlendShapes.Length);
+            _registry.Register(AdapterSlug.Parse("ifm"), original);
+
+            _takeover.Attach(new[] { ValueProvider(ValueProviderId, ("jawOpen", 1)) }, _diagnostics, HostBlendShapes);
+
+            Assert.That(_takeover.TryGetValueProviderSink(ValueProviderId, out TimelineValueProviderInputSource sink), Is.True);
+            Assert.That(_registry.Resolve(ValueProviderId), Is.SameAs(sink), "sub の無い source id は slug エントリを Replace する");
+            Assert.That(sink.ReplacedSource, Is.SameAs(original));
+            Assert.That(sink.BlendShapeCount, Is.EqualTo(HostBlendShapes.Length), "ContributeMask 長はホストの BlendShape 数");
+            Assert.That(sink.ContributeMask.Length, Is.EqualTo(HostBlendShapes.Length));
+            Assert.That(_diagnostics.Contains(TimelineDiagnosticCode.ValueProviderTakeoverAttached, ValueProviderId), Is.True);
+            Assert.That(SeverityOf(TimelineDiagnosticCode.ValueProviderTakeoverAttached), Is.EqualTo(TimelineDiagnosticSeverity.Info));
+            Assert.That(_diagnostics.Contains(TimelineDiagnosticCode.ValueProviderBlendShapeMismatch), Is.False);
+            Assert.That(_takeover.Entries[0].Kind, Is.EqualTo(FacialValueChannelKind.ValueProvider));
+            Assert.That(_takeover.TryGetAnalogSink(ValueProviderId, out _), Is.False, "値提供型は Analog として引けない");
+        }
+
+        [Test]
+        public void Attach_ValueProviderNotRegisteredOrOccupied_RecordsWarnings()
+        {
+            _registry.Register(AdapterSlug.Parse("udp"), new FakeInjectedSource("rec"));
+
+            _takeover.Attach(
+                new[] { ValueProvider("ifm", ("jawOpen", 1)), ValueProvider("udp", ("jawOpen", 1)) },
+                _diagnostics,
+                HostBlendShapes);
+
+            Assert.That(_diagnostics.Contains(TimelineDiagnosticCode.ValueProviderSourceNotFound, "ifm"), Is.True);
+            Assert.That(_diagnostics.Contains(TimelineDiagnosticCode.ValueProviderOccupied, "udp"), Is.True);
+            Assert.That(SeverityOf(TimelineDiagnosticCode.ValueProviderOccupied), Is.EqualTo(TimelineDiagnosticSeverity.Warning));
+            Assert.That(_registry.Resolve("udp"), Is.InstanceOf<FakeInjectedSource>(), "他者占有は触らない");
+        }
+
+        [Test]
+        public void Attach_ValueProviderBlendShapesNotOnHost_RecordsMismatchWarning()
+        {
+            _registry.Register(AdapterSlug.Parse("ifm"), new FakeInjectedFreeValueProvider("ifm", HostBlendShapes.Length));
+
+            // 名前の無い軸は記録時の index（5 はホスト 3 個の範囲外）、名前のある軸は名前で引く（"cheekPuff" はホストに無い）。
+            _takeover.Attach(
+                new[] { ValueProvider(ValueProviderId, ("jawOpen", 1), (string.Empty, 5), ("cheekPuff", 2), (string.Empty, 0)) },
+                _diagnostics,
+                HostBlendShapes);
+
+            Assert.That(_diagnostics.Contains(TimelineDiagnosticCode.ValueProviderTakeoverAttached, ValueProviderId), Is.True, "対応した分は再生する");
+            Assert.That(_diagnostics.Contains(TimelineDiagnosticCode.ValueProviderBlendShapeMismatch, ValueProviderId), Is.True);
+            Assert.That(SeverityOf(TimelineDiagnosticCode.ValueProviderBlendShapeMismatch), Is.EqualTo(TimelineDiagnosticSeverity.Warning));
+        }
+
+        [Test]
+        public void Release_ValueProvider_RestoresOriginalAndInvalidatesSink()
+        {
+            var original = new FakeInjectedFreeValueProvider("ifm", HostBlendShapes.Length);
+            _registry.Register(AdapterSlug.Parse("ifm"), original);
+            _takeover.Attach(new[] { ValueProvider(ValueProviderId, ("jawOpen", 1)) }, _diagnostics, HostBlendShapes);
+            _takeover.TryGetValueProviderSink(ValueProviderId, out TimelineValueProviderInputSource sink);
+            sink.PublishClip(new[] { UnityEngine.AnimationCurve.Constant(0f, 1f, 0.5f) }, null, null, new[] { 1 }, 0f);
+
+            _takeover.Release();
+
+            Assert.That(_registry.Resolve(ValueProviderId), Is.SameAs(original));
+            Assert.That(sink.ReplacedSource, Is.Null);
+            Assert.That(sink.IsValid, Is.False);
+            Assert.That(_takeover.TryGetValueProviderSink(ValueProviderId, out _), Is.False);
+        }
+
+        // ================================================================
         // ヘルパー
         // ================================================================
+
+        private static TimelineChannelDescriptor ValueProvider(string id, params (string name, int index)[] blendShapes)
+        {
+            var bindings = new TimelineBlendShapeBinding[blendShapes.Length];
+            for (int i = 0; i < blendShapes.Length; i++)
+            {
+                bindings[i] = new TimelineBlendShapeBinding(blendShapes[i].name, blendShapes[i].index);
+            }
+
+            return new TimelineChannelDescriptor(id, FacialValueChannelKind.ValueProvider, blendShapes.Length, trackIndex: 2, bindings);
+        }
 
         private static TimelineChannelDescriptor Analog(string id, int axisCount)
         {
@@ -401,6 +488,24 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
             public bool TryWriteValues(Span<float> output) => false;
         }
 
+        /// <summary>原本役の値提供型（注入型ではない live 入力源）。</summary>
+        private sealed class FakeInjectedFreeValueProvider : IInputSource
+        {
+            public FakeInjectedFreeValueProvider(string id, int blendShapeCount)
+            {
+                Id = id;
+                BlendShapeCount = blendShapeCount;
+                ContributeMask = new BitArray(blendShapeCount, true);
+            }
+
+            public string Id { get; }
+            public InputSourceType Type => InputSourceType.ValueProvider;
+            public int BlendShapeCount { get; }
+            public BitArray ContributeMask { get; }
+            public void Tick(float deltaTime) { }
+            public bool TryWriteValues(Span<float> output) => false;
+        }
+
         /// <summary>実 registry と同じ通知契約（Register / Replace は新 source、Unregister は null）を持つ最小 registry。</summary>
         private sealed class FakeRegistry : IInputSourceRegistry
         {
@@ -462,7 +567,8 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
             private void Set(string key, IInputSource source, bool replace)
             {
                 if (source == null) throw new ArgumentNullException(nameof(source));
-                if (replace && !(source is FakeInjectedSource) && !(source is FakeScalarSource))
+                if (replace && !(source is FakeInjectedSource) && !(source is FakeScalarSource)
+                    && !(source is FakeInjectedFreeValueProvider))
                 {
                     ReplacedKeys.Add(key);
                 }

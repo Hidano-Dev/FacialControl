@@ -12,7 +12,7 @@ namespace Hidano.FacialControl.Timeline.Adapters.InputSources
     /// registry の既存エントリを Replace で乗っ取る注入型の入力源（<see cref="IInjectedInputSource"/>）。
     /// 乗っ取り前の原本は <see cref="AttachReplacement"/> で退避し、復元時に <see cref="ClearReplacement"/> で忘れる。
     /// </remarks>
-    public class TimelineAnalogInputSource : IInputSource, IAnalogInputSource, IInjectedInputSource
+    public class TimelineAnalogInputSource : IInputSource, IAnalogInputSource, ITimelineTakeoverSink
     {
         private static readonly BitArray EmptyContributeMask = new BitArray(0);
 

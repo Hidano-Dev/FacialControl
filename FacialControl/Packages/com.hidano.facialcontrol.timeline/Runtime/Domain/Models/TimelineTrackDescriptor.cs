@@ -1,3 +1,5 @@
+using System;
+using System.Collections.Generic;
 using Hidano.FacialControl.Timeline.Tracks;
 
 namespace Hidano.FacialControl.Timeline.Domain.Models
@@ -27,8 +29,10 @@ namespace Hidano.FacialControl.Timeline.Domain.Models
             bool hasBakeReference,
             int bakeInstanceId,
             bool isChild,
-            int parentIndex)
+            int parentIndex,
+            IReadOnlyList<TimelineBlendShapeBinding> blendShapeBindings = null)
         {
+            BlendShapeBindings = blendShapeBindings ?? Array.Empty<TimelineBlendShapeBinding>();
             TrackIndex = trackIndex;
             Kind = kind;
             Name = name ?? string.Empty;
@@ -69,5 +73,8 @@ namespace Hidano.FacialControl.Timeline.Domain.Models
 
         /// <summary>子トラックのとき親の <see cref="TrackIndex"/>、root は -1。</summary>
         public int ParentIndex { get; }
+
+        /// <summary>値提供型 Value トラックのみ。Clip の軸の BlendShape 対応（全 Clip の和集合、初出順）。それ以外は空。</summary>
+        public IReadOnlyList<TimelineBlendShapeBinding> BlendShapeBindings { get; }
     }
 }
