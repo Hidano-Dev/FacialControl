@@ -34,6 +34,10 @@ Timeline 再生の手順を「REC → Export → Director にセット → Recei
 - REC Export ウィンドウに、入力源 id ごとのチャネル種別の判定結果と理由、Export 後の残り手順を表示した
 - 4 手順の end-to-end PlayMode テスト。GC ゼロ gate の計測を「GC Allocated In Frame」カウンタに変え、計測器の自己検証テストを追加した（従来の計測は同期テストで確保を検出できていなかった）
 
+### Fixed
+
+- Edit プレビューを解除しても BlendShape が変形したまま戻らなかった。プレビュー開始時に登録する復元対象を `FacialController.SkinnedMeshRenderers`（手動オーバーライド欄）からしか集めておらず、Edit 中で空のときは何も登録していなかったため、プレビューが書き込むのと同じ renderer（手動オーバーライド → 子の SkinnedMeshRenderer）を登録するようにした（HID-181）
+
 ### Removed
 
 - REC Export ウィンドウの Director / Receiver 指定欄と Source Overrides（Auto / Analog / Gaze）

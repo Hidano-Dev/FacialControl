@@ -1,4 +1,6 @@
+using System.Collections.Generic;
 using System.Text.RegularExpressions;
+using Hidano.FacialControl.Adapters.Playable;
 using Hidano.FacialControl.Testing;
 using Hidano.FacialControl.Timeline.Adapters;
 using Hidano.FacialControl.Timeline.Adapters.Assets;
@@ -6,6 +8,7 @@ using Hidano.FacialControl.Timeline.Editor;
 using Hidano.FacialControl.Timeline.Tracks;
 using NUnit.Framework;
 using UnityEngine;
+using UnityEngine.Playables;
 using UnityEngine.TestTools;
 using UnityEngine.Timeline;
 
@@ -77,6 +80,116 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
         {
             Assert.DoesNotThrow(() => FacialTimelineEditorPreview.ApplyPreview(null, _timeline, 0.5d));
             LogAssert.NoUnexpectedReceived();
+        }
+
+        [Test]
+        public void GatherProperties_ControllerWithoutRendererOverride_RegistersChildBlendShapes()
+        {
+            // Edit では FacialController が未初期化で SkinnedMeshRenderers（手動オーバーライド欄）が空のことが多い。
+            // プレビューが書き込む子の SkinnedMeshRenderer を復元対象に登録しないと、プレビュー終了後も BlendShape が残る。
+            _host = new GameObject("PreviewHost");
+            _host.AddComponent<FacialController>();
+            var receiver = _host.AddComponent<FacialTimelineReceiver>();
+            var director = _host.AddComponent<PlayableDirector>();
+            var face = new GameObject("Face");
+            face.transform.SetParent(_host.transform, false);
+            var renderer = face.AddComponent<SkinnedMeshRenderer>();
+            renderer.sharedMesh = CreateMeshWithBlendShapes("smile", "blink");
+
+            TrackAsset track = _timeline.GetOutputTrack(0);
+            director.playableAsset = _timeline;
+            director.SetGenericBinding(track, receiver);
+            var collector = new RecordingPropertyCollector();
+
+            try
+            {
+                FacialTimelineEditorPreview.GatherProperties(director, track, collector);
+
+                CollectionAssert.AreEquivalent(
+                    new[] { "Face/blendShape.smile", "Face/blendShape.blink" },
+                    collector.Registered);
+            }
+            finally
+            {
+                Object.DestroyImmediate(renderer.sharedMesh);
+            }
+        }
+
+        private static Mesh CreateMeshWithBlendShapes(params string[] names)
+        {
+            var mesh = new Mesh
+            {
+                vertices = new[] { Vector3.zero, Vector3.right, Vector3.up },
+                triangles = new[] { 0, 1, 2 },
+            };
+            var deltas = new Vector3[3];
+            for (int i = 0; i < names.Length; i++)
+            {
+                mesh.AddBlendShapeFrame(names[i], 100f, deltas, null, null);
+            }
+
+            return mesh;
+        }
+
+        /// <summary>AddFromName で登録された「GameObject 名/プロパティ名」を記録する。</summary>
+        private sealed class RecordingPropertyCollector : IPropertyCollector
+        {
+            public List<string> Registered { get; } = new List<string>();
+
+            public void AddFromName<T>(GameObject obj, string name) where T : Component
+            {
+                Registered.Add(obj.name + "/" + name);
+            }
+
+            public void AddFromName(GameObject obj, string name)
+            {
+                Registered.Add(obj.name + "/" + name);
+            }
+
+            public void AddFromName(Component component, string name)
+            {
+                Registered.Add(component.gameObject.name + "/" + name);
+            }
+
+            public void PushActiveGameObject(GameObject gameObject)
+            {
+            }
+
+            public void PopActiveGameObject()
+            {
+            }
+
+            public void AddFromClip(AnimationClip clip)
+            {
+            }
+
+            public void AddFromClips(IEnumerable<AnimationClip> clips)
+            {
+            }
+
+            public void AddFromName<T>(string name) where T : Component
+            {
+            }
+
+            public void AddFromName(string name)
+            {
+            }
+
+            public void AddFromClip(GameObject obj, AnimationClip clip)
+            {
+            }
+
+            public void AddFromClips(GameObject obj, IEnumerable<AnimationClip> clips)
+            {
+            }
+
+            public void AddFromComponent(GameObject obj, Component component)
+            {
+            }
+
+            public void AddObjectProperties(Object obj, AnimationClip clip)
+            {
+            }
         }
     }
 }

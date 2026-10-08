@@ -569,7 +569,8 @@ namespace Hidano.FacialControl.Timeline.Editor
             return false;
         }
 
-        private static SkinnedMeshRenderer[] ResolveRenderers(FacialController controller)
+        /// <summary>プレビューが BlendShape を書き込む renderer（手動オーバーライド → 子の SkinnedMeshRenderer）。</summary>
+        internal static SkinnedMeshRenderer[] ResolveRenderers(FacialController controller)
         {
             SkinnedMeshRenderer[] renderers = controller.SkinnedMeshRenderers;
             if (renderers != null && renderers.Length > 0)
