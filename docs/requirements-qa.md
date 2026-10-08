@@ -256,7 +256,7 @@
 - 特定のブレンドシェイプ仕様には準拠しない。様々な仕様のモデルデータに対応する必要があるため。
 - ただし、モデルが ARKit 52 ブレンドシェイプおよび PerfectSync に対応している場合は、プロファイル等の設定作業を自動化できる機能を提供する。
 - **【2026-02-02 更新】** ARKit 52 + PerfectSync 完全対応は初回プレリリースから含める。モデルが PerfectSync 対応であれば自動検出しプロファイルを自動生成する。モデルが対応していないパラメータは警告なしでスキップする。
-- **【2026-09-29 注記】** 「自動検出しプロファイルを自動生成する」ARKit 検出ツール（Expression / OSC マッピング自動生成）は HID-34 で廃止した。ARKit / PerfectSync 対応は「`ARKitDetector` による命名検出 + OSC の ARKit プリセット / heartbeat 自動マッピング」として継続する（`docs/requirements.md` FR-006）。
+- **【2026-09-29 注記】** 「自動検出しプロファイルを自動生成する」ARKit 検出ツール（Expression / OSC マッピング自動生成）は HID-34 で廃止した。ARKit / PerfectSync 対応は「`ARKitDetector` による命名検出」として継続する（`docs/requirements.md` FR-006。OSC の ARKit プリセットは 2026-10-08 に HID-169 で要件から外した）。
 
 **決定日**: 2026-01-30（2026-02-02 更新）
 
@@ -669,12 +669,12 @@
 
 | 項目 | 決定内容 |
 |------|----------|
-| OSC アドレスパターン | VRChat 完全互換（`/avatar/parameters/{name}` 形式） |
-| 送信単位 | BlendShape 単位（各 BlendShape を個別の OSC メッセージで送受信） |
-| データ型 | float (0-1) / int / bool（VRChat Avatar Parameters 仕様に準拠） |
+| OSC アドレスパターン | FacialControl 同士の独自プロトコル（OSC で運ぶ）。外部互換が必要になったら別パッケージで追加 |
 | uOsc の位置づけ | FacialControl パッケージの必須依存として同梱 |
 
 **補足**: プロファイルはローカルでの表情管理の概念であり、OSC 通信時にはプロファイル内の BlendShape 値に分解して送信する。
+
+**【2026-10-08 改訂（HID-169）】** 当初の「VRChat 完全互換（`/avatar/parameters/{name}` 形式）」「BlendShape 単位で個別 OSC メッセージ送受信」「VRChat Avatar Parameters 準拠のデータ型」と、ARKit の OSC プリセット（`/ARKit/{name}`）は要件から外した。いずれも使われていないため。
 
 ### JSON プロファイル仕様
 

@@ -50,7 +50,7 @@ Unity エンジニア（開発者）。本プロジェクトはライブラリ�
 - ブレンドシェイプ・ボーン・テクスチャ切り替え・UV アニメーションの統合制御
 - 入力デバイス（コントローラ / キーボード）による表情切り替え
 - OSC（UDP）による表情データのネットワーク送受信
-- ARKit 52 / PerfectSync の命名検出・OSC プリセット対応
+- ARKit 52 / PerfectSync の命名検出
 - Editor 拡張（プロファイル管理・Expression 作成支援・JSON 入出力）
 - 外部リップシンクプラグインとの連携インターフェース
 
@@ -86,9 +86,9 @@ Unity エンジニア（開発者）。本プロジェクトはライブラリ�
 | FR-001 | 表情プロファイル管理 | キャラクター単位の表情設定を「プロファイル」で管理し、JSON / ScriptableObject で永続化 |
 | FR-002 | マルチレイヤー表情制御 | 複数レイヤーによる Expression の同時適用・排他制御 |
 | FR-003 | 表情遷移・補間 | 線形補間を基本とした Expression 間のスムーズな遷移 |
-| FR-004 | OSC ネットワーク通信 | UDP + uOsc による VRChat 互換の表情データ送受信 |
+| FR-004 | OSC ネットワーク通信 | UDP + uOsc による FacialControl 同士の表情データ送受信（独自プロトコル） |
 | FR-005 | 入力デバイス制御 | InputSystem によるコントローラ / キーボードからの Expression 切り替え |
-| FR-006 | ARKit / PerfectSync 対応 | ARKit 52 ブレンドシェイプ・PerfectSync の命名検出と OSC プリセット対応 |
+| FR-006 | ARKit / PerfectSync 対応 | ARKit 52 ブレンドシェイプ・PerfectSync の命名検出 |
 | FR-007 | リップシンク連携 | 外部リップシンクプラグインからの入力受付インターフェース |
 | FR-008 | Editor 拡張 | Inspector カスタマイズ（プロファイル管理・Expression CRUD・検索・インポート/エクスポート統合）、Expression 作成支援 |
 | FR-009 | JSON インポート / エクスポート | プロファイルの JSON 形式での入出力 |
@@ -222,7 +222,9 @@ Expression が切り替わる際のスムーズな遷移を提供する。
 
 **概要**
 
-UDP + uOsc を用いた VRChat 互換の OSC 通信による表情データの送受信。
+UDP + uOsc を用いた、FacialControl 同士の独自プロトコル（OSC で運ぶ）による表情データの送受信。
+
+> **2026-10-08 改訂（HID-169）**: VRChat OSC 互換（`/avatar/parameters/{name}` 形式）・ARKit の OSC プリセット（`/ARKit/{name}`）・FacialControl 以外の OSC アプリからの受信は要件から外した。いずれも使われていないため。外部 OSC 互換が必要になったら、別パッケージを追加して実装する。
 
 **通信仕様**
 
@@ -230,10 +232,7 @@ UDP + uOsc を用いた VRChat 互換の OSC 通信による表情データの�
 |------|------|
 | プロトコル | UDP |
 | ライブラリ | uOsc（自前フォーク `com.hidano.uosc`。ポート再利用設定のみ変更） |
-| OSC アドレスパターン | VRChat 完全互換（`/avatar/parameters/{name}` 形式）+ ARKit プリセット |
-| 送信単位 | BlendShape 単位（各 BlendShape を個別の OSC メッセージで送受信） |
-| 送信頻度 | 全 BlendShape を毎フレーム送信（VRChat 標準動作） |
-| データ型 | float (0-1) / int / bool（VRChat Avatar Parameters 仕様に準拠） |
+| OSC アドレスパターン | FacialControl 同士の独自プロトコル（外部 OSC アプリとの互換は持たない） |
 | 送受信頻度 | 1 フレーム間に複数回送受信可能 |
 
 **設計方針**
@@ -269,7 +268,7 @@ Unity InputSystem による Expression 切り替え入力の管理。
 
 **概要**
 
-ARKit 52 ブレンドシェイプおよび PerfectSync に対応したモデルの命名検出と、OSC プリセットによるキャプチャ入力対応。
+ARKit 52 ブレンドシェイプおよび PerfectSync に対応したモデルの命名検出。
 
 > **2026-09 改訂（HID-34）**: 当初の「Expression 自動生成 + OSC マッピング自動生成」（ARKit 検出ツール）は廃止した。生成される Expression はグループ内の BlendShape を全部 1.0 にした塊で、Clip ベース + キャプチャ入力の運用では使われなかったため。キャプチャ連動は OSC Receiver / iFacialMocap binding が BlendShape 名で直接駆動し、OSC マッピングは `com.hidano.facialcontrol.osc` の heartbeat 自動マッピングと ARKit プリセットで代替する。
 
@@ -280,7 +279,7 @@ ARKit 52 ブレンドシェイプおよび PerfectSync に対応したモデル�
 | 対応範囲 | ARKit 52 ブレンドシェイプ + PerfectSync |
 | マッチング方式 | 完全一致のみ（誤検出リスクゼロ。独自命名モデルは手動マッピング） |
 | 命名検出 | core の `ARKitDetector`（ARKit 52 + PerfectSync 13 の名前表・レイヤーグループ分類・完全一致検出）を API として提供 |
-| OSC 対応 | ARKit プリセット（`/ARKit/{name}`）と heartbeat による自動マッピング（`com.hidano.facialcontrol.osc`） |
+| OSC 対応 | ARKit の OSC プリセット（`/ARKit/{name}`）は持たない（2026-10-08 改訂、HID-169） |
 | 未対応パラメータ | 警告なしでスキップ |
 | リリース対応 | 初回プレリリースから完全対応 |
 
@@ -605,7 +604,7 @@ Domain → Adapters → Editor のボトムアップ順。TDD（Red-Green-Refact
 | テンプレート | パッケージに同梱されるデフォルトの Expression 定義 |
 | ブレンドシェイプ | 3D メッシュの変形ターゲット（モーフターゲット）。表情の主要な表現手段 |
 | ARKit 52 | Apple の ARKit が定義する 52 種類の顔のブレンドシェイプ |
-| PerfectSync | ARKit 52 を拡張した VRChat 向けの表情パラメータ仕様 |
+| PerfectSync | ARKit 52 を拡張した表情パラメータ仕様 |
 | OSC | Open Sound Control。UDP ベースの通信プロトコル |
 | uOsc | Unity 向け OSC 通信ライブラリ |
 | InputAction Asset | Unity InputSystem の入力バインディング定義ファイル |
