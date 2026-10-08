@@ -65,6 +65,7 @@ Edit モードのスクラブは Play と同じレイヤー合成規則（オフ
 | LayerConnection | `LegacyStateDeclaration` | Error | 旧 `timeline:{layer}:state` 宣言を削除する（「旧 timeline 宣言を削除」ボタン、Undo 可） |
 | LayerConnection | `LayerConnected` / `LayerConnectionSkippedDeclared` / `LayerConnectionFailed` | Info / Info / Warning | 接続済み / 旧 `timeline:{layer}` 宣言の weight を使用中 / controller の初期化とレイヤー名を確認する |
 | Analog / Gaze / 値提供型 | `*TakeoverAttached` / `*SourceNotFound` / `*Occupied` | Info / Warning / Warning | 乗っ取り中 / `ChannelSubId` の入力源が registry に無い（REC したときと同じ AdapterBinding が Profile にあるか確認する）/ REC 再生などが占有中 |
+| 値提供型 | `ValueProviderNotDeclared` | Warning | 入力源 id が Profile のどのレイヤーの Layer.inputSources にも宣言されていない。Timeline の乗っ取りは宣言スロットにだけ届く（実行時に後付け接続されたスロットは置き換わらない。REC 再生も同じ）ため、録画時に値を受けていたレイヤーにこの id を宣言する |
 | 値提供型 | `ValueProviderBlendShapeMismatch` | Warning | Clip の BlendShape の一部がこのモデルの BlendShape に対応しない（名前が無い / 記録時の index がモデルの BlendShape 数を超える）。対応した分だけ再生する。録画時と同じモデルか確認し、Profile の参照モデルを設定して再 Export すると名前で対応付く |
 | Placement | `ReceiverNotOnControllerObject` / `ControllerMissing` | Error | Receiver を FacialController と同じ GameObject に置く |
 | Session | `SessionConflict` | Error | 同じ Receiver を別の Director が再生している。片方を止める |
@@ -85,7 +86,7 @@ Edit モードのスクラブは Play と同じレイヤー合成規則（オフ
 ## 既知の制約
 
 - **Edit プレビューの Analog は analog expression 宣言のある binding だけ**。`IAnalogExpressionBindingDeclaration` を実装した binding（InputSystem）の消費者は Edit でも再現し、それ以外のアナログ消費者は Play でのみ反映される
-- **値提供型の Edit プレビューはレイヤー宣言のある入力源だけ**。Profile の Layer.inputSources に入力源 id が宣言されていれば Edit でも合成するが、binding が実行時に後付けで接続する値提供型は Play でのみ反映される
+- **値提供型はレイヤー宣言のある入力源だけ**。Play の乗っ取り（registry の `Replace`）はレイヤーの宣言スロットにだけ届き、`FacialController.TryBindLayerInputSource` で実行時に後付け接続されたスロットは置き換わらない（REC 再生の注入も同じ）。Edit プレビューも宣言どおりに合成する。宣言の無い値提供型チャネルは診断 `ValueProviderNotDeclared` で知らせる
 - **InputSystem 以外で registry を購読しない analog 消費者には Timeline の Analog が届かない場合がある**。Timeline は registry の `Replace` でアナログ入力源を乗っ取るため、core の `AnalogExpressionInputSource` / `AnalogBlendShapeInputSource`（`IRegistryAttachableAnalogConsumer` で registry に接続済みのもの）には届くが、構築時に入力源を直接掴んだまま registry を購読しない独自の消費者は差し替えを追えない
 
 ## 再生時の挙動

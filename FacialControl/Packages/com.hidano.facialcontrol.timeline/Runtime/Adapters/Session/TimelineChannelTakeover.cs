@@ -63,6 +63,11 @@ namespace Hidano.FacialControl.Timeline.Adapters.Session
             "Clip の BlendShape {0} 個のうち {1} 個がこのモデルの BlendShape に対応しないため、その分は再生されません" +
             "（BlendShape 数 {2}）。録画時と同じモデルか確認し、Profile の参照モデルを設定して再 Export すると名前で対応付けます。";
 
+        private const string NotDeclaredDetail =
+            "この入力源 id は Profile のどのレイヤー（Layer.inputSources）にも宣言されていないため、Timeline の値は合成されません。" +
+            "乗っ取りはレイヤーの宣言スロットにだけ届き、実行時に後付け接続されたスロットは置き換わりません（REC 再生も同じ）。" +
+            "録画時に値を受けていたレイヤーの inputSources にこの id を宣言してください。";
+
         private static readonly IReadOnlyList<string> EmptyNames = Array.Empty<string>();
 
         private readonly IInputSourceRegistry _registry;
@@ -92,10 +97,15 @@ namespace Hidano.FacialControl.Timeline.Adapters.Session
         /// チャネルごとに乗っ取りを試み、Analog / Gaze / ValueProvider 領域の診断を置換する。既に乗っ取り中なら先に解放する。
         /// </summary>
         /// <param name="hostBlendShapeNames">ホストの BlendShape 名列（値提供型 sink の大きさと名前の対応付けに使う）。</param>
+        /// <param name="declaredLayerSourceIds">
+        /// Profile の Layer.inputSources に宣言された入力源 id の集合。渡されたとき、宣言の無い値提供型チャネルに
+        /// <see cref="TimelineDiagnosticCode.ValueProviderNotDeclared"/> を出す（null なら判定しない）。
+        /// </param>
         public void Attach(
             IReadOnlyList<TimelineChannelDescriptor> channels,
             FacialTimelineDiagnostics diagnostics,
-            IReadOnlyList<string> hostBlendShapeNames = null)
+            IReadOnlyList<string> hostBlendShapeNames = null,
+            ICollection<string> declaredLayerSourceIds = null)
         {
             if (channels == null)
             {
@@ -144,6 +154,15 @@ namespace Hidano.FacialControl.Timeline.Adapters.Session
                 if (attached && sink is TimelineValueProviderInputSource valueProviderSink)
                 {
                     AddBlendShapeMismatch(channel, valueProviderSink, valueProviderItems);
+                    if (declaredLayerSourceIds != null && !declaredLayerSourceIds.Contains(id))
+                    {
+                        valueProviderItems.Add(new TimelineDiagnosticItem(
+                            TimelineDiagnosticArea.ValueProvider,
+                            TimelineDiagnosticCode.ValueProviderNotDeclared,
+                            TimelineDiagnosticSeverity.Warning,
+                            id,
+                            NotDeclaredDetail));
+                    }
                 }
             }
 

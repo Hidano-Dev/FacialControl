@@ -314,7 +314,7 @@ namespace Hidano.FacialControl.Timeline.Adapters
             }
 
             _takeover ??= new TimelineChannelTakeover(_binding.Registry, _binding.Slug);
-            _takeover.Attach(derivation.Channels, _diagnostics, _binding.BlendShapeNames);
+            _takeover.Attach(derivation.Channels, _diagnostics, _binding.BlendShapeNames, CollectDeclaredLayerSourceIds(profile));
 
             _sessionBake = located.Bake;
             BuildExpressionBakePlaybacks(derivation, located.Bake);
@@ -663,6 +663,26 @@ namespace Hidano.FacialControl.Timeline.Adapters
             return a.Layers.Equals(b.Layers)
                 && a.Expressions.Equals(b.Expressions)
                 && a.LayerInputSources.Equals(b.LayerInputSources);
+        }
+
+        /// <summary>Profile の Layer.inputSources に宣言された入力源 id の集合（セッション開始時だけ呼ぶ）。</summary>
+        private static HashSet<string> CollectDeclaredLayerSourceIds(FacialProfile profile)
+        {
+            var ids = new HashSet<string>(StringComparer.Ordinal);
+            ReadOnlySpan<InputSourceDeclaration[]> declarations = profile.LayerInputSources.Span;
+            for (int layer = 0; layer < declarations.Length; layer++)
+            {
+                InputSourceDeclaration[] layerDeclarations = declarations[layer];
+                for (int i = 0; layerDeclarations != null && i < layerDeclarations.Length; i++)
+                {
+                    if (!string.IsNullOrEmpty(layerDeclarations[i].Id))
+                    {
+                        ids.Add(layerDeclarations[i].Id);
+                    }
+                }
+            }
+
+            return ids;
         }
 
         /// <summary>接続済みの全レイヤーについて Bake → 値 sink のバインディングを先行構築する（ProcessFrame 中の辞書追加を無くす）。</summary>

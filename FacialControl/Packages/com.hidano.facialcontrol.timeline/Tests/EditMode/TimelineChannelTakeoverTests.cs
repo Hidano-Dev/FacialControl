@@ -349,6 +349,25 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
         }
 
         [Test]
+        public void Attach_ValueProviderNotDeclaredOnAnyLayer_RecordsNotDeclaredWarning()
+        {
+            // 後付け接続（TryBindLayerInputSource）のスロットは registry の置換を購読しないため、宣言の無い id は合成されない。
+            _registry.Register(AdapterSlug.Parse("ifm"), new FakeInjectedFreeValueProvider("ifm", HostBlendShapes.Length));
+            _registry.Register(AdapterSlug.Parse("udp"), new FakeInjectedFreeValueProvider("udp", HostBlendShapes.Length));
+
+            _takeover.Attach(
+                new[] { ValueProvider("ifm", ("jawOpen", 1)), ValueProvider("udp", ("jawOpen", 1)) },
+                _diagnostics,
+                HostBlendShapes,
+                new HashSet<string>(StringComparer.Ordinal) { "udp" });
+
+            Assert.That(_diagnostics.Contains(TimelineDiagnosticCode.ValueProviderNotDeclared, "ifm"), Is.True);
+            Assert.That(SeverityOf(TimelineDiagnosticCode.ValueProviderNotDeclared), Is.EqualTo(TimelineDiagnosticSeverity.Warning));
+            Assert.That(_diagnostics.Contains(TimelineDiagnosticCode.ValueProviderNotDeclared, "udp"), Is.False, "宣言のある id は警告しない");
+            Assert.That(_takeover.TryGetValueProviderSink("ifm", out _), Is.True, "乗っ取り自体は行う（宣言経路の消費者には届く）");
+        }
+
+        [Test]
         public void Release_ValueProvider_RestoresOriginalAndInvalidatesSink()
         {
             var original = new FakeInjectedFreeValueProvider("ifm", HostBlendShapes.Length);
