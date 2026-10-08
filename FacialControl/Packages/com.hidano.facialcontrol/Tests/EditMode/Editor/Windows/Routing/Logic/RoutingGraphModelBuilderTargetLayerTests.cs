@@ -44,7 +44,8 @@ namespace Hidano.FacialControl.Tests.EditMode.Editor.Windows.Routing.Logic
         public void Build_TargetLayerWithoutManualDeclaration_AddsAutoEdgeToTargetLayer()
         {
             AddLayer("emotion");
-            AddLayer("lipsync", ("lipsync-overlay", 1f));
+            AddLayer("lipsync", ("mic", 1f));
+            _profile.WritableAdapterBindings.Add(new DeclaredOnlyBinding("mic"));
             _profile.WritableAdapterBindings.Add(new TargetLayerBinding("osc", "lipsync"));
 
             RoutingGraphModel model = _builder.Build(_profile);
@@ -57,7 +58,7 @@ namespace Hidano.FacialControl.Tests.EditMode.Editor.Windows.Routing.Logic
             CollectionAssert.IsEmpty(model.InvalidEdges, "自動宣言の id を未解決として扱わない。");
 
             LayerInputData[] inputs = model.LayerNodes[1].Inputs.ToArray();
-            CollectionAssert.AreEqual(new[] { "lipsync-overlay", "osc" }, inputs.Select(input => input.CanonicalId).ToArray());
+            CollectionAssert.AreEqual(new[] { "mic", "osc" }, inputs.Select(input => input.CanonicalId).ToArray());
             CollectionAssert.AreEqual(new[] { false, true }, inputs.Select(input => input.IsAutoDeclared).ToArray());
             CollectionAssert.IsEmpty(model.LayerNodes[0].Inputs);
         }
@@ -189,6 +190,19 @@ namespace Hidano.FacialControl.Tests.EditMode.Editor.Windows.Routing.Logic
             public string TargetLayerInputSourceId => null;
 
             public string ConfiguredTargetLayerInputSourceId => Slug;
+        }
+
+        private sealed class DeclaredOnlyBinding : AdapterBindingBase, IAdapterBindingDeclaredInputs
+        {
+            public DeclaredOnlyBinding(string slug)
+            {
+                Slug = slug;
+            }
+
+            public IEnumerable<string> GetDeclaredInputSourceIds()
+            {
+                yield return Slug;
+            }
         }
 
         private sealed class TargetLayerBinding : TargetLayerOnlyBinding, IAdapterBindingDeclaredInputs
