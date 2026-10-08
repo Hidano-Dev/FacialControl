@@ -43,6 +43,34 @@ namespace Hidano.FacialControl.Tests.EditMode.Adapters.AdapterBindings
         private static int s_portCounter;
 
         [Test]
+        public void GetDeclaredInputSourceIds_ValidSlug_ReturnsSlugOnly()
+        {
+            var binding = new OscReceiverAdapterBinding { Slug = "osc-face" };
+
+            string[] ids = ((IAdapterBindingDeclaredInputs)binding).GetDeclaredInputSourceIds().ToArray();
+
+            CollectionAssert.AreEqual(new[] { "osc-face" }, ids, "ルーティングエディタに受信値の入力源（slug）だけを公開する。");
+        }
+
+        [Test]
+        public void GetDeclaredInputSourceIds_InvalidSlug_ReturnsNothing()
+        {
+            var binding = new OscReceiverAdapterBinding { Slug = "Invalid Slug" };
+
+            CollectionAssert.IsEmpty(((IAdapterBindingDeclaredInputs)binding).GetDeclaredInputSourceIds());
+        }
+
+        [Test]
+        public void ConfiguredTargetLayerInputSourceId_NotStarted_ReturnsSlug()
+        {
+            var binding = new OscReceiverAdapterBinding { Slug = "osc-face", TargetLayer = "lipsync" };
+            var target = (IAdapterBindingTargetLayerInput)binding;
+
+            Assert.AreEqual("osc-face", target.ConfiguredTargetLayerInputSourceId, "起動前の Editor 表示でも補う id を返す。");
+            Assert.IsNull(target.TargetLayerInputSourceId, "起動していない binding はランタイムでは宣言を補わない。");
+        }
+
+        [Test]
         public void Type_HasSerializableAttribute_ForSerializeReferenceRoundTrip()
         {
             object[] attrs = typeof(OscReceiverAdapterBinding)

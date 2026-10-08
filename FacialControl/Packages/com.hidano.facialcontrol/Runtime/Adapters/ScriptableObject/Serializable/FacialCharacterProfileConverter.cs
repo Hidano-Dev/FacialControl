@@ -447,6 +447,28 @@ namespace Hidano.FacialControl.Adapters.ScriptableObject.Serializable
             return new AnalogInputBindingProfile(version ?? string.Empty, entries.ToArray());
         }
 
+        /// <summary>
+        /// 変換後の <see cref="FacialProfile.Layers"/> に残るレイヤーの、元の <paramref name="layers"/> でのインデックスを返す。
+        /// </summary>
+        /// <remarks>
+        /// 変換と同じく、null・名前が空白のレイヤーと、同じ名前の 2 件目以降のレイヤーを除く
+        /// （<see cref="RemoveDuplicateLayers"/> → <see cref="ConvertLayers"/> の順）。戻り値の i 番目が変換後の
+        /// i 番目のレイヤーに対応する。Editor が Profile アセットとランタイムのレイヤーを対応付けるときに使う。警告は出さない。
+        /// </remarks>
+        public static int[] GetConvertedLayerSourceIndices(IReadOnlyList<LayerDefinitionSerializable> layers)
+        {
+            if (layers == null || layers.Count == 0) return Array.Empty<int>();
+            var result = new List<int>(layers.Count);
+            var names = new HashSet<string>(StringComparer.Ordinal);
+            for (int i = 0; i < layers.Count; i++)
+            {
+                var layer = layers[i];
+                if (layer == null || string.IsNullOrWhiteSpace(layer.name) || !names.Add(layer.name)) continue;
+                result.Add(i);
+            }
+            return result.ToArray();
+        }
+
         private static LayerDefinition[] ConvertLayers(IReadOnlyList<LayerDefinitionSerializable> layers)
         {
             if (layers == null || layers.Count == 0) return Array.Empty<LayerDefinition>();

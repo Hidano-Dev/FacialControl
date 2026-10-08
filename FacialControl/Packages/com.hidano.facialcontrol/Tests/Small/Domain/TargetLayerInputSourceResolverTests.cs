@@ -15,6 +15,9 @@ namespace Hidano.FacialControl.Tests.EditMode.Domain
     [SmallTest]
     public class TargetLayerInputSourceResolverTests : SizedTestFixture
     {
+        /// <summary>起動していない binding（ランタイムの id が null）を表す目印。</summary>
+        private const string NotStarted = "<not-started>";
+
         [Test]
         public void Resolve_TargetLayerNamed_AppendsSlugToThatLayer()
         {
@@ -174,6 +177,102 @@ namespace Hidano.FacialControl.Tests.EditMode.Domain
                 null));
         }
 
+        [Test]
+        public void ResolveConfigured_NotStartedBinding_UsesConfiguredId()
+        {
+            var bindings = new List<AdapterBindingBase>
+            {
+                new TargetBinding("osc", "lipsync") { RuntimeIdOverride = NotStarted },
+            };
+
+            IReadOnlyList<TargetLayerInputAssignment> result = TargetLayerInputSourceResolver.ResolveConfigured(
+                new[] { "emotion", "lipsync" },
+                new[] { "input" },
+                bindings,
+                new List<string>());
+
+            Assert.AreEqual(1, result.Count, "Editor 表示は起動状態に依存せず設定上の id で補う。");
+            Assert.AreEqual(1, result[0].LayerIndex);
+            Assert.AreEqual("osc", result[0].InputSourceId);
+        }
+
+        [Test]
+        public void ResolveConfigured_TargetLayerUnspecified_AssignsFirstLayer()
+        {
+            IReadOnlyList<TargetLayerInputAssignment> result = ResolveConfigured(new TargetBinding("osc", null));
+
+            Assert.AreEqual(1, result.Count);
+            Assert.AreEqual(0, result[0].LayerIndex);
+        }
+
+        [Test]
+        public void ResolveConfigured_AlreadyDeclared_AssignsNothing()
+        {
+            IReadOnlyList<TargetLayerInputAssignment> result = ResolveConfigured(new TargetBinding("input", "eye"));
+
+            Assert.AreEqual(0, result.Count, "手動宣言を優先する。");
+        }
+
+        [Test]
+        public void ResolveConfigured_TargetLayerMissing_AssignsNothingAndWarns()
+        {
+            var warnings = new List<string>();
+
+            IReadOnlyList<TargetLayerInputAssignment> result = TargetLayerInputSourceResolver.ResolveConfigured(
+                new[] { "emotion", "eye" },
+                new[] { "input" },
+                new List<AdapterBindingBase> { new TargetBinding("osc", "face") },
+                warnings);
+
+            Assert.AreEqual(0, result.Count);
+            Assert.AreEqual(1, warnings.Count);
+            StringAssert.Contains("'face'", warnings[0]);
+        }
+
+        [Test]
+        public void ResolveConfigured_DisabledBinding_AssignsNothing()
+        {
+            IReadOnlyList<TargetLayerInputAssignment> result =
+                ResolveConfigured(new TargetBinding("osc", "eye") { Disabled = true });
+
+            Assert.AreEqual(0, result.Count);
+        }
+
+        [Test]
+        public void ResolveConfigured_SameIdFromTwoBindings_AssignsFirstOnly()
+        {
+            IReadOnlyList<TargetLayerInputAssignment> result =
+                ResolveConfigured(new TargetBinding("osc", "emotion"), new TargetBinding("osc", "eye"));
+
+            Assert.AreEqual(1, result.Count);
+            Assert.AreEqual(0, result[0].LayerIndex);
+        }
+
+        [Test]
+        public void ResolveConfigured_NullArguments_ReturnsEmptyAndWarnsWithoutLayers()
+        {
+            Assert.AreEqual(0, TargetLayerInputSourceResolver.ResolveConfigured(new[] { "emotion" }, null, null, null).Count);
+
+            var warnings = new List<string>();
+            IReadOnlyList<TargetLayerInputAssignment> result = TargetLayerInputSourceResolver.ResolveConfigured(
+                null,
+                null,
+                new List<AdapterBindingBase> { new TargetBinding("osc", null) },
+                warnings);
+
+            Assert.AreEqual(0, result.Count);
+            Assert.AreEqual(1, warnings.Count, "レイヤーが無ければ補わず警告する。");
+        }
+
+        private static IReadOnlyList<TargetLayerInputAssignment> ResolveConfigured(params AdapterBindingBase[] bindings)
+        {
+            return TargetLayerInputSourceResolver.ResolveConfigured(
+                new[] { "emotion", "eye" },
+                new[] { "input" },
+                bindings,
+                new List<string>());
+        }
+
         private static FacialProfile CreateProfile(string[] layerNames, InputSourceDeclaration[][] declarations)
         {
             var layers = new LayerDefinition[layerNames.Length];
@@ -211,9 +310,15 @@ namespace Hidano.FacialControl.Tests.EditMode.Domain
                 _targetLayer = targetLayer;
             }
 
+            /// <summary>ランタイムの id を Slug 以外にしたいときに設定する（<see cref="NotStarted"/> で null）。</summary>
+            public string RuntimeIdOverride { get; set; }
+
             public string TargetLayerName => _targetLayer;
 
-            public string TargetLayerInputSourceId => Slug;
+            public string TargetLayerInputSourceId =>
+                RuntimeIdOverride == null ? Slug : RuntimeIdOverride == NotStarted ? null : RuntimeIdOverride;
+
+            public string ConfiguredTargetLayerInputSourceId => Slug;
         }
 
         private sealed class PlainBinding : AdapterBindingBase
