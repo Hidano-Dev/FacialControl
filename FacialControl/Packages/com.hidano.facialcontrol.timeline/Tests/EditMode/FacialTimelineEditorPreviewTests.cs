@@ -115,6 +115,43 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
             }
         }
 
+        [Test]
+        public void GatherProperties_InactiveChildRenderer_IsNotRegistered()
+        {
+            // Play の FacialController はアクティブな子だけを集める。プレビューも同じ renderer に書き込み・復元しないと
+            // BlendShape の並び（index）が Play とずれる。
+            _host = new GameObject("PreviewHost");
+            _host.AddComponent<FacialController>();
+            var receiver = _host.AddComponent<FacialTimelineReceiver>();
+            var director = _host.AddComponent<PlayableDirector>();
+            var hidden = new GameObject("Hidden");
+            hidden.transform.SetParent(_host.transform, false);
+            var hiddenRenderer = hidden.AddComponent<SkinnedMeshRenderer>();
+            hiddenRenderer.sharedMesh = CreateMeshWithBlendShapes("hiddenShape");
+            hidden.SetActive(false);
+            var face = new GameObject("Face");
+            face.transform.SetParent(_host.transform, false);
+            var renderer = face.AddComponent<SkinnedMeshRenderer>();
+            renderer.sharedMesh = CreateMeshWithBlendShapes("smile");
+
+            TrackAsset track = _timeline.GetOutputTrack(0);
+            director.playableAsset = _timeline;
+            director.SetGenericBinding(track, receiver);
+            var collector = new RecordingPropertyCollector();
+
+            try
+            {
+                FacialTimelineEditorPreview.GatherProperties(director, track, collector);
+
+                CollectionAssert.AreEquivalent(new[] { "Face/blendShape.smile" }, collector.Registered);
+            }
+            finally
+            {
+                Object.DestroyImmediate(hiddenRenderer.sharedMesh);
+                Object.DestroyImmediate(renderer.sharedMesh);
+            }
+        }
+
         private static Mesh CreateMeshWithBlendShapes(params string[] names)
         {
             var mesh = new Mesh

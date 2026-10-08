@@ -37,6 +37,7 @@ Timeline 再生の手順を「REC → Export → Director にセット → Recei
 ### Fixed
 
 - Edit プレビューを解除しても BlendShape が変形したまま戻らなかった。プレビュー開始時に登録する復元対象を `FacialController.SkinnedMeshRenderers`（手動オーバーライド欄）からしか集めておらず、Edit 中で空のときは何も登録していなかったため、プレビューが書き込むのと同じ renderer（手動オーバーライド → 子の SkinnedMeshRenderer）を登録するようにした（HID-181）
+- Edit プレビューが非アクティブな子の SkinnedMeshRenderer も集めていたため、Play（アクティブな子だけを集める）と BlendShape の並びがずれ、値提供型を index で再生するトラックが別の BlendShape を動かすことがあった。プレビューもアクティブな子だけを集めるようにした（HID-181）
 
 ### Removed
 

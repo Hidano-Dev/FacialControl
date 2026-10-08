@@ -578,8 +578,9 @@ namespace Hidano.FacialControl.Timeline.Editor
                 return renderers;
             }
 
-            // Edit では controller が未初期化のことがある。Runtime の自動検索（子の SkinnedMeshRenderer）と同じ規則で探す。
-            return controller.GetComponentsInChildren<SkinnedMeshRenderer>(true);
+            // Edit では controller が未初期化のことがある。Runtime の自動検索（アクティブな子の SkinnedMeshRenderer）と同じ規則で探す。
+            // 非アクティブな子を含めると BlendShape の並びが Play とずれ、値提供型を index で再生するトラックが別の BlendShape を動かす。
+            return controller.GetComponentsInChildren<SkinnedMeshRenderer>(false);
         }
 
         private static ExpressionSourceBake FindExpressionBake(FacialTimelineBakeAsset bake, string layerName)
