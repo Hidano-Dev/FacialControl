@@ -164,34 +164,24 @@ namespace Hidano.FacialControl.Timeline.Tests.PlayMode
             configureProfile?.Invoke(profileAsset);
             AssetDatabase.CreateAsset(profileAsset, folderPath + "/" + profileAsset.name + ".asset");
 
+            // 値提供型の BlendShape 名は REC が録画時のホスト（e2e キャラクターと同じメッシュ）から記録する。
+            if (recording.IncludeValueProvider && recording.BlendShapeNames == null)
+            {
+                recording.BlendShapeNames = MeshBlendShapes;
+            }
+
             string recordingPath = Path.GetFullPath(folderPath + "/recording.fcrec");
             RecFixtureWriter.Write(recordingPath, recording);
             AssetDatabase.Refresh();
 
-            // 値提供型の BlendShape 名は Profile の参照モデルから解決される。録画時と同じメッシュを一時的に参照させて Export する。
-            GameObject referenceModel = recording.IncludeValueProvider ? CreateReferenceModel(out Mesh referenceMesh) : null;
-            RecToTimelineExporter.ExportResult result;
-            try
+            if (!RecToTimelineExporter.TryExportTimelineAsset(
+                    recordingPath,
+                    profileAsset,
+                    folderPath + "/Exported.playable",
+                    out RecToTimelineExporter.ExportResult result))
             {
-                profileAsset.ReferenceModel = referenceModel;
-                if (!RecToTimelineExporter.TryExportTimelineAsset(
-                        recordingPath,
-                        profileAsset,
-                        folderPath + "/Exported.playable",
-                        out result))
-                {
-                    AssetDatabase.DeleteAsset(folderPath);
-                    throw new InvalidOperationException("fixture: REC Export に失敗しました。");
-                }
-            }
-            finally
-            {
-                profileAsset.ReferenceModel = null;
-                if (referenceModel != null)
-                {
-                    UnityEngine.Object.DestroyImmediate(referenceModel.GetComponentInChildren<SkinnedMeshRenderer>().sharedMesh);
-                    UnityEngine.Object.DestroyImmediate(referenceModel);
-                }
+                AssetDatabase.DeleteAsset(folderPath);
+                throw new InvalidOperationException("fixture: REC Export に失敗しました。");
             }
 
             return new TimelineE2EFixture(
@@ -289,17 +279,6 @@ namespace Hidano.FacialControl.Timeline.Tests.PlayMode
             }
 
             AssetDatabase.Refresh();
-        }
-
-        /// <summary>e2e キャラクターと同じ BlendShape を持つ参照モデル（Export の名前解決用）。</summary>
-        private static GameObject CreateReferenceModel(out Mesh mesh)
-        {
-            var model = new GameObject("TimelineE2EReferenceModel");
-            var face = new GameObject("Face");
-            face.transform.SetParent(model.transform, false);
-            mesh = TimelineE2ECharacter.CreateMesh("TimelineE2E_ReferenceMesh");
-            face.AddComponent<SkinnedMeshRenderer>().sharedMesh = mesh;
-            return model;
         }
 
         private static void ConfigureDefaultProfile(FacialCharacterProfileSO profileAsset)

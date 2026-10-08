@@ -48,6 +48,12 @@ namespace Hidano.FacialControl.Timeline.Tests.Shared
 
             /// <summary>値提供型の mask バイト数（記録時の FacialController の BlendShape 数 / 8 の切り上げ）。</summary>
             public int ValueProviderMaskByteCount { get; set; } = 1;
+
+            /// <summary>
+            /// 録画時のホストの BlendShape 名（REC が基準と一緒に記録する。index = 値提供型の BlendShape index）。
+            /// null なら記録しない（BlendShape 名を記録しない旧 REC と同じ）。
+            /// </summary>
+            public string[] BlendShapeNames { get; set; }
         }
 
         /// <summary>値提供型の source id（iFacialMocap の BlendShape 受信と同じく slug だけ）。</summary>
@@ -133,6 +139,10 @@ namespace Hidano.FacialControl.Timeline.Tests.Shared
                             ValueProviderSourceId, baselineRecord.IsValid, baselineRecord.MaskBytes, baselineRecord.Values),
                     },
                     null);
+                if (recording.BlendShapeNames != null)
+                {
+                    baseline = baseline.WithBlendShapeNames(recording.BlendShapeNames);
+                }
 
                 for (int i = 0; i < ValueProviderSamples.Count; i++)
                 {

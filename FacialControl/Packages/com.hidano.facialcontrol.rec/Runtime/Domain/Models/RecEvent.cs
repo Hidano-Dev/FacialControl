@@ -10,6 +10,12 @@ namespace Hidano.FacialControl.Rec.Domain.Models
             Source = 1,
             Expression = 2,
             Layer = 3,
+
+            /// <summary>
+            /// 録画時のホスト（FacialController）の BlendShape 名。id index が値提供型の BlendShape index
+            /// （mask のビット位置）に対応する。
+            /// </summary>
+            BlendShape = 4,
         }
 
         private RecEvent(RecEventKind kind, double timestampSeconds, ushort sourceIdIndex, ushort expressionIdIndex,
@@ -65,7 +71,8 @@ namespace Hidano.FacialControl.Rec.Domain.Models
 
         public static RecEvent CreateIdDefine(ushort idIndex, IdDefinitionKind idKind)
         {
-            if (idKind != IdDefinitionKind.Source && idKind != IdDefinitionKind.Expression && idKind != IdDefinitionKind.Layer)
+            if (idKind != IdDefinitionKind.Source && idKind != IdDefinitionKind.Expression && idKind != IdDefinitionKind.Layer
+                && idKind != IdDefinitionKind.BlendShape)
             {
                 throw new ArgumentOutOfRangeException(nameof(idKind));
             }

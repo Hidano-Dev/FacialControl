@@ -16,11 +16,18 @@ namespace Hidano.FacialControl.Rec.Domain.Services
         private readonly List<string> _sourceIds = new List<string>();
         private readonly List<string> _expressionIds = new List<string>();
         private readonly List<string> _layerIds = new List<string>();
+        private readonly Dictionary<string, ushort> _blendShapeIndexes = new Dictionary<string, ushort>(StringComparer.Ordinal);
+        private readonly List<string> _blendShapeNames = new List<string>();
 
         public IReadOnlyList<string> SourceIds => _sourceIds;
 
         public IReadOnlyList<string> ExpressionIds => _expressionIds;
         public IReadOnlyList<string> LayerIds => _layerIds;
+
+        /// <summary>
+        /// 読み込んだ BlendShape 名（index = 値提供型の BlendShape index）。定義の無い index は null のまま残る。
+        /// </summary>
+        public IReadOnlyList<string> BlendShapeNames => _blendShapeNames;
 
         /// <summary>
         /// 録画開始時の baseline から初期 ID テーブルを作る。記録側（<c>RecordingUseCase</c>）とライター側
@@ -113,6 +120,12 @@ namespace Hidano.FacialControl.Rec.Domain.Services
             if (idKind == Hidano.FacialControl.Rec.Domain.Models.RecEvent.IdDefinitionKind.Layer)
             {
                 AddDefinedIdCore(idIndex, value, _layerIndexes, _layerIds, nameof(value));
+                return;
+            }
+
+            if (idKind == Hidano.FacialControl.Rec.Domain.Models.RecEvent.IdDefinitionKind.BlendShape)
+            {
+                AddDefinedIdCore(idIndex, value, _blendShapeIndexes, _blendShapeNames, nameof(value));
                 return;
             }
 

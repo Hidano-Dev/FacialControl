@@ -342,6 +342,18 @@ namespace Hidano.FacialControl.Rec.Adapters.Recording
                     idTable.ExpressionIds[i]);
             }
 
+            // 値提供型の BlendShape index と名前の対応（Export が BlendShape を名前で保存するために使う）。
+            for (int i = 0; i < _baseline.BlendShapeNames.Count; i++)
+            {
+                WriteRecord(
+                    stream,
+                    ref buffer,
+                    RecEvent.CreateIdDefine(checked((ushort)i), RecEvent.IdDefinitionKind.BlendShape),
+                    ReadOnlySpan<float>.Empty,
+                    ReadOnlySpan<byte>.Empty,
+                    _baseline.BlendShapeNames[i]);
+            }
+
             for (int i = 0; i < _baseline.TriggerEntries.Count; i++)
             {
                 RecBaselineState.TriggerEntry entry = _baseline.TriggerEntries[i];
@@ -431,7 +443,8 @@ namespace Hidano.FacialControl.Rec.Adapters.Recording
         private static int CountBaselineRecords(RecBaselineState baseline)
         {
             RecIdTable idTable = RecIdTable.CreateSeeded(baseline);
-            int count = idTable.SourceIds.Count + idTable.ExpressionIds.Count + idTable.LayerIds.Count;
+            int count = idTable.SourceIds.Count + idTable.ExpressionIds.Count + idTable.LayerIds.Count
+                + baseline.BlendShapeNames.Count;
 
             for (int i = 0; i < baseline.TriggerEntries.Count; i++)
             {
