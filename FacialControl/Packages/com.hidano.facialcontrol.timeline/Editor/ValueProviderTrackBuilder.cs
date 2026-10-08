@@ -15,7 +15,8 @@ namespace Hidano.FacialControl.Timeline.Editor
     /// 同じ時刻のレコードはまとめて適用し、その時刻の最終状態を 1 キーにする。</para>
     /// <para>カーブは全キーの接線を無限大（階段）にする。REC 再生は次のレコードまで値を保持するため、
     /// 線形 / 滑らかな補間ではサンプル間の値が REC 再生と食い違う。値が変わらない時刻のキーは省く。</para>
-    /// <para>BlendShape 名は呼び出し側が渡す参照名列（Profile の参照モデル）が記録の mask 長と矛盾しないときだけ使う。</para>
+    /// <para>BlendShape 名は呼び出し側が渡す名前列（REC に記録された録画時のホストの BlendShape 名）が記録の mask 長と
+    /// 矛盾しないときだけ使う。</para>
     /// </remarks>
     internal static class ValueProviderTrackBuilder
     {
@@ -53,7 +54,7 @@ namespace Hidano.FacialControl.Timeline.Editor
         /// <summary>
         /// 値提供型レコードを持つ source ごとに組み立てる（source id 昇順）。寄与した BlendShape が 1 つも無い source は含めない。
         /// </summary>
-        /// <param name="referenceBlendShapeNames">参照モデルの BlendShape 名列（FacialController と同じ並び。無ければ null）。</param>
+        /// <param name="referenceBlendShapeNames">録画時のホストの BlendShape 名列（FacialController と同じ並び。無ければ null）。</param>
         public static List<SourceTrack> Build(IRecordedEventSequence sequence, IReadOnlyList<string> referenceBlendShapeNames)
         {
             if (sequence == null)

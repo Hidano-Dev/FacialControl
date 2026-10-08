@@ -156,5 +156,30 @@ namespace Hidano.FacialControl.Rec.Adapters.Recording
                 layerWeightEntries,
                 inputSourceWeightEntries);
         }
+
+        /// <summary>
+        /// ホストの BlendShape 名列を、値提供型の BlendShape index（= コントローラの BlendShape 並び）と 1 対 1 に
+        /// 対応するときだけ返す。数が合わない・空白や重複を含むときは null（名前を記録せず、Export は index で保存する）。
+        /// </summary>
+        /// <param name="hostBlendShapeNames">コントローラと同じ規則で集めた BlendShape 名列。</param>
+        /// <param name="blendShapeCount">コントローラの BlendShape 数。</param>
+        public static IReadOnlyList<string> SelectHostBlendShapeNames(IReadOnlyList<string> hostBlendShapeNames, int blendShapeCount)
+        {
+            if (hostBlendShapeNames == null || blendShapeCount <= 0)
+            {
+                return null;
+            }
+
+            if (hostBlendShapeNames.Count != blendShapeCount || !RecBaselineState.IsRecordableBlendShapeNames(hostBlendShapeNames))
+            {
+                Debug.LogWarning(
+                    $"REC did not record BlendShape names because they do not match the controller's {blendShapeCount} BlendShape(s) " +
+                    $"one-to-one (got {hostBlendShapeNames.Count}, or some are empty / duplicated). " +
+                    "Timeline export will store value-provider BlendShapes by index.");
+                return null;
+            }
+
+            return hostBlendShapeNames;
+        }
     }
 }

@@ -66,7 +66,7 @@ Edit モードのスクラブは Play と同じレイヤー合成規則（オフ
 | LayerConnection | `LayerConnected` / `LayerConnectionSkippedDeclared` / `LayerConnectionFailed` | Info / Info / Warning | 接続済み / 旧 `timeline:{layer}` 宣言の weight を使用中 / controller の初期化とレイヤー名を確認する |
 | Analog / Gaze / 値提供型 | `*TakeoverAttached` / `*SourceNotFound` / `*Occupied` | Info / Warning / Warning | 乗っ取り中 / `ChannelSubId` の入力源が registry に無い（REC したときと同じ AdapterBinding が Profile にあるか確認する）/ REC 再生などが占有中 |
 | 値提供型 | `ValueProviderNotDeclared` | Warning | 入力源 id が Profile のどのレイヤーの Layer.inputSources にも宣言されていない。Timeline の乗っ取りは宣言スロットにだけ届く（実行時に後付け接続されたスロットは置き換わらない。REC 再生も同じ）ため、録画時に値を受けていたレイヤーにこの id を宣言する |
-| 値提供型 | `ValueProviderBlendShapeMismatch` | Warning | Clip の BlendShape の一部がこのモデルの BlendShape に対応しない（名前が無い / 記録時の index がモデルの BlendShape 数を超える）。対応した分だけ再生する。録画時と同じモデルか確認し、Profile の参照モデルを設定して再 Export すると名前で対応付く |
+| 値提供型 | `ValueProviderBlendShapeMismatch` | Warning | Clip の BlendShape の一部がこのモデルの BlendShape に対応しない（名前が無い / 記録時の index がモデルの BlendShape 数を超える）。対応した分だけ再生する。録画時と同じモデルか確認する。BlendShape 名を記録した REC（現行の REC で録ったもの）から再 Export すると名前で対応付く |
 | Placement | `ReceiverNotOnControllerObject` / `ControllerMissing` | Error | Receiver を FacialController と同じ GameObject に置く |
 | Session | `SessionConflict` | Error | 同じ Receiver を別の Director が再生している。片方を止める |
 
@@ -102,7 +102,7 @@ Edit モードのスクラブは Play と同じレイヤー合成規則（オフ
 - トリガーの on/off は Expression ごとに **Facial Expression Clip** になり、重なりは `{layer} Lane n` の子トラックへ振り分けられる
 - アナログ / Gaze は入力源 id ごとに **Facial Value Track** 1 本になり、サンプルがキーフレームになる。`ChannelSubId` には REC の入力源 id がそのまま入る
 - 値提供型（kind 7 の時刻付きレコードと kind 8 の基準）は入力源 id ごとに Channel Kind `ValueProvider` の **Facial Value Track** 1 本になる。基準を t=0 の状態とし、記録の差分（mask の変更・値だけの更新・有効状態だけの更新）を REC 再生と同じ規則で積み上げて、寄与したことのある BlendShape ごとに値・寄与 mask・有効状態の階段カーブを作る（次のレコードまで値を保持するので、サンプルの間でも REC 再生と同じ値になる）。形の合わないレコード（REC 再生でも捨てられるもの）は件数付きの Warning を出して読み飛ばす
-- 値提供型の BlendShape は記録では FacialController の index で入っている。Profile の **Reference Model**（参照モデル）の BlendShape 名が記録の mask 長と矛盾しなければ名前で保存し、メッシュの並びが変わっても名前で対応付く。参照モデルが無い / 合わないときは index で保存し、Export 1 回につき 1 回 Warning を出す
+- 値提供型の BlendShape は記録では FacialController の index で入っている。REC は録画開始時にホストの BlendShape 名（index と名前の対応）も記録するので、Export はその名前で保存し、メッシュの並びが変わっても名前で対応付く。名前を記録していない `.fcrec`（BlendShape 名の記録より前の REC で録ったもの）は index で保存し、Export 1 回につき 1 回 Warning を出す。Profile の参照モデル等から名前を推測することはしない（BlendShape 数が録画時と 1 つでも違うと名前がずれるため）
 - Gaze かどうかは自動で判定し、ウィンドウの **Detected Channels** に入力源 id ごとの判定結果と理由を読み取り専用で表示する（判定順: GazeChannel の明示 source id と一致 → 規約 id が GazeChannels にある → binding の gaze 宣言 → 2 軸でなければ Analog → 既定 Analog）。値提供型は `ValueProvider（N 個の BlendShape）` と、BlendShape を名前 / index のどちらで保存するかを表示する。トリガー専用の入力源と、寄与した BlendShape が 1 つも無い値提供型（有効になったことが無いもの）は表示しない
 - Export 完了後、ウィンドウに残りの手順（Director へのセット、Receiver の追加）を表示する
 - 系1 のレコード kind（9 / 10。`ExpressionUseCase` / `FacialController.Activate` 経由の Expression 操作）は Timeline に表すトラックが無いため Export 対象外として読み捨てる。読み込みは失敗せず、Export 1 回につき 1 回だけ件数付きの Warning（`[RecToTimelineExporter] ... expression activate/deactivate record(s) ...`）を出す

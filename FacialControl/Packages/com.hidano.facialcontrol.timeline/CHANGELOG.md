@@ -21,7 +21,7 @@ Timeline 再生の手順を「REC → Export → Director にセット → Recei
 
 ### Added
 
-- REC Export が値提供型（kind 7 / 基準 kind 8。iFacialMocap の BlendShape / UDP LipSync など）を入力源 id ごとの Value トラック（`FacialValueChannelKind.ValueProvider`）として書き出すようにした（HID-178）。基準を t=0 の状態とし、記録の差分を REC 再生と同じ規則で積み上げて、BlendShape ごとの値・寄与 mask・有効状態の階段カーブにする。BlendShape は Profile の参照モデルの名前が記録と矛盾しなければ名前で、そうでなければ記録時の index で保存する（index 保存時は Export で 1 回 Warning）。Detected Channels に `ValueProvider（N 個の BlendShape）` と保存方法を表示する
+- REC Export が値提供型（kind 7 / 基準 kind 8。iFacialMocap の BlendShape / UDP LipSync など）を入力源 id ごとの Value トラック（`FacialValueChannelKind.ValueProvider`）として書き出すようにした（HID-178）。基準を t=0 の状態とし、記録の差分を REC 再生と同じ規則で積み上げて、BlendShape ごとの値・寄与 mask・有効状態の階段カーブにする。BlendShape は REC に記録された録画時の BlendShape 名で、名前の記録が無ければ記録時の index で保存する（index 保存時は Export で 1 回 Warning）。Detected Channels に `ValueProvider（N 個の BlendShape）` と保存方法を表示する
 - 値提供型トラックの再生: `ChannelSubId` の registry エントリを再生中だけ `TimelineValueProviderInputSource` で乗っ取り（Analog / Gaze と同じ占有規則）、停止時に戻す。Edit プレビューは Profile のレイヤー宣言どおりに同じ型の sink を合成する。Receiver の診断に値提供型領域（`ValueProviderTakeoverAttached` / `ValueProviderSourceNotFound` / `ValueProviderOccupied` / `ValueProviderBlendShapeMismatch` / `ValueProviderNotDeclared`）を追加した。乗っ取りはレイヤーの宣言スロットにだけ届く（後付け接続のスロットは置き換わらない。REC 再生と同じ）ため、宣言の無い値提供型チャネルは `ValueProviderNotDeclared` で知らせる
 - REC Export が系1（kind 9 / 10）を読み捨てたとき、Export 1 回につき 1 回、件数付きの Warning を出すようにした（従来は無言で捨てていた）
 - `FacialValueClip` に値提供型用の `BlendShapeNames` / `BlendShapeIndices` / `Contributes` / `Validity` を追加した。どれも持たない Clip（Analog / Gaze）の Source ハッシュは変わらない。値提供型トラックは Bake の `ValueBakes` に再サンプルしない（Clip の階段カーブを再生・プレビューが直接評価する）
@@ -33,6 +33,10 @@ Timeline 再生の手順を「REC → Export → Director にセット → Recei
 - Edit プレビューに Analog チャネル経由の出力（analog expression）を反映した。Profile の binding が `IAnalogExpressionBindingDeclaration` で宣言する構成から Play と同じ消費者をオフラインに組み、Analog Value トラックの値で駆動する（HID-148）
 - REC Export ウィンドウに、入力源 id ごとのチャネル種別の判定結果と理由、Export 後の残り手順を表示した
 - 4 手順の end-to-end PlayMode テスト。GC ゼロ gate の計測を「GC Allocated In Frame」カウンタに変え、計測器の自己検証テストを追加した（従来の計測は同期テストで確保を検出できていなかった）
+
+### Fixed
+
+- REC Export で値提供型（iFacialMocap 等）の BlendShape が 1 つ前にずれて動くことがあった。Profile の参照モデルから BlendShape 名を集め、名前数と記録の mask バイト数（8 個単位）が合えば一致とみなしていたため、録画時と BlendShape が 1 つ違うモデルでも名前が 1 つずつずれて割り当てられていた。Export は REC に記録された録画時の BlendShape 名だけを使い、参照モデルから推測しないようにした（HID-180）
 
 ### Removed
 

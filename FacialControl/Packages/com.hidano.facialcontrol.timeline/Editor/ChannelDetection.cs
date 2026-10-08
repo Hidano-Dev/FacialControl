@@ -25,10 +25,10 @@ namespace Hidano.FacialControl.Timeline.Editor
         /// <summary>呼び出し側の種別上書きを使った（プログラム・テスト用途）。</summary>
         Overridden = 5,
 
-        /// <summary>値提供型の記録（kind 7 / 8）。BlendShape は Profile の参照モデルの名前で保存する。</summary>
+        /// <summary>値提供型の記録（kind 7 / 8）。BlendShape は REC に記録された録画時の名前で保存する。</summary>
         ValueProviderNamed = 6,
 
-        /// <summary>値提供型の記録（kind 7 / 8）。参照モデルが無い / 記録と合わないため BlendShape は記録時の index で保存する。</summary>
+        /// <summary>値提供型の記録（kind 7 / 8）。REC に BlendShape 名が無いため BlendShape は記録時の index で保存する。</summary>
         ValueProviderIndexed = 7,
     }
 

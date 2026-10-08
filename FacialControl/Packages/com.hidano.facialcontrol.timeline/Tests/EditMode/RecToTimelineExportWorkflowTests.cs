@@ -350,20 +350,12 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
         }
 
         [Test]
-        public void TryExportTimelineAsset_ValueProviderRecording_ExportsValueProviderTrackWithNamesFromReferenceModel()
+        public void TryExportTimelineAsset_ValueProviderRecording_ExportsValueProviderTrackWithRecordedNames()
         {
-            ExportFixture fixture = ExportFixture.Create(valueProvider: true);
-            var model = new GameObject("RecToTimelineExportReferenceModel");
-            var mesh = new Mesh { name = "RecToTimelineExportReferenceMesh", vertices = new[] { Vector3.zero, Vector3.right, Vector3.up } };
-            mesh.AddBlendShapeFrame("eyeBlinkLeft", 100f, new Vector3[3], null, null);
-            mesh.AddBlendShapeFrame("jawOpen", 100f, new Vector3[3], null, null);
-            new GameObject("Face").transform.SetParent(model.transform, false);
-            model.transform.GetChild(0).gameObject.AddComponent<SkinnedMeshRenderer>().sharedMesh = mesh;
+            ExportFixture fixture = ExportFixture.Create(valueProvider: true, blendShapeNames: new[] { "eyeBlinkLeft", "jawOpen" });
 
             try
             {
-                fixture.Profile.ReferenceModel = model;
-
                 bool success = RecToTimelineExporter.TryExportTimelineAsset(
                     fixture.RecordingAbsolutePath,
                     fixture.Profile,
@@ -413,6 +405,52 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
                 Assert.That(channel.BlendShapeBindings.Count, Is.EqualTo(2));
                 Assert.That(channel.BlendShapeBindings[1].Name, Is.EqualTo("jawOpen"));
                 Assert.That(channel.BlendShapeBindings[1].RecordedIndex, Is.EqualTo(1));
+            }
+            finally
+            {
+                fixture.Dispose();
+            }
+        }
+
+        [Test]
+        public void TryExportTimelineAsset_RecordingWithoutNames_StoresByIndexEvenWithReferenceModel()
+        {
+            // 録画時と BlendShape が 1 つ違う参照モデル（先頭に余分な BlendShape）。mask のバイト数（8 単位）では区別できないため、
+            // 参照モデルから名前を推測すると 1 つずつずれる（HID-180）。名前の無い REC は推測せず index で保存する。
+            ExportFixture fixture = ExportFixture.Create(valueProvider: true);
+            var model = new GameObject("RecToTimelineExportReferenceModel");
+            var mesh = new Mesh { name = "RecToTimelineExportReferenceMesh", vertices = new[] { Vector3.zero, Vector3.right, Vector3.up } };
+            mesh.AddBlendShapeFrame("ex_agosage", 100f, new Vector3[3], null, null);
+            mesh.AddBlendShapeFrame("eyeBlinkLeft", 100f, new Vector3[3], null, null);
+            mesh.AddBlendShapeFrame("jawOpen", 100f, new Vector3[3], null, null);
+            new GameObject("Face").transform.SetParent(model.transform, false);
+            model.transform.GetChild(0).gameObject.AddComponent<SkinnedMeshRenderer>().sharedMesh = mesh;
+
+            try
+            {
+                fixture.Profile.ReferenceModel = model;
+                LogAssert.Expect(LogType.Warning, new System.Text.RegularExpressions.Regex("stored by recorded index"));
+
+                bool success = RecToTimelineExporter.TryExportTimelineAsset(
+                    fixture.RecordingAbsolutePath,
+                    fixture.Profile,
+                    fixture.TimelinePath,
+                    out RecToTimelineExporter.ExportResult result);
+
+                Assert.That(success, Is.True);
+                FacialValueTrack track = null;
+                foreach (TrackAsset candidate in result.Timeline.GetRootTracks())
+                {
+                    if (candidate is FacialValueTrack valueTrack && valueTrack.ChannelSubId == "ifm")
+                    {
+                        track = valueTrack;
+                    }
+                }
+
+                Assert.That(track, Is.Not.Null);
+                var clip = (FacialValueClip)ToArray(track.GetClips())[0].asset;
+                Assert.That(clip.BlendShapeIndices, Is.EqualTo(new[] { 0, 1 }));
+                Assert.That(clip.BlendShapeNames, Is.EqualTo(new[] { string.Empty, string.Empty }));
             }
             finally
             {
@@ -515,7 +553,8 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
             public static ExportFixture Create(
                 bool overlappingTriggers = false,
                 bool includeWeightRecords = false,
-                bool valueProvider = false)
+                bool valueProvider = false,
+                string[] blendShapeNames = null)
             {
                 string folderName = "RecToTimelineExportWorkflowTests_" + Guid.NewGuid().ToString("N");
                 string folderPath = "Assets/" + folderName;
@@ -566,7 +605,7 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
                 AssetDatabase.CreateAsset(profile, profilePath);
 
                 RecTimeline timeline = valueProvider
-                    ? CreateValueProviderRecordingTimeline()
+                    ? CreateValueProviderRecordingTimeline(blendShapeNames)
                     : includeWeightRecords
                     ? CreateRecordingTimelineWithWeights()
                     : overlappingTriggers
@@ -671,13 +710,19 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
             }
 
             /// <summary>値提供型（slug だけの source id <c>ifm</c>、BlendShape 2 個）の基準と時刻付きレコード。</summary>
-            private static RecTimeline CreateValueProviderRecordingTimeline()
+            /// <param name="blendShapeNames">録画時のホストの BlendShape 名（null なら記録しない）。</param>
+            private static RecTimeline CreateValueProviderRecordingTimeline(string[] blendShapeNames)
             {
                 var baseline = new RecBaselineState(
                     null,
                     null,
                     new[] { new RecBaselineState.ValueProviderEntry("ifm", true, new byte[] { 0b0000_0011 }, new[] { 0.1f, 0.2f }) },
                     null);
+                if (blendShapeNames != null)
+                {
+                    baseline = baseline.WithBlendShapeNames(blendShapeNames);
+                }
+
                 return new RecTimeline(
                     baseline,
                     new[]

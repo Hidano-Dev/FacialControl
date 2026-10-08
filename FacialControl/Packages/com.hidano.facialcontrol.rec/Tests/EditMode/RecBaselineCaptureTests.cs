@@ -69,6 +69,34 @@ namespace Hidano.FacialControl.Rec.Tests.EditMode
         }
 
         [Test]
+        public void SelectHostBlendShapeNames_NamesMatchControllerCount_ReturnsNames()
+        {
+            var names = new[] { "ex_agosage", "browInnerUp", "jawOpen" };
+
+            IReadOnlyList<string> selected = RecBaselineCapture.SelectHostBlendShapeNames(names, 3);
+
+            Assert.That(selected, Is.EqualTo(names));
+        }
+
+        [Test]
+        public void SelectHostBlendShapeNames_CountDiffersFromController_ReturnsNullWithWarning()
+        {
+            // 1 つでも数が違えば index と名前の対応が保証できない（名前を推測しない）。
+            UnityEngine.TestTools.LogAssert.Expect(UnityEngine.LogType.Warning, new System.Text.RegularExpressions.Regex("BlendShape names"));
+
+            IReadOnlyList<string> selected = RecBaselineCapture.SelectHostBlendShapeNames(new[] { "a", "b", "c" }, 2);
+
+            Assert.That(selected, Is.Null);
+        }
+
+        [Test]
+        public void SelectHostBlendShapeNames_NoBlendShapes_ReturnsNullWithoutWarning()
+        {
+            Assert.That(RecBaselineCapture.SelectHostBlendShapeNames(Array.Empty<string>(), 0), Is.Null);
+            UnityEngine.TestTools.LogAssert.NoUnexpectedReceived();
+        }
+
+        [Test]
         public void Capture_WithWeightGate_IncludesAllLayersAndSlots()
         {
             var registry = new InputSourceRegistry();

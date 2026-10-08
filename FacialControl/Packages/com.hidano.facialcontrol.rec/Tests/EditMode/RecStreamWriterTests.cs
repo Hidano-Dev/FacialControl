@@ -101,6 +101,27 @@ namespace Hidano.FacialControl.Rec.Tests.EditMode
         }
 
         [Test]
+        public void Complete_BaselineWithBlendShapeNames_ReadsBackNamesInIndexOrder()
+        {
+            string filePath = Path.Combine(_tempDirectory, "blendshape-names.fcrec");
+            RecBaselineState baseline = new RecBaselineState(
+                    Array.Empty<RecBaselineState.TriggerEntry>(),
+                    Array.Empty<RecBaselineState.AnalogEntry>(),
+                    new[] { new RecBaselineState.ValueProviderEntry("ifm", true, new byte[] { 0x04 }, new[] { 0.5f }) },
+                    null)
+                .WithBlendShapeNames(new[] { "ex_agosage", "browInnerUp", "jawOpen" });
+
+            using var writer = new RecStreamWriter(filePath, segmentCapacity: 2, initialSegments: 2,
+                axisFloatCapacityPerSegment: 8, byteCapacityPerSegment: 1);
+            writer.Open(baseline);
+            writer.Complete(0.1d, 0);
+
+            Assert.That(RecFileReader.TryRead(filePath, out RecBinaryFormat.ReadResult result), Is.True);
+            Assert.That(result.Timeline.Baseline.BlendShapeNames, Is.EqualTo(new[] { "ex_agosage", "browInnerUp", "jawOpen" }));
+            Assert.That(result.Timeline.Baseline.TryGetValueProviderEntry("ifm", out _), Is.True);
+        }
+
+        [Test]
         public void Complete_ExpressionActivationThenNewSource_ReadsBackWithRecordingUseCaseIdOrder()
         {
             // RecordingUseCase は系1の予約 source "@expression" をシード済みとして IdDefine を出さない。

@@ -54,7 +54,7 @@ namespace Hidano.FacialControl.Timeline.Tests.PlayMode
             Assert.That(
                 clip.BlendShapeNames,
                 Is.EqualTo(new[] { TimelineE2EFixture.BlinkBlendShape, TimelineE2EFixture.JawOpenBlendShape, TimelineE2EFixture.EyeWideBlendShape }),
-                "参照モデルから BlendShape 名で保存される");
+                "REC に記録された録画時の BlendShape 名で保存される");
         }
 
         [UnityTest]

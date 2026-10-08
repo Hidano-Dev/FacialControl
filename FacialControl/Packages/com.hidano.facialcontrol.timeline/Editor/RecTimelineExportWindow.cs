@@ -196,8 +196,7 @@ namespace Hidano.FacialControl.Timeline.Editor
             string message = $"Loaded {detections.Count} value channel(s) from REC.";
             if (profile == null)
             {
-                message += " Profile を選ぶと Gaze 判定に Profile の GazeChannels と binding の gaze 宣言が使われ、" +
-                    "値提供型の BlendShape は Profile の参照モデルの名前で保存されます。";
+                message += " Profile を選ぶと Gaze 判定に Profile の GazeChannels と binding の gaze 宣言が使われます。";
             }
 
             SetStatus(message, HelpBoxMessageType.Info);
@@ -241,9 +240,9 @@ namespace Hidano.FacialControl.Timeline.Editor
             switch (reason)
             {
                 case ChannelDetectionReason.ValueProviderNamed:
-                    return "値提供型の記録（BlendShape を参照モデルの名前で保存）";
+                    return "値提供型の記録（BlendShape を録画時の名前で保存）";
                 case ChannelDetectionReason.ValueProviderIndexed:
-                    return "値提供型の記録（参照モデルが無い / 記録と合わないため BlendShape を index で保存）";
+                    return "値提供型の記録（REC に BlendShape 名が無いため index で保存。録り直すと名前で保存）";
                 case ChannelDetectionReason.ExplicitGazeSourceId:
                     return "Profile の GazeChannel の source id と一致";
                 case ChannelDetectionReason.ConventionGazeChannel:
