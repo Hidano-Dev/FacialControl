@@ -6,6 +6,12 @@
 
 ### Added
 
+- FacialControl 同士の新しい OSC プロトコル（BlendShape ごとの名前つきアドレスをやめ、対応表バージョン + 固定インデックスの値の配列で送る）の部品を追加した。送受信の配線はまだ切り替えておらず、既存の挙動は変わらない（切り替えは後続の変更で行う）
+  - `OscFrameLayout` — 値フレームの slot と BlendShape 名・gaze チャネル（X / Y の 2 slot、属性ペア付き）の対応表
+  - `OscFrameLayoutVersion` — 送信元の UUID・起動時刻・対応表の内容から計算するバージョン。0 を使わず、前回と同じ値にならない
+  - `OscIndexedFrameCodec` — `/_facialcontrol/values`（`[version, offset, f...]`）・`/_facialcontrol/layout`（`[version, chunkIndex, chunkCount, (kind, value)...]`）・`/_facialcontrol/layout_request`（`[senderUuid, version, chunkIndex...]`）の読み書きと、1 通 1,400 バイト以内への分割。値フレームの読み書きはヒープ確保をしない
+  - `OscFrameLayoutAssembler` — 順不同・重複ありで届くチャンクから対応表を組み立て、欠けたチャンクを返す
+  - `OscLayoutRequestScheduler` — 未知のバージョンを見たら即要求し、揃うまで一定間隔で再要求し、揃わない状態が続いたら警告を 1 回出させる
 - OSC Receiver / OSC Sender / ARKit の Adapter を折り畳んだ状態でも、Foldout ヘッダーに接続先の要約を表示するようにした。受信は `:9001`、送信は `127.0.0.1:9000`（複数なら `127.0.0.1:9000 他 2 件`）。ランタイムと同じく、空のホストは `127.0.0.1` とみなし、同じホスト:ポートは 1 件に数える。無効な送信先（`enabled` = false、ポート範囲外）は件数から除き、全件はツールチップに出す（無効・重複は印付き）。旧形式の `OscRuntimeSettingsSO` が割り当てられたままならその値を表示し、旧アセットで受信 / 送信が無効なら無効として表示する（旧アセット側の変更は Inspector を開き直すと反映）
 - Gaze 広告（`/_facialcontrol/gaze`）に、チャネルごとの目ボーン path（`bone.left=<path>` / `bone.right=<path>`、送信側で指定した側のみ）と可動範囲（`range=<lookUp>,<lookDown>,<outerYaw>,<innerYaw>`、毎回）を属性ペアとして載せるようにした。`OscSenderAdapterBinding` は `IGazeChannelSettingsConsumer` で Profile の目線設定を受け取り、heartbeat のたびに設定の変化を確かめて、変わっていれば広告を組み直す
 - `OscReceiverAdapterBinding` が広告の属性ペアを `IGazeChannelOverrideProvider` として公開し、`FacialController` がローカルの目線設定より優先して使う。FacialControl 同士の送受信では、受信側は目線タブを設定しなくても送信側と同じ目ボーン・可動範囲で目線が動く。属性ペアの解析は広告の中身が変わったときだけ行う
