@@ -11,6 +11,7 @@ using Hidano.FacialControl.Domain.Models;
 using Hidano.FacialControl.Timeline.Adapters.Assets;
 using Hidano.FacialControl.Timeline.Adapters.InputSources;
 using Hidano.FacialControl.Timeline.Clips;
+using Hidano.FacialControl.Timeline.Playables;
 using Hidano.FacialControl.Timeline.Tracks;
 using Hidano.FacialControl.Timeline.Adapters.Scanning;
 using Hidano.FacialControl.Timeline.Adapters.Session;
@@ -65,6 +66,7 @@ namespace Hidano.FacialControl.Timeline.Editor
         private GazeTrackPlayback[] _gazeTracks = Array.Empty<GazeTrackPlayback>();
         private AnalogTrackPlayback[] _analogTracks = Array.Empty<AnalogTrackPlayback>();
         private ValueProviderTrackPlayback[] _valueProviderTracks = Array.Empty<ValueProviderTrackPlayback>();
+        private LayerWeightTrackPlayback[] _layerWeightTracks = Array.Empty<LayerWeightTrackPlayback>();
 
         // _gazeTracks と同じ並びの駆動用 source id（値の無いトラックは null にして一致させない）。
         private string[] _gazeSourceIds = Array.Empty<string>();
@@ -206,6 +208,13 @@ namespace Hidano.FacialControl.Timeline.Editor
                 _valueProviderTracks[i].Evaluate(timeSeconds);
             }
 
+            // Play の Mixer と同じ規則（Clip 外は宣言値 1）でレイヤー weight を書く。トラックの無いレイヤーは構築時の 1 のまま。
+            for (int i = 0; i < _layerWeightTracks.Length; i++)
+            {
+                LayerWeightTrackPlayback track = _layerWeightTracks[i];
+                _layerUseCase.TryInjectLayerWeight(track.LayerName, FacialLayerWeightMixerBehaviour.Evaluate(track.Clips, timeSeconds));
+            }
+
             _layerUseCase.UpdateWeights(0f);
             _writer?.Write(_layerUseCase.BlendedOutputSpan);
         }
@@ -259,6 +268,7 @@ namespace Hidano.FacialControl.Timeline.Editor
             _layers = Array.Empty<LayerPlayback>();
             _analogTracks = Array.Empty<AnalogTrackPlayback>();
             _valueProviderTracks = Array.Empty<ValueProviderTrackPlayback>();
+            _layerWeightTracks = Array.Empty<LayerWeightTrackPlayback>();
         }
 
         private void BuildPipeline()
@@ -322,6 +332,7 @@ namespace Hidano.FacialControl.Timeline.Editor
             }
 
             _layers = playbacks.ToArray();
+            _layerWeightTracks = CollectLayerWeightTracks(_timeline);
             _gazeTracks = CollectGazeTracks(_timeline);
             _gazeSourceIds = new string[_gazeTracks.Length];
             for (int i = 0; i < _gazeTracks.Length; i++)
@@ -690,6 +701,21 @@ namespace Hidano.FacialControl.Timeline.Editor
             return tracks.ToArray();
         }
 
+        /// <summary>レイヤー weight トラックを Play の Mixer と同じ Clip 列（開始・終了・カーブ）で集める。</summary>
+        private static LayerWeightTrackPlayback[] CollectLayerWeightTracks(TimelineAsset timeline)
+        {
+            IReadOnlyList<FacialLayerWeightTrack> weightTracks = TimelineAssetScanner.CollectLayerWeightTracks(timeline);
+            var tracks = new LayerWeightTrackPlayback[weightTracks.Count];
+            for (int i = 0; i < weightTracks.Count; i++)
+            {
+                tracks[i] = new LayerWeightTrackPlayback(
+                    weightTracks[i].LayerName,
+                    FacialLayerWeightTrack.CollectClipSamples(weightTracks[i]));
+            }
+
+            return tracks;
+        }
+
         private static bool SameProfileSnapshot(FacialProfile a, FacialProfile b)
         {
             // Profile は値型だが中身は配列参照なので、同じ配列を指しているか（= 同じスナップショットか）で比べる。
@@ -709,6 +735,19 @@ namespace Hidano.FacialControl.Timeline.Editor
             public int BufferIndex { get; }
 
             public AnimationCurve Curve { get; }
+        }
+
+        private readonly struct LayerWeightTrackPlayback
+        {
+            public LayerWeightTrackPlayback(string layerName, FacialLayerWeightMixerBehaviour.ClipSample[] clips)
+            {
+                LayerName = layerName ?? string.Empty;
+                Clips = clips ?? Array.Empty<FacialLayerWeightMixerBehaviour.ClipSample>();
+            }
+
+            public string LayerName { get; }
+
+            public FacialLayerWeightMixerBehaviour.ClipSample[] Clips { get; }
         }
 
         private readonly struct ValueClipSample

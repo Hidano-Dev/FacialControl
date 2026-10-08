@@ -106,9 +106,17 @@ Edit モードのスクラブは Play と同じレイヤー合成規則（オフ
 - Gaze かどうかは自動で判定し、ウィンドウの **Detected Channels** に入力源 id ごとの判定結果と理由を読み取り専用で表示する（判定順: GazeChannel の明示 source id と一致 → 規約 id が GazeChannels にある → binding の gaze 宣言 → 2 軸でなければ Analog → 既定 Analog）。値提供型は `ValueProvider（N 個の BlendShape）` と、BlendShape を名前 / index のどちらで保存するかを表示する。トリガー専用の入力源と、寄与した BlendShape が 1 つも無い値提供型（有効になったことが無いもの）は表示しない
 - Export 完了後、ウィンドウに残りの手順（Director へのセット、Receiver の追加）を表示する
 - 系1 のレコード kind（9 / 10。`ExpressionUseCase` / `FacialController.Activate` 経由の Expression 操作）は Timeline に表すトラックが無いため Export 対象外として読み捨てる。読み込みは失敗せず、Export 1 回につき 1 回だけ件数付きの Warning（`[RecToTimelineExporter] ... expression activate/deactivate record(s) ...`）を出す
-- weight のレコード kind（レイヤー weight / 入力源 weight の時刻付きイベント 12 / 13、基準エントリ 14 / 15）も Export 対象外として無視される。weight を含む `.fcrec` も読み込みは失敗せず、トリガーとアナログ / Gaze だけが Export される。Timeline には weight を表すトラックが無いため、書き出した Timeline の再生では録画中の weight 変化は再現されない（再生中の weight はプロファイルの宣言値とライブの書込に従う）。時刻付き weight イベントを読み捨てたときは、Export 1 回につき 1 回だけ件数付きの Warning（`[RecToTimelineExporter] ... weight record(s) ...`）を出す。weight 変化まで含めて再現したい場合は REC の再生を使う
+- レイヤー weight（時刻付きイベント 12 と基準エントリ 14。UDP LipSync の発話ゲートなどが `FacialController.SetLayerWeight` で書く inter-layer weight）はレイヤーごとに **Facial Layer Weight Track**（トラック名 `{layer} (weight)`）1 本になる。基準を t=0 の状態とし、サンプルを REC 再生と同じく次のサンプルまで保持する階段カーブにする。全サンプルが宣言値 1 のレイヤーはトラックにしない
+- 入力源 weight のレコード kind（時刻付きイベント 13、基準エントリ 15）は Timeline に表すトラックが無いため Export 対象外として無視される。読み込みは失敗せず、書き出した Timeline の再生では録画中の入力源 weight 変化は再現されない（再生中の入力源 weight はプロファイルの宣言値とライブの書込に従う）。時刻付きイベントを読み捨てたときは、Export 1 回につき 1 回だけ件数付きの Warning（`[RecToTimelineExporter] ... input source weight record(s) ...`）を出す。入力源 weight の変化まで含めて再現したい場合は REC の再生を使う
 - 出力先は `Assets/` または `Packages/` 配下。既存アセットの上書きは確認ダイアログを出す
-- REC の baseline のうち値提供型以外（トリガー / アナログ / 系1 / weight の基準エントリ）とトリガーの入力源 id は Timeline には変換されない
+- REC の baseline のうち値提供型とレイヤー weight 以外（トリガー / アナログ / 系1 / 入力源 weight の基準エントリ）とトリガーの入力源 id は Timeline には変換されない
+
+### レイヤー weight トラックの再生
+
+- Timeline に Facial Layer Weight Track があると、Receiver は再生中だけ live のレイヤー weight 書き込み（発話ゲート等）を止め、トラックの値を毎フレーム注入する（REC 再生と同じ仕組み）。Clip の外とトラックの無いレイヤーは宣言値 1 で再生する
+- 停止時は再生前のレイヤー weight に戻し、live の書き込みを再開する。REC 再生中など、既に live の weight が止まっているときは奪わない
+- レイヤー weight トラックの無い Timeline では live のレイヤー weight に触れない
+- レイヤー weight は Bake 済みのレイヤー値に再生時に掛かるため、Bake の対象ではない（カーブを編集しても再ベイクは要らない）。Edit プレビューも同じ規則で合成に掛ける
 
 ## 検証
 
@@ -126,8 +134,8 @@ Edit モードのスクラブは Play と同じレイヤー合成規則（オフ
 ```
 Runtime/
 ├── Domain/     # 導出（TimelineChannelDeriver）/ sink id 規約 / 診断モデル / FacialTimelineHashCalculator（FNV-1a 64bit）
-├── Tracks/     # FacialExpressionTrack / FacialValueTrack
-├── Clips/      # FacialExpressionClip / FacialValueClip
+├── Tracks/     # FacialExpressionTrack / FacialValueTrack / FacialLayerWeightTrack
+├── Clips/      # FacialExpressionClip / FacialValueClip / FacialLayerWeightClip
 ├── Playables/  # Mixer / ClipBehaviour
 └── Adapters/   # TimelineAdapterBinding / FacialTimelineReceiver / Scanner / BakeLocator / LayerConnector / ChannelTakeover / 診断 Evaluator / 各 sink / FacialTimelineBakeAsset
 Editor/         # TimelineEditorServices / TimelineEditChangeWatcher / TimelineBakeService / RecToTimelineExporter / RecTimelineExportWindow / Receiver Inspector / Validator / Edit プレビュー（Compositor）

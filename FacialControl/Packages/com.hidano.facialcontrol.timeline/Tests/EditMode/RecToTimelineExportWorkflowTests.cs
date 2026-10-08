@@ -265,18 +265,18 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
         }
 
         [Test]
-        public void TryExportTimelineAsset_RecWithWeightRecords_ExportsConvertibleRecordsAndWarnsOnce()
+        public void TryExportTimelineAsset_RecWithWeightRecords_ExportsLayerWeightTrackAndWarnsOnceForInputSourceWeights()
         {
             // rec-weight-coverage Req 7.7: weight の基準エントリ（kind 14 / 15）と時刻付き weight（kind 12 / 13）を含む
-            // 現行形式の .fcrec を、例外なく読んで Export できる。weight は Timeline の表現を持たないため
-            // Export 対象外として読み捨て、その旨を Export 1 回につき 1 回だけ警告する（無言で捨てない）。
+            // 現行形式の .fcrec を、例外なく読んで Export できる。レイヤー weight はレイヤー weight トラックにし（HID-182）、
+            // 入力源 weight は Timeline の表現を持たないため読み捨て、その旨を Export 1 回につき 1 回だけ警告する（無言で捨てない）。
             ExportFixture fixture = ExportFixture.Create(includeWeightRecords: true);
 
             try
             {
                 LogAssert.Expect(
                     LogType.Warning,
-                    new System.Text.RegularExpressions.Regex(@"\[RecToTimelineExporter\].*2 weight record"));
+                    new System.Text.RegularExpressions.Regex(@"\[RecToTimelineExporter\].*1 input source weight record"));
 
                 bool success = RecToTimelineExporter.TryExportTimelineAsset(
                     fixture.RecordingAbsolutePath,
@@ -311,6 +311,22 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
 
                 Assert.That(valueTracks, Has.Count.EqualTo(1), "weight は値トラックにならない");
                 Assert.That(valueTracks[0].ChannelSubId, Is.EqualTo("live:gaze"));
+
+                // 記録: emotion の基準 1 → 0.15 秒で 0.5。
+                var weightTracks = new List<FacialLayerWeightTrack>();
+                foreach (TrackAsset track in result.Timeline.GetOutputTracks())
+                {
+                    if (track is FacialLayerWeightTrack weightTrack)
+                    {
+                        weightTracks.Add(weightTrack);
+                    }
+                }
+
+                Assert.That(weightTracks, Has.Count.EqualTo(1));
+                Assert.That(weightTracks[0].LayerName, Is.EqualTo("emotion"));
+                AnimationCurve curve = ((FacialLayerWeightClip)ToArray(weightTracks[0].GetClips())[0].asset).Weight;
+                Assert.That(curve.Evaluate(0.1f), Is.EqualTo(1f));
+                Assert.That(curve.Evaluate(0.2f), Is.EqualTo(0.5f));
 
                 // 警告は 1 回だけ（LogAssert.Expect で 1 件消費済み。2 件目があれば未期待ログとして失敗する）。
                 LogAssert.NoUnexpectedReceived();

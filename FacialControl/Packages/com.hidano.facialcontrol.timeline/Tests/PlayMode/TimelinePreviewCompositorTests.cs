@@ -147,6 +147,30 @@ namespace Hidano.FacialControl.Timeline.Tests.PlayMode
             Assert.That(result.MaxValueProvider, Is.GreaterThan(1f), "前提: 比較時刻に値提供型の BlendShape が出ている時刻を含む");
         }
 
+        /// <summary>
+        /// レイヤー weight を含む記録でも、Edit プレビューはレイヤー weight トラックを Play の Mixer と同じ規則で合成に掛け、
+        /// 比較時刻ごとに Play と一致する（HID-182）。
+        /// </summary>
+        [UnityTest]
+        public IEnumerator Evaluate_LayerWeightTrack_AppliesRecordedLayerWeightAndMatchesDirectorPlayback()
+        {
+            _fixture = TimelineE2EFixture.Create(new RecFixtureWriter.Recording { AnalogValue = 0f, IncludeLayerWeights = true });
+            PrepareSameSnapshot(_fixture);
+            TimelineE2ECharacter character = _fixture.Spawn(TimelineE2EPlacement.SameObject);
+            _compositor = CreateCompositor(character);
+            Assert.That(_compositor.CanRender, Is.True, "前提: Bake を解決できる");
+
+            _compositor.Evaluate(0.35d);
+            Assert.That(character.GetBlendShapeWeight(TimelineE2EFixture.SmileBlendShape), Is.EqualTo(100f).Within(RendererTolerance), "weight 1 区間");
+            _compositor.Evaluate(0.5d);
+            Assert.That(character.GetBlendShapeWeight(TimelineE2EFixture.SmileBlendShape), Is.EqualTo(0f).Within(RendererTolerance), "weight 0 区間");
+            _compositor.Evaluate(0.7d);
+            Assert.That(character.GetBlendShapeWeight(TimelineE2EFixture.SmileBlendShape), Is.EqualTo(100f).Within(RendererTolerance), "weight 1 に戻る");
+
+            var result = new ComparisonResult();
+            yield return AssertEditMatchesPlay(character, _compositor, result);
+        }
+
         [UnityTest]
         public IEnumerator Evaluate_ProfileJsonDiffersFromBake_ReportsMismatchRendersBakeAndMatchesPlayThenRebakeRestoresOk()
         {
