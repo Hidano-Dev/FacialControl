@@ -59,7 +59,9 @@ namespace Hidano.FacialControl.Tests.PlayMode.Performance
             {
                 Slug = "osc-indexed-gc-receiver",
                 Port = PortBase + System.Threading.Interlocked.Increment(ref s_portCounter),
-                BundleMode = BundleInterpretationMode.AtomicSwap,
+                // 既存の実 UDP の GC テストと同じく IndividualMessage にする（AtomicSwap の bundle 蓄積はフレーム用 List の
+                // プールが要素数に合わせて個別に伸びるため、この変更と無関係な確保が計測窓に入り得る）。
+                BundleMode = BundleInterpretationMode.IndividualMessage,
             };
             _receiver.OnStart(new AdapterBuildContext(
                 new FacialProfile("2.0.0"), names, registry, new FacialOutputBus(), time, _receiverHost, lipSyncProvider: null));
@@ -107,7 +109,7 @@ namespace Hidano.FacialControl.Tests.PlayMode.Performance
                 }
 
                 Assert.That(applied, Is.True, "ウォームアップ中に対応表が適用され、値が届くこと");
-                for (int i = 0; i < 30; i++)
+                for (int i = 0; i < 60; i++)
                 {
                     yield return Step(bus, values, gaze, receiver, time);
                 }
