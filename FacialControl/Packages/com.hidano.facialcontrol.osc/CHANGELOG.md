@@ -33,6 +33,10 @@
 - `OscRuntimeSettingsSO` は既存アセットの移行専用として残し、Collection の Add 一覧には出さない（`HideInAdapterRuntimeSettingsMenuAttribute`）
 - サンプル `OscOutputDemo` は上級設定アセットなしの構成にした（`OscOutputDemoSettings.asset` を削除）。`OscReceiverDemo` の設定アセットは `OscReceiverRuntimeSettingsSO` に置き換えた
 
+### Removed
+
+- **（破壊的変更）受信側の heartbeat・preset・gaze 広告の受信をやめた。** `OscReceiverAdapterBinding` は `/_facialcontrol/blendshape_names`・`/_facialcontrol/preset`・`/_facialcontrol/gaze` を未知のアドレスとして読み飛ばし、名前の積集合による自動マッピングとその警告、広告からの gaze route 自動生成を行わない（自動マッピングと gaze route・目ボーン path・可動範囲の上書きは値フレームの対応表だけから作る）。あわせて `AddressPresetKind`・`AddressPresetEstimator`、`OscAddressFormatter` の preset 別のアドレス組み立て（`FormatBlendShapeAddress` / `FormatGazeAddress` 等）、`RuntimeMappingResolver.MergeWithHeartbeat`・`ResolveResult.HeartbeatAutoCount`、`MappingOrigin.HeartbeatAuto`、`OscReceiverAdapterBinding` の `CurrentPreset` / `CurrentPresetName` / `CurrentCustomPrefix` / `LastHeartbeatHash` / `HeartbeatChecker` と `BlendShapeNamesAddress` / `PresetAddress` / `GazeAdvertisementAddress`、`OscControlKind` の `Heartbeat` / `Preset` / `GazeAdvertisement`、`OscReceiveDiagnostics.HeartbeatArrivalCount` を削除した。`consistencyCheckWarnLog` は効果が無くなった（後続の変更で削除予定）
+
 ### Fixed
 
 - Linux で、OSC 受信ポートの占有判定（`OscPortResolver.IsPortAvailable`）が SO_REUSEADDR 付きで占有されたポート（uOSC 等）を空きと誤判定し、ポートの自動繰り上げが起きなかった。Unity の Mono は Unix で全ソケットに SO_REUSEADDR を既定で付けるため、プローブ側で明示的に外すようにした（Windows の挙動は変わらない）

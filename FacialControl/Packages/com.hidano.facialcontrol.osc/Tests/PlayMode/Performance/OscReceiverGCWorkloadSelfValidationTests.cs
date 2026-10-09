@@ -86,7 +86,7 @@ namespace Hidano.FacialControl.Tests.PlayMode.Performance
                     heartbeatNames,
                     heartbeatNames.Length,
                     presetAddress,
-                    AddressPresetEstimator.PresetVrChat,
+                    "vrchat",
                     null,
                     gazeAddress,
                     gazePairs,

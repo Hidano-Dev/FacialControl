@@ -9,7 +9,7 @@
 
 受信は常に全インターフェース（`0.0.0.0` 相当、IPv6 dual-mode）で行うため、受信 IP の設定は無い。受信を止めたいときは binding を外す。
 
-FacialControl 同士の接続では heartbeat と Gaze 広告から mapping が自動生成されるため、`mappings` は空でよい。
+FacialControl 同士の接続では値フレームの対応表から mapping が自動生成されるため、`mappings` は空でよい。
 
 ## binding の受信ポート
 
@@ -23,7 +23,7 @@ FacialControl 同士の接続では heartbeat と Gaze 広告から mapping が�
 |---|---|---|---|
 | `stalenessSeconds` | float | `0` | 受信途絶とみなす秒数。0 で無効 |
 | `failSafeMode` | `RevertToBase` / `HoldLastValue` | `RevertToBase` | 途絶時にベース表情へ戻すか、最後の値を保持するか |
-| `consistencyCheckWarnLog` | bool | `true` | heartbeat と mapping の差分を警告ログに出す |
+| `consistencyCheckWarnLog` | bool | `true` | 現在は使われない（heartbeat の受信を廃止したため。後続の変更で削除予定） |
 | `bundleMode` | `AtomicSwap` / `IndividualMessage` | `AtomicSwap` | bundle を 1 フレームで一括反映するか、受信順に個別反映するか |
 | `bundleAccumulationTimeoutMs` | float | `5` | 同一 bundle として蓄積する待ち時間（ミリ秒） |
 
@@ -45,7 +45,7 @@ FacialControl 同士の接続では heartbeat と Gaze 広告から mapping が�
 | `Gaze_VRChat_XY` かつ左右共通 | `<slug>:<channelId>` |
 | `Gaze_ARKit_8BS`、または `leftRightIndependent` | `<slug>:<channelId>.left` / `<slug>:<channelId>.right` |
 
-heartbeat / 広告で自動生成された mapping も同じ規約で登録される。手入力と同じ id は自動生成の対象外。
+対応表から自動生成された gaze 入力源も同じ規約で登録される。手入力と同じ id は自動生成の対象外。
 
 ## OscReceiverOptionsDto（参考用 JSON）
 

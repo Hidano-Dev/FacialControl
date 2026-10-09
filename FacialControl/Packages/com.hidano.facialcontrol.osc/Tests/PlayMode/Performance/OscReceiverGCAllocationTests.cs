@@ -111,74 +111,17 @@ namespace Hidano.FacialControl.Tests.PlayMode.Performance
             LogBaseline(nameof(OscReceiverGCAllocationTests), "atomicBundleGazeMessages", baseline);
         }
 
-        [Test]
-        public void OnFixedTick_HeartbeatHashUnchanged100Frames_ZeroGCAllocation()
-        {
-            var registry = new InputSourceRegistry();
-            var timeProvider = new ManualTimeProvider();
-            StartReceiverForAutoMapping(registry, timeProvider, "smile", "frown");
-
-            uOSC.Message heartbeatMessage = HeartbeatMessage("smile", "frown");
-            _binding.HelperHost.Receiver.HandleOscMessage(heartbeatMessage);
-            _binding.OnFixedTick(1f / 60f);
-
-            OscInputSource inputSource = _binding.InputSource;
-            OscDoubleBuffer buffer = _binding.Buffer;
-            IReadOnlyList<OscMapping> mappings = _binding.RuntimeMappings;
-            uint heartbeatHash = _binding.LastHeartbeatHash;
-
-            Assert.That(inputSource, Is.Not.Null);
-            Assert.That(registry.TryResolve(Slug, out IInputSource source), Is.True);
-            Assert.That(source, Is.SameAs(inputSource));
-            Assert.That(heartbeatHash, Is.EqualTo(HeartbeatHashHelper.ComputeFnv1a(new[] { "smile", "frown" })),
-                "初回 heartbeat のハッシュは受信した名前列そのもののハッシュであるべき。");
-
-            for (int i = 0; i < 16; i++)
-            {
-                _binding.HelperHost.Receiver.HandleOscMessage(heartbeatMessage);
-                _binding.OnFixedTick(1f / 60f);
-            }
-
-            using var recorder = ProfilerRecorder.StartNew(
-                ProfilerCategory.Memory,
-                "GC.Alloc",
-                1,
-                ProfilerRecorderOptions.SumAllSamplesInFrame
-                    | ProfilerRecorderOptions.CollectOnlyOnCurrentThread);
-
-            for (int frame = 0; frame < FrameCount; frame++)
-            {
-                _binding.HelperHost.Receiver.HandleOscMessage(heartbeatMessage);
-                _binding.OnFixedTick(1f / 60f);
-            }
-
-            long gcAllocBytes = recorder.LastValue;
-
-            // 同一 heartbeat（同じ timestamp key の bare メッセージ）を再送し続けても、
-            // ハッシュ・InputSource・runtime mapping は初回のまま不変であること（再構築なし）。
-            Assert.That(_binding.InputSource, Is.SameAs(inputSource));
-            Assert.That(_binding.Buffer, Is.SameAs(buffer));
-            Assert.That(_binding.LastHeartbeatHash, Is.EqualTo(heartbeatHash),
-                "同一 heartbeat の再送でハッシュが変わってはならない。");
-            Assert.That(_binding.RuntimeMappings, Is.SameAs(mappings),
-                "同一 heartbeat の再送で runtime mapping が再構築されてはならない。");
-            Assert.That(_binding.RuntimeMappings.Count, Is.EqualTo(2));
-            Assert.That(gcAllocBytes, Is.EqualTo(0L),
-                "heartbeat hash unchanged OnFixedTick hot path reported GC.Alloc: " + gcAllocBytes + " bytes.");
-        }
-
         [UnityTest]
-        public IEnumerator OnFixedTick_RealUdp100Frames_ZeroGCExceptHeartbeat()
+        public IEnumerator OnFixedTick_RealUdp100Frames_ZeroGC()
         {
             var registry = new InputSourceRegistry();
             var timeProvider = new ManualTimeProvider();
-            StartReceiverForAutoMapping(registry, timeProvider, "smile", "frown");
+            StartReceiverWithManualMappings(registry, timeProvider, "smile", "frown");
             var receiver = _binding.HelperHost.Receiver;
             if (!receiver.IsRunning)
                 receiver.StartReceiving();
 
             byte[][] normalPackets;
-            byte[][] heartbeatPackets;
             byte[][] addresses =
             {
                 Encoding.UTF8.GetBytes("/avatar/parameters/smile"),
@@ -188,36 +131,18 @@ namespace Hidano.FacialControl.Tests.PlayMode.Performance
             byte[] senderAddress = Encoding.UTF8.GetBytes(OscReceiverAdapterBinding.SenderIdentityAddress);
             byte[] senderUuid = new byte[16];
             for (int i = 0; i < senderUuid.Length; i++) senderUuid[i] = (byte)(i + 1);
-            byte[] heartbeatAddress = Encoding.UTF8.GetBytes(OscReceiverAdapterBinding.BlendShapeNamesAddress);
 
-            // heartbeat は実送信と同様に heartbeat ごとに新しい bundle タイムスタンプを持たせる。
-            // 同じタイムスタンプを再送すると binding の chunk 蓄積が reset されず名前が重複し、
-            // 内容が同じでも「変更あり」として再構築（確保あり）が走る。
-            const int HeartbeatSets = 8;
-            var heartbeatPacketSets = new byte[HeartbeatSets][][];
-            int heartbeatIndex = 0;
             using (var builder = new OscBundleBuilder())
             {
                 int normalCount = builder.BuildFrameBundle(1, senderAddress, senderUuid, "1700000000000", addresses, values, 2);
                 normalPackets = CopyPackets(builder, normalCount);
-                for (int k = 0; k < HeartbeatSets; k++)
-                {
-                    int heartbeatCount = builder.BuildFrameBundle(
-                        (ulong)(100 + k), senderAddress, senderUuid, "1700000000000", addresses, values, 2,
-                        heartbeatAddress, new[] { "smile", "frown" }, 2,
-                        Encoding.UTF8.GetBytes(OscReceiverAdapterBinding.PresetAddress),
-                        AddressPresetEstimator.PresetVrChat, null);
-                    heartbeatPacketSets[k] = CopyPackets(builder, heartbeatCount);
-                }
             }
-            heartbeatPackets = heartbeatPacketSets[0];
 
             // 計測窓が触るものは全て窓の前に確保し、窓内で初回確保（JIT・容量拡張）が起きないようにする。
             // 1 イテレーション = `yield return null` の 1 フレーム。バッチモードでは WaitForFixedUpdate が数百フレームを
             // 消費して受信スレッドの確保フレームを見逃すため使わない。OnFixedTick は手動で呼び FixedTickCount で回数を確認する。
             var allocations = new long[FrameCount];
             var mainThreadAllocations = new long[FrameCount];
-            var heartbeatFrames = new List<int>(FrameCount);
             var failures = new StringBuilder();
             const int BaselineFrames = 20;
             var harnessBaseline = new long[BaselineFrames];
@@ -239,12 +164,6 @@ namespace Hidano.FacialControl.Tests.PlayMode.Performance
                 {
                     SendPackets(sender, normalPackets);
                     warmupSent += normalPackets.Length;
-                    if (frame % 25 == 0)
-                    {
-                        heartbeatPackets = heartbeatPacketSets[heartbeatIndex++ % HeartbeatSets];
-                        SendPackets(sender, heartbeatPackets);
-                        warmupSent += heartbeatPackets.Length;
-                    }
                     yield return null;
                     receiver.PumpReceived();
                     _binding.OnFixedTick(1f / 60f);
@@ -259,13 +178,7 @@ namespace Hidano.FacialControl.Tests.PlayMode.Performance
                 }
 
                 Assert.That(receiver.Diagnostics.AppliedDatagramCount, Is.EqualTo(warmupSent));
-                for (int i = 0; i < 30 && _binding.InputSource == null; i++)
-                {
-                    yield return null;
-                    receiver.PumpReceived();
-                    _binding.OnFixedTick(1f / 60f);
-                }
-                Assert.That(_binding.InputSource, Is.Not.Null, "ウォームアップ中の heartbeat で自動マッピングが完了していること");
+                Assert.That(_binding.InputSource, Is.Not.Null);
                 StabilizeManagedHeap();
 
                 // ハーネス固定分（テストランナーのコルーチン 1 ステップあたりの確保）を同じループ形で計測する。
@@ -301,10 +214,8 @@ namespace Hidano.FacialControl.Tests.PlayMode.Performance
                 }
                 Assert.That(receiver.Diagnostics.AppliedDatagramCount, Is.EqualTo(sentForBreakdown));
 
-                long heartbeatBefore = receiver.Diagnostics.HeartbeatArrivalCount;
                 long fixedTicksBefore = receiver.Diagnostics.FixedTickCount;
                 long sent = sentForBreakdown;
-                heartbeatFrames.Clear();
                 // 直前の Assert（NUnit の constraint 生成）が同じフレームで確保するため、空フレームを挟んで窓から切り離す
                 yield return null;
 
@@ -312,22 +223,11 @@ namespace Hidano.FacialControl.Tests.PlayMode.Performance
                 {
                     SendPackets(sender, normalPackets);
                     sent += normalPackets.Length;
-                    bool heartbeat = (frame + 1) % 25 == 0;
-                    if (heartbeat)
-                    {
-                        heartbeatPackets = heartbeatPacketSets[heartbeatIndex++ % HeartbeatSets];
-                        SendPackets(sender, heartbeatPackets);
-                        sent += heartbeatPackets.Length;
-                    }
                     yield return null;
                     receiver.PumpReceived();
                     _binding.OnFixedTick(1f / 60f);
-                    long heartbeatAfter = receiver.Diagnostics.HeartbeatArrivalCount;
-                    bool appliedHeartbeat = heartbeatAfter > heartbeatBefore;
-                    heartbeatBefore = heartbeatAfter;
                     allocations[frame] = allThreads.LastValue;
                     mainThreadAllocations[frame] = mainThread.LastValue;
-                    if (appliedHeartbeat) heartbeatFrames.Add(frame);
                 }
 
                 for (int i = 0; i < 120 && receiver.Diagnostics.AppliedDatagramCount < sent; i++)
@@ -340,15 +240,9 @@ namespace Hidano.FacialControl.Tests.PlayMode.Performance
                 Assert.That(receiver.Diagnostics.FixedTickCount - fixedTicksBefore, Is.EqualTo(FrameCount));
 
                 int failedFrames = 0;
-                long heartbeatFrameBytes = 0;
                 for (int frame = 0; frame < FrameCount; frame++)
                 {
                     long productBytes = allocations[frame] - baseline;
-                    if (heartbeatFrames.Contains(frame))
-                    {
-                        heartbeatFrameBytes += productBytes;
-                        continue;
-                    }
                     if (productBytes != 0)
                     {
                         failedFrames++;
@@ -357,14 +251,12 @@ namespace Hidano.FacialControl.Tests.PlayMode.Performance
                             .Append(" (allThreads=").Append(allocations[frame])
                             .Append(" harnessBaseline=").Append(baseline)
                             .Append(" mainThreadGcAlloc=").Append(mainThreadAllocations[frame])
-                            .Append(") heartbeatFrame=false\n");
+                            .Append(")\n");
                     }
                 }
                 TestContext.Out.WriteLine(
                     "[OscReceiverGCAllocationTests] frames=" + FrameCount +
                     " harnessBaselinePerFrame=" + baseline +
-                    " heartbeatFrames=" + string.Join(",", heartbeatFrames) +
-                    " heartbeatFrameProductBytes=" + heartbeatFrameBytes +
                     " breakdown(harness/sendOnly/sendAndPump/window median)=" + baseline + "/" + Median(sendOnly) + "/" + Median(sendAndPump) + "/" + Median(allocations) +
                     " harnessPerFrame=" + string.Join(",", harnessBaseline) +
                     " sendOnlyPerFrame=" + string.Join(",", sendOnly) +
@@ -372,7 +264,7 @@ namespace Hidano.FacialControl.Tests.PlayMode.Performance
                     " allThreadsPerFrame=" + string.Join(",", allocations) +
                     " mainThreadPerFrame=" + string.Join(",", mainThreadAllocations));
                 Assert.That(failedFrames, Is.EqualTo(0),
-                    "heartbeat 到着フレームを除く " + failedFrames + " フレームで GC 確保を検出（ハーネス固定分 " + baseline + " byte/frame 差引後）:\n" + failures +
+                    failedFrames + " フレームで GC 確保を検出（ハーネス固定分 " + baseline + " byte/frame 差引後）:\n" + failures +
                     "breakdown(harness/sendOnly/sendAndPump/window median)=" + baseline + "/" + Median(sendOnly) + "/" + Median(sendAndPump) + "/" + Median(allocations) +
                     "\nallThreadsPerFrame=" + string.Join(",", allocations));
             }
@@ -386,51 +278,11 @@ namespace Hidano.FacialControl.Tests.PlayMode.Performance
         }
 
         [Test]
-        public void GazeAdvertisement_ContentUnchanged_ArrivesEveryTick_ZeroAllocPerFrame()
+        public void GazeVector2InputSource_Read_ZeroAlloc()
         {
             var registry = new InputSourceRegistry();
             var timeProvider = new ManualTimeProvider();
-            StartReceiverForAutoMapping(registry, timeProvider, "smile");
-
-            var advertisement = new uOSC.Message(
-                OscReceiverAdapterBinding.GazeAdvertisementAddress,
-                "eye",
-                GazeAdvertisementResolver.VrChatXyFormat);
-            _binding.HelperHost.Receiver.HandleOscMessage(advertisement);
-            _binding.OnFixedTick(1f / 60f);
-
-            Assert.That(_binding.HasAutoGazeRoutes, Is.True);
-            StabilizeManagedHeap();
-            using var recorder = ProfilerRecorder.StartNew(
-                ProfilerCategory.Memory,
-                "GC.Alloc",
-                1,
-                ProfilerRecorderOptions.SumAllSamplesInFrame
-                    | ProfilerRecorderOptions.CollectOnlyOnCurrentThread);
-
-            for (int frame = 0; frame < FrameCount; frame++)
-            {
-                _binding.HelperHost.Receiver.HandleOscMessage(advertisement);
-                _binding.OnFixedTick(1f / 60f);
-            }
-
-            Assert.That(recorder.LastValue, Is.EqualTo(0L),
-                "unchanged gaze advertisement OnFixedTick hot path reported GC.Alloc: "
-                + recorder.LastValue + " bytes.");
-        }
-
-        [Test]
-        public void GazeVector2InputSource_ReadAfterAutoCreation_ZeroAlloc()
-        {
-            var registry = new InputSourceRegistry();
-            var timeProvider = new ManualTimeProvider();
-            StartReceiverForAutoMapping(registry, timeProvider, "smile");
-
-            _binding.HelperHost.Receiver.HandleOscMessage(new uOSC.Message(
-                OscReceiverAdapterBinding.GazeAdvertisementAddress,
-                "eye",
-                GazeAdvertisementResolver.VrChatXyFormat));
-            _binding.OnFixedTick(1f / 60f);
+            StartReceiver(registry, timeProvider, BundleInterpretationMode.IndividualMessage, includeGaze: true);
             GazeVector2InputSource source = ResolveGaze(registry, Slug + ":eye");
             source.Publish(0.25f, -0.5f);
 
@@ -455,7 +307,7 @@ namespace Hidano.FacialControl.Tests.PlayMode.Performance
             }
 
             Assert.That(recorder.LastValue, Is.EqualTo(0L),
-                "auto-created gaze source read reported GC.Alloc: " + recorder.LastValue + " bytes.");
+                "gaze source read reported GC.Alloc: " + recorder.LastValue + " bytes.");
         }
 
         private void StartReceiver(
@@ -498,19 +350,30 @@ namespace Hidano.FacialControl.Tests.PlayMode.Performance
             Assert.That(_binding.HelperHost, Is.Not.Null);
         }
 
-        private void StartReceiverForAutoMapping(
+        private void StartReceiverWithManualMappings(
             InputSourceRegistry registry,
             ManualTimeProvider timeProvider,
             params string[] blendShapeNames)
         {
             _host = new GameObject("OscReceiverGCAllocationTests");
+            var mappings = new List<OscMappingEntry>(blendShapeNames.Length);
+            for (int i = 0; i < blendShapeNames.Length; i++)
+            {
+                mappings.Add(new OscMappingEntry
+                {
+                    mode = OscMappingMode.Normal_BlendShape,
+                    expressionId = blendShapeNames[i],
+                    addressPattern = OscAddressFormatter.VRChatParameterPrefix + blendShapeNames[i],
+                });
+            }
+
             _binding = new OscReceiverAdapterBinding
             {
                 Slug = Slug,
                 Port = AllocatePort(),
                 StalenessSeconds = 0f,
                 BundleMode = BundleInterpretationMode.IndividualMessage,
-                Mappings = new List<OscMappingEntry>(),
+                Mappings = mappings,
                 ReceiveOptions = new OscReceiveOptions(2048, 32, 0),
             };
 
@@ -559,17 +422,6 @@ namespace Hidano.FacialControl.Tests.PlayMode.Performance
             var message = new uOSC.Message(address, value);
             message.timestamp = new uOSC.Timestamp(timestamp);
             return message;
-        }
-
-        private static uOSC.Message HeartbeatMessage(params string[] names)
-        {
-            var values = new object[names.Length];
-            for (int i = 0; i < names.Length; i++)
-            {
-                values[i] = names[i];
-            }
-
-            return new uOSC.Message(OscReceiverAdapterBinding.BlendShapeNamesAddress, values);
         }
 
         private static GazeVector2InputSource ResolveGaze(InputSourceRegistry registry, string id)

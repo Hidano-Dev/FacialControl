@@ -183,9 +183,6 @@ namespace Hidano.FacialControl.Adapters.OSC
                 AddRouteFlags(_gazeAddresses, true);
                 AddRouteFlags(_listenerAddresses, false);
                 AddControl(OscControlAddresses.SenderId, OscControlKind.SenderId);
-                AddControl(OscControlAddresses.BlendShapeNames, OscControlKind.Heartbeat);
-                AddControl(OscControlAddresses.Preset, OscControlKind.Preset);
-                AddControl(OscControlAddresses.Gaze, OscControlKind.GazeAdvertisement);
                 AddControl(OscControlAddresses.Values, OscControlKind.Values);
                 AddControl(OscControlAddresses.Layout, OscControlKind.Layout);
 

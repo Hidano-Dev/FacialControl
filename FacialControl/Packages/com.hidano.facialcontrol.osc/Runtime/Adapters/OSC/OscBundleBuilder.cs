@@ -45,6 +45,7 @@ namespace Hidano.FacialControl.Adapters.OSC
         private const int SenderIdentityMessageTypeCount = 2;
         private const int PresetBaseMessageTypeCount = 1;
         private const int PresetCustomMessageTypeCount = 2;
+        private const string PresetCustom = "custom";
         private const byte TypeBlob = (byte)'b';
         private const byte TypeFloat = (byte)'f';
         private const byte TypeString = (byte)'s';
@@ -1125,7 +1126,7 @@ namespace Hidano.FacialControl.Adapters.OSC
         private static bool ShouldIncludeCustomPrefix(string presetName, string customPrefix)
         {
             return customPrefix != null &&
-                string.Equals(presetName, AddressPresetEstimator.PresetCustom, StringComparison.OrdinalIgnoreCase);
+                string.Equals(presetName, PresetCustom, StringComparison.OrdinalIgnoreCase);
         }
 
         private static int GetOscStringSize(int utf8ByteCount)

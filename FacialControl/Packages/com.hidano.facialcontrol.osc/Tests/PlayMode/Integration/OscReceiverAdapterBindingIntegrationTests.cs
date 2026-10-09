@@ -21,8 +21,7 @@ namespace Hidano.FacialControl.Tests.PlayMode.Integration
     /// <summary>
     /// <see cref="OscReceiverAdapterBinding"/> の PlayMode 統合テスト (host GameObject + <see cref="InputSourceRegistry"/> 前提)。
     /// <c>OnStart</c> による <see cref="OscReceiverHost"/> の AddComponent と slug 登録、実 UDP loopback での値到達、
-    /// heartbeat 駆動の自動 mapping 生成と runtime インスタンス再利用、preset アドレスによる状態更新、
-    /// Gaze VRChat_XY バンドル経路、<c>Dispose</c> による helper 破棄と socket 解放を検証する。
+    /// 診断 API と Dispose による runtime 状態解放、Gaze VRChat_XY バンドル経路、<c>Dispose</c> による helper 破棄と socket 解放を検証する。
     /// </summary>
     [TestFixture]
     [MediumTest]
@@ -74,7 +73,7 @@ namespace Hidano.FacialControl.Tests.PlayMode.Integration
         }
 
         // ---------------------------------------------------------------
-        // OnStart / OnFixedTick: 空 mapping と heartbeat 自動 mapping
+        // OnStart / OnFixedTick: 空 mapping と診断 API
         // ---------------------------------------------------------------
 
         [UnityTest]
@@ -109,111 +108,23 @@ namespace Hidano.FacialControl.Tests.PlayMode.Integration
         }
 
         [Test]
-        public void OnFixedTick_EmptyMappingsHeartbeat_GeneratesAutoMappingsAndRegistersInputSource()
-        {
-            const string slug = "osc-auto-heartbeat";
-            int port = AllocatePort();
-            _binding = new OscReceiverAdapterBinding
-            {
-                Slug = slug,
-                Port = port,
-                Mappings = new List<OscMappingEntry>(),
-                BundleMode = BundleInterpretationMode.IndividualMessage
-            };
-            AdapterBuildContext ctx = CreateContext(blendShapeNames: new List<string> { "smile", "frown" });
-
-            _binding.OnStart(in ctx);
-            _bindingStarted = true;
-
-            HandleHeartbeat("smile", "frown");
-            Assert.That(_binding.InputSource, Is.Not.Null);
-
-            _binding.OnFixedTick(0.02f);
-
-            Assert.That(_binding.InputSource, Is.Not.Null);
-            Assert.That(_binding.Buffer.Size, Is.EqualTo(2));
-            Assert.That(_binding.RuntimeMappings.Count, Is.EqualTo(2));
-            Assert.That(_binding.MappingOrigins[0], Is.EqualTo(OscReceiverAdapterBinding.MappingOrigin.HeartbeatAuto));
-            Assert.That(_binding.MappingOrigins[1], Is.EqualTo(OscReceiverAdapterBinding.MappingOrigin.HeartbeatAuto));
-            Assert.That(_registry.TryResolve(slug, out IInputSource source), Is.True);
-            Assert.That(source, Is.SameAs(_binding.InputSource));
-
-            _binding.HelperHost.Receiver.HandleOscMessage(
-                new uOSC.Message(OscAddressFormatter.VRChatParameterPrefix + "smile", 0.7f));
-            _binding.HelperHost.Receiver.HandleOscMessage(
-                new uOSC.Message(OscAddressFormatter.VRChatParameterPrefix + "frown", 0.3f));
-            _binding.OnFixedTick(0.02f);
-
-            var values = new float[2];
-            Assert.That(source.TryWriteValues(values), Is.True);
-            Assert.That(values[0], Is.EqualTo(0.7f).Within(1e-6f));
-            Assert.That(values[1], Is.EqualTo(0.3f).Within(1e-6f));
-        }
-
-        [Test]
-        public void OnFixedTick_UnchangedHeartbeatHash_ReusesRuntimeInstances()
-        {
-            const string slug = "osc-auto-heartbeat-hash";
-            int port = AllocatePort();
-            _binding = new OscReceiverAdapterBinding
-            {
-                Slug = slug,
-                Port = port,
-                Mappings = new List<OscMappingEntry>(),
-                BundleMode = BundleInterpretationMode.IndividualMessage
-            };
-            AdapterBuildContext ctx = CreateContext(blendShapeNames: new List<string> { "smile", "frown" });
-
-            _binding.OnStart(in ctx);
-            _bindingStarted = true;
-
-            HandleHeartbeat("smile", "frown");
-            _binding.OnFixedTick(0.02f);
-
-            OscInputSource originalSource = _binding.InputSource;
-            OscDoubleBuffer originalBuffer = _binding.Buffer;
-            HeartbeatConsistencyChecker originalChecker = _binding.HeartbeatChecker;
-
-            HandleHeartbeat("smile", "frown");
-            _binding.OnFixedTick(0.02f);
-
-            Assert.That(_binding.InputSource, Is.SameAs(originalSource));
-            Assert.That(_binding.Buffer, Is.SameAs(originalBuffer));
-            Assert.That(_binding.HeartbeatChecker, Is.SameAs(originalChecker));
-            Assert.That(_binding.RuntimeMappings.Count, Is.EqualTo(2));
-        }
-
-        [Test]
-        public void DiagnosticApis_ExposeOriginsPresetAndHeartbeatHashThenDisposeClearsRuntimeState()
+        public void DiagnosticApis_ExposeManualOriginsThenDisposeClearsRuntimeState()
         {
             const string slug = "osc-diagnostic-runtime-state";
             int port = AllocatePort();
-            _binding = new OscReceiverAdapterBinding
-            {
-                Slug = slug,
-                Port = port,
-                Mappings = new List<OscMappingEntry>(),
-                BundleMode = BundleInterpretationMode.IndividualMessage
-            };
+            _binding = CreateBinding(slug: slug, endpoint: TestEndpoint, port: port,
+                mappings: CreateDefaultMappings());
             AdapterBuildContext ctx = CreateContext(blendShapeNames: new List<string> { "smile", "frown" });
 
             _binding.OnStart(in ctx);
             _bindingStarted = true;
-
-            _binding.HelperHost.Receiver.HandleOscMessage(
-                new uOSC.Message(OscReceiverAdapterBinding.PresetAddress, "custom", "/avatar/custom/"));
-            HandleHeartbeat("smile", "frown");
             _binding.OnFixedTick(0.02f);
 
             Assert.That(_binding.RuntimeMappings.Count, Is.EqualTo(2));
-            Assert.That(_binding.CurrentPreset, Is.EqualTo(AddressPresetKind.Custom));
-            Assert.That(_binding.CurrentCustomPrefix, Is.EqualTo("/avatar/custom/"));
-            Assert.That(_binding.LastHeartbeatHash,
-                Is.EqualTo(HeartbeatHashHelper.ComputeFnv1a(new[] { "smile", "frown" })));
             Assert.That(_binding.GetMappingOrigin(0),
-                Is.EqualTo(OscReceiverAdapterBinding.MappingOrigin.HeartbeatAuto));
+                Is.EqualTo(OscReceiverAdapterBinding.MappingOrigin.Manual));
             Assert.That(_binding.GetMappingOrigin(1),
-                Is.EqualTo(OscReceiverAdapterBinding.MappingOrigin.HeartbeatAuto));
+                Is.EqualTo(OscReceiverAdapterBinding.MappingOrigin.Manual));
             Assert.Throws<ArgumentOutOfRangeException>(() => _binding.GetMappingOrigin(2));
 
             _binding.Dispose();
@@ -221,9 +132,6 @@ namespace Hidano.FacialControl.Tests.PlayMode.Integration
 
             Assert.That(_binding.RuntimeMappings.Count, Is.EqualTo(0));
             Assert.That(_binding.MappingOrigins.Count, Is.EqualTo(0));
-            Assert.That(_binding.CurrentPreset, Is.Null);
-            Assert.That(_binding.CurrentCustomPrefix, Is.Null);
-            Assert.That(_binding.LastHeartbeatHash, Is.EqualTo(0u));
             Assert.That(_binding.Buffer, Is.Null);
             Assert.That(_binding.InputSource, Is.Null);
             Assert.That(_binding.IsStarted, Is.False);
@@ -381,57 +289,6 @@ namespace Hidano.FacialControl.Tests.PlayMode.Integration
             Assert.That(y, Is.EqualTo(-0.6f).Within(1e-6f));
         }
 
-        [Test]
-        public void PresetAddress_UpdatesRuntimeStateWithoutRecreatingInputSource()
-        {
-            const string slug = "osc-preset-runtime-state";
-            int port = AllocatePort();
-            _binding = CreateBinding(slug: slug, endpoint: TestEndpoint, port: port,
-                mappings: CreateDefaultMappings());
-            AdapterBuildContext ctx = CreateContext();
-
-            _binding.OnStart(in ctx);
-            _bindingStarted = true;
-
-            OscInputSource originalInputSource = _binding.InputSource;
-            HeartbeatConsistencyChecker originalHeartbeatChecker = _binding.HeartbeatChecker;
-
-            _binding.HelperHost.Receiver.HandleOscMessage(
-                new uOSC.Message(OscReceiverAdapterBinding.PresetAddress, "custom", "/custom/"));
-
-            Assert.That(_binding.CurrentPresetName, Is.EqualTo("custom"));
-            Assert.That(_binding.CurrentCustomPrefix, Is.EqualTo("/custom/"));
-            Assert.That(_binding.InputSource, Is.SameAs(originalInputSource));
-            Assert.That(_binding.HeartbeatChecker, Is.SameAs(originalHeartbeatChecker));
-        }
-
-        [Test]
-        public void PresetAddress_StateSurvivesHeartbeatOrderAndUsesLatestPreset()
-        {
-            const string slug = "osc-preset-heartbeat-order";
-            int port = AllocatePort();
-            _binding = CreateBinding(slug: slug, endpoint: TestEndpoint, port: port,
-                mappings: CreateDefaultMappings());
-            AdapterBuildContext ctx = CreateContext();
-
-            _binding.OnStart(in ctx);
-            _bindingStarted = true;
-
-            _binding.HelperHost.Receiver.HandleOscMessage(
-                new uOSC.Message(OscReceiverAdapterBinding.PresetAddress, "arkit"));
-            _binding.HelperHost.Receiver.HandleOscMessage(
-                new uOSC.Message(OscReceiverAdapterBinding.BlendShapeNamesAddress, "smile", "frown"));
-
-            Assert.That(_binding.CurrentPresetName, Is.EqualTo("arkit"));
-            Assert.That(_binding.CurrentCustomPrefix, Is.Null);
-
-            _binding.HelperHost.Receiver.HandleOscMessage(
-                new uOSC.Message(OscReceiverAdapterBinding.PresetAddress, "custom", "/avatar/custom/"));
-
-            Assert.That(_binding.CurrentPresetName, Is.EqualTo("custom"));
-            Assert.That(_binding.CurrentCustomPrefix, Is.EqualTo("/avatar/custom/"));
-        }
-
         // ---------------------------------------------------------------
         // OnStart: 実 UDP loopback でメッセージが registered InputSource に到達する
         // ---------------------------------------------------------------
@@ -586,11 +443,6 @@ namespace Hidano.FacialControl.Tests.PlayMode.Integration
                 lipSyncProvider: null);
         }
 
-        private void HandleHeartbeat(params string[] names)
-        {
-            OscReceiverAdapterBindingTestSupport.HandleHeartbeat(_binding, names);
-        }
-
         private static int AllocatePort()
         {
             return OscReceiverAdapterBindingTestSupport.AllocatePort();
@@ -629,8 +481,7 @@ namespace Hidano.FacialControl.Tests.PlayMode.Integration
 
     /// <summary>
     /// <see cref="OscReceiverAdapterBinding"/> の PlayMode 統合テスト (BlendShape 付き <see cref="SkinnedMeshRenderer"/> 前提)。
-    /// heartbeat 駆動の自動 mapping (VRChat / ARKit / custom preset) で registered InputSource の値が renderer の
-    /// BlendShape weight に反映されること、手動 mapping と heartbeat 差分の併合、空 intersection 時の警告 1 回、
+    /// 空 mapping では旧送信側の heartbeat が届いても renderer を動かさないこと、
     /// VRChat_XY 左右独立指定の警告、Dispose による runtime 状態解放を検証する。
     /// </summary>
     [TestFixture]
@@ -685,51 +536,20 @@ namespace Hidano.FacialControl.Tests.PlayMode.Integration
             }
         }
 
-        [Test]
-        public void OnStart_EmptyMappingsAndVrChatHeartbeat_UpdatesSkinnedMeshRendererWeight()
-        {
-            StartBindingWithMesh("smile", "frown");
-
-            HandleHeartbeat("smile", "frown");
-            _binding.OnFixedTick(0.02f);
-            SendOscValue("/avatar/parameters/smile", 0.72f);
-            _binding.OnFixedTick(0.02f);
-            ApplyRegisteredSourceToRenderer();
-
-            Assert.That(_binding.RuntimeMappings.Count, Is.EqualTo(2));
-            Assert.That(_binding.RuntimeMappings[0].OscAddress, Is.EqualTo("/avatar/parameters/smile"));
-            Assert.That(_binding.GetMappingOrigin(0), Is.EqualTo(OscReceiverAdapterBinding.MappingOrigin.HeartbeatAuto));
-            Assert.That(_renderer.GetBlendShapeWeight(0), Is.EqualTo(72f).Within(0.01f));
-            Assert.That(_renderer.GetBlendShapeWeight(1), Is.EqualTo(0f).Within(0.01f));
-        }
-
-        [Test]
-        public void OnStart_EmptyMappingsAndArKitHeartbeat_UpdatesSkinnedMeshRendererWeight()
-        {
-            const string arkitName = "eyeBlinkLeft";
-            StartBindingWithMesh(arkitName);
-
-            SendPreset("arkit");
-            HandleHeartbeat(arkitName);
-            _binding.OnFixedTick(0.02f);
-            SendOscValue("/ARKit/" + arkitName, 0.41f);
-            _binding.OnFixedTick(0.02f);
-            ApplyRegisteredSourceToRenderer();
-
-            Assert.That(_binding.CurrentPreset, Is.EqualTo(AddressPresetKind.ARKit));
-            Assert.That(_binding.RuntimeMappings[0].OscAddress, Is.EqualTo("/ARKit/" + arkitName));
-            Assert.That(_renderer.GetBlendShapeWeight(0), Is.EqualTo(41f).Within(0.01f));
-        }
-
         [UnityTest]
-        public IEnumerator OnStart_EmptyMappingsAndNoHeartbeat_DoesNotRegisterOscInputSourceOrChangeRenderer()
+        public IEnumerator OnStart_EmptyMappingsAndLegacyHeartbeat_KeepsEmptyInputSourceAndDoesNotChangeRenderer()
         {
             StartBindingWithMesh("smile");
 
             yield return null;
+            // 旧送信側の heartbeat が届いても、名前の積集合から mapping を作らない。
+            _binding.HelperHost.Receiver.HandleOscMessage(
+                new uOSC.Message("/_facialcontrol/blendshape_names", "smile"));
+            _binding.OnFixedTick(0.02f);
             SendOscValue("/avatar/parameters/smile", 0.9f);
             _binding.OnFixedTick(0.02f);
 
+            Assert.That(_binding.RuntimeMappings.Count, Is.EqualTo(0));
             Assert.That(_binding.InputSource, Is.Not.Null);
             Assert.That(_registry.TryResolve(Slug, out IInputSource source), Is.True);
             Assert.That(source, Is.SameAs(_binding.InputSource));
@@ -773,7 +593,7 @@ namespace Hidano.FacialControl.Tests.PlayMode.Integration
         }
 
         [Test]
-        public void OnStart_PartialManualMappingsAndHeartbeat_AppendsDiffPreservingManualAddress()
+        public void Dispose_ManualMappingsAllocated_ReleasesRuntimeState()
         {
             StartBindingWithMesh(
                 new[]
@@ -785,94 +605,12 @@ namespace Hidano.FacialControl.Tests.PlayMode.Integration
                         addressPattern = "/manual/smile"
                     }
                 },
-                "smile",
-                "frown");
-
-            HandleHeartbeat("smile", "frown");
-            _binding.OnFixedTick(0.02f);
+                "smile");
             SendOscValue("/manual/smile", 0.25f);
-            SendOscValue("/avatar/parameters/frown", 0.6f);
             _binding.OnFixedTick(0.02f);
             ApplyRegisteredSourceToRenderer();
 
-            Assert.That(_binding.RuntimeMappings.Count, Is.EqualTo(2));
-            Assert.That(_binding.RuntimeMappings[0].OscAddress, Is.EqualTo("/manual/smile"));
-            Assert.That(_binding.RuntimeMappings[1].OscAddress, Is.EqualTo("/avatar/parameters/frown"));
-            Assert.That(_binding.GetMappingOrigin(0), Is.EqualTo(OscReceiverAdapterBinding.MappingOrigin.Manual));
-            Assert.That(_binding.GetMappingOrigin(1), Is.EqualTo(OscReceiverAdapterBinding.MappingOrigin.HeartbeatAuto));
             Assert.That(_renderer.GetBlendShapeWeight(0), Is.EqualTo(25f).Within(0.01f));
-            Assert.That(_renderer.GetBlendShapeWeight(1), Is.EqualTo(60f).Within(0.01f));
-        }
-
-        [Test]
-        public void HandleHeartbeat_CustomPresetWithPrefix_GeneratesCustomAddressAndUpdatesRenderer()
-        {
-            StartBindingWithMesh("smile");
-
-            SendPreset("custom", "/custom/");
-            HandleHeartbeat("smile");
-            _binding.OnFixedTick(0.02f);
-            SendOscValue("/custom/smile", 0.33f);
-            _binding.OnFixedTick(0.02f);
-            ApplyRegisteredSourceToRenderer();
-
-            Assert.That(_binding.CurrentPreset, Is.EqualTo(AddressPresetKind.Custom));
-            Assert.That(_binding.CurrentCustomPrefix, Is.EqualTo("/custom/"));
-            Assert.That(_binding.RuntimeMappings[0].OscAddress, Is.EqualTo("/custom/smile"));
-            Assert.That(_renderer.GetBlendShapeWeight(0), Is.EqualTo(33f).Within(0.01f));
-        }
-
-        [Test]
-        public void HandleHeartbeat_HeartbeatHashUnchanged_DoesNotRebuildOscInputSource()
-        {
-            StartBindingWithMesh("smile", "frown");
-            HandleHeartbeat("smile", "frown");
-            _binding.OnFixedTick(0.02f);
-
-            OscInputSource source = _binding.InputSource;
-            OscDoubleBuffer buffer = _binding.Buffer;
-            IReadOnlyList<OscMapping> mappings = _binding.RuntimeMappings;
-            uint hash = _binding.LastHeartbeatHash;
-            Assert.That(hash, Is.EqualTo(HeartbeatHashHelper.ComputeFnv1a(new[] { "smile", "frown" })),
-                "初回 heartbeat のハッシュは受信した名前列そのもののハッシュであるべき。");
-
-            // テスト投入の bare heartbeat は bundle timestamp を持たないため、再送は同じ timestamp key で届く。
-            // 名前が chunk 蓄積に重複せず、ハッシュ・InputSource・runtime mapping が不変であることを検証する。
-            HandleHeartbeat("smile", "frown");
-            _binding.OnFixedTick(0.02f);
-
-            Assert.That(_binding.InputSource, Is.SameAs(source));
-            Assert.That(_binding.Buffer, Is.SameAs(buffer));
-            Assert.That(_binding.LastHeartbeatHash, Is.EqualTo(hash),
-                "同一 heartbeat の再送でハッシュが変わってはならない。");
-            Assert.That(_binding.RuntimeMappings, Is.SameAs(mappings),
-                "同一 heartbeat の再送で runtime mapping が再構築されてはならない。");
-            Assert.That(_binding.RuntimeMappings.Count, Is.EqualTo(2));
-        }
-
-        [Test]
-        public void OnFixedTick_EmptyIntersection_LogsWarningOnceAndKeepsEmptyInputSourceRegistered()
-        {
-            StartBindingWithMesh("smile");
-
-            LogAssert.Expect(LogType.Warning, new System.Text.RegularExpressions.Regex("heartbeat.*mesh BlendShape intersection is empty"));
-            HandleHeartbeat("other");
-            _binding.OnFixedTick(0.02f);
-            HandleHeartbeat("other");
-            _binding.OnFixedTick(0.02f);
-
-            Assert.That(_binding.RuntimeMappings.Count, Is.EqualTo(0));
-            Assert.That(_binding.InputSource, Is.Not.Null);
-            Assert.That(_registry.TryResolve(Slug, out IInputSource source), Is.True);
-            Assert.That(source, Is.SameAs(_binding.InputSource));
-        }
-
-        [Test]
-        public void Dispose_HeartbeatDrivenMappingsAllocated_ReleasesRuntimeState()
-        {
-            StartBindingWithMesh("smile");
-            HandleHeartbeat("smile");
-            _binding.OnFixedTick(0.02f);
 
             Assert.That(_binding.RuntimeMappings.Count, Is.EqualTo(1));
             Assert.That(_binding.InputSource, Is.Not.Null);
@@ -884,7 +622,6 @@ namespace Hidano.FacialControl.Tests.PlayMode.Integration
             Assert.That(_binding.MappingOrigins.Count, Is.EqualTo(0));
             Assert.That(_binding.InputSource, Is.Null);
             Assert.That(_binding.Buffer, Is.Null);
-            Assert.That(_binding.LastHeartbeatHash, Is.EqualTo(0u));
         }
 
         // ---------------------------------------------------------------
@@ -936,19 +673,6 @@ namespace Hidano.FacialControl.Tests.PlayMode.Integration
             _meshObject = new GameObject("OscReceiverAutoMappingRenderer");
             _renderer = _meshObject.AddComponent<SkinnedMeshRenderer>();
             _renderer.sharedMesh = _mesh;
-        }
-
-        private void HandleHeartbeat(params string[] names)
-        {
-            OscReceiverAdapterBindingTestSupport.HandleHeartbeat(_binding, names);
-        }
-
-        private void SendPreset(string presetName, string customPrefix = null)
-        {
-            uOSC.Message message = customPrefix == null
-                ? new uOSC.Message(OscReceiverAdapterBinding.PresetAddress, presetName)
-                : new uOSC.Message(OscReceiverAdapterBinding.PresetAddress, presetName, customPrefix);
-            _binding.HelperHost.Receiver.HandleOscMessage(message);
         }
 
         private void SendOscValue(string address, float value)
@@ -1383,21 +1107,6 @@ namespace Hidano.FacialControl.Tests.PlayMode.Integration
         {
             int next = System.Threading.Interlocked.Increment(ref s_portCounter);
             return LoopbackPortBase + next;
-        }
-
-        /// <summary>
-        /// BlendShape 名一覧を heartbeat メッセージとして受信側 Receiver に直接投入する。
-        /// </summary>
-        public static void HandleHeartbeat(OscReceiverAdapterBinding binding, params string[] names)
-        {
-            var values = new object[names.Length];
-            for (int i = 0; i < names.Length; i++)
-            {
-                values[i] = names[i];
-            }
-
-            binding.HelperHost.Receiver.HandleOscMessage(
-                new uOSC.Message(OscReceiverAdapterBinding.BlendShapeNamesAddress, values));
         }
     }
 }
