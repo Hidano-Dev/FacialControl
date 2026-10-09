@@ -73,7 +73,7 @@ namespace Hidano.FacialControl.Adapters.OSC
             }
         }
 
-        private static uint AppendByte(uint hash, byte value)
+        internal static uint AppendByte(uint hash, byte value)
         {
             unchecked
             {
