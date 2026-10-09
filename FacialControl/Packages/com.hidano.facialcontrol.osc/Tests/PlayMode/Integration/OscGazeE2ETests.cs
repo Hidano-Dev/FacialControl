@@ -458,6 +458,30 @@ namespace Hidano.FacialControl.Tests.PlayMode.Integration
         }
 
         [UnityTest]
+        public IEnumerator GazeLayout_AppliedThroughFacade_RegistersSharedSourceAndPublishesValue()
+        {
+            OscReceiverAdapterBinding receiver = CreateReceiver("osc-facade-gaze", AllocatePort());
+            var oscSender = new SenderIdentity(Guid.NewGuid(), 1_000L);
+            StartBinding(receiver, CreateContext(CreateGameObject("OscGazeE2E_FacadeGaze")));
+            OscIndexedFrameMessages.ApplyLayout(
+                receiver,
+                oscSender,
+                Array.Empty<string>(),
+                new[] { new OscFrameLayoutGazeChannel(ExpressionId) });
+
+            Assert.That(receiver.ActiveLayoutVersion, Is.EqualTo(OscIndexedFrameMessages.LayoutVersion));
+            Assert.That(_registry.TryResolve("osc-facade-gaze:" + ExpressionId, out _), Is.True);
+
+            OscIndexedFrameMessages.SendFrame(receiver.HelperHost.Receiver, oscSender, 2000UL, 0.3f, -0.4f);
+            yield return new WaitForSecondsRealtime(0.05f);
+            receiver.OnFixedTick(0.02f);
+
+            Assert.That(TryReadVector("osc-facade-gaze:" + ExpressionId, out Vector2 actual), Is.True);
+            Assert.That(actual.x, Is.EqualTo(0.3f).Within(Tolerance));
+            Assert.That(actual.y, Is.EqualTo(-0.4f).Within(Tolerance));
+        }
+
+        [UnityTest]
         public IEnumerator GazeResolver_OscAndInputSystemSameExpressionId_SelectsLexicographicallyFirstSlug()
         {
             int port = AllocatePort();
@@ -470,13 +494,14 @@ namespace Hidano.FacialControl.Tests.PlayMode.Integration
 
             _gamepad = UnityEngine.InputSystem.InputSystem.AddDevice<Gamepad>();
 
+            // OSC 側の gaze source（対応表の gaze チャネルから作る）を InputSystem 側より先に登録する。
             StartBinding(receiver, CreateContext(CreateGameObject("OscGazeE2E_DeterministicOsc")));
-            StartBinding(inputBinding, CreateContext(CreateGameObject("OscGazeE2E_DeterministicInput")));
             OscIndexedFrameMessages.ApplyLayout(
                 receiver,
                 oscSender,
                 Array.Empty<string>(),
                 new[] { new OscFrameLayoutGazeChannel(ExpressionId) });
+            StartBinding(inputBinding, CreateContext(CreateGameObject("OscGazeE2E_DeterministicInput")));
 
             yield return new WaitForSecondsRealtime(0.2f);
 
@@ -491,8 +516,6 @@ namespace Hidano.FacialControl.Tests.PlayMode.Integration
             OscIndexedFrameMessages.SendFrame(receiver.HelperHost.Receiver, oscSender, 2000UL, oscValue.x, oscValue.y);
             yield return new WaitForSecondsRealtime(0.05f);
             receiver.OnFixedTick(0.02f);
-            Assert.That(_registry.TryResolve("z-osc-gaze:" + ExpressionId, out _), Is.True,
-                "OSC 側の gaze source も同じ id で登録されていること（その上で辞書順の先頭 slug を採る）。");
 
             bool resolved = GazeChannelResolver.TryResolve(
                 new GazeChannel { id = "gaze" },
