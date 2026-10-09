@@ -46,13 +46,13 @@ namespace Hidano.FacialControl.Tests.EditMode.Adapters.AdapterBindings
         }
 
         [Test]
-        public void Ctor_HeartbeatIntervalSeconds_DefaultsToFiveSeconds()
+        public void Ctor_LayoutRefreshIntervalSeconds_DefaultsToFiveSeconds()
         {
             var binding = new OscSenderAdapterBinding();
 
             Assert.That(
-                binding.HeartbeatIntervalSeconds,
-                Is.EqualTo(OscSenderAdapterBinding.DefaultHeartbeatIntervalSeconds));
+                binding.LayoutRefreshIntervalSeconds,
+                Is.EqualTo(OscSenderAdapterBinding.DefaultLayoutRefreshIntervalSeconds));
         }
 
         [Test]
@@ -133,8 +133,8 @@ namespace Hidano.FacialControl.Tests.EditMode.Adapters.AdapterBindings
                 Assert.That(binding.HelperSenderCount, Is.EqualTo(1));
                 Assert.That(binding.GetHelperSender(0).Port, Is.EqualTo(port));
                 Assert.That(binding.AdvancedSettings, Is.Null);
-                Assert.That(binding.HeartbeatIntervalSeconds,
-                    Is.EqualTo(OscSenderRuntimeSettingsSO.DefaultHeartbeatIntervalSeconds));
+                Assert.That(binding.LayoutRefreshIntervalSeconds,
+                    Is.EqualTo(OscSenderRuntimeSettingsSO.DefaultLayoutRefreshIntervalSeconds));
                 Assert.That(binding.SuppressLoopback, Is.True);
             }
             finally
@@ -184,7 +184,7 @@ namespace Hidano.FacialControl.Tests.EditMode.Adapters.AdapterBindings
             var bus = new RecordingFacialOutputBus();
             var advanced = ScriptableObject.CreateInstance<OscSenderRuntimeSettingsSO>();
             advanced.hideFlags = HideFlags.HideAndDontSave;
-            advanced.FromJson("{\"heartbeatIntervalSeconds\":2.5,\"suppressLoopback\":false}");
+            advanced.FromJson("{\"layoutRefreshIntervalSeconds\":2.5,\"suppressLoopback\":false}");
 
             var binding = new OscSenderAdapterBinding
             {
@@ -200,7 +200,7 @@ namespace Hidano.FacialControl.Tests.EditMode.Adapters.AdapterBindings
 
                 Assert.That(binding.IsStarted, Is.True);
                 Assert.That(binding.EffectiveSettings, Is.SameAs(advanced));
-                Assert.That(binding.HeartbeatIntervalSeconds, Is.EqualTo(2.5f));
+                Assert.That(binding.LayoutRefreshIntervalSeconds, Is.EqualTo(2.5f));
                 Assert.That(binding.SuppressLoopback, Is.False);
                 Assert.That(binding.LoopbackPolicy, Is.Null,
                     "suppressLoopback=false なら loopback 抑制ポリシーを作らない。");
@@ -282,7 +282,7 @@ namespace Hidano.FacialControl.Tests.EditMode.Adapters.AdapterBindings
                 Assert.That(binding.HelperSenderCount, Is.EqualTo(2));
                 Assert.That(binding.GetHelperSender(0).Port, Is.EqualTo(firstPort));
                 Assert.That(binding.GetHelperSender(1).Port, Is.EqualTo(secondPort));
-                Assert.That(binding.HeartbeatIntervalSeconds, Is.EqualTo(3f));
+                Assert.That(binding.LayoutRefreshIntervalSeconds, Is.EqualTo(3f));
             }
             finally
             {
@@ -293,28 +293,28 @@ namespace Hidano.FacialControl.Tests.EditMode.Adapters.AdapterBindings
         }
 
         [Test]
-        public void OnStart_HeartbeatIntervalBelowMinimum_ClampsAndWarns()
+        public void OnStart_LayoutRefreshIntervalBelowMinimum_ClampsAndWarns()
         {
             var bus = new RecordingFacialOutputBus();
             var binding = new OscSenderAdapterBinding
             {
                 Slug = "osc-sender",
-                HeartbeatIntervalSeconds = 0.1f
+                LayoutRefreshIntervalSeconds = 0.1f
             };
             binding.Configure("127.0.0.1", AllocatePort());
-            var host = new GameObject("OscSenderAdapterBindingHeartbeatClampTests");
+            var host = new GameObject("OscSenderAdapterBindingLayoutRefreshClampTests");
 
             LogAssert.Expect(
                 LogType.Warning,
-                new Regex("heartbeatIntervalSeconds 0\\.1.*below 0\\.5.*clamped"));
+                new Regex("layoutRefreshIntervalSeconds 0\\.1.*below 0\\.5.*clamped"));
 
             try
             {
                 binding.OnStart(CreateContext(bus, host, new[] { "smile" }));
 
                 Assert.That(
-                    binding.HeartbeatIntervalSeconds,
-                    Is.EqualTo(OscSenderAdapterBinding.MinHeartbeatIntervalSeconds));
+                    binding.LayoutRefreshIntervalSeconds,
+                    Is.EqualTo(OscSenderAdapterBinding.MinLayoutRefreshIntervalSeconds));
             }
             finally
             {

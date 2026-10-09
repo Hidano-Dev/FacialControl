@@ -141,20 +141,18 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
         [NonSerialized]
         private HashSet<string> _warnedUnmatchedGazeConfigIds;
 
+        /// <summary>適用中の対応表の gaze チャネル id（重複・空を除き ordinal 順）。</summary>
         [NonSerialized]
-        private List<GazeAdvertisementResolver.GazeAdvertisement> _gazeAdvertisedEntries;
+        private List<string> _appliedGazeChannelIds;
 
         [NonSerialized]
-        private List<GazeAdvertisementResolver.GazeAdvertisement> _gazeAdNormalizedScratch;
+        private List<string> _gazeChannelIdScratch;
 
         [NonSerialized]
         private uint _lastGazeChannelHash;
 
         [NonSerialized]
         private bool _hasAppliedGazeChannels;
-
-        [NonSerialized]
-        private bool _warnedOnUnknownGazeFormat;
 
         [NonSerialized]
         private object _gazeBundleSync;
@@ -246,7 +244,6 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
         [NonSerialized] private bool _hasLastSenderId;
 
         [NonSerialized] private List<OscFrameLayoutEntry> _layoutEntryScratch;
-        [NonSerialized] private List<string> _indexedGazePayloadScratch;
 
         /// <summary>
         /// パラメータレスコンストラクタ。Inspector の Add ドロップダウンで <c>Activator.CreateInstance</c> から
@@ -625,8 +622,8 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
             _inputSource = null;
             _gazeSources = null;
             _gazeRuntimeEntries = null;
-            _gazeAdvertisedEntries = null;
-            _gazeAdNormalizedScratch = null;
+            _appliedGazeChannelIds = null;
+            _gazeChannelIdScratch = null;
             _autoGazeSourcesById = null;
             _autoGazeRuntimeEntriesById = null;
             _injectedGazeChannelIds = null;
@@ -634,7 +631,6 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
             _warnedUnmatchedGazeConfigIds = null;
             _lastGazeChannelHash = 0u;
             _hasAppliedGazeChannels = false;
-            _warnedOnUnknownGazeFormat = false;
             ClearGazeBundleState();
             _gazeBundleSync = null;
             _readyGazeFrames = null;
@@ -665,7 +661,6 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
             _lastSenderIdTimestampKey = 0UL;
             _hasLastSenderId = false;
             _layoutEntryScratch = null;
-            _indexedGazePayloadScratch = null;
 
             if (_buffer != null)
             {
@@ -721,8 +716,8 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
             // 上限 +1 で事前確保し、bundle タイムスタンプが増えても定常で再確保しない（GC ゲート対策）
             _bundleSenderDecisions = new Dictionary<ulong, bool>(MaxCachedBundleSenderDecisions + 1);
             _bundleSenderDecisionOrder = new Queue<ulong>(MaxCachedBundleSenderDecisions + 1);
-            _gazeAdvertisedEntries = new List<GazeAdvertisementResolver.GazeAdvertisement>();
-            _gazeAdNormalizedScratch = new List<GazeAdvertisementResolver.GazeAdvertisement>();
+            _appliedGazeChannelIds = new List<string>();
+            _gazeChannelIdScratch = new List<string>();
             _autoGazeSourcesById = new Dictionary<string, GazeVector2InputSource>(StringComparer.Ordinal);
             _autoGazeRuntimeEntriesById = new Dictionary<string, GazeRuntimeEntry>(StringComparer.Ordinal);
             // ConfigureGazeChannels is normally called by FacialController before OnStart.
@@ -735,7 +730,6 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
             _indexedGazeSlotRoutes = Array.Empty<List<GazeRoute>>();
             _hasLastSenderId = false;
             _layoutEntryScratch = new List<OscFrameLayoutEntry>();
-            _indexedGazePayloadScratch = new List<string>();
             _buffer = new OscDoubleBuffer(0);
             _bundleAccumulator = new OscBundleAccumulator(_buffer, settings.BundleAccumulationTimeoutMs);
 
@@ -1140,22 +1134,9 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
                 return false;
             }
 
-            _indexedGazePayloadScratch.Clear();
-            for (int i = 0; i < layout.GazeChannels.Count; i++)
-            {
-                OscFrameLayoutGazeChannel channel = layout.GazeChannels[i];
-                _indexedGazePayloadScratch.Add(channel.Id);
-                _indexedGazePayloadScratch.Add(GazeAdvertisementResolver.VrChatXyFormat);
-                for (int a = 0; a < channel.Attributes.Count; a++)
-                {
-                    _indexedGazePayloadScratch.Add(channel.Id);
-                    _indexedGazePayloadScratch.Add(channel.Attributes[a]);
-                }
-            }
-
             if (layout.GazeChannels.Count > 0 || _hasAppliedGazeChannels)
             {
-                ApplyGazeChannelPayload(_indexedGazePayloadScratch);
+                ApplyLayoutGazeChannels(layout.GazeChannels);
             }
 
             _indexedGazeSlotRoutes = BuildIndexedGazeSlotRoutes(layout);
@@ -1240,34 +1221,67 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
         }
 
         /// <summary>
-        /// 対応表の gaze チャネルを並べた <c>(channelId, value)</c> の並びから、目ボーン path・可動範囲の上書きと gaze route を更新する。
+        /// 対応表の gaze チャネルから、目ボーン path・可動範囲の上書きと gaze route を更新する。route はチャネル id の
+        /// 集合が変わったときだけ作り直す（属性だけの変化では入力源を作り直さない）。
         /// </summary>
-        private void ApplyGazeChannelPayload(IReadOnlyList<string> payload)
+        private void ApplyLayoutGazeChannels(IReadOnlyList<OscFrameLayoutGazeChannel> channels)
         {
-            // 属性ペア (目ボーン path・可動範囲) は route のハッシュに含めないため、route の変化判定より前に読む。
             _gazeChannelOverrides ??= new GazeChannelOverrideTable();
-            _gazeChannelOverrides.Update(payload);
+            _gazeChannelOverrides.Update(channels);
 
-            _gazeAdvertisedEntries.Clear();
-            GazeAdvertisementResolver.Parse(
-                payload,
-                _gazeAdvertisedEntries,
-                ref _warnedOnUnknownGazeFormat);
-            uint hash = GazeAdvertisementResolver.ComputeNormalizedHash(
-                _gazeAdvertisedEntries,
-                _gazeAdNormalizedScratch);
-            if (_hasAppliedGazeChannels && hash == _lastGazeChannelHash)
+            _gazeChannelIdScratch.Clear();
+            for (int i = 0; i < channels.Count; i++)
+            {
+                string channelId = channels[i] != null ? channels[i].Id : null;
+                if (!string.IsNullOrEmpty(channelId) && !_gazeChannelIdScratch.Contains(channelId))
+                {
+                    _gazeChannelIdScratch.Add(channelId);
+                }
+            }
+
+            _gazeChannelIdScratch.Sort(StringComparer.Ordinal);
+            if (_hasAppliedGazeChannels && SequenceEqualOrdinal(_gazeChannelIdScratch, _appliedGazeChannelIds))
             {
                 return;
             }
 
-            _lastGazeChannelHash = hash;
+            _appliedGazeChannelIds.Clear();
+            _appliedGazeChannelIds.AddRange(_gazeChannelIdScratch);
+            _lastGazeChannelHash = ComputeGazeChannelIdHash(_appliedGazeChannelIds);
             _hasAppliedGazeChannels = true;
-            RebuildGazeRoutes(_gazeAdvertisedEntries);
+            RebuildGazeRoutes(_appliedGazeChannelIds);
         }
 
-        private void RebuildGazeRoutes(
-            IReadOnlyList<GazeAdvertisementResolver.GazeAdvertisement> advertised)
+        private static bool SequenceEqualOrdinal(List<string> left, List<string> right)
+        {
+            if (left.Count != right.Count)
+            {
+                return false;
+            }
+
+            for (int i = 0; i < left.Count; i++)
+            {
+                if (!string.Equals(left[i], right[i], StringComparison.Ordinal))
+                {
+                    return false;
+                }
+            }
+
+            return true;
+        }
+
+        private static uint ComputeGazeChannelIdHash(List<string> sortedChannelIds)
+        {
+            uint hash = HeartbeatHashHelper.Fnv1aOffsetBasis;
+            for (int i = 0; i < sortedChannelIds.Count; i++)
+            {
+                hash = HeartbeatHashHelper.AppendFnv1aString(hash, sortedChannelIds[i]);
+            }
+
+            return hash;
+        }
+
+        private void RebuildGazeRoutes(IReadOnlyList<string> channelIds)
         {
             if (_gazeBundleSync == null)
             {
@@ -1277,16 +1291,15 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
             var desiredSourceIds = new HashSet<string>(StringComparer.Ordinal);
             var desiredRuntimeKeys = new HashSet<string>(StringComparer.Ordinal);
 
-            for (int i = 0; i < advertised.Count; i++)
+            for (int i = 0; i < channelIds.Count; i++)
             {
-                GazeAdvertisementResolver.GazeAdvertisement advertisement = advertised[i];
-                string runtimeKey = advertisement.ExpressionId + "\u001f" + advertisement.Format;
-                desiredRuntimeKeys.Add(runtimeKey);
+                string channelId = channelIds[i];
+                desiredRuntimeKeys.Add(channelId);
                 GazeRuntimeEntry runtime;
-                if (!_autoGazeRuntimeEntriesById.TryGetValue(runtimeKey, out runtime))
+                if (!_autoGazeRuntimeEntriesById.TryGetValue(channelId, out runtime))
                 {
-                    runtime = CreateAutoGazeRuntime(advertisement, desiredSourceIds);
-                    _autoGazeRuntimeEntriesById[runtimeKey] = runtime;
+                    runtime = CreateAutoGazeRuntime(channelId, desiredSourceIds);
+                    _autoGazeRuntimeEntriesById[channelId] = runtime;
                 }
                 else
                 {
@@ -1392,12 +1405,12 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
         }
 
         private GazeRuntimeEntry CreateAutoGazeRuntime(
-            GazeAdvertisementResolver.GazeAdvertisement advertisement,
+            string channelId,
             ISet<string> desiredSourceIds)
         {
             var runtime = new GazeRuntimeEntry();
-            runtime.ExpressionId = advertisement.ExpressionId;
-            runtime.CommonSource = GetOrCreateAutoGazeSource(GazeSide.Shared, advertisement.ExpressionId, desiredSourceIds);
+            runtime.ExpressionId = channelId;
+            runtime.CommonSource = GetOrCreateAutoGazeSource(GazeSide.Shared, channelId, desiredSourceIds);
             return runtime;
         }
 

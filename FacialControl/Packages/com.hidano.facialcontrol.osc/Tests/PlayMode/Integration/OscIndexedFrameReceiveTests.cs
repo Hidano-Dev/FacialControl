@@ -243,7 +243,7 @@ namespace Hidano.FacialControl.Tests.PlayMode.Integration
             {
                 Slug = "osc-indexed-sender",
                 SuppressLoopback = false,
-                HeartbeatIntervalSeconds = 60f,
+                LayoutRefreshIntervalSeconds = 60f,
             };
             _bindings.Add(binding);
             binding.ConfigureEndpoints(

@@ -17,7 +17,7 @@
 | **OSC Sender** (`OscSenderAdapterBinding`) | `osc-sender` | 合成後の BlendShape と Gaze を購読し、OSC bundle として複数 endpoint へ送信する |
 | **ARKit / PerfectSync** (`ArKitOscAdapterBinding`) | `arkit-perfectsync` | `/ARKit/{name}` を購読するアナログ入力源（実験的。入力源の登録経路は未接続） |
 
-一番よく変える受信ポート・送信先は binding 本体に持つ。heartbeat 間隔や staleness など滅多に変えない項目は、任意で割り当てる上級設定アセット（Receiver: **`OscReceiverRuntimeSettingsSO`** / Sender: **`OscSenderRuntimeSettingsSO`**。どちらも `AdapterRuntimeSettingsCollectionSO` の sub-asset）に置く。未割り当てなら既定値で動く。
+一番よく変える受信ポート・送信先は binding 本体に持つ。対応表の更新間隔や staleness など滅多に変えない項目は、任意で割り当てる上級設定アセット（Receiver: **`OscReceiverRuntimeSettingsSO`** / Sender: **`OscSenderRuntimeSettingsSO`**。どちらも `AdapterRuntimeSettingsCollectionSO` の sub-asset）に置く。未割り当てなら既定値で動く。
 
 ## 使い方
 
@@ -50,7 +50,7 @@ OSC Receiver / OSC Sender は次の制御アドレスだけを使う。BlendShap
 - 送信側はチャネルごとに path → `range=` の順で並べる。受信側は `range=` が届いた時点でそのチャネルの属性を確定する
 - 上書きを使うのは、そのチャネルを実際に駆動している OSC Receiver の分だけ。別の binding（InputSystem 等）が駆動するチャネルには適用しない
 - 上書き path のボーンの rest 回転・軸は、受信側 FacialController の初期化時の姿勢から導出する
-- 属性の解析は対応表を適用したときだけ行い、上書きが変わったときだけ目ボーン provider を作り直す（毎フレームのヒープ確保は増えない）。送信側は heartbeat 間隔ごとに目線タブの変化を確かめ、変わっていれば対応表を別のバージョンで作り直す
+- 属性の解析は対応表を適用したときだけ行い、上書きが変わったときだけ目ボーン provider を作り直す（毎フレームのヒープ確保は増えない）。送信側は対応表の更新間隔（`layoutRefreshIntervalSeconds`）ごとに目線タブの変化を確かめ、変わっていれば対応表を別のバージョンで作り直す
 - 一度受け取った上書きは、送信元が別のアプリに替わっても受信側の再初期化まで残る（自動 route と同じ扱い）
 
 ## 受信の動作

@@ -78,7 +78,7 @@ namespace Hidano.FacialControl.Adapters.OSC
     }
 
     /// <summary>
-    /// 対応表に載る gaze チャネル 1 件。属性は gaze 広告と同じ <c>key=value</c> 形式の文字列。
+    /// 対応表に載る gaze チャネル 1 件。属性は <see cref="GazeChannelAttributes"/> の <c>key=value</c> 形式の文字列。
     /// </summary>
     public sealed class OscFrameLayoutGazeChannel
     {

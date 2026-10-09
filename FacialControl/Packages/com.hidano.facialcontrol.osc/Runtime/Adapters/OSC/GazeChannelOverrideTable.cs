@@ -5,12 +5,11 @@ using Hidano.FacialControl.Adapters.ScriptableObject;
 namespace Hidano.FacialControl.Adapters.OSC
 {
     /// <summary>
-    /// gaze 広告の属性ペアから得た、チャネル id ごとの <see cref="GazeChannelOverride"/> を保持する。
+    /// 値フレームの対応表の gaze チャネル属性から得た、チャネル id ごとの <see cref="GazeChannelOverride"/> を保持する。
     /// 内容が変わったときだけ <see cref="Version"/> を進める。
     /// </summary>
     /// <remarks>
-    /// メインスレッド専用。<see cref="Update"/> は広告の中身が変わったとき (受信バイト列のハッシュ変化時)
-    /// にだけ呼ぶ想定で、毎フレームは呼ばない。
+    /// メインスレッド専用。<see cref="Update"/> は対応表を適用したときにだけ呼ぶ想定で、毎フレームは呼ばない。
     /// </remarks>
     public sealed class GazeChannelOverrideTable
     {
@@ -27,34 +26,51 @@ namespace Hidano.FacialControl.Adapters.OSC
         public int Count => _current.Count;
 
         /// <summary>
-        /// 広告 payload ([id, value, ...]) から、属性がそろったチャネル (<c>range=</c> まで届いたもの) の上書きを
-        /// 取り込む。payload に現れないチャネルの上書きは残す (MTU 分割された広告の途中で消さないため)。
-        /// 内容が変わったら true を返し、<see cref="Version"/> を進める。
+        /// 対応表の gaze チャネルで上書きを置き換える。有効な <c>range=</c> を持たないチャネルと、対応表に無い
+        /// チャネルの上書きは消える。id が重複するチャネルは先のものを使う。内容が変わったら true を返し、
+        /// <see cref="Version"/> を進める。
         /// </summary>
-        public bool Update(IReadOnlyList<string> payload)
+        public bool Update(IReadOnlyList<OscFrameLayoutGazeChannel> channels)
         {
-            GazeAdvertisementResolver.ParseChannelOverrides(payload, _scratch, ref _warnedOnInvalidAttribute);
-            bool changed = false;
+            _scratch.Clear();
+            if (channels != null)
+            {
+                for (int i = 0; i < channels.Count; i++)
+                {
+                    OscFrameLayoutGazeChannel channel = channels[i];
+                    if (channel == null || string.IsNullOrEmpty(channel.Id) || _scratch.ContainsKey(channel.Id))
+                    {
+                        continue;
+                    }
+
+                    if (GazeChannelAttributes.TryParseOverride(
+                            channel.Id,
+                            channel.Attributes,
+                            out GazeChannelOverride value,
+                            ref _warnedOnInvalidAttribute))
+                    {
+                        _scratch.Add(channel.Id, value);
+                    }
+                }
+            }
+
+            if (HasSameContent(_current, _scratch))
+            {
+                return false;
+            }
+
+            _current.Clear();
             foreach (KeyValuePair<string, GazeChannelOverride> pair in _scratch)
             {
-                if (_current.TryGetValue(pair.Key, out GazeChannelOverride existing) && existing.Equals(pair.Value))
-                {
-                    continue;
-                }
-
-                _current[pair.Key] = pair.Value;
-                changed = true;
+                _current.Add(pair.Key, pair.Value);
             }
 
-            if (changed)
+            unchecked
             {
-                unchecked
-                {
-                    Version++;
-                }
+                Version++;
             }
 
-            return changed;
+            return true;
         }
 
         public bool TryGet(string channelId, out GazeChannelOverride value)
@@ -83,6 +99,26 @@ namespace Hidano.FacialControl.Adapters.OSC
             {
                 Version++;
             }
+        }
+
+        private static bool HasSameContent(
+            Dictionary<string, GazeChannelOverride> left,
+            Dictionary<string, GazeChannelOverride> right)
+        {
+            if (left.Count != right.Count)
+            {
+                return false;
+            }
+
+            foreach (KeyValuePair<string, GazeChannelOverride> pair in right)
+            {
+                if (!left.TryGetValue(pair.Key, out GazeChannelOverride existing) || !existing.Equals(pair.Value))
+                {
+                    return false;
+                }
+            }
+
+            return true;
         }
     }
 }

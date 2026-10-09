@@ -5,7 +5,7 @@
 | 置き場所 | 項目 | 理由 |
 |---|---|---|
 | binding（Profile 内） | `endpoints[]` / `blendShapeNames`（任意フィルタ） | 送信先は一番よく変える項目。フィルタはキャラクター固有 |
-| `OscSenderRuntimeSettingsSO`（上級設定 sub-asset、割り当て任意） | `heartbeatIntervalSeconds` / `suppressLoopback` | 滅多に変えない。未割り当てなら既定値で動く |
+| `OscSenderRuntimeSettingsSO`（上級設定 sub-asset、割り当て任意） | `layoutRefreshIntervalSeconds` / `suppressLoopback` | 滅多に変えない。未割り当てなら既定値で動く |
 
 送信を止めたいときは binding を外すか、送信先ごとの `enabled` を false にする。
 
@@ -23,10 +23,10 @@ Gaze の送信対象は Profile の目線タブに宣言されたチャネルが
 
 | フィールド | 型 | 既定値 | 説明 |
 |---|---|---|---|
-| `heartbeatIntervalSeconds` | float | `5.0` | 目線タブの目ボーン path・可動範囲の変更を確かめる周期。変わっていれば対応表を別のバージョンで作り直す。実行時に 0.5〜60 秒にクランプ |
+| `layoutRefreshIntervalSeconds` | float | `5.0` | 対応表の更新間隔。目線タブの目ボーン path・可動範囲の変更を確かめる周期で、変わっていれば対応表を別のバージョンで作り直す。実行時に 0.5〜60 秒にクランプ |
 | `suppressLoopback` | bool | `true` | 同じ Profile 内の OSC Receiver と同じポートへの送信のうち、宛先が loopback か自機のインターフェースアドレス（LAN IP 等）のものを抑止 |
 
-`ToJson()` / `FromJson()` は `schemaVersion` / `label` / `heartbeatIntervalSeconds` / `suppressLoopback` を読み書きする。
+`ToJson()` / `FromJson()` は `schemaVersion` / `label` / `layoutRefreshIntervalSeconds` / `suppressLoopback` を読み書きする。旧キー `heartbeatIntervalSeconds` も読める（新キーがあれば新キーを優先。書き出しは新キーのみ）。旧フィールド名で保存されたアセットもそのまま読める。
 
 ## OscSenderOptionsDto（参考用 JSON）
 
@@ -37,7 +37,7 @@ Gaze の送信対象は Profile の目線タブに宣言されたチャネルが
 | `endpoints` | `{ ip, port, enabled }[]` | `[{ "ip": "127.0.0.1", "port": 9000, "enabled": true }]` | 送信先 |
 | `blendShapeMapping` | string[] | `[]` | 送信する BlendShape 名。空なら全 BlendShape |
 | `suppressLoopback` | bool | `true` | loopback 抑制 |
-| `heartbeatIntervalSeconds` | float | `5.0` | 0 以下 / NaN は 5.0 に補完 |
+| `layoutRefreshIntervalSeconds` | float | `5.0` | 0 以下 / NaN は 5.0 に補完。旧キー `heartbeatIntervalSeconds` も読める |
 
 旧形式の `preset`（送信先ごと）・`sendPreset` キーが残っていても無視される。
 
@@ -62,6 +62,6 @@ Gaze の送信対象は Profile の目線タブに宣言されたチャネルが
   ],
   "blendShapeMapping": ["Joy", "Blink_L", "Blink_R"],
   "suppressLoopback": true,
-  "heartbeatIntervalSeconds": 5.0
+  "layoutRefreshIntervalSeconds": 5.0
 }
 ```

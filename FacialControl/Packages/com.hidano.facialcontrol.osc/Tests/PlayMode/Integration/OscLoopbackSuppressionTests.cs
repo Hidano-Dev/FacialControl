@@ -145,7 +145,7 @@ namespace Hidano.FacialControl.Tests.PlayMode.Integration
             {
                 Slug = SenderSlug,
                 SuppressLoopback = suppressLoopback,
-                HeartbeatIntervalSeconds = 60f
+                LayoutRefreshIntervalSeconds = 60f
             };
             sender.Configure(Endpoint, port, new[] { BlendShapeName });
             return sender;

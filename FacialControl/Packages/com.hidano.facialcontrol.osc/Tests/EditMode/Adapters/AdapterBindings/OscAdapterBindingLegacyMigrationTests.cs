@@ -122,7 +122,7 @@ namespace Hidano.FacialControl.Osc.Tests.EditMode.Adapters.AdapterBindings
             Assert.That(sender.Endpoints[0].enabled, Is.True);
             Assert.That(sender.Endpoints[1].enabled, Is.False);
             Assert.That(sender.AdvancedSettings, Is.Not.Null);
-            Assert.That(sender.AdvancedSettings.HeartbeatIntervalSeconds, Is.EqualTo(2f));
+            Assert.That(sender.AdvancedSettings.LayoutRefreshIntervalSeconds, Is.EqualTo(2f));
         }
 
         [Test]

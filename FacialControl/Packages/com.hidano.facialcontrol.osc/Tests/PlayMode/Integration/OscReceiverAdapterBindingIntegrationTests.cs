@@ -641,7 +641,7 @@ namespace Hidano.FacialControl.Tests.PlayMode.Integration
             yield return new WaitForSecondsRealtime(0.2f);
 
             OscSenderRuntimeSettingsSO senderSettings = CreateSenderAdvancedSettings(
-                "{\"heartbeatIntervalSeconds\":60,\"suppressLoopback\":false}");
+                "{\"layoutRefreshIntervalSeconds\":60,\"suppressLoopback\":false}");
             OscSenderAdapterBinding sender = CreateSender("osc-sender-port-only", port, senderSettings,
                 new[] { BlendShapeNameA, BlendShapeNameB });
             var outputBus = new FacialOutputBus();
@@ -685,7 +685,7 @@ namespace Hidano.FacialControl.Tests.PlayMode.Integration
             int port = AllocatePort();
 
             OscSenderRuntimeSettingsSO advanced = CreateSenderAdvancedSettings(
-                "{\"heartbeatIntervalSeconds\":60,\"suppressLoopback\":false}");
+                "{\"layoutRefreshIntervalSeconds\":60,\"suppressLoopback\":false}");
             OscSenderAdapterBinding sender = CreateSender("osc-sender-binding-endpoints", port, advanced,
                 new[] { BlendShapeNameA });
             GameObject senderHost = CreateGameObject("OscReceiverAdapterBindingWithRuntimeSettingsTests_Sender");
@@ -706,7 +706,7 @@ namespace Hidano.FacialControl.Tests.PlayMode.Integration
                     "送信先の件数だけ OscSender が AddComponent されるべき。");
                 Assert.That(sender.GetHelperSender(0).Port, Is.EqualTo(port),
                     "送信先の port が OscSender.Configure に伝播するべき。");
-                Assert.That(sender.HeartbeatIntervalSeconds, Is.EqualTo(60f),
+                Assert.That(sender.LayoutRefreshIntervalSeconds, Is.EqualTo(60f),
                     "上級設定アセットの値が反映されるべき。");
 
                 yield return new WaitForSecondsRealtime(0.2f);

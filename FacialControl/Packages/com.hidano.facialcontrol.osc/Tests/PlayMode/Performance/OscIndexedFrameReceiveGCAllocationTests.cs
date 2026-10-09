@@ -78,7 +78,7 @@ namespace Hidano.FacialControl.Tests.PlayMode.Performance
             {
                 Slug = "osc-indexed-gc-sender",
                 SuppressLoopback = false,
-                HeartbeatIntervalSeconds = 60f,
+                LayoutRefreshIntervalSeconds = 60f,
             };
             _sender.ConfigureEndpoints(
                 new[] { new OscSenderEndpointConfig("127.0.0.1", receiver.ActivePort) },
