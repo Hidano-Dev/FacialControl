@@ -415,14 +415,16 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
             IReadOnlyList<string> resolvedGazeExpressionIds = _gazeChannelIds;
 
             // 対応表に載せる BlendShape と gaze チャネルは送信先によらず同じ。
-            // 送信先がすべて loopback 抑制された場合は、送らないまま起動状態にする（下の allEndpointsSuppressed）。
-            bool hasLayoutSources = TryBuildLayoutSources(
-                ctx.BlendShapeNames,
-                resolvedGazeExpressionIds,
-                out int[] sourceBlendShapeIndices,
-                out string[] layoutBlendShapeNames,
-                out string[] gazeExpressionIds);
-            if (!hasLayoutSources && endpoints.Count > 0)
+            // 送信先がすべて loopback 抑制された場合は組み立てず、送らないまま起動状態にする（下の allEndpointsSuppressed）。
+            int[] sourceBlendShapeIndices = Array.Empty<int>();
+            string[] layoutBlendShapeNames = Array.Empty<string>();
+            string[] gazeExpressionIds = Array.Empty<string>();
+            if (endpoints.Count > 0 && !TryBuildLayoutSources(
+                    ctx.BlendShapeNames,
+                    resolvedGazeExpressionIds,
+                    out sourceBlendShapeIndices,
+                    out layoutBlendShapeNames,
+                    out gazeExpressionIds))
             {
                 Debug.LogWarning(
                     "[OscSenderAdapterBinding] No BlendShape or gaze channel to send. OSC Sender will not start.");

@@ -405,6 +405,14 @@ namespace Hidano.FacialControl.Tests.EditMode.Adapters.AdapterBindings
                 Assert.That(binding.HelperSenderCount, Is.EqualTo(2));
                 Assert.That(binding.GetHelperSender(0).Port, Is.EqualTo(firstPort));
                 Assert.That(binding.GetHelperSender(1).Port, Is.EqualTo(secondPort));
+                for (int i = 0; i < binding.HelperSenderCount; i++)
+                {
+                    OscFrameLayout layout = binding.GetHelperSender(i).IndexedLayout;
+                    Assert.That(layout, Is.Not.Null);
+                    CollectionAssert.AreEqual(new[] { "smile", "まばたき" }, layout.BlendShapeNames);
+                    Assert.That(layout.GazeChannels.Count, Is.EqualTo(1));
+                    Assert.That(layout.GazeChannels[0].Id, Is.EqualTo("eyeLook"));
+                }
             }
             finally
             {

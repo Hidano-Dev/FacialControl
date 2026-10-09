@@ -623,7 +623,7 @@ namespace Hidano.FacialControl.Osc.Editor.AdapterBindings
             if (vrChatXyCannotBeIndependent)
             {
                 messages.Add(
-                    "VRChat_XY 形式は単一 Vector2 のみを運ぶため左右には同値が配られます（左右独立にするには ARKit preset / ARKit_8BS を使用）。");
+                    "VRChat_XY 形式は単一 Vector2 のみを運ぶため左右には同値が配られます（左右独立にするには ARKit_8BS を使用）。");
             }
 
             if (missingSource)

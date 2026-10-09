@@ -153,6 +153,9 @@ namespace Hidano.FacialControl.Adapters.OSC
         /// </summary>
         public int MappingCount => _oscAddresses != null ? _oscAddresses.Length : 0;
 
+        /// <summary><see cref="ConfigureIndexedFrame"/> で設定した対応表（未設定なら null）。テスト/診断用。</summary>
+        internal OscFrameLayout IndexedLayout => _indexedLayout;
+
         /// <summary>
         /// 値フレーム（<c>/_facialcontrol/values</c>）で送る対応表と slot の値の置き場を設定する。
         /// <paramref name="slotValues"/> は参照を保持し、送信のたびに先頭 <see cref="OscFrameLayout.SlotCount"/> 個を送る
