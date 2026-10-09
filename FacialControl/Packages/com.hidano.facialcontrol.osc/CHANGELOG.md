@@ -22,6 +22,7 @@
 
 ### Changed
 
+- **（破壊的変更）送信側のアドレスプリセットを廃止した。** `OscSenderEndpointConfig.preset`（VRChat / ARKit / Custom）、`OscSenderEndpointDto.preset`・`OscSenderOptionsDto.sendPreset`（JSON の `preset` / `sendPreset` キー）、`OscSenderAdapterBinding.SendPreset` と Inspector の **Send Preset Address** を削除した。値フレームの対応表には送信先によらず全 BlendShape（フィルタ指定時はその BlendShape）と全 gaze チャネルを載せる（従来 Custom を選んだ送信先で BlendShape・gaze が送られなかった問題も解消）。既存の JSON・アセットに残った `preset` / `sendPreset` は無視される。送信する BlendShape と gaze チャネルが 1 つも無い場合は、警告を出して起動しない
 - **（破壊的変更）FacialControl 同士の OSC 送受信を値フレームに切り替えた。** `OscSenderAdapterBinding` は送信元識別と値フレーム（`/_facialcontrol/values`）だけを送り、BlendShape・gaze の名前つきアドレス、heartbeat（`/_facialcontrol/blendshape_names`）、preset、gaze 広告は送らない。`OscReceiverAdapterBinding` は値フレームを受けると送信元 UUID ごとに対応表を要求し（受信ソケットから値フレームの送信元へ。返信は受信ポートに届く）、欠けたチャンクだけを再要求し、揃わない状態が 3 秒続いたら警告を 1 回出す。要求のチャンク番号が 1 通 1,400 バイトに収まらないときは全チャンクを要求する。対応表が揃ったら BlendShape 名が一致する受信側の BlendShape へ slot を割り当て（受信側に無い名前は警告せず捨てる）、gaze チャネルの X / Y は同じ id の gaze 入力源（手動 mapping の gaze を含む。左右共通）へ、目ボーン path・可動範囲の属性は従来の上書きへ渡す。バージョンが一致する値フレームだけを適用するので、送信側の再起動や BlendShape 構成の変更後は自動で対応表を取り直す。対応表を適用した後は heartbeat・gaze 広告で mapping を上書きしない。名前つきアドレスの受信（手動マッピング・heartbeat の自動マッピング）は外部の送信元向けに残している（対応表の mapping は手動マッピングの後ろに並べる。削除は後続の変更で行う）。送信元のアドレスを記録するのは対応表を待っている間だけで、適用後の送受信はフレームごとのヒープ確保を増やさない
 - 受信 slug をどのレイヤーにも宣言していない既存の Profile でも、起動時に先頭レイヤー（対象レイヤー未指定時）へ受信値が合成されるようになった。意図して受信をレイヤーに繋いでいなかった場合は、対象レイヤーを選び直すか、受信値を入れたいレイヤーへ slug を手で宣言する
 - 属性ペアを知らない旧バージョンの受信側は、新しい送信側の広告を受け取ると未知の形式として警告を 1 回出してスキップする（route と目線の動作は従来どおり）

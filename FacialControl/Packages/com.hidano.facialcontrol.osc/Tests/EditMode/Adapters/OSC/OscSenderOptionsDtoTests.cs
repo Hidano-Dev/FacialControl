@@ -25,15 +25,14 @@ namespace Hidano.FacialControl.Tests.EditMode.Adapters.Json
             {
                 endpoints = new[]
                 {
-                    new OscSenderEndpointDto("127.0.0.1", 9000, OscSenderEndpointDto.PresetVRChat, true),
-                    new OscSenderEndpointDto("renderer.local", 9012, OscSenderEndpointDto.PresetARKit, false)
+                    new OscSenderEndpointDto("127.0.0.1", 9000, true),
+                    new OscSenderEndpointDto("renderer.local", 9012, false)
                 },
                 blendShapeMapping = new[]
                 {
                     "Joy",
                     "Blink_L"
                 },
-                sendPreset = false,
                 suppressLoopback = false,
                 heartbeatIntervalSeconds = 2.5f
             };
@@ -44,14 +43,11 @@ namespace Hidano.FacialControl.Tests.EditMode.Adapters.Json
             Assert.AreEqual(2, result.endpoints.Length);
             Assert.AreEqual("127.0.0.1", result.endpoints[0].ip);
             Assert.AreEqual(9000, result.endpoints[0].port);
-            Assert.AreEqual(OscSenderEndpointDto.PresetVRChat, result.endpoints[0].preset);
             Assert.IsTrue(result.endpoints[0].enabled);
             Assert.AreEqual("renderer.local", result.endpoints[1].ip);
             Assert.AreEqual(9012, result.endpoints[1].port);
-            Assert.AreEqual(OscSenderEndpointDto.PresetARKit, result.endpoints[1].preset);
             Assert.IsFalse(result.endpoints[1].enabled);
             Assert.AreEqual(source.blendShapeMapping, result.blendShapeMapping);
-            Assert.IsFalse(result.sendPreset);
             Assert.IsFalse(result.suppressLoopback);
             Assert.AreEqual(2.5f, result.heartbeatIntervalSeconds);
         }
@@ -75,10 +71,8 @@ namespace Hidano.FacialControl.Tests.EditMode.Adapters.Json
             Assert.AreEqual(1, result.endpoints.Length);
             Assert.AreEqual("127.0.0.1", result.endpoints[0].ip);
             Assert.AreEqual(9100, result.endpoints[0].port);
-            Assert.AreEqual(OscSenderEndpointDto.PresetARKit, result.endpoints[0].preset);
             Assert.IsTrue(result.endpoints[0].enabled);
             Assert.AreEqual(new[] { "Smile" }, result.blendShapeMapping);
-            Assert.IsFalse(result.sendPreset);
             Assert.IsTrue(result.suppressLoopback);
             Assert.AreEqual(4.0f, result.heartbeatIntervalSeconds);
         }
@@ -92,26 +86,32 @@ namespace Hidano.FacialControl.Tests.EditMode.Adapters.Json
             Assert.AreEqual(1, result.endpoints.Length);
             Assert.AreEqual(OscSenderEndpointConfig.DefaultEndpoint, result.endpoints[0].ip);
             Assert.AreEqual(OscConfiguration.DefaultSendPort, result.endpoints[0].port);
-            Assert.AreEqual(OscSenderEndpointDto.PresetVRChat, result.endpoints[0].preset);
             Assert.IsTrue(result.endpoints[0].enabled);
             Assert.IsNotNull(result.blendShapeMapping);
             Assert.IsEmpty(result.blendShapeMapping);
-            Assert.IsTrue(result.sendPreset);
             Assert.IsTrue(result.suppressLoopback);
             Assert.AreEqual(OscSenderOptionsDto.DefaultHeartbeatIntervalSeconds, result.heartbeatIntervalSeconds);
         }
 
         [Test]
-        public void ToConfig_ConvertsPresetStringToAddressPresetKind()
+        public void ToConfig_CopiesEndpointPortAndEnabled()
         {
-            var dto = new OscSenderEndpointDto("127.0.0.1", 9100, "ARKit", true);
+            var dto = new OscSenderEndpointDto(" 127.0.0.1 ", 9100, true);
 
             OscSenderEndpointConfig config = dto.ToConfig();
 
             Assert.AreEqual("127.0.0.1", config.endpoint);
             Assert.AreEqual(9100, config.port);
             Assert.IsTrue(config.enabled);
-            Assert.AreEqual(AddressPresetKind.ARKit, config.preset);
+        }
+
+        [Test]
+        public void ToJson_DoesNotWritePresetKeys()
+        {
+            string json = new OscSenderOptionsDto().ToJson();
+
+            StringAssert.DoesNotContain("\"preset\"", json);
+            StringAssert.DoesNotContain("\"sendPreset\"", json);
         }
     }
 }

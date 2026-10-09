@@ -144,8 +144,8 @@ namespace Hidano.FacialControl.Osc.Tests.EditMode.Adapters.RuntimeSettings
             AssignSenderFields(
                 endpoints: new List<OscSenderEndpointConfig>
                 {
-                    new OscSenderEndpointConfig("10.0.0.1", 9200, true, AddressPresetKind.VRChat),
-                    new OscSenderEndpointConfig("10.0.0.2", 9300, false, AddressPresetKind.ARKit),
+                    new OscSenderEndpointConfig("10.0.0.1", 9200, true),
+                    new OscSenderEndpointConfig("10.0.0.2", 9300, false),
                 },
                 heartbeatIntervalSeconds: 7.5f,
                 suppressLoopback: false);
@@ -170,7 +170,6 @@ namespace Hidano.FacialControl.Osc.Tests.EditMode.Adapters.RuntimeSettings
                     Assert.AreEqual(_instance.Endpoints[i].endpoint, restored.Endpoints[i].endpoint);
                     Assert.AreEqual(_instance.Endpoints[i].port, restored.Endpoints[i].port);
                     Assert.AreEqual(_instance.Endpoints[i].enabled, restored.Endpoints[i].enabled);
-                    Assert.AreEqual(_instance.Endpoints[i].preset, restored.Endpoints[i].preset);
                 }
                 Assert.AreEqual(_instance.HeartbeatIntervalSeconds, restored.HeartbeatIntervalSeconds);
                 Assert.AreEqual(_instance.SuppressLoopback, restored.SuppressLoopback);
@@ -360,7 +359,6 @@ namespace Hidano.FacialControl.Osc.Tests.EditMode.Adapters.RuntimeSettings
                 element.FindPropertyRelative("endpoint").stringValue = endpoints[i].endpoint;
                 element.FindPropertyRelative("port").intValue = endpoints[i].port;
                 element.FindPropertyRelative("enabled").boolValue = endpoints[i].enabled;
-                element.FindPropertyRelative("preset").enumValueIndex = (int)endpoints[i].preset;
             }
 
             so.FindProperty("_heartbeatIntervalSeconds").floatValue = heartbeatIntervalSeconds;
@@ -423,8 +421,8 @@ namespace Hidano.FacialControl.Osc.Tests.EditMode.Adapters.RuntimeSettings
                 senderEnabled: false,
                 endpoints: new List<OscSenderEndpointConfig>
                 {
-                    new OscSenderEndpointConfig("10.0.0.1", 9200, true, AddressPresetKind.VRChat),
-                    new OscSenderEndpointConfig("10.0.0.2", 9300, false, AddressPresetKind.ARKit),
+                    new OscSenderEndpointConfig("10.0.0.1", 9200, true),
+                    new OscSenderEndpointConfig("10.0.0.2", 9300, false),
                 },
                 heartbeatIntervalSeconds: 7.5f,
                 suppressLoopback: false);
@@ -452,7 +450,6 @@ namespace Hidano.FacialControl.Osc.Tests.EditMode.Adapters.RuntimeSettings
                 Assert.AreEqual(_source.Endpoints[i].endpoint, _restored.Endpoints[i].endpoint);
                 Assert.AreEqual(_source.Endpoints[i].port, _restored.Endpoints[i].port);
                 Assert.AreEqual(_source.Endpoints[i].enabled, _restored.Endpoints[i].enabled);
-                Assert.AreEqual(_source.Endpoints[i].preset, _restored.Endpoints[i].preset);
             }
         }
 
@@ -561,7 +558,6 @@ namespace Hidano.FacialControl.Osc.Tests.EditMode.Adapters.RuntimeSettings
                 element.FindPropertyRelative("endpoint").stringValue = endpoints[i].endpoint;
                 element.FindPropertyRelative("port").intValue = endpoints[i].port;
                 element.FindPropertyRelative("enabled").boolValue = endpoints[i].enabled;
-                element.FindPropertyRelative("preset").enumValueIndex = (int)endpoints[i].preset;
             }
 
             so.ApplyModifiedPropertiesWithoutUndo();

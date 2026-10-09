@@ -182,7 +182,6 @@ namespace Hidano.FacialControl.Osc.Editor.AdapterBindings
                     element.FindPropertyRelative(nameof(OscSenderEndpointConfig.port)).intValue = src.port;
                     element.FindPropertyRelative(nameof(OscSenderEndpointConfig.enabled)).boolValue =
                         src.enabled && legacy.SenderEnabled;
-                    element.FindPropertyRelative(nameof(OscSenderEndpointConfig.preset)).intValue = (int)src.preset;
                 }
             }
 

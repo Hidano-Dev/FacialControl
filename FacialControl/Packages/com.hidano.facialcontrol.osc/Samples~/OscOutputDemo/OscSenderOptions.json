@@ -3,13 +3,11 @@
     {
       "ip": "127.0.0.1",
       "port": 9000,
-      "preset": "vrchat",
       "enabled": true
     },
     {
       "ip": "127.0.0.1",
       "port": 9001,
-      "preset": "arkit",
       "enabled": true
     }
   ],

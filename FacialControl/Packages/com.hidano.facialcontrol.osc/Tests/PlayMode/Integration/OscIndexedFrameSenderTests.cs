@@ -219,7 +219,7 @@ namespace Hidano.FacialControl.Tests.PlayMode.Integration
             };
             _bindings.Add(binding);
             binding.ConfigureEndpoints(
-                new[] { new OscSenderEndpointConfig("127.0.0.1", port, preset: AddressPresetKind.VRChat) },
+                new[] { new OscSenderEndpointConfig("127.0.0.1", port) },
                 names);
             if (withGaze)
             {

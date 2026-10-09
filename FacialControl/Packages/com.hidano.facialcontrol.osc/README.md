@@ -22,7 +22,7 @@
 ## 使い方
 
 1. `FacialCharacterProfileSO` の **Adapter Bindings** で **OSC Receiver** / **OSC Sender** を Add する
-2. Receiver は **受信ポート**（既定 9001。受信は常に全インターフェース）、Sender は **送信先**（既定 `127.0.0.1:9000` の 1 件。複数指定可、宛先ごとに有効 / プリセット VRChat・ARKit を選べる）を設定する
+2. Receiver は **受信ポート**（既定 9001。受信は常に全インターフェース）、Sender は **送信先**（既定 `127.0.0.1:9000` の 1 件。複数指定可、宛先ごとに有効 / 無効を選べる）を設定する
    - 上級設定を変えたい場合だけ、**Create → FacialControl → Adapter Runtime Settings Collection** に **Add → OscReceiverRuntimeSettingsSO** / **OscSenderRuntimeSettingsSO** で sub-asset を追加し、binding の **上級設定** に割り当てる
 3. Receiver の **対象レイヤー** で、受信値を足す既存レイヤーを選ぶ（未指定ならプロファイルの先頭レイヤー）。レイヤーの入力源を手で編集する必要はない（起動時の補い方は「受信の動作」）
 4. Gaze を受信する場合は Profile の目線タブでチャネル `gaze` の入力ソースに Receiver を選ぶ。送信側が FacialControl なら手動 mapping は不要
@@ -41,7 +41,7 @@
 |---|---|
 | `/_facialcontrol/sender_id` | 送信元識別（UUID + 起動時刻）。毎 bundle に同梱。受信側は最新起動の sender だけを採用しゾンビ送信元を排除 |
 | `/_facialcontrol/blendshape_names` | heartbeat。送信側が持つ BlendShape 名一覧。起動時と `heartbeatIntervalSeconds`（既定 5 秒）周期 |
-| `/_facialcontrol/preset` | `"vrchat"` / `"arkit"` のプリセット通知（Sender の Send Preset Address が ON のとき） |
+| `/_facialcontrol/preset` | `"vrchat"` / `"arkit"` のプリセット通知（受信側だけが解釈する。送信側は送らない） |
 | `/_facialcontrol/gaze` | Gaze 広告。チャネル id と形式（`VRChat_XY` / `ARKit_8BS`）の組に続けて、チャネルごとの属性ペア（`bone.left=<path>` / `bone.right=<path>` / `range=<上>,<下>,<外>,<内>`）を同梱 |
 
 `/_facialcontrol/gaze` の引数は `[channelId, value, ...]` の文字列ペアの並び。value が形式識別子のペアは自動 route を、`key=value` 形式のペアはそのチャネルの目線設定を表す。
@@ -77,7 +77,7 @@
 
 ## 送信の動作
 
-- `FacialOutputBus` を購読し、`OnLateTick` で 1 フレーム 1 bundle を送る。MTU（1472 byte）を超える場合は同一タイムスタンプの複数 bundle に分割
+- `FacialOutputBus` を購読し、`OnLateTick` で 1 フレーム 1 bundle（`/_facialcontrol/sender_id` + 値フレーム `/_facialcontrol/values`）を送る。MTU（1472 byte）を超える場合は同一タイムスタンプの複数 bundle に分割。対応表は受信側の要求に応じて返す。送信先ごとのアドレス形式（プリセット）は無い
 - 送信対象の BlendShape は既定でモデルの全 BlendShape。**BlendShape Names (Optional Filter)** に列挙すると絞り込める
 - Gaze は Profile の目線タブに宣言されたチャネルが `FacialController` から自動注入される。Inspector で個別指定する項目はない
 - **Suppress Loopback**（既定 ON）: 同じ Profile 内の OSC Receiver と同じ endpoint への送信を抑止する。同一プロセスで送受信デモを同居させるときは OFF にする
@@ -87,7 +87,7 @@
 
 | Sample | 内容 |
 |---|---|
-| `OscOutputDemo` | sin 波のデモ信号を BlendShape / Gaze として合成し、VRChat（9000）と ARKit（9001）の 2 endpoint へ送信 |
+| `OscOutputDemo` | sin 波のデモ信号を BlendShape / Gaze として合成し、9000 と 9001 の 2 endpoint へ値フレームで送信 |
 | `OscReceiverDemo` | 9000 で受信し、heartbeat 自動マッピングでモデルへ反映。Gaze は広告から自動 route |
 
 ## JSON リファレンス

@@ -64,29 +64,9 @@ namespace Hidano.FacialControl.Tests.EditMode.Adapters.AdapterBindings
         }
 
         [Test]
-        public void Ctor_SendPreset_DefaultsToTrue()
-        {
-            var binding = new OscSenderAdapterBinding();
-
-            Assert.That(binding.SendPreset, Is.True);
-        }
-
-        [Test]
         public void Type_ImplementsGazeChannelConsumer()
         {
             Assert.That(typeof(IGazeChannelConsumer).IsAssignableFrom(typeof(OscSenderAdapterBinding)), Is.True);
-        }
-
-        [Test]
-        public void Type_SendPreset_IsSerializableBooleanField()
-        {
-            FieldInfo field = typeof(OscSenderAdapterBinding).GetField(
-                "_sendPreset",
-                BindingFlags.Instance | BindingFlags.NonPublic);
-
-            Assert.That(field, Is.Not.Null);
-            Assert.That(field.FieldType, Is.EqualTo(typeof(bool)));
-            Assert.That(field.GetCustomAttribute<SerializeField>(), Is.Not.Null);
         }
 
         [Test]
@@ -403,38 +383,56 @@ namespace Hidano.FacialControl.Tests.EditMode.Adapters.AdapterBindings
         }
 
         [Test]
-        public void OnStart_CustomPresetWithGaze_SkipsGazeAndContinuesBinding()
+        public void OnStart_BlendShapeAndGazeWithMultipleEndpoints_StartsEveryEndpoint()
         {
             var bus = new RecordingFacialOutputBus();
             var binding = new OscSenderAdapterBinding { Slug = "osc-sender" };
-            int vrchatPort = AllocatePort();
+            int firstPort = AllocatePort();
+            int secondPort = AllocatePort();
             binding.ConfigureEndpoints(new[]
             {
-                new OscSenderEndpointConfig(
-                    "127.0.0.1",
-                    AllocatePort(),
-                    preset: AddressPresetKind.Custom),
-                new OscSenderEndpointConfig(
-                    "127.0.0.1",
-                    vrchatPort,
-                    preset: AddressPresetKind.VRChat)
+                new OscSenderEndpointConfig("127.0.0.1", firstPort),
+                new OscSenderEndpointConfig("127.0.0.1", secondPort)
             });
-            binding.BlendShapeNames.Add("smile");
             binding.ConfigureGazeChannels(new[] { "eyeLook" });
-            var host = new GameObject("OscSenderAdapterBindingCustomGazeTests");
-
-            LogAssert.Expect(LogType.Warning, new Regex("Custom address preset"));
-            LogAssert.Expect(LogType.Warning, new Regex("Custom preset.*gaze"));
+            var host = new GameObject("OscSenderAdapterBindingGazeEndpointsTests");
 
             try
             {
-                binding.OnStart(CreateContext(bus, host, new[] { "smile" }));
+                binding.OnStart(CreateContext(bus, host, new[] { "smile", "まばたき" }));
 
                 Assert.That(binding.IsStarted, Is.True);
-                Assert.That(binding.HelperSenderCount, Is.EqualTo(1));
-                Assert.That(binding.HelperSender.Port, Is.EqualTo(vrchatPort),
-                    "Custom preset の endpoint は gaze 付きでは skip され、VRChat preset の endpoint だけが起動するべき。");
-                Assert.That(bus.Observer, Is.SameAs(binding));
+                Assert.That(binding.HelperSenderCount, Is.EqualTo(2));
+                Assert.That(binding.GetHelperSender(0).Port, Is.EqualTo(firstPort));
+                Assert.That(binding.GetHelperSender(1).Port, Is.EqualTo(secondPort));
+            }
+            finally
+            {
+                binding.Dispose();
+                UnityEngine.Object.DestroyImmediate(host);
+            }
+        }
+
+        [Test]
+        public void OnStart_NoBlendShapeAndNoGaze_DoesNotStartAndWarns()
+        {
+            var bus = new RecordingFacialOutputBus();
+            var binding = new OscSenderAdapterBinding { Slug = "osc-sender" };
+            binding.ConfigureEndpoints(new[]
+            {
+                new OscSenderEndpointConfig("127.0.0.1", AllocatePort())
+            });
+            var host = new GameObject("OscSenderAdapterBindingEmptyLayoutTests");
+
+            LogAssert.Expect(LogType.Warning, new Regex(@"\[OscSenderAdapterBinding\] No BlendShape or gaze channel to send"));
+
+            try
+            {
+                binding.OnStart(CreateContext(bus, host, Array.Empty<string>()));
+
+                Assert.That(binding.IsStarted, Is.False);
+                Assert.That(binding.HelperSenderCount, Is.EqualTo(0));
+                Assert.That(host.GetComponents<OscSender>().Length, Is.EqualTo(0));
             }
             finally
             {

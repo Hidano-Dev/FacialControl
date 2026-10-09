@@ -23,8 +23,6 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
         public const float MinHeartbeatIntervalSeconds = 0.5f;
         public const float MaxHeartbeatIntervalSeconds = 60f;
 
-        private const int VrChatGazeMessageCount = 2;
-
         /// <summary>
         /// 送信先リスト。binding 本体に持たせ、Adapter Bindings から直接確認・変更できるようにする。
         /// 新規 binding は 1 件（<see cref="OscSenderEndpointConfig.DefaultEndpoint"/> と既定ポート）で始まる。
@@ -56,13 +54,10 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
         private List<string> _gazeChannelIds = new List<string>();
 
         /// <summary>
-        /// Profile の Gaze セクションの設定。gaze 広告に目ボーン path・可動範囲の属性ペアを載せるために使う。
+        /// Profile の Gaze セクションの設定。対応表の gaze チャネルに目ボーン path・可動範囲の属性を載せるために使う。
         /// </summary>
         [NonSerialized]
         private IReadOnlyList<GazeChannel> _gazeChannelSettings = Array.Empty<GazeChannel>();
-
-        [SerializeField]
-        private bool _sendPreset = true;
 
         /// <summary>
         /// 上級設定アセットが未割り当てのときに使う既定値の SO。プロパティ setter から値を流し込む
@@ -94,9 +89,6 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
         private List<SendSlot> _sendSlots;
 
         [NonSerialized]
-        private Dictionary<(string name, AddressPresetKind preset), byte[]> _addressBytesPool;
-
-        [NonSerialized]
         private LoopbackSuppressionPolicy _loopbackSuppressionPolicy;
 
         [NonSerialized]
@@ -125,9 +117,6 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
 
         [NonSerialized]
         private bool _subscribed;
-
-        [NonSerialized]
-        private bool _warnedCustomGazeAdvertisement;
 
         [NonSerialized]
         private bool _started;
@@ -231,12 +220,6 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
             set => EnsureRuntimeSettings().SetSuppressLoopback(value);
         }
 
-        public bool SendPreset
-        {
-            get => _sendPreset;
-            set => _sendPreset = value;
-        }
-
         public OscSender HelperSender => _sendSlots != null && _sendSlots.Count > 0
             ? _sendSlots[0].Sender
             : null;
@@ -324,13 +307,13 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
                 OscSenderEndpointConfig src = value[i];
                 _endpoints.Add(src == null
                     ? null
-                    : new OscSenderEndpointConfig(src.endpoint, src.port, src.enabled, src.preset));
+                    : new OscSenderEndpointConfig(src.endpoint, src.port, src.enabled));
             }
         }
 
         /// <summary>
-        /// Profile の Gaze セクションの設定を受け取る。gaze 広告を送るチャネルごとに、
-        /// 目ボーン path (指定がある側のみ) と可動範囲を広告へ載せ、受信側の目線設定を上書きさせる。
+        /// Profile の Gaze セクションの設定を受け取る。対応表の gaze チャネルごとに、
+        /// 目ボーン path (指定がある側のみ) と可動範囲を載せ、受信側の目線設定を上書きさせる。
         /// </summary>
         public void ConfigureGazeChannelSettings(IReadOnlyList<GazeChannel> channels)
         {
@@ -431,39 +414,36 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
 
             IReadOnlyList<string> resolvedGazeExpressionIds = _gazeChannelIds;
 
-            _addressBytesPool = new Dictionary<(string name, AddressPresetKind preset), byte[]>();
+            // 対応表に載せる BlendShape と gaze チャネルは送信先によらず同じ。
+            // 送信先がすべて loopback 抑制された場合は、送らないまま起動状態にする（下の allEndpointsSuppressed）。
+            bool hasLayoutSources = TryBuildLayoutSources(
+                ctx.BlendShapeNames,
+                resolvedGazeExpressionIds,
+                out int[] sourceBlendShapeIndices,
+                out string[] layoutBlendShapeNames,
+                out string[] gazeExpressionIds);
+            if (!hasLayoutSources && endpoints.Count > 0)
+            {
+                Debug.LogWarning(
+                    "[OscSenderAdapterBinding] No BlendShape or gaze channel to send. OSC Sender will not start.");
+                _loopbackSuppressionPolicy = null;
+                return;
+            }
+
             var sendSlots = new List<SendSlot>(endpoints.Count);
             for (int i = 0; i < endpoints.Count; i++)
             {
                 OscSenderEndpointConfig endpoint = endpoints[i];
-                if (!TryBuildMappings(
-                        ctx.BlendShapeNames,
-                        resolvedGazeExpressionIds,
-                        endpoint.preset,
-                        out OscMapping[] mappings,
-                        out byte[][] addressUtf8,
-                        out int[] sourceBlendShapeIndices,
-                        out string[] heartbeatBlendShapeNames,
-                        out string[] gazeExpressionIds))
-                {
-                    Debug.LogWarning(
-                        $"[OscSenderAdapterBinding] OSC mapping is empty for endpoint '{endpoint.endpoint}:{endpoint.port}'. Skipping endpoint.");
-                    continue;
-                }
-
                 OscSender sender = null;
                 try
                 {
                     sender = ctx.HostGameObject.AddComponent<OscSender>();
-                    sender.Configure(endpoint.endpoint, endpoint.port, mappings, addressUtf8);
+                    sender.Configure(endpoint.endpoint, endpoint.port, Array.Empty<OscMapping>());
                     var slot = new SendSlot(
                         sender,
-                        endpoint.preset,
-                        addressUtf8,
                         sourceBlendShapeIndices,
-                        heartbeatBlendShapeNames,
-                        gazeExpressionIds,
-                        BuildGazeAdvertisementPairs(endpoint.preset, gazeExpressionIds, _gazeChannelSettings));
+                        layoutBlendShapeNames,
+                        gazeExpressionIds);
                     UpdateGazeSettingsSnapshots(gazeExpressionIds, _gazeChannelSettings, slot.GazeSettingsSnapshots);
                     sendSlots.Add(slot);
                 }
@@ -490,12 +470,10 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
             {
                 if (allEndpointsSuppressed)
                 {
-                    _addressBytesPool = null;
                     CompleteStart(in ctx, sendSlots);
                     return;
                 }
 
-                _addressBytesPool = null;
                 _loopbackSuppressionPolicy = null;
                 Debug.LogWarning("[OscSenderAdapterBinding] No endpoint could be started. OSC Sender will not start.");
                 return;
@@ -536,7 +514,7 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
 
                 if (refreshLayout)
                 {
-                    RefreshGazeAdvertisementIfSettingsChanged(slot);
+                    RefreshLayoutIfGazeSettingsChanged(slot);
                 }
 
                 slot.Sender.SendIndexedFrame(_identityUuidBytes, _identityStartedAtUnixMs);
@@ -586,7 +564,6 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
             _identity = default;
             _identityUuidBytes = null;
             _identityStartedAtUnixMs = null;
-            _addressBytesPool = null;
             _loopbackSuppressionPolicy = null;
             _heartbeatElapsedSeconds = 0f;
             _sendHeartbeatOnNextTick = false;
@@ -595,7 +572,6 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
             OscRuntimeSettingsInstances.Destroy(ref _runtimeSettings);
             OscRuntimeSettingsInstances.Destroy(ref _legacyConvertedSettings);
             _legacyConvertedFrom = null;
-            _warnedCustomGazeAdvertisement = false;
             _started = false;
         }
 
@@ -724,8 +700,7 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
                 endpoints.Add(new OscSenderEndpointConfig(
                     endpoint,
                     configuredEndpoint.port,
-                    enabled: true,
-                    configuredEndpoint.preset));
+                    enabled: true));
             }
 
             if (distinctEnabledCount == 0)
@@ -763,14 +738,15 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
             }
         }
 
-        private bool TryBuildMappings(
+        /// <summary>
+        /// 対応表に載せる BlendShape（名前と出力値の index）と gaze チャネルを決める。
+        /// <see cref="BlendShapeNames"/> が空なら対象キャラの全 BlendShape を載せる。どちらも無ければ false。
+        /// </summary>
+        private bool TryBuildLayoutSources(
             IReadOnlyList<string> contextBlendShapeNames,
             IReadOnlyList<string> resolvedGazeExpressionIds,
-            AddressPresetKind preset,
-            out OscMapping[] mappings,
-            out byte[][] addressUtf8,
             out int[] sourceIndices,
-            out string[] heartbeatBlendShapeNames,
+            out string[] layoutBlendShapeNames,
             out string[] gazeExpressionIds)
         {
             IReadOnlyList<string> names = _blendShapeNames != null && _blendShapeNames.Count > 0
@@ -779,11 +755,8 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
 
             int blendShapeCapacity = names != null ? names.Count : 0;
             int gazeCapacity = resolvedGazeExpressionIds != null ? resolvedGazeExpressionIds.Count : 0;
-            int gazeMessageCount = GetGazeMessageCount(preset);
-            var mappingList = new List<OscMapping>(blendShapeCapacity + (gazeCapacity * gazeMessageCount));
-            var addressBytesList = new List<byte[]>(blendShapeCapacity + (gazeCapacity * gazeMessageCount));
             var indexList = new List<int>(blendShapeCapacity);
-            var heartbeatNameList = new List<string>(blendShapeCapacity);
+            var nameList = new List<string>(blendShapeCapacity);
             var gazeExpressionIdList = new List<string>(gazeCapacity);
 
             if (names != null)
@@ -804,155 +777,27 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
                         continue;
                     }
 
-                    string address;
-                    try
-                    {
-                        address = OscAddressFormatter.FormatBlendShapeAddress(preset, blendShapeName);
-                    }
-                    catch (NotSupportedException ex)
-                    {
-                        Debug.LogWarning($"[OscSenderAdapterBinding] {ex.Message}");
-                        continue;
-                    }
-
-                    mappingList.Add(new OscMapping(address, blendShapeName, string.Empty));
-                    addressBytesList.Add(OscAddressFormatter.GetOrAddBlendShapeAddressUtf8(
-                        _addressBytesPool,
-                        preset,
-                        blendShapeName));
                     indexList.Add(sourceIndex);
-                    heartbeatNameList.Add(blendShapeName);
+                    nameList.Add(blendShapeName);
                 }
             }
 
-            AppendGazeMappingsSafely(
-                preset,
-                resolvedGazeExpressionIds,
-                mappingList,
-                addressBytesList,
-                gazeExpressionIdList);
+            if (resolvedGazeExpressionIds != null)
+            {
+                for (int i = 0; i < resolvedGazeExpressionIds.Count; i++)
+                {
+                    string expressionId = resolvedGazeExpressionIds[i];
+                    if (!string.IsNullOrEmpty(expressionId))
+                    {
+                        gazeExpressionIdList.Add(expressionId);
+                    }
+                }
+            }
 
-            mappings = mappingList.ToArray();
-            addressUtf8 = addressBytesList.ToArray();
             sourceIndices = indexList.ToArray();
-            heartbeatBlendShapeNames = heartbeatNameList.ToArray();
+            layoutBlendShapeNames = nameList.ToArray();
             gazeExpressionIds = gazeExpressionIdList.ToArray();
-            return mappings.Length > 0;
-        }
-
-        private void AppendGazeMappingsSafely(
-            AddressPresetKind preset,
-            IReadOnlyList<string> resolvedGazeExpressionIds,
-            List<OscMapping> mappingList,
-            List<byte[]> addressBytesList,
-            List<string> gazeExpressionIdList)
-        {
-            int mappingStart = mappingList.Count;
-            int addressStart = addressBytesList.Count;
-            int gazeExpressionIdStart = gazeExpressionIdList.Count;
-
-            try
-            {
-                AppendGazeMappings(
-                    preset,
-                    resolvedGazeExpressionIds,
-                    mappingList,
-                    addressBytesList,
-                    gazeExpressionIdList);
-            }
-            catch (NotSupportedException ex)
-            {
-                mappingList.RemoveRange(mappingStart, mappingList.Count - mappingStart);
-                addressBytesList.RemoveRange(addressStart, addressBytesList.Count - addressStart);
-                gazeExpressionIdList.RemoveRange(
-                    gazeExpressionIdStart,
-                    gazeExpressionIdList.Count - gazeExpressionIdStart);
-                Debug.LogWarning(
-                    $"[OscSenderAdapterBinding] {ex.Message} Gaze output was skipped for this endpoint.");
-            }
-        }
-
-        private void AppendGazeMappings(
-            AddressPresetKind preset,
-            IReadOnlyList<string> resolvedGazeExpressionIds,
-            List<OscMapping> mappingList,
-            List<byte[]> addressBytesList,
-            List<string> gazeExpressionIdList)
-        {
-            if (resolvedGazeExpressionIds == null)
-            {
-                return;
-            }
-
-            if (preset == AddressPresetKind.Custom)
-            {
-                if (resolvedGazeExpressionIds.Count > 0 && !_warnedCustomGazeAdvertisement)
-                {
-                    Debug.LogWarning(
-                        "[OscSenderAdapterBinding] Custom preset は形式識別子を確定できないため gaze 広告を送出しません。");
-                    _warnedCustomGazeAdvertisement = true;
-                }
-
-                return;
-            }
-
-            for (int i = 0; i < resolvedGazeExpressionIds.Count; i++)
-            {
-                string expressionId = resolvedGazeExpressionIds[i];
-                if (string.IsNullOrEmpty(expressionId))
-                {
-                    continue;
-                }
-
-                if (preset == AddressPresetKind.ARKit)
-                {
-                    AppendArKitGazeMappings(mappingList, addressBytesList);
-                    gazeExpressionIdList.Add(expressionId);
-                    continue;
-                }
-
-                string xAddress = OscAddressFormatter.FormatGazeAddress(
-                    preset,
-                    expressionId,
-                    OscAddressFormatter.VRChatGazeXAxis);
-                string yAddress = OscAddressFormatter.FormatGazeAddress(
-                    preset,
-                    expressionId,
-                    OscAddressFormatter.VRChatGazeYAxis);
-
-                mappingList.Add(new OscMapping(xAddress, expressionId + "X", string.Empty));
-                addressBytesList.Add(OscAddressFormatter.GetOrAddGazeAddressUtf8(
-                    _addressBytesPool,
-                    preset,
-                    expressionId,
-                    OscAddressFormatter.VRChatGazeXAxis));
-
-                mappingList.Add(new OscMapping(yAddress, expressionId + "Y", string.Empty));
-                addressBytesList.Add(OscAddressFormatter.GetOrAddGazeAddressUtf8(
-                    _addressBytesPool,
-                    preset,
-                    expressionId,
-                    OscAddressFormatter.VRChatGazeYAxis));
-
-                gazeExpressionIdList.Add(expressionId);
-            }
-        }
-
-        private void AppendArKitGazeMappings(
-            List<OscMapping> mappingList,
-            List<byte[]> addressBytesList)
-        {
-            for (int i = 0; i < PerfectSyncEyeLook.Count; i++)
-            {
-                string name = PerfectSyncEyeLook.Names[i];
-                string address = OscAddressFormatter.FormatBlendShapeAddress(AddressPresetKind.ARKit, name);
-
-                mappingList.Add(new OscMapping(address, name, string.Empty));
-                addressBytesList.Add(OscAddressFormatter.GetOrAddBlendShapeAddressUtf8(
-                    _addressBytesPool,
-                    AddressPresetKind.ARKit,
-                    name));
-            }
+            return layoutBlendShapeNames.Length > 0 || gazeExpressionIds.Length > 0;
         }
 
         /// <summary>
@@ -1077,79 +922,11 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
             }
         }
 
-        private static int GetGazeMessageCount(AddressPresetKind preset)
-        {
-            return preset == AddressPresetKind.ARKit
-                ? PerfectSyncEyeLook.Count
-                : VrChatGazeMessageCount;
-        }
-
-        private static string ToPresetName(AddressPresetKind preset)
-        {
-            switch (preset)
-            {
-                case AddressPresetKind.ARKit:
-                    return AddressPresetEstimator.PresetArKit;
-                case AddressPresetKind.Custom:
-                    return AddressPresetEstimator.PresetCustom;
-                case AddressPresetKind.VRChat:
-                default:
-                    return AddressPresetEstimator.PresetVrChat;
-            }
-        }
-
-        private static string ToGazeFormatName(AddressPresetKind preset)
-        {
-            switch (preset)
-            {
-                case AddressPresetKind.VRChat:
-                    return "VRChat_XY";
-                case AddressPresetKind.ARKit:
-                    return "ARKit_8BS";
-                default:
-                    return null;
-            }
-        }
-
         /// <summary>
-        /// gaze 広告の [id, value, ...] を組み立てる。先頭に route のペア (id, 形式識別子) を並べ、
-        /// その後に <paramref name="gazeChannelSettings"/> に設定があるチャネルの属性ペア
-        /// (目ボーン path・可動範囲) を続ける。起動時に 1 回だけ組み立て、毎回の広告で使い回す。
+        /// 目線タブの目ボーン path・可動範囲が起動後に変わっていれば、対応表を別のバージョンで作り直す（受信側が取り直す）。
+        /// 変化は前回の値との比較だけで検出し、作り直す (ヒープ確保する) のは変わったときだけ。
         /// </summary>
-        internal static string[] BuildGazeAdvertisementPairs(
-            AddressPresetKind preset,
-            string[] gazeExpressionIds,
-            IReadOnlyList<GazeChannel> gazeChannelSettings)
-        {
-            string formatName = ToGazeFormatName(preset);
-            if (formatName == null || gazeExpressionIds == null || gazeExpressionIds.Length == 0)
-            {
-                return null;
-            }
-
-            var pairs = new List<string>(gazeExpressionIds.Length * 2);
-            for (int i = 0; i < gazeExpressionIds.Length; i++)
-            {
-                pairs.Add(gazeExpressionIds[i]);
-                pairs.Add(formatName);
-            }
-
-            for (int i = 0; i < gazeExpressionIds.Length; i++)
-            {
-                GazeAdvertisementResolver.AppendChannelAttributes(
-                    pairs,
-                    gazeExpressionIds[i],
-                    FindGazeChannelSettings(gazeChannelSettings, gazeExpressionIds[i]));
-            }
-
-            return pairs.ToArray();
-        }
-
-        /// <summary>
-        /// heartbeat の直前に、目線タブの目ボーン path・可動範囲が起動後に変わっていれば広告を組み直す。
-        /// 変化は前回の値との比較だけで検出し、組み直す (ヒープ確保する) のは変わったときだけ。
-        /// </summary>
-        private void RefreshGazeAdvertisementIfSettingsChanged(SendSlot slot)
+        private void RefreshLayoutIfGazeSettingsChanged(SendSlot slot)
         {
             if (slot.GazeExpressionIds.Length == 0
                 || !UpdateGazeSettingsSnapshots(slot.GazeExpressionIds, _gazeChannelSettings, slot.GazeSettingsSnapshots))
@@ -1157,8 +934,6 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
                 return;
             }
 
-            slot.SetGazeAdvertisementPairs(
-                BuildGazeAdvertisementPairs(slot.Preset, slot.GazeExpressionIds, _gazeChannelSettings));
             ConfigureIndexedFrame(slot, slot.IndexedLayout != null ? slot.IndexedLayout.Version : OscFrameLayoutVersion.Unknown);
         }
 
@@ -1175,15 +950,15 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
 
             OscFrameLayoutGazeChannel[] gazeChannels =
                 BuildIndexedGazeChannels(slot.GazeExpressionIds, _gazeChannelSettings);
-            OscFrameLayoutEntry[] entries = OscFrameLayout.ToEntries(slot.HeartbeatBlendShapeNames, gazeChannels);
+            OscFrameLayoutEntry[] entries = OscFrameLayout.ToEntries(slot.LayoutBlendShapeNames, gazeChannels);
             int version = OscFrameLayoutVersion.Compute(_identity, entries, previousVersion);
-            var layout = new OscFrameLayout(version, slot.HeartbeatBlendShapeNames, gazeChannels);
+            var layout = new OscFrameLayout(version, slot.LayoutBlendShapeNames, gazeChannels);
             slot.SetIndexedLayout(layout);
             slot.Sender.ConfigureIndexedFrame(_identity.Uuid, layout, slot.IndexedValues);
         }
 
         /// <summary>
-        /// 対応表に載せる gaze チャネルを組み立てる。属性は gaze 広告と同じ（目ボーン path・可動範囲）。
+        /// 対応表に載せる gaze チャネルを組み立てる。属性は目ボーン path・可動範囲。
         /// </summary>
         private static OscFrameLayoutGazeChannel[] BuildIndexedGazeChannels(
             string[] gazeExpressionIds,
@@ -1235,7 +1010,7 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
             return changed;
         }
 
-        /// <summary>gaze 広告の属性ペアに載せる 1 チャネル分の値。変化検出用。</summary>
+        /// <summary>対応表の gaze チャネルの属性に載せる 1 チャネル分の値。変化検出用。</summary>
         internal readonly struct GazeSettingsSnapshot : IEquatable<GazeSettingsSnapshot>
         {
             private readonly bool _found;
@@ -1303,44 +1078,26 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
         private sealed class SendSlot
         {
             public readonly OscSender Sender;
-            public readonly AddressPresetKind Preset;
-            public readonly byte[][] ConfiguredAddressUtf8;
             public readonly int[] SourceBlendShapeIndices;
-            public readonly string[] HeartbeatBlendShapeNames;
+            public readonly string[] LayoutBlendShapeNames;
             public readonly string[] GazeExpressionIds;
-            public string[] GazeAdvertisementPairs;
-            public int GazeAdvertisementPairCount;
             public readonly GazeSettingsSnapshot[] GazeSettingsSnapshots;
             public OscFrameLayout IndexedLayout;
             public float[] IndexedValues = Array.Empty<float>();
 
             public SendSlot(
                 OscSender sender,
-                AddressPresetKind preset,
-                byte[][] configuredAddressUtf8,
                 int[] sourceBlendShapeIndices,
-                string[] heartbeatBlendShapeNames,
-                string[] gazeExpressionIds,
-                string[] gazeAdvertisementPairs)
+                string[] layoutBlendShapeNames,
+                string[] gazeExpressionIds)
             {
                 Sender = sender;
-                Preset = preset;
-                ConfiguredAddressUtf8 = configuredAddressUtf8 ?? Array.Empty<byte[]>();
                 SourceBlendShapeIndices = sourceBlendShapeIndices ?? Array.Empty<int>();
-                HeartbeatBlendShapeNames = heartbeatBlendShapeNames ?? Array.Empty<string>();
+                LayoutBlendShapeNames = layoutBlendShapeNames ?? Array.Empty<string>();
                 GazeExpressionIds = gazeExpressionIds ?? Array.Empty<string>();
                 GazeSettingsSnapshots = GazeExpressionIds.Length == 0
                     ? Array.Empty<GazeSettingsSnapshot>()
                     : new GazeSettingsSnapshot[GazeExpressionIds.Length];
-                SetGazeAdvertisementPairs(gazeAdvertisementPairs);
-            }
-
-            public void SetGazeAdvertisementPairs(string[] gazeAdvertisementPairs)
-            {
-                GazeAdvertisementPairs = gazeAdvertisementPairs;
-                GazeAdvertisementPairCount = gazeAdvertisementPairs == null
-                    ? 0
-                    : gazeAdvertisementPairs.Length / 2;
             }
 
             /// <summary>対応表を差し替える。slot 数が変わらなければ値の置き場を使い回す（前回の値を残す）。</summary>

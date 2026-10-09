@@ -51,7 +51,7 @@ namespace Hidano.FacialControl.Tests.PlayMode.Performance
         {
             string[] blendShapeNames = CreateBlendShapeNames(16);
             var bus = new FacialOutputBus();
-            StartSender(bus, blendShapeNames, Array.Empty<string>(), AddressPresetKind.VRChat, 60f);
+            StartSender(bus, blendShapeNames, Array.Empty<string>(), 60f);
 
             float[] values = CreateValues(blendShapeNames.Length);
             WarmUp(bus, values, Array.Empty<GazeSnapshot>(), deltaTime: 1f / 60f);
@@ -76,7 +76,6 @@ namespace Hidano.FacialControl.Tests.PlayMode.Performance
                 bus,
                 blendShapeNames,
                 new[] { GazeExpressionId },
-                AddressPresetKind.VRChat,
                 60f);
 
             float[] values = CreateValues(blendShapeNames.Length);
@@ -101,7 +100,6 @@ namespace Hidano.FacialControl.Tests.PlayMode.Performance
                 bus,
                 blendShapeNames,
                 Array.Empty<string>(),
-                AddressPresetKind.VRChat,
                 OscSenderAdapterBinding.MinHeartbeatIntervalSeconds);
 
             float[] values = CreateValues(blendShapeNames.Length);
@@ -127,7 +125,6 @@ namespace Hidano.FacialControl.Tests.PlayMode.Performance
                 bus,
                 blendShapeNames,
                 new[] { GazeExpressionId },
-                AddressPresetKind.VRChat,
                 OscSenderAdapterBinding.MinHeartbeatIntervalSeconds);
 
             float[] values = CreateValues(blendShapeNames.Length);
@@ -154,7 +151,6 @@ namespace Hidano.FacialControl.Tests.PlayMode.Performance
             FacialOutputBus bus,
             IReadOnlyList<string> blendShapeNames,
             IReadOnlyList<string> gazeExpressionIds,
-            AddressPresetKind preset,
             float heartbeatIntervalSeconds)
         {
             _host = new GameObject("OscSenderGCAllocationTests");
@@ -168,7 +164,7 @@ namespace Hidano.FacialControl.Tests.PlayMode.Performance
             _binding.ConfigureEndpoints(
                 new[]
                 {
-                    new OscSenderEndpointConfig(Endpoint, AllocatePort(), preset: preset),
+                    new OscSenderEndpointConfig(Endpoint, AllocatePort()),
                 },
                 blendShapeNames);
             _binding.ConfigureGazeChannels(gazeExpressionIds);

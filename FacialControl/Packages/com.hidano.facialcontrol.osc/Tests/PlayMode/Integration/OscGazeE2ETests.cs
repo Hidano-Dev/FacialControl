@@ -101,18 +101,15 @@ namespace Hidano.FacialControl.Tests.PlayMode.Integration
         }
 
         [UnityTest]
-        public IEnumerator GazeVrChatPreset_UdpLoopback_ReconstructsReceiverVector2()
+        public IEnumerator Gaze_UdpLoopback_ReconstructsReceiverVector2()
         {
             int port = AllocatePort();
             var expected = new Vector2(0.64f, -0.37f);
 
-            // 手動 mapping は空。送信側の初回 heartbeat に同乗する広告だけで route を生成する。
+            // 手動 mapping は空。送信側の対応表の gaze チャネルだけで route を生成する。
             OscReceiverAdapterBinding receiver = CreateReceiver("vrchat-gaze-receiver", port);
 
-            OscSenderAdapterBinding sender = CreateSender(
-                "vrchat-gaze-sender",
-                port,
-                AddressPresetKind.VRChat);
+            OscSenderAdapterBinding sender = CreateSender("vrchat-gaze-sender", port);
 
             StartBinding(receiver, CreateContext(CreateGameObject("OscGazeE2E_VRChatReceiver")));
             StartBinding(sender, CreateContext(CreateGameObject("OscGazeE2E_VRChatSender")));
@@ -145,7 +142,7 @@ namespace Hidano.FacialControl.Tests.PlayMode.Integration
                 HeartbeatIntervalSeconds = 60f,
             };
             senderBinding.ConfigureEndpoints(
-                new[] { new OscSenderEndpointConfig(Endpoint, port, true, AddressPresetKind.VRChat) },
+                new[] { new OscSenderEndpointConfig(Endpoint, port, true) },
                 Array.Empty<string>());
             senderBinding.ConfigureGazeChannels(new[] { GazeSourceIdConvention.DefaultChannelId });
 
@@ -209,7 +206,7 @@ namespace Hidano.FacialControl.Tests.PlayMode.Integration
                 HeartbeatIntervalSeconds = 60f,
             };
             senderBinding.ConfigureEndpoints(
-                new[] { new OscSenderEndpointConfig(Endpoint, port, true, AddressPresetKind.VRChat) },
+                new[] { new OscSenderEndpointConfig(Endpoint, port, true) },
                 Array.Empty<string>());
             senderBinding.ConfigureGazeChannels(new[] { GazeSourceIdConvention.DefaultChannelId });
             // 送信側の目線タブ相当: Humanoid 以外の path と可動範囲を指定する。
@@ -278,18 +275,15 @@ namespace Hidano.FacialControl.Tests.PlayMode.Integration
         }
 
         [UnityTest]
-        public IEnumerator GazeArKitPreset_UdpLoopback_DecomposesSenderVector2()
+        public IEnumerator Gaze_UdpLoopback_ResolvesSameVectorForBothEyes()
         {
             int port = AllocatePort();
             var expected = new Vector2(-0.42f, 0.58f);
 
-            // 手動 mapping は空。広告受信後に ARKit の左右 source が自動生成される。
+            // 手動 mapping は空。対応表の gaze チャネルから作った source が左右の目に同じ値を配る。
             OscReceiverAdapterBinding receiver = CreateReceiver("arkit-gaze-receiver", port);
 
-            OscSenderAdapterBinding sender = CreateSender(
-                "arkit-gaze-sender",
-                port,
-                AddressPresetKind.ARKit);
+            OscSenderAdapterBinding sender = CreateSender("arkit-gaze-sender", port);
 
             StartBinding(receiver, CreateContext(CreateGameObject("OscGazeE2E_ARKitReceiver")));
             StartBinding(sender, CreateContext(CreateGameObject("OscGazeE2E_ARKitSender")));
@@ -372,7 +366,7 @@ namespace Hidano.FacialControl.Tests.PlayMode.Integration
         {
             int port = AllocatePort();
             OscReceiverAdapterBinding receiver = CreateReceiver("gaze-reuse-receiver", port);
-            OscSenderAdapterBinding sender = CreateSender("gaze-reuse-sender", port, AddressPresetKind.VRChat);
+            OscSenderAdapterBinding sender = CreateSender("gaze-reuse-sender", port);
 
             StartBinding(receiver, CreateContext(CreateGameObject("OscGazeE2E_ReuseReceiver")));
             StartBinding(sender, CreateContext(CreateGameObject("OscGazeE2E_ReuseSender")));
@@ -396,7 +390,7 @@ namespace Hidano.FacialControl.Tests.PlayMode.Integration
         {
             int port = AllocatePort();
             OscReceiverAdapterBinding receiver = CreateReceiver("gaze-change-receiver", port);
-            OscSenderAdapterBinding firstSender = CreateSender("gaze-change-sender-a", port, AddressPresetKind.VRChat);
+            OscSenderAdapterBinding firstSender = CreateSender("gaze-change-sender-a", port);
             StartBinding(receiver, CreateContext(CreateGameObject("OscGazeE2E_ChangeReceiver")));
             StartBinding(firstSender, CreateContext(CreateGameObject("OscGazeE2E_ChangeSenderA")));
 
@@ -407,7 +401,7 @@ namespace Hidano.FacialControl.Tests.PlayMode.Integration
 
             firstSender.Dispose();
             OscSenderAdapterBinding secondSender = CreateSenderWithIds(
-                "gaze-change-sender-b", port, AddressPresetKind.VRChat, "eye-look-new");
+                "gaze-change-sender-b", port, "eye-look-new");
             StartBinding(secondSender, CreateContext(CreateGameObject("OscGazeE2E_ChangeSenderB")));
 
             yield return SendGazeUntilProcessed(receiver, secondSender, "eye-look-new", firstLayoutVersion);
@@ -423,7 +417,7 @@ namespace Hidano.FacialControl.Tests.PlayMode.Integration
         {
             int port = AllocatePort();
             OscReceiverAdapterBinding receiver = CreateReceiver("gaze-stop-receiver", port);
-            OscSenderAdapterBinding sender = CreateSender("gaze-stop-sender", port, AddressPresetKind.VRChat);
+            OscSenderAdapterBinding sender = CreateSender("gaze-stop-sender", port);
             StartBinding(receiver, CreateContext(CreateGameObject("OscGazeE2E_StopReceiver")));
             StartBinding(sender, CreateContext(CreateGameObject("OscGazeE2E_StopSender")));
 
@@ -457,7 +451,7 @@ namespace Hidano.FacialControl.Tests.PlayMode.Integration
                     expressionId = ExpressionId,
                     addressPattern = OscAddressFormatter.VRChatParameterPrefix + ExpressionId,
                 });
-            OscSenderAdapterBinding sender = CreateSender("gaze-manual-sender", port, AddressPresetKind.VRChat);
+            OscSenderAdapterBinding sender = CreateSender("gaze-manual-sender", port);
             StartBinding(receiver, CreateContext(CreateGameObject("OscGazeE2E_ManualReceiver")));
             StartBinding(sender, CreateContext(CreateGameObject("OscGazeE2E_ManualSender")));
 
@@ -475,7 +469,7 @@ namespace Hidano.FacialControl.Tests.PlayMode.Integration
             int port = AllocatePort();
             OscReceiverAdapterBinding receiver = CreateReceiver("gaze-config-receiver", port);
             receiver.ConfigureGazeChannels(new[] { ExpressionId });
-            OscSenderAdapterBinding sender = CreateSender("gaze-config-sender", port, AddressPresetKind.VRChat);
+            OscSenderAdapterBinding sender = CreateSender("gaze-config-sender", port);
             StartBinding(receiver, CreateContext(CreateGameObject("OscGazeE2E_ConfigReceiver")));
             StartBinding(sender, CreateContext(CreateGameObject("OscGazeE2E_ConfigSender")));
 
@@ -653,16 +647,14 @@ namespace Hidano.FacialControl.Tests.PlayMode.Integration
 
         private OscSenderAdapterBinding CreateSender(
             string slug,
-            int port,
-            AddressPresetKind preset)
+            int port)
         {
-            return CreateSenderWithIds(slug, port, preset, ExpressionId);
+            return CreateSenderWithIds(slug, port, ExpressionId);
         }
 
         private OscSenderAdapterBinding CreateSenderWithIds(
             string slug,
             int port,
-            AddressPresetKind preset,
             params string[] gazeExpressionIds)
         {
             var binding = new OscSenderAdapterBinding
@@ -674,7 +666,7 @@ namespace Hidano.FacialControl.Tests.PlayMode.Integration
             binding.ConfigureEndpoints(
                 new[]
                 {
-                    new OscSenderEndpointConfig(Endpoint, port, true, preset)
+                    new OscSenderEndpointConfig(Endpoint, port, true)
                 },
                 Array.Empty<string>());
             binding.ConfigureGazeChannels(gazeExpressionIds);
