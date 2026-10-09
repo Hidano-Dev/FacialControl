@@ -476,10 +476,6 @@ namespace Hidano.FacialControl.Tests.PlayMode.Integration
         // Helpers
         // ---------------------------------------------------------------
 
-        private void StartBindingWithMesh(params string[] blendShapeNames)        // ---------------------------------------------------------------
-        // Helpers
-        // ---------------------------------------------------------------
-
         private void StartBindingWithMesh(params string[] blendShapeNames)
         {
             CreateRenderer(blendShapeNames);
