@@ -52,9 +52,9 @@ FacialCharacterProfileSO (1 個)
 
 ## 4. OSC 受信（Receiver Binding）
 
-- 受信ポートを設定して起動すると（受信は常に全インターフェース）、送信側 FacialControl が heartbeat に同梱する `/_facialcontrol/gaze` 広告を受け取り、gaze の形式（`VRChat_XY` / `ARKit_8BS`）に応じた route と input source を自動生成する。受信側で gaze の mapping エントリをあらかじめ手入力したり、OnStart 時に固定したりする必要はない。
-- **手動 mapping は上書き用のオプション**として残る。同じ gaze を手動で定義した場合は手動 route が優先され、広告から自動生成された route と併存できる。FacialControl 以外の外部 OSC 送信元を受ける場合は、従来どおり手動 mapping を設定する。
-- 自動 route は広告のチャネル id と受信側 Profile の Gaze チャネル id を照合して生成される。広告に載った目ボーン path・可動範囲は、受信側 Profile の同じ id の Gaze チャネルより優先される（`IGazeChannelOverrideProvider`）。送信側で path が未指定の目は、受信側の目線タブの path → Humanoid の目ボーンの順で解決する。そのため既定チャネル `gaze` だけを使う FacialControl 同士なら、受信側は目線タブを設定しなくてよい。
+- 受信ポートを設定して起動すると（受信は常に全インターフェース）、送信側 FacialControl から値フレームの対応表を受け取り、対応表の gaze チャネルごとに route と input source（左右共通）を自動生成する。受信側で gaze の mapping エントリをあらかじめ手入力したり、OnStart 時に固定したりする必要はない。
+- **手動 mapping は上書き用のオプション**として残る。同じ gaze を手動で定義した場合は手動 route が優先され、対応表から自動生成された route と併存できる。FacialControl 以外の外部 OSC 送信元を受ける場合は、従来どおり手動 mapping を設定する。
+- 自動 route は対応表のチャネル id と受信側 Profile の Gaze チャネル id を照合して生成される。対応表に載った目ボーン path・可動範囲は、受信側 Profile の同じ id の Gaze チャネルより優先される（`IGazeChannelOverrideProvider`）。送信側で path が未指定の目は、受信側の目線タブの path → Humanoid の目ボーンの順で解決する。そのため既定チャネル `gaze` だけを使う FacialControl 同士なら、受信側は目線タブを設定しなくてよい。
 - 受信ポート + **mapping エントリ（`mode` + `expressionId` + `addressPattern`）** を binding に並べる方式。staleness / fail-safe / bundle 解釈などは任意の上級設定 `OscReceiverRuntimeSettingsSO` に置く。BlendShape mapping と手動 gaze mapping はこの設定で定義する。
 - `mode` は 3 種類:
 
@@ -83,7 +83,7 @@ FacialCharacterProfileSO (1 個)
 
 > **「キャラ SO に表情データ・入力・OSC アダプターを全部生やす → `FacialController` が LateUpdate で合成して BlendShape へ書き込み、Gaze は独立して目ボーンへ適用する」**。
 >
-> OSC は表情の I/O アダプターのひとつで、送信は BlendShape と Gaze の snapshot を送出し、受信は gaze 広告を起点にチャネル route を自動生成する（必要なら手動 mapping で上書きする）。Gaze source id は `{slug}:{channelId}[.left|.right]` で統一される。JSON は永続化フォーマットだが、通常は SO の Gaze セクションを操作する。
+> OSC は表情の I/O アダプターのひとつで、送信は BlendShape と Gaze の snapshot を送出し、受信は値フレームの対応表を起点にチャネル route を自動生成する（必要なら手動 mapping で上書きする）。Gaze source id は `{slug}:{channelId}[.left|.right]` で統一される。JSON は永続化フォーマットだが、通常は SO の Gaze セクションを操作する。
 
 ## 参考資料
 

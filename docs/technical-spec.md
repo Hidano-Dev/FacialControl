@@ -16,8 +16,8 @@
 | 機能 | 説明 |
 |------|------|
 | コア（プロファイル + レイヤー + 遷移） | 表情プロファイル管理、マルチレイヤー制御、表情遷移・補間 |
-| OSC 送受信 | uOsc ベースの UDP 通信。VRChat + ARKit アドレスプリセット |
-| OSC 自動マッピング | heartbeat 広告による送受信 mapping の自動構築（BlendShape / gaze）。手動 mapping との共存 |
+| OSC 送受信 | uOsc ベースの UDP 通信。FacialControl 同士は値フレーム + 対応表、外部送信元は手動 mapping |
+| OSC 自動マッピング | 値フレームの対応表による受信 mapping の自動構築（BlendShape / gaze）。手動 mapping との共存 |
 | ARKit 52 / PerfectSync | 手動トリガーによる BlendShape スキャン + Expression 自動生成 |
 | 視線制御（Gaze セクション） | 独立チャネルの Vector2 入力（OSC / InputSystem / Timeline / iFacialMocap）→ 目ボーン yaw/pitch。入力源はドロップダウンで選択し、可動角はチャネル単位で設定 |
 | AdapterBinding アーキテクチャ | 入力源・出力先を `IAdapterBinding` として `FacialCharacterProfileSO` に結線。ランタイム設定は `AdapterRuntimeSettingsCollectionSO` |
@@ -718,7 +718,7 @@ controller.ReloadProfile();           // 現在のプロファイルを JSON か
 ### 16.4 ARKit 検出ツール（廃止）
 
 - 2026-09 に廃止した（HID-34）。Expression / OSC マッピングの自動生成は使われていなかったため
-- ARKit 52 / PerfectSync の命名検出（完全一致）は core の `ARKitDetector` として残り、OSC パッケージ（`RuntimeMappingResolver` / `AddressPresetEstimator`）が `ARKit52Names` を使う
+- ARKit 52 / PerfectSync の命名検出（完全一致）は core の `ARKitDetector` として残る（OSC 受信のプリセット推定は HID-185 で廃止）
 
 ### 16.5 Editor ディレクトリ構造
 
