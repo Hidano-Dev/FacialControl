@@ -1,5 +1,8 @@
 using System;
 using System.Collections;
+using System.Globalization;
+using System.Net;
+using System.Net.Sockets;
 using System.Text;
 using Hidano.FacialControl.Adapters.AdapterBindings;
 using Hidano.FacialControl.Adapters.InputSources;
@@ -17,8 +20,10 @@ using UnityEngine.TestTools;
 namespace Hidano.FacialControl.Tests.PlayMode.Performance
 {
     /// <summary>
-    /// 対応表を適用した後の値フレームの送受信（送信 → 受信スレッド → ドレイン → 受信バッファ・gaze）で、
-    /// フレームごとのマネージド確保が増えないことを確かめる。受信スレッドの確保も含めて全スレッドで計測する。
+    /// 対応表を適用した後の値フレームの受信（受信スレッド → ドレイン → 受信バッファ・gaze）で、フレームごとの
+    /// マネージド確保が増えないことを確かめる。受信スレッドの確保も含めて全スレッドで計測する。
+    /// 対応表の要求・適用は実際の送信側で行い、計測窓では同じ送信元の値フレームを接続済みの生ソケットから送る
+    /// （送信側の UdpClient.Send は送信先の直列化で確保するため、既存の実 UDP の GC テストと同じく受信側だけを測る）。
     /// </summary>
     [TestFixture]
     [MediumTest]
@@ -109,9 +114,17 @@ namespace Hidano.FacialControl.Tests.PlayMode.Performance
                 }
 
                 Assert.That(applied, Is.True, "ウォームアップ中に対応表が適用され、値が届くこと");
+                // 計測窓で送る値フレーム（送信側と同じ送信元・対応表バージョン、timestamp はフレームごとに変える）。
+                byte[][][] packetSets = BuildValuesPacketSets(_sender.Identity, _receiver.ActiveLayoutVersion, values, gaze[0]);
+                using var rawSender = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp);
+                rawSender.Connect(new IPEndPoint(IPAddress.Loopback, receiver.ActivePort));
                 for (int i = 0; i < 60; i++)
                 {
-                    yield return Step(bus, values, gaze, receiver, time);
+                    SendPackets(rawSender, packetSets[i % packetSets.Length]);
+                    yield return null;
+                    time.UnscaledTimeSeconds += 0.02d;
+                    receiver.PumpReceived();
+                    _receiver.OnFixedTick(DeltaTime);
                 }
 
                 StabilizeManagedHeap();
@@ -127,8 +140,7 @@ namespace Hidano.FacialControl.Tests.PlayMode.Performance
                 // Step と同じ処理を展開する（入れ子のコルーチンは呼ぶたびに列挙子を確保するため）。
                 for (int frame = 0; frame < FrameCount; frame++)
                 {
-                    bus.Publish(values, gaze);
-                    _sender.OnLateTick(DeltaTime);
+                    SendPackets(rawSender, packetSets[frame % packetSets.Length]);
                     yield return null;
                     time.UnscaledTimeSeconds += 0.02d;
                     receiver.PumpReceived();
@@ -174,6 +186,48 @@ namespace Hidano.FacialControl.Tests.PlayMode.Performance
             time.UnscaledTimeSeconds += 0.02d;
             receiver.PumpReceived();
             _receiver.OnFixedTick(DeltaTime);
+        }
+
+        private static byte[][][] BuildValuesPacketSets(
+            SenderIdentity identity,
+            int layoutVersion,
+            float[] blendShapeValues,
+            GazeSnapshot gaze)
+        {
+            const int SetCount = 8;
+            var slots = new float[blendShapeValues.Length + OscFrameLayout.GazeSlotsPerChannel];
+            Array.Copy(blendShapeValues, slots, blendShapeValues.Length);
+            slots[blendShapeValues.Length] = gaze.X;
+            slots[blendShapeValues.Length + 1] = gaze.Y;
+            byte[] senderAddress = Encoding.UTF8.GetBytes(SenderIdentity.OscAddress);
+            byte[] uuid = identity.Uuid.ToByteArray();
+            string startedAt = identity.StartedAtUnixMs.ToString(CultureInfo.InvariantCulture);
+            var sets = new byte[SetCount][][];
+            using (var builder = new OscBundleBuilder())
+            {
+                for (int k = 0; k < SetCount; k++)
+                {
+                    int count = builder.BuildIndexedValuesPackets(
+                        (ulong)(1000 + k), senderAddress, uuid, startedAt, layoutVersion, slots);
+                    sets[k] = new byte[count][];
+                    for (int i = 0; i < count; i++)
+                    {
+                        OscBundlePacket packet = builder.GetPacket(i);
+                        sets[k][i] = new byte[packet.Length];
+                        Buffer.BlockCopy(packet.Buffer, 0, sets[k][i], 0, packet.Length);
+                    }
+                }
+            }
+
+            return sets;
+        }
+
+        private static void SendPackets(Socket socket, byte[][] packets)
+        {
+            for (int i = 0; i < packets.Length; i++)
+            {
+                socket.Send(packets[i], 0, packets[i].Length, SocketFlags.None);
+            }
         }
 
         private static long Median(long[] values)
