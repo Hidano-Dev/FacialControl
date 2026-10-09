@@ -1,4 +1,5 @@
 using System;
+using System.Net;
 using System.Threading;
 
 namespace Hidano.FacialControl.Adapters.OSC
@@ -21,6 +22,8 @@ namespace Hidano.FacialControl.Adapters.OSC
         private readonly byte[] _bytes;
         private readonly OscResolvedMessage[] _records;
         private readonly SlotHeader[] _headers;
+        // 送信元を取っている間だけ受信スレッドが入れる（取っていない間は null）。
+        private readonly EndPoint[] _remotes;
         private readonly int _slotBytes;
         private readonly int _slotCount;
         private readonly int _recordsPerSlot;
@@ -39,6 +42,7 @@ namespace Hidano.FacialControl.Adapters.OSC
             _bytes = new byte[_slotBytes * _slotCount];
             _records = new OscResolvedMessage[_recordsPerSlot * _slotCount];
             _headers = new SlotHeader[_slotCount];
+            _remotes = new EndPoint[_slotCount];
         }
 
         public int SlotBytes => _slotBytes;
@@ -58,6 +62,7 @@ namespace Hidano.FacialControl.Adapters.OSC
                 {
                     int dropped = Physical(_head);
                     _headers[dropped].State = SlotState.Free;
+                    _remotes[dropped] = null;
                     _head++;
                     _diagnostics.IncrementDroppedDatagrams();
                 }
@@ -94,6 +99,15 @@ namespace Hidano.FacialControl.Adapters.OSC
             return new Span<OscResolvedMessage>(_records, slot * _recordsPerSlot, _recordsPerSlot);
         }
 
+        /// <summary>
+        /// 予約済みスロットのデータグラムの送信元を記録する（null で消す）。<see cref="Commit"/> の前に呼ぶ。
+        /// </summary>
+        public void SetRemoteEndPoint(int slot, EndPoint remote)
+        {
+            ValidateReserved(slot);
+            _remotes[slot] = remote;
+        }
+
         public void Commit(int slot, int length, int recordCount, int tableVersion)
         {
             if (length < 0 || length > _slotBytes) throw new ArgumentOutOfRangeException(nameof(length));
@@ -120,6 +134,7 @@ namespace Hidano.FacialControl.Adapters.OSC
                 long logical = _reservedTail - 1;
                 ValidateReservedLocked(slot, logical);
                 _headers[slot].State = SlotState.Free;
+                _remotes[slot] = null;
                 _reservedTail--;
             }
         }
@@ -135,7 +150,9 @@ namespace Hidano.FacialControl.Adapters.OSC
                     int slot = Physical(logical);
                     SlotHeader header = _headers[slot];
                     target.Append(new ReadOnlySpan<byte>(_bytes, slot * _slotBytes, header.Length),
-                        new ReadOnlySpan<OscResolvedMessage>(_records, slot * _recordsPerSlot, header.RecordCount));
+                        new ReadOnlySpan<OscResolvedMessage>(_records, slot * _recordsPerSlot, header.RecordCount),
+                        _remotes[slot]);
+                    _remotes[slot] = null;
                     _headers[slot].State = SlotState.Free;
                 }
                 int count = checked((int)(_committedTail - _head));
@@ -186,6 +203,7 @@ namespace Hidano.FacialControl.Adapters.OSC
             {
                 if (_reservedTail != _committedTail) throw new InvalidOperationException("Cannot clear while a slot is reserved.");
                 for (int i = 0; i < _headers.Length; i++) _headers[i].State = SlotState.Free;
+                Array.Clear(_remotes, 0, _remotes.Length);
                 _head = _committedTail = _reservedTail;
             }
         }

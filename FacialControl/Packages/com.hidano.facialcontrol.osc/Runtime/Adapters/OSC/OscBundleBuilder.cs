@@ -466,6 +466,29 @@ namespace Hidano.FacialControl.Adapters.OSC
         }
 
         /// <summary>
+        /// 送信元識別と値フレーム（<c>/_facialcontrol/values</c>）だけのパケットを組み立て、パケット総数を返す。
+        /// 分け方は <see cref="AppendIndexedValuesPackets"/> と同じ。ヒープ確保をしない。
+        /// </summary>
+        public int BuildIndexedValuesPackets(
+            ulong timestamp,
+            byte[] senderIdentityAddressUtf8,
+            byte[] senderUuidBytes,
+            string startedAtUnixMs,
+            int layoutVersion,
+            ReadOnlySpan<float> slotValues)
+        {
+            ThrowIfDisposed();
+            ResetBuildState();
+            return AppendIndexedValuesPackets(
+                timestamp,
+                senderIdentityAddressUtf8,
+                senderUuidBytes,
+                startedAtUnixMs,
+                layoutVersion,
+                slotValues);
+        }
+
+        /// <summary>
         /// 直前に組み立てたパケットの後ろに、送信元識別と値フレーム（<c>/_facialcontrol/values</c>）を載せた
         /// パケットを同じ <paramref name="timestamp"/> で追加し、パケット総数を返す。値フレームは 1 通が
         /// <see cref="OscIndexedFrameCodec.DefaultMaxMessageBytes"/> に収まるよう slot の offset 付きで分け、

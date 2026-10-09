@@ -36,7 +36,12 @@ namespace Hidano.FacialControl.Adapters.OSC
         private int _faulted;
         private int _state;
         private int _boundPort = -1;
+        private int _captureRemoteEndPoints;
         private Exception _pendingFault;
+
+        // Windows の SIO_UDP_CONNRESET。対応表要求の宛先が閉じていても、次の受信を ConnectionReset で失敗させない。
+        private const int SioUdpConnReset = -1744830452;
+        private static readonly EndPoint s_anyEndPoint = new IPEndPoint(IPAddress.IPv6Any, 0);
 
         public OscUdpReceiveLoop(OscDatagramRing ring, OscReceiveDiagnostics diagnostics)
         {
@@ -64,6 +69,48 @@ namespace Hidano.FacialControl.Adapters.OSC
         public bool Faulted => Volatile.Read(ref _faulted) != 0;
         public OscReceiveState State => (OscReceiveState)Volatile.Read(ref _state);
         public int BoundPort => Volatile.Read(ref _boundPort);
+
+        /// <summary>
+        /// true の間、受信したデータグラムの送信元をリングに記録する（<see cref="Socket.ReceiveFrom(byte[], int, int, SocketFlags, ref EndPoint)"/>
+        /// は送信元ごとに確保するので、必要な間だけ有効にする）。
+        /// </summary>
+        public bool CaptureRemoteEndPoints
+        {
+            get => Volatile.Read(ref _captureRemoteEndPoints) != 0;
+            set => Volatile.Write(ref _captureRemoteEndPoints, value ? 1 : 0);
+        }
+
+        /// <summary>
+        /// 受信ソケットから <paramref name="remote"/> へデータグラムを送る（送り返した相手の返信がこのポートに届く）。
+        /// 受信中でない、または送れなかったら false。
+        /// </summary>
+        public bool TrySendTo(byte[] buffer, int length, EndPoint remote)
+        {
+            if (buffer == null || remote == null)
+            {
+                return false;
+            }
+
+            Socket socket = Volatile.Read(ref _socket);
+            if (socket == null)
+            {
+                return false;
+            }
+
+            try
+            {
+                socket.SendTo(buffer, 0, length, SocketFlags.None, remote);
+                return true;
+            }
+            catch (SocketException)
+            {
+                return false;
+            }
+            catch (ObjectDisposedException)
+            {
+                return false;
+            }
+        }
 
         /// <summary>
         /// 受信スレッドで発生した例外をメインスレッドへ引き渡す（一度取り出すと消える）。
@@ -105,6 +152,7 @@ namespace Hidano.FacialControl.Adapters.OSC
                     if (options.SocketReceiveBufferBytes != 0)
                         socket.ReceiveBufferSize = options.SocketReceiveBufferBytes;
                     socket.Bind(new IPEndPoint(IPAddress.IPv6Any, port));
+                    DisableConnectionResetReporting(socket);
                     _socket = socket;
 
                     _thread = new Thread(ReceiveThreadMain)
@@ -176,7 +224,18 @@ namespace Hidano.FacialControl.Adapters.OSC
                         // Span<byte> オーバーロードは Unity Mono で呼び出しごとにスロット長の一時配列を確保するため、
                         // backing 配列 + オフセットの byte[] オーバーロードで受ける（確保ゼロ、2026-09-15 実測）。
                         ArraySegment<byte> segment = _ring.GetSlotSegment(slot);
-                        int length = _socket.Receive(segment.Array, segment.Offset, segment.Count, SocketFlags.None);
+                        int length;
+                        EndPoint remote = null;
+                        if (Volatile.Read(ref _captureRemoteEndPoints) != 0)
+                        {
+                            remote = s_anyEndPoint;
+                            length = _socket.ReceiveFrom(segment.Array, segment.Offset, segment.Count, SocketFlags.None, ref remote);
+                        }
+                        else
+                        {
+                            length = _socket.Receive(segment.Array, segment.Offset, segment.Count, SocketFlags.None);
+                        }
+
                         if (length > _ring.SlotBytes)
                         {
                             _diagnostics.IncrementOversizedDatagrams();
@@ -188,6 +247,11 @@ namespace Hidano.FacialControl.Adapters.OSC
                         {
                             _ring.Abort(slot);
                             break;
+                        }
+
+                        if (remote != null)
+                        {
+                            _ring.SetRemoteEndPoint(slot, remote);
                         }
 
                         OscAddressKeyTable table = TableProvider != null ? TableProvider() : null;
@@ -219,6 +283,11 @@ namespace Hidano.FacialControl.Adapters.OSC
                     {
                         if (!committed) _ring.Abort(slot);
                         _diagnostics.IncrementOversizedDatagrams();
+                    }
+                    catch (SocketException ex) when (ex.SocketErrorCode == SocketError.ConnectionReset)
+                    {
+                        // 送った対応表要求の宛先が閉じていた（ICMP port unreachable）。受信は続ける。
+                        if (!committed) _ring.Abort(slot);
                     }
                     catch
                     {
@@ -256,6 +325,25 @@ namespace Hidano.FacialControl.Adapters.OSC
             return ex.SocketErrorCode == SocketError.Interrupted ||
                    ex.SocketErrorCode == SocketError.OperationAborted ||
                    ex.SocketErrorCode == SocketError.NotSocket;
+        }
+
+        private static void DisableConnectionResetReporting(Socket socket)
+        {
+            if (Environment.OSVersion.Platform != PlatformID.Win32NT)
+            {
+                return;
+            }
+
+            try
+            {
+                socket.IOControl(SioUdpConnReset, new byte[] { 0, 0, 0, 0 }, null);
+            }
+            catch (SocketException)
+            {
+            }
+            catch (NotSupportedException)
+            {
+            }
         }
 
         private void CloseSocket()

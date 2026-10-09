@@ -1,6 +1,8 @@
 using System;
+using System.Buffers.Binary;
 using System.Collections;
 using System.Collections.Generic;
+using System.Net;
 using System.Text;
 using System.Threading;
 using Hidano.FacialControl.Adapters.InputSources;
@@ -40,7 +42,10 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
         public enum MappingOrigin
         {
             Manual,
-            HeartbeatAuto
+            HeartbeatAuto,
+
+            /// <summary>値フレームの対応表（<c>/_facialcontrol/layout</c>）から作った mapping。</summary>
+            Layout
         }
 
         public const string SenderIdentityAddress = SenderIdentity.OscAddress;
@@ -58,6 +63,9 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
         private const int GazeAdvertisementScratchValues = 256 * 2;
         private const int PresetScratchBytes = 256;
         private const int InitialGazeFramePoolCapacity = 4;
+
+        /// <summary>対応表の状態を保持する送信元 UUID の数の上限。超えたら最後に値フレームを見た時刻が古いものから捨てる。</summary>
+        private const int MaxIndexedSenders = 8;
 
         /// <summary>
         /// 受信は常に全インターフェースで行う。<see cref="OscReceiverHost"/> へはログ用にこの値を渡す。
@@ -366,6 +374,31 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
         [NonSerialized]
         private bool _started;
 
+        // ---- 値フレーム（/_facialcontrol/values）と対応表 ----
+        // すべてメインスレッド（OscReceiver.PumpReceived 中のハンドラと OnFixedTick）からだけ触る。
+
+        /// <summary>送信元 UUID ごとの対応表の状態。</summary>
+        [NonSerialized] private Dictionary<Guid, OscIndexedSenderLayoutState> _indexedSenders;
+
+        /// <summary>今受信バッファに適用している対応表と、その送信元。null なら名前つきアドレスの受信だけ。</summary>
+        [NonSerialized] private OscIndexedLayoutMapping _activeIndexedMapping;
+        [NonSerialized] private Guid _activeIndexedSender;
+
+        /// <summary>gaze slot（BlendShape slot の後ろ）ごとの書き込み先。index は gaze slot の通し番号。</summary>
+        [NonSerialized] private List<GazeRoute>[] _indexedGazeSlotRoutes;
+
+        /// <summary>直前に処理した sender_id。値フレームは同じ bundle の sender_id の後に届く。</summary>
+        [NonSerialized] private Guid _lastSenderIdUuid;
+        [NonSerialized] private ulong _lastSenderIdTimestampKey;
+        [NonSerialized] private bool _hasLastSenderId;
+
+        /// <summary>起動時の手動 mapping。対応表の mapping はこの後ろに並べる（名前つきアドレスの手動受信を残すため）。</summary>
+        [NonSerialized] private OscMapping[] _manualRuntimeMappings;
+        [NonSerialized] private MappingOrigin[] _manualMappingOrigins;
+
+        [NonSerialized] private List<OscFrameLayoutEntry> _layoutEntryScratch;
+        [NonSerialized] private List<string> _indexedGazePayloadScratch;
+
         /// <summary>
         /// パラメータレスコンストラクタ。Inspector の Add ドロップダウンで <c>Activator.CreateInstance</c> から
         /// 生成される必要があるため明示する。
@@ -637,6 +670,13 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
         public bool IsStarted => _started;
 
         /// <summary>
+        /// 今受信バッファに適用している値フレームの対応表のバージョン。未適用なら
+        /// <see cref="OscFrameLayoutVersion.Unknown"/>。
+        /// </summary>
+        public int ActiveLayoutVersion =>
+            _activeIndexedMapping != null ? _activeIndexedMapping.Version : OscFrameLayoutVersion.Unknown;
+
+        /// <summary>
         /// Runtime / テストから port・mappings をまとめて設定する。
         /// </summary>
         public void Configure(int port, OscMapping[] mappings)
@@ -758,6 +798,8 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
             OscMapping[] runtimeMappings = initialResult.RuntimeMappings;
             _runtimeMappings = runtimeMappings;
             _mappingOrigins = initialResult.Origins;
+            _manualRuntimeMappings = runtimeMappings;
+            _manualMappingOrigins = initialResult.Origins;
             _runtimeManualEntries = _runtimeMappings != null && (_mappings == null || _mappings.Count == 0)
                 ? CreateManualEntriesFromRuntimeMappings(_runtimeMappings)
                 : _mappings;
@@ -796,8 +838,14 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
             // OscReceiver の Update / 個別タイマに依存せず binding 自前 tick で進める。
             if (_helperHost != null)
             {
-                ProcessPendingHeartbeatMappings();
-                ProcessPendingGazeAdvertisement();
+                ProcessIndexedLayouts();
+                if (_activeIndexedMapping == null)
+                {
+                    // 対応表を適用した後は、名前つきアドレスの heartbeat・gaze 広告で mapping を上書きしない。
+                    ProcessPendingHeartbeatMappings();
+                    ProcessPendingGazeAdvertisement();
+                }
+
                 _helperHost.Tick();
             }
 
@@ -911,6 +959,17 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
             _bareSenderAccepted = false;
             _lastAcceptedPacketTime = 0d;
             _failSafeActive = false;
+            _indexedSenders = null;
+            _activeIndexedMapping = null;
+            _activeIndexedSender = Guid.Empty;
+            _indexedGazeSlotRoutes = null;
+            _lastSenderIdUuid = Guid.Empty;
+            _lastSenderIdTimestampKey = 0UL;
+            _hasLastSenderId = false;
+            _layoutEntryScratch = null;
+            _indexedGazePayloadScratch = null;
+            _manualRuntimeMappings = null;
+            _manualMappingOrigins = null;
 
             if (_buffer != null)
             {
@@ -1015,6 +1074,13 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
             _gazeAdDirty = 0;
             _gazeAdAccumulationTimestamp = 0u;
             _gazeAdAccumulating = false;
+            _indexedSenders = new Dictionary<Guid, OscIndexedSenderLayoutState>();
+            _activeIndexedMapping = null;
+            _activeIndexedSender = Guid.Empty;
+            _indexedGazeSlotRoutes = Array.Empty<List<GazeRoute>>();
+            _hasLastSenderId = false;
+            _layoutEntryScratch = new List<OscFrameLayoutEntry>();
+            _indexedGazePayloadScratch = new List<string>();
             BuildNormalLookup(runtimeMappings);
 
             if (hasGazeMappings)
@@ -1365,7 +1431,20 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
                 return false;
             }
 
+            if (resolved.Control == OscControlKind.Layout)
+            {
+                // 対応表は要求への返信で bundle に入らず、送信元 UUID も載らない。待っているバージョンで振り分ける。
+                HandleLayoutChunk(in view);
+                return false;
+            }
+
             if (!IsAcceptedSender(resolved.TimestampKey)) return false;
+
+            if (resolved.Control == OscControlKind.Values)
+            {
+                HandleValuesFrame(in view, resolved.TimestampKey);
+                return false;
+            }
 
             if (resolved.Control == OscControlKind.Heartbeat ||
                 resolved.Control == OscControlKind.Preset ||
@@ -1411,6 +1490,9 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
 
         private void HandleSenderIdentity(in OscResolvedMessage resolved)
         {
+            _hasLastSenderId = resolved.SenderIdentityValid;
+            _lastSenderIdUuid = resolved.SenderUuid;
+            _lastSenderIdTimestampKey = resolved.TimestampKey;
             if (!resolved.SenderIdentityValid)
             {
                 Debug.LogWarning("[OscReceiverAdapterBinding] sender_id message payload could not be interpreted.");
@@ -1443,6 +1525,348 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
                 _hasBareSenderDecision = true;
                 _bareSenderAccepted = accepted;
             }
+        }
+
+        // ---- 値フレーム（/_facialcontrol/values）と対応表 ----
+
+        /// <summary>
+        /// 値フレームを受ける。直前の sender_id（同じ bundle）の送信元について、対応表を適用済みのバージョンなら
+        /// slot の値を受信バッファと gaze へ書き込む。そうでなければ対応表を待ち、要求できるならすぐ要求する。
+        /// 適用済みのバージョンの間はヒープ確保をしない。
+        /// </summary>
+        private void HandleValuesFrame(in OscMessageView view, ulong timestampKey)
+        {
+            if (_indexedSenders == null || !_hasLastSenderId || _lastSenderIdTimestampKey != timestampKey)
+            {
+                return;
+            }
+
+            if (!OscIndexedFrameCodec.TryReadValuesHeader(in view, out int version, out int offset, out int count))
+            {
+                return;
+            }
+
+            double now = GetCurrentTimeSeconds();
+            OscIndexedSenderLayoutState state = GetOrAddIndexedSender(_lastSenderIdUuid, now);
+            state.ObserveValues(version, now);
+
+            if (!state.CanApply(version) || _activeIndexedMapping == null ||
+                _activeIndexedMapping.Version != version || _activeIndexedSender != state.SenderUuid)
+            {
+                EndPoint remote = _helperHost != null && _helperHost.Receiver != null
+                    ? _helperHost.Receiver.CurrentRemoteEndPoint
+                    : null;
+                if (remote != null)
+                {
+                    state.RequestDestination = remote;
+                }
+
+                TrySendLayoutRequest(state, now);
+                return;
+            }
+
+            ApplyIndexedValues(view.Arguments, timestampKey, offset, count, now);
+            MarkAcceptedPacket();
+        }
+
+        private void ApplyIndexedValues(ReadOnlySpan<byte> arguments, ulong timestampKey, int offset, int count, double now)
+        {
+            OscIndexedLayoutMapping mapping = _activeIndexedMapping;
+            int slotCount = mapping.Layout.SlotCount;
+            if (offset > slotCount || count > slotCount - offset)
+            {
+                // 対応表の slot を超える値フレームは、バージョンが一致していても壊れているので捨てる。
+                return;
+            }
+
+            int blendShapeSlotCount = mapping.BlendShapeSlotCount;
+            List<GazeRoute>[] gazeSlotRoutes = _indexedGazeSlotRoutes;
+            BundleInterpretationMode mode = _effectiveSettings != null
+                ? _effectiveSettings.BundleMode
+                : BundleInterpretationMode.AtomicSwap;
+            bool atomic = mode == BundleInterpretationMode.AtomicSwap;
+            OscBundleAccumulator accumulator = atomic ? _bundleAccumulator : null;
+
+            // 値は version と offset の 2 つの int の後ろに並ぶ（長さは TryReadValuesHeader で確認済み）。
+            int position = 8;
+            for (int i = 0; i < count; i++, position += 4)
+            {
+                float value = BitConverter.Int32BitsToSingle(
+                    BinaryPrimitives.ReadInt32BigEndian(arguments.Slice(position, 4)));
+                int slot = offset + i;
+                if (slot < blendShapeSlotCount)
+                {
+                    int mappingIndex = mapping.GetMappingIndex(slot);
+                    if (mappingIndex < 0)
+                    {
+                        continue;
+                    }
+
+                    if (accumulator != null)
+                    {
+                        accumulator.RecordBundleMessage(timestampKey, mappingIndex, value, now);
+                    }
+                    else
+                    {
+                        _buffer.Write(mappingIndex, value);
+                    }
+
+                    continue;
+                }
+
+                int gazeSlot = slot - blendShapeSlotCount;
+                if (gazeSlotRoutes == null || gazeSlot >= gazeSlotRoutes.Length)
+                {
+                    continue;
+                }
+
+                List<GazeRoute> routes = gazeSlotRoutes[gazeSlot];
+                if (routes == null)
+                {
+                    continue;
+                }
+
+                for (int r = 0; r < routes.Count; r++)
+                {
+                    if (atomic)
+                    {
+                        RecordBufferedGazeMessage(timestampKey, routes[r], value);
+                    }
+                    else
+                    {
+                        routes[r].Runtime.Record(routes[r].AxisIndex, value);
+                    }
+                }
+            }
+        }
+
+        /// <summary>
+        /// 要求への返信で届いた対応表のチャンクを、そのバージョンを待っている送信元に渡す。
+        /// 揃った対応表の適用は <see cref="ProcessIndexedLayouts"/> で行う（受信バッファの差し替えで、
+        /// 同じドレインの残りのメッセージを捨てないため）。
+        /// </summary>
+        private void HandleLayoutChunk(in OscMessageView view)
+        {
+            if (_indexedSenders == null || _indexedSenders.Count == 0 || _layoutEntryScratch == null)
+            {
+                return;
+            }
+
+            if (!OscIndexedFrameCodec.TryReadLayoutMessage(
+                    in view, out int version, out int chunkIndex, out int chunkCount, _layoutEntryScratch))
+            {
+                return;
+            }
+
+            foreach (OscIndexedSenderLayoutState state in _indexedSenders.Values)
+            {
+                if (state.PendingVersion == version)
+                {
+                    state.TryAddChunk(version, chunkIndex, chunkCount, _layoutEntryScratch);
+                }
+            }
+        }
+
+        /// <summary>
+        /// 採用中の送信元の対応表が揃っていれば適用し、待っている送信元へ再要求を送り、揃わない状態が続く送信元を
+        /// 1 回警告する。採用中の送信元の対応表を待っている間（要求の宛先が分からない間を含む）だけ、受信データグラムの
+        /// 送信元を記録させる（送信元の記録は 1 データグラムごとに確保するため、名前つきアドレスしか届かない受信では行わない）。
+        /// </summary>
+        private void ProcessIndexedLayouts()
+        {
+            if (_indexedSenders == null)
+            {
+                return;
+            }
+
+            double now = GetCurrentTimeSeconds();
+            bool needsRemote = false;
+            foreach (OscIndexedSenderLayoutState state in _indexedSenders.Values)
+            {
+                bool isCurrent = _hasCurrentSenderId && _currentSenderId.SenderId == state.SenderUuid;
+                if (isCurrent && state.TryTakeCompletedLayout(out OscFrameLayout layout))
+                {
+                    if (ActivateIndexedLayout(state.SenderUuid, layout))
+                    {
+                        state.MarkApplied(layout.Version);
+                    }
+                    else
+                    {
+                        state.DiscardAssembledChunks();
+                    }
+                }
+
+                TrySendLayoutRequest(state, now);
+                if (state.TryTakeWarning(now))
+                {
+                    state.GetChunkProgress(out int received, out int total);
+                    Debug.LogWarning(
+                        $"[OscReceiverAdapterBinding] 送信元 {state.SenderUuid:D} の対応表 (version={state.PendingVersion}) が "
+                        + $"{state.GetPendingSeconds(now):0.0} 秒揃わないため、値フレームを適用していません"
+                        + $" (チャンク {received}/{total}, 要求先 {(state.RequestDestination != null ? state.RequestDestination.ToString() : "不明")})。"
+                        + " 送信側の OSC Sender が起動しているか、受信ポートへの返信が届くかを確認してください。");
+                }
+
+                if (isCurrent)
+                {
+                    // 待っている間は宛先を取り直す（送信側がソケットを開き直すと送信元ポートが変わる）。
+                    needsRemote = state.HasPending || state.RequestDestination == null;
+                }
+            }
+
+            OscReceiver receiver = _helperHost != null ? _helperHost.Receiver : null;
+            if (receiver != null && receiver.CaptureRemoteEndPoints != needsRemote)
+            {
+                receiver.CaptureRemoteEndPoints = needsRemote;
+            }
+        }
+
+        private void TrySendLayoutRequest(OscIndexedSenderLayoutState state, double now)
+        {
+            if (!(state.RequestDestination is EndPoint destination) || !state.TryCreateRequest(now, out byte[] request))
+            {
+                return;
+            }
+
+            OscReceiver receiver = _helperHost != null ? _helperHost.Receiver : null;
+            receiver?.TrySendDatagram(request, request.Length, destination);
+        }
+
+        private OscIndexedSenderLayoutState GetOrAddIndexedSender(Guid senderUuid, double now)
+        {
+            if (_indexedSenders.TryGetValue(senderUuid, out OscIndexedSenderLayoutState state))
+            {
+                return state;
+            }
+
+            if (_indexedSenders.Count >= MaxIndexedSenders)
+            {
+                Guid oldest = Guid.Empty;
+                double oldestSeen = double.MaxValue;
+                foreach (OscIndexedSenderLayoutState candidate in _indexedSenders.Values)
+                {
+                    if (candidate.SenderUuid != _activeIndexedSender && candidate.LastSeenSeconds < oldestSeen)
+                    {
+                        oldest = candidate.SenderUuid;
+                        oldestSeen = candidate.LastSeenSeconds;
+                    }
+                }
+
+                _indexedSenders.Remove(oldest);
+            }
+
+            state = new OscIndexedSenderLayoutState(senderUuid);
+            _indexedSenders.Add(senderUuid, state);
+            return state;
+        }
+
+        /// <summary>
+        /// 対応表を受信バッファと gaze route に適用する。BlendShape は名前が一致する受信側の BlendShape へ、
+        /// gaze チャネルは同じ id の gaze 入力源（左右共通）へ書き込み、属性は目ボーン path・可動範囲の上書きにする。
+        /// </summary>
+        private bool ActivateIndexedLayout(Guid senderUuid, OscFrameLayout layout)
+        {
+            OscMapping[] manualMappings = _manualRuntimeMappings ?? Array.Empty<OscMapping>();
+            OscIndexedLayoutMapping mapping = OscIndexedLayoutMapping.Create(
+                layout, _runtimeMeshBlendShapeNames, manualMappings.Length);
+            int total = manualMappings.Length + mapping.RuntimeMappings.Length;
+            var mappings = new OscMapping[total];
+            var origins = new MappingOrigin[total];
+            Array.Copy(manualMappings, mappings, manualMappings.Length);
+            for (int i = 0; i < manualMappings.Length; i++)
+            {
+                origins[i] = _manualMappingOrigins != null && i < _manualMappingOrigins.Length
+                    ? _manualMappingOrigins[i]
+                    : MappingOrigin.Manual;
+            }
+
+            for (int i = manualMappings.Length; i < total; i++)
+            {
+                mappings[i] = mapping.RuntimeMappings[i - manualMappings.Length];
+                origins[i] = MappingOrigin.Layout;
+            }
+
+            // gaze の属性だけが変わった（BlendShape の並びは同じ）なら受信バッファを作り直さない。
+            if (!RuntimeMappingsEqual(_runtimeMappings, mappings))
+            {
+                var result = new RuntimeMappingResolver.ResolveResult(mappings, origins, manualMappings.Length, 0);
+                if (!PublishRuntimeMappings(result, senderBlendShapeNames: null))
+                {
+                    return false;
+                }
+            }
+            else
+            {
+                _mappingOrigins = origins;
+            }
+
+            _indexedGazePayloadScratch.Clear();
+            for (int i = 0; i < layout.GazeChannels.Count; i++)
+            {
+                OscFrameLayoutGazeChannel channel = layout.GazeChannels[i];
+                _indexedGazePayloadScratch.Add(channel.Id);
+                _indexedGazePayloadScratch.Add(GazeAdvertisementResolver.VrChatXyFormat);
+                for (int a = 0; a < channel.Attributes.Count; a++)
+                {
+                    _indexedGazePayloadScratch.Add(channel.Id);
+                    _indexedGazePayloadScratch.Add(channel.Attributes[a]);
+                }
+            }
+
+            if (layout.GazeChannels.Count > 0 || _hasProcessedGazeAdvertisement)
+            {
+                ApplyGazeAdvertisementPayload(_indexedGazePayloadScratch);
+            }
+
+            _indexedGazeSlotRoutes = BuildIndexedGazeSlotRoutes(layout);
+            _activeIndexedMapping = mapping;
+            _activeIndexedSender = senderUuid;
+            Debug.Log(
+                $"[OscReceiverAdapterBinding] 対応表を適用しました: sender={senderUuid:D}, version={layout.Version}, "
+                + $"BlendShape {mapping.MatchedBlendShapeCount}/{mapping.BlendShapeSlotCount} 一致, gaze {layout.GazeChannels.Count} チャネル。");
+            return true;
+        }
+
+        /// <summary>
+        /// gaze チャネルの X / Y slot を、同じ id の gaze runtime へ向ける（左右共通の値）。手動 mapping が ARKit_8BS
+        /// 形式なら、X / Y を左右同じ向きの 8 BlendShape 値に直して書く。
+        /// </summary>
+        private List<GazeRoute>[] BuildIndexedGazeSlotRoutes(OscFrameLayout layout)
+        {
+            int channelCount = layout.GazeChannels.Count;
+            if (channelCount == 0)
+            {
+                return Array.Empty<List<GazeRoute>>();
+            }
+
+            var routes = new List<GazeRoute>[channelCount * OscFrameLayout.GazeSlotsPerChannel];
+            List<GazeRuntimeEntry> runtimeEntries = Volatile.Read(ref _gazeRuntimeEntries);
+            for (int c = 0; c < channelCount; c++)
+            {
+                string channelId = layout.GazeChannels[c].Id;
+                var xRoutes = new List<GazeRoute>();
+                var yRoutes = new List<GazeRoute>();
+                if (runtimeEntries != null)
+                {
+                    for (int i = 0; i < runtimeEntries.Count; i++)
+                    {
+                        GazeRuntimeEntry runtime = runtimeEntries[i];
+                        if (runtime == null ||
+                            !string.Equals(runtime.ExpressionId, channelId, StringComparison.Ordinal))
+                        {
+                            continue;
+                        }
+
+                        xRoutes.Add(new GazeRoute(runtime, GazeRuntimeEntry.SharedXIndex));
+                        yRoutes.Add(new GazeRoute(runtime, GazeRuntimeEntry.SharedYIndex));
+                    }
+                }
+
+                routes[c * OscFrameLayout.GazeSlotsPerChannel] = xRoutes;
+                routes[(c * OscFrameLayout.GazeSlotsPerChannel) + 1] = yRoutes;
+            }
+
+            return routes;
         }
 
         private bool IsAcceptedSender(ulong timestampKey)
@@ -1815,13 +2239,21 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
                 }
             }
 
+            ApplyGazeAdvertisementPayload(_gazeAdProcessingScratch);
+        }
+
+        /// <summary>
+        /// gaze 広告と同じ <c>(channelId, value)</c> の並びから、目ボーン path・可動範囲の上書きと gaze route を更新する。
+        /// </summary>
+        private void ApplyGazeAdvertisementPayload(IReadOnlyList<string> payload)
+        {
             // 属性ペア (目ボーン path・可動範囲) は route のハッシュに含めないため、route の変化判定より前に読む。
             _gazeChannelOverrides ??= new GazeChannelOverrideTable();
-            _gazeChannelOverrides.Update(_gazeAdProcessingScratch);
+            _gazeChannelOverrides.Update(payload);
 
             _gazeAdvertisedEntries.Clear();
             GazeAdvertisementResolver.Parse(
-                _gazeAdProcessingScratch,
+                payload,
                 _gazeAdvertisedEntries,
                 ref _warnedOnUnknownGazeFormat);
             uint hash = GazeAdvertisementResolver.ComputeNormalizedHash(
@@ -2197,9 +2629,21 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
 
         private void PublishRuntimeMappings(RuntimeMappingResolver.ResolveResult result)
         {
+            PublishRuntimeMappings(result, _heartbeatProcessingScratch);
+        }
+
+        /// <summary>
+        /// 受信バッファの並びを <paramref name="result"/> に差し替える。<paramref name="senderBlendShapeNames"/> は
+        /// 整合チェック（送信側だけ・受信側だけの BlendShape の警告）に使う送信側の名前。null なら整合チェックをしない
+        /// （対応表は名前の一致する BlendShape だけを使い、一致しない名前は警告しない）。差し替えられなければ false。
+        /// </summary>
+        private bool PublishRuntimeMappings(
+            RuntimeMappingResolver.ResolveResult result,
+            IReadOnlyList<string> senderBlendShapeNames)
+        {
             if (_buffer == null || _helperHost == null || _effectiveSettings == null)
             {
-                return;
+                return false;
             }
 
             int[] mappingIndexToMeshIndex = BuildMappingIndexToMeshIndex(_runtimeMeshBlendShapeNames, result.RuntimeMappings);
@@ -2211,8 +2655,8 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
             catch (ArgumentException exception)
             {
                 Debug.LogError(
-                    $"[OscReceiverAdapterBinding] heartbeat mapping の適用に失敗したため、旧 mapping を維持します: {exception.Message}");
-                return;
+                    $"[OscReceiverAdapterBinding] mapping の適用に失敗したため、旧 mapping を維持します: {exception.Message}");
+                return false;
             }
 
             _runtimeMappings = result.RuntimeMappings;
@@ -2230,7 +2674,12 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
             _heartbeatChecker = new HeartbeatConsistencyChecker(
                 _runtimeMappings,
                 _effectiveSettings.ConsistencyCheckWarnLog);
-            _heartbeatChecker.UpdateFromHeartbeat(_heartbeatProcessingScratch);
+            if (senderBlendShapeNames != null)
+            {
+                _heartbeatChecker.UpdateFromHeartbeat(senderBlendShapeNames);
+            }
+
+            return true;
         }
 
         private static void LogRuntimeMappingDiagnostics(
@@ -2240,6 +2689,7 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
         {
             int manualCount = 0;
             int heartbeatAutoCount = 0;
+            int layoutCount = 0;
             if (origins != null)
             {
                 for (int i = 0; i < origins.Length; i++)
@@ -2252,12 +2702,16 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
                     {
                         heartbeatAutoCount++;
                     }
+                    else if (origins[i] == MappingOrigin.Layout)
+                    {
+                        layoutCount++;
+                    }
                 }
             }
 
             int totalCount = mappings != null ? mappings.Length : 0;
             Debug.Log(
-                $"[OscReceiverAdapterBinding] runtime mappings published: total={totalCount}, manual={manualCount}, heartbeatAuto={heartbeatAutoCount}.");
+                $"[OscReceiverAdapterBinding] runtime mappings published: total={totalCount}, manual={manualCount}, heartbeatAuto={heartbeatAutoCount}, layout={layoutCount}.");
 
             // カバレッジ診断: 受信側で実際に書き込まれる BlendShape 名と、メッシュにあるが
             // どの mapping にも解決されなかった BlendShape 名を列挙する。
@@ -2869,6 +3323,10 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
             public const int VrChatXIndex = 0;
             public const int VrChatYIndex = 1;
 
+            /// <summary>値フレームの gaze slot（左右共通の X / Y）。どちらの形式の runtime にも書ける。</summary>
+            public const int SharedXIndex = -2;
+            public const int SharedYIndex = -3;
+
             private readonly object _sync = new object();
             private readonly OscMappingMode _mode;
             private readonly float[] _arkitValues;
@@ -2905,6 +3363,13 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
             {
                 lock (_sync)
                 {
+                    if (axisIndex == SharedXIndex || axisIndex == SharedYIndex)
+                    {
+                        RecordSharedLocked(axisIndex == SharedXIndex, value);
+                        _dirty = true;
+                        return;
+                    }
+
                     if (_mode == OscMappingMode.Gaze_VRChat_XY)
                     {
                         if (axisIndex == VrChatXIndex)
@@ -2931,6 +3396,25 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
                     }
 
                     _dirty = true;
+                }
+            }
+
+            /// <summary>左右共通の X / Y を記録する。ARKit_8BS 形式では左右同じ向きの 8 値に直す。</summary>
+            private void RecordSharedLocked(bool isX, float value)
+            {
+                if (isX)
+                {
+                    _vrChatX = value;
+                }
+                else
+                {
+                    _vrChatY = value;
+                }
+
+                if (_arkitValues != null)
+                {
+                    var shared = new Vector2(_vrChatX, _vrChatY);
+                    PerfectSyncEyeLook.Compose(shared, shared, _arkitValues);
                 }
             }
 

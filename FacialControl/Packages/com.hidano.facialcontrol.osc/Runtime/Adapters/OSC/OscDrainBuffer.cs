@@ -1,4 +1,5 @@
 using System;
+using System.Net;
 
 namespace Hidano.FacialControl.Adapters.OSC
 {
@@ -8,6 +9,7 @@ namespace Hidano.FacialControl.Adapters.OSC
         private readonly byte[] _bytes;
         private readonly OscResolvedMessage[] _records;
         private readonly int[] _lengths;
+        private readonly EndPoint[] _remotes;
         private readonly int _slotBytes;
 
         public OscDrainBuffer(in OscReceiveOptions options)
@@ -16,6 +18,7 @@ namespace Hidano.FacialControl.Adapters.OSC
             _bytes = new byte[options.DatagramSlotBytes * options.DatagramSlotCount];
             _records = new OscResolvedMessage[options.DatagramSlotCount * RecordsPerSlot(options.DatagramSlotBytes)];
             _lengths = new int[options.DatagramSlotCount];
+            _remotes = new EndPoint[options.DatagramSlotCount];
         }
 
         private static int RecordsPerSlot(int slotBytes) => Math.Max(1, slotBytes / 16);
@@ -36,6 +39,17 @@ namespace Hidano.FacialControl.Adapters.OSC
             return ref _records[index];
         }
 
+        /// <summary>
+        /// <paramref name="recordIndex"/> のメッセージが入っていたデータグラムの送信元。受信ループが送信元を
+        /// 取っていなかったときは null。
+        /// </summary>
+        public EndPoint GetRemoteEndPoint(int recordIndex)
+        {
+            ref readonly OscResolvedMessage record = ref GetRecord(recordIndex);
+            int datagramIndex = record.ElementOffset / _slotBytes;
+            return (uint)datagramIndex < (uint)DatagramCount ? _remotes[datagramIndex] : null;
+        }
+
         public OscMessageView GetView(int index)
         {
             ref readonly OscResolvedMessage record = ref GetRecord(index);
@@ -51,7 +65,7 @@ namespace Hidano.FacialControl.Adapters.OSC
                 record.TimestampKey, record.ElementOffset);
         }
 
-        internal void Append(ReadOnlySpan<byte> datagram, ReadOnlySpan<OscResolvedMessage> records)
+        internal void Append(ReadOnlySpan<byte> datagram, ReadOnlySpan<OscResolvedMessage> records, EndPoint remote = null)
         {
             if (datagram.Length > _slotBytes || records.Length > _records.Length - RecordCount)
                 throw new InvalidOperationException("The drain buffer capacity was exceeded.");
@@ -59,6 +73,7 @@ namespace Hidano.FacialControl.Adapters.OSC
             int byteOffset = DatagramCount * _slotBytes;
             datagram.CopyTo(new Span<byte>(_bytes, byteOffset, datagram.Length));
             _lengths[DatagramCount] = datagram.Length;
+            _remotes[DatagramCount] = remote;
             int recordOffset = RecordCount;
             for (int i = 0; i < records.Length; i++)
             {
@@ -75,6 +90,7 @@ namespace Hidano.FacialControl.Adapters.OSC
 
         public void Reset()
         {
+            Array.Clear(_remotes, 0, DatagramCount);
             DatagramCount = 0;
             RecordCount = 0;
         }

@@ -516,8 +516,11 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
                 return;
             }
 
-            bool sendHeartbeat = ShouldSendHeartbeat(deltaTime);
-            if (!_hasPublishedFrame && !sendHeartbeat)
+            // 送るのは送信元識別と値フレームだけ。対応表は受信側の要求に応じて OscSender が返す。
+            // gaze の設定（目ボーン path・可動範囲）の変更は heartbeat 間隔ごとに確かめ、変わっていれば対応表を作り直す
+            // （バージョンが変わるので、受信側が取り直す）。
+            bool refreshLayout = ShouldSendHeartbeat(deltaTime);
+            if (!_hasPublishedFrame)
             {
                 return;
             }
@@ -531,39 +534,16 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
                     continue;
                 }
 
-                if (sendHeartbeat)
+                if (refreshLayout)
                 {
                     RefreshGazeAdvertisementIfSettingsChanged(slot);
-                    slot.Sender.SendBundle(
-                        _identityUuidBytes,
-                        _identityStartedAtUnixMs,
-                        slot.ScratchAddressUtf8,
-                        slot.ScratchFloatValues,
-                        _hasPublishedFrame ? slot.ScratchFloatCount : 0,
-                        new OscHeartbeatPayload(
-                            slot.HeartbeatBlendShapeNames,
-                            slot.HeartbeatBlendShapeNames.Length,
-                            _sendPreset ? ToPresetName(slot.Preset) : null,
-                            null,
-                            slot.GazeAdvertisementPairs,
-                            slot.GazeAdvertisementPairCount),
-                        includeIndexedValues: _hasPublishedFrame);
-                }
-                else
-                {
-                    slot.Sender.SendBundle(
-                        _identityUuidBytes,
-                        _identityStartedAtUnixMs,
-                        slot.ScratchAddressUtf8,
-                        slot.ScratchFloatValues,
-                        slot.ScratchFloatCount,
-                        includeIndexedValues: true);
                 }
 
+                slot.Sender.SendIndexedFrame(_identityUuidBytes, _identityStartedAtUnixMs);
                 sentAny = true;
             }
 
-            if (sendHeartbeat && sentAny)
+            if (refreshLayout && sentAny)
             {
                 _sendHeartbeatOnNextTick = false;
                 _heartbeatElapsedSeconds = 0f;
@@ -640,28 +620,18 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
             {
                 SendSlot slot = _sendSlots[slotIndex];
                 int[] sourceBlendShapeIndices = slot.SourceBlendShapeIndices;
-                slot.EnsureScratchCapacity();
-                // 値フレームの slot は BlendShape を同じ順で並べるので、名前つきアドレス用の値と同時に写す。
+                // 値フレームの slot は BlendShape を対応表と同じ順で並べ、その後ろに gaze チャネルごとの X / Y を置く。
                 float[] indexedValues = slot.IndexedValues;
-                int writeIndex = 0;
-                for (int i = 0; i < sourceBlendShapeIndices.Length; i++)
+                int count = Math.Min(sourceBlendShapeIndices.Length, indexedValues.Length);
+                for (int i = 0; i < count; i++)
                 {
                     int sourceIndex = sourceBlendShapeIndices[i];
-                    float value = sourceIndex >= 0 && sourceIndex < postBlendValues.Length
+                    indexedValues[i] = sourceIndex >= 0 && sourceIndex < postBlendValues.Length
                         ? postBlendValues[sourceIndex]
                         : 0f;
-                    slot.ScratchAddressUtf8[writeIndex] = slot.ConfiguredAddressUtf8[i];
-                    slot.ScratchFloatValues[writeIndex] = value;
-                    if (i < indexedValues.Length)
-                    {
-                        indexedValues[i] = value;
-                    }
-
-                    writeIndex++;
                 }
 
-                AppendGazeMessages(slot, ref writeIndex);
-                slot.ScratchFloatCount = writeIndex;
+                WriteIndexedGazeValues(slot);
             }
 
             _hasPublishedFrame = true;
@@ -986,77 +956,24 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
         }
 
         /// <summary>
-        /// gaze チャネルごとの名前つきアドレスのメッセージを足し、値フレームの gaze slot（X / Y）を写す。
-        /// 今回の出力に無いチャネルは、名前つきアドレスでは送らず、値フレームでは中立（0, 0）にする
+        /// 値フレームの gaze slot（X / Y）を写す。今回の出力に無いチャネルは中立（0, 0）にする
         /// （値フレームは毎フレーム全 slot を送るので、前回の値を残すと止まった目線を送り続けてしまう）。
         /// </summary>
-        private void AppendGazeMessages(SendSlot slot, ref int writeIndex)
+        private void WriteIndexedGazeValues(SendSlot slot)
         {
             string[] gazeIds = slot.GazeExpressionIds;
-            if (gazeIds.Length == 0)
-            {
-                return;
-            }
-
             float[] indexedValues = slot.IndexedValues;
             int indexedSlot = slot.SourceBlendShapeIndices.Length;
-            int addressIndex = slot.SourceBlendShapeIndices.Length;
             for (int i = 0; i < gazeIds.Length; i++)
             {
                 bool found = TryFindGazeSnapshot(gazeIds[i], out GazeSnapshot snapshot);
-                if (found)
-                {
-                    if (slot.Preset == AddressPresetKind.ARKit)
-                    {
-                        AppendArKitGazeMessages(slot, addressIndex, snapshot, ref writeIndex);
-                    }
-                    else
-                    {
-                        AppendVrChatGazeMessages(slot, addressIndex, snapshot, ref writeIndex);
-                    }
-                }
-
                 if (indexedSlot + 1 < indexedValues.Length)
                 {
                     indexedValues[indexedSlot] = found ? snapshot.X : 0f;
                     indexedValues[indexedSlot + 1] = found ? snapshot.Y : 0f;
                 }
 
-                addressIndex += slot.GazeMessageCount;
                 indexedSlot += OscFrameLayout.GazeSlotsPerChannel;
-            }
-        }
-
-        private static void AppendVrChatGazeMessages(
-            SendSlot slot,
-            int addressIndex,
-            GazeSnapshot snapshot,
-            ref int writeIndex)
-        {
-            slot.ScratchAddressUtf8[writeIndex] = slot.ConfiguredAddressUtf8[addressIndex];
-            slot.ScratchFloatValues[writeIndex] = snapshot.X;
-            writeIndex++;
-
-            slot.ScratchAddressUtf8[writeIndex] = slot.ConfiguredAddressUtf8[addressIndex + 1];
-            slot.ScratchFloatValues[writeIndex] = snapshot.Y;
-            writeIndex++;
-        }
-
-        private static void AppendArKitGazeMessages(
-            SendSlot slot,
-            int addressIndex,
-            GazeSnapshot snapshot,
-            ref int writeIndex)
-        {
-            Span<float> eyeLookValues = stackalloc float[PerfectSyncEyeLook.Count];
-            var gaze = new Vector2(snapshot.X, snapshot.Y);
-            PerfectSyncEyeLook.Compose(gaze, gaze, eyeLookValues);
-
-            for (int i = 0; i < PerfectSyncEyeLook.Count; i++)
-            {
-                slot.ScratchAddressUtf8[writeIndex] = slot.ConfiguredAddressUtf8[addressIndex + i];
-                slot.ScratchFloatValues[writeIndex] = eyeLookValues[i];
-                writeIndex++;
             }
         }
 
@@ -1394,10 +1311,6 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
             public string[] GazeAdvertisementPairs;
             public int GazeAdvertisementPairCount;
             public readonly GazeSettingsSnapshot[] GazeSettingsSnapshots;
-            public readonly int GazeMessageCount;
-            public byte[][] ScratchAddressUtf8;
-            public float[] ScratchFloatValues;
-            public int ScratchFloatCount;
             public OscFrameLayout IndexedLayout;
             public float[] IndexedValues = Array.Empty<float>();
 
@@ -1420,14 +1333,6 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
                     ? Array.Empty<GazeSettingsSnapshot>()
                     : new GazeSettingsSnapshot[GazeExpressionIds.Length];
                 SetGazeAdvertisementPairs(gazeAdvertisementPairs);
-                GazeMessageCount = GetGazeMessageCount(preset);
-                int scratchCapacity = SourceBlendShapeIndices.Length + (GazeExpressionIds.Length * GazeMessageCount);
-                ScratchAddressUtf8 = scratchCapacity == 0
-                    ? Array.Empty<byte[]>()
-                    : new byte[scratchCapacity][];
-                ScratchFloatValues = scratchCapacity == 0
-                    ? Array.Empty<float>()
-                    : new float[scratchCapacity];
             }
 
             public void SetGazeAdvertisementPairs(string[] gazeAdvertisementPairs)
@@ -1445,20 +1350,6 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
                 if (IndexedValues.Length != layout.SlotCount)
                 {
                     IndexedValues = layout.SlotCount == 0 ? Array.Empty<float>() : new float[layout.SlotCount];
-                }
-            }
-
-            public void EnsureScratchCapacity()
-            {
-                int required = SourceBlendShapeIndices.Length + (GazeExpressionIds.Length * GazeMessageCount);
-                if (ScratchAddressUtf8 == null || ScratchAddressUtf8.Length < required)
-                {
-                    ScratchAddressUtf8 = new byte[required][];
-                }
-
-                if (ScratchFloatValues == null || ScratchFloatValues.Length < required)
-                {
-                    ScratchFloatValues = new float[required];
                 }
             }
         }

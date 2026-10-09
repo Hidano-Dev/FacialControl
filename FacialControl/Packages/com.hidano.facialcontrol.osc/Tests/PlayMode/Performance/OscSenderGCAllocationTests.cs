@@ -93,7 +93,7 @@ namespace Hidano.FacialControl.Tests.PlayMode.Performance
         }
 
         [Test]
-        public void OnLateTick_HeartbeatBundle100Frames_RecordsBaseline()
+        public void OnLateTick_LayoutRefreshEveryTick100Frames_RecordsBaseline()
         {
             string[] blendShapeNames = CreateBlendShapeNames(32);
             var bus = new FacialOutputBus();
@@ -114,11 +114,11 @@ namespace Hidano.FacialControl.Tests.PlayMode.Performance
             });
 
             Assert.That(_binding.IsStarted, Is.True);
-            LogBaseline(nameof(OscSenderGCAllocationTests), "heartbeatBundle", baseline);
+            LogBaseline(nameof(OscSenderGCAllocationTests), "layoutRefreshEveryTick", baseline);
         }
 
         [Test]
-        public void Sender_HeartbeatWithAdvertisement_NoPerHeartbeatAlloc()
+        public void Sender_LayoutRefreshEveryTickWithGaze_NoPerTickAlloc()
         {
             string[] blendShapeNames = CreateBlendShapeNames(16);
             var gazeSnapshots = new[] { new GazeSnapshot(GazeExpressionId, -0.25f, 0.5f) };
@@ -147,7 +147,7 @@ namespace Hidano.FacialControl.Tests.PlayMode.Performance
             }
 
             Assert.That(recorder.LastValue, Is.EqualTo(0L),
-                "heartbeat with gaze advertisement reported GC.Alloc: " + recorder.LastValue + " bytes.");
+                "gaze layout refresh every tick reported GC.Alloc: " + recorder.LastValue + " bytes.");
         }
 
         private void StartSender(

@@ -6,13 +6,13 @@
 
 ### Added
 
-- FacialControl 同士の新しい OSC プロトコル（BlendShape ごとの名前つきアドレスをやめ、対応表バージョン + 固定インデックスの値の配列で送る）の部品を追加した。送受信の配線はまだ切り替えておらず、既存の挙動は変わらない（切り替えは後続の変更で行う）
+- FacialControl 同士の新しい OSC プロトコル（BlendShape ごとの名前つきアドレスをやめ、対応表バージョン + 固定インデックスの値の配列で送る）の部品を追加した。送受信の切り替えは Changed を参照
   - `OscFrameLayout` — 値フレームの slot と BlendShape 名・gaze チャネル（X / Y の 2 slot、属性ペア付き）の対応表
   - `OscFrameLayoutVersion` — 送信元の UUID・起動時刻・対応表の内容から計算するバージョン。0 を使わず、前回と同じ値にならない
   - `OscIndexedFrameCodec` — `/_facialcontrol/values`（`[version, offset, f...]`）・`/_facialcontrol/layout`（`[version, chunkIndex, chunkCount, (kind, value)...]`）・`/_facialcontrol/layout_request`（`[senderUuid, version, chunkIndex...]`）の読み書きと、1 通 1,400 バイト以内への分割。値フレームの読み書きはヒープ確保をしない
   - `OscFrameLayoutAssembler` — 順不同・重複ありで届くチャンクから対応表を組み立て、欠けたチャンクを返す
   - `OscLayoutRequestScheduler` — 未知のバージョンを見たら即要求し、揃うまで一定間隔で再要求し、揃わない状態が続いたら警告を 1 回出させる
-- `OscSenderAdapterBinding` が、従来の名前つきアドレスの frame bundle に続けて、同じ timestamp で値フレーム（送信元識別 + `/_facialcontrol/values`。slot は BlendShape → gaze チャネルごとの X / Y の順）を送るようにした。送信先ごとに対応表（BlendShape 名・gaze チャネルと目ボーン path・可動範囲の属性）とそのバージョンを起動時に作り、gaze の属性が変わったときは別のバージョンで作り直す。送信用ソケットに届いた `/_facialcontrol/layout_request` には、自分の UUID 宛てでバージョンが一致するか 0 のものだけ、要求元へ対応表のチャンクを返す（指定されたチャンクだけ、または全チャンク。1 フレームで読む要求は 16 件まで）。値フレームの組み立てと送信はヒープ確保をしない。受信側の切り替えと名前つきアドレス・heartbeat の送信停止は後続の変更で行う（それまで既存の受信側は値フレームを読み飛ばし、データグラムは 1 フレームあたり 1〜2 個増える）
+- `OscSenderAdapterBinding` が、従来の名前つきアドレスの frame bundle に続けて、同じ timestamp で値フレーム（送信元識別 + `/_facialcontrol/values`。slot は BlendShape → gaze チャネルごとの X / Y の順）を送るようにした。送信先ごとに対応表（BlendShape 名・gaze チャネルと目ボーン path・可動範囲の属性）とそのバージョンを起動時に作り、gaze の属性が変わったときは別のバージョンで作り直す。送信用ソケットに届いた `/_facialcontrol/layout_request` には、自分の UUID 宛てでバージョンが一致するか 0 のものだけ、要求元へ対応表のチャンクを返す（指定されたチャンクだけ、または全チャンク。1 フレームで読む要求は 16 件まで）。値フレームの組み立てと送信はヒープ確保をしない。名前つきアドレス・heartbeat の送信は後の変更でやめた（Changed を参照）
 - OSC Receiver / OSC Sender / ARKit の Adapter を折り畳んだ状態でも、Foldout ヘッダーに接続先の要約を表示するようにした。受信は `:9001`、送信は `127.0.0.1:9000`（複数なら `127.0.0.1:9000 他 2 件`）。ランタイムと同じく、空のホストは `127.0.0.1` とみなし、同じホスト:ポートは 1 件に数える。無効な送信先（`enabled` = false、ポート範囲外）は件数から除き、全件はツールチップに出す（無効・重複は印付き）。旧形式の `OscRuntimeSettingsSO` が割り当てられたままならその値を表示し、旧アセットで受信 / 送信が無効なら無効として表示する（旧アセット側の変更は Inspector を開き直すと反映）
 - Gaze 広告（`/_facialcontrol/gaze`）に、チャネルごとの目ボーン path（`bone.left=<path>` / `bone.right=<path>`、送信側で指定した側のみ）と可動範囲（`range=<lookUp>,<lookDown>,<outerYaw>,<innerYaw>`、毎回）を属性ペアとして載せるようにした。`OscSenderAdapterBinding` は `IGazeChannelSettingsConsumer` で Profile の目線設定を受け取り、heartbeat のたびに設定の変化を確かめて、変わっていれば広告を組み直す
 - `OscReceiverAdapterBinding` が広告の属性ペアを `IGazeChannelOverrideProvider` として公開し、`FacialController` がローカルの目線設定より優先して使う。FacialControl 同士の送受信では、受信側は目線タブを設定しなくても送信側と同じ目ボーン・可動範囲で目線が動く。属性ペアの解析は広告の中身が変わったときだけ行う
@@ -22,6 +22,7 @@
 
 ### Changed
 
+- **（破壊的変更）FacialControl 同士の OSC 送受信を値フレームに切り替えた。** `OscSenderAdapterBinding` は送信元識別と値フレーム（`/_facialcontrol/values`）だけを送り、BlendShape・gaze の名前つきアドレス、heartbeat（`/_facialcontrol/blendshape_names`）、preset、gaze 広告は送らない。`OscReceiverAdapterBinding` は値フレームを受けると送信元 UUID ごとに対応表を要求し（受信ソケットから値フレームの送信元へ。返信は受信ポートに届く）、欠けたチャンクだけを再要求し、揃わない状態が 3 秒続いたら警告を 1 回出す。要求のチャンク番号が 1 通 1,400 バイトに収まらないときは全チャンクを要求する。対応表が揃ったら BlendShape 名が一致する受信側の BlendShape へ slot を割り当て（受信側に無い名前は警告せず捨てる）、gaze チャネルの X / Y は同じ id の gaze 入力源（手動 mapping の gaze を含む。左右共通）へ、目ボーン path・可動範囲の属性は従来の上書きへ渡す。バージョンが一致する値フレームだけを適用するので、送信側の再起動や BlendShape 構成の変更後は自動で対応表を取り直す。対応表を適用した後は heartbeat・gaze 広告で mapping を上書きしない。名前つきアドレスの受信（手動マッピング・heartbeat の自動マッピング）は外部の送信元向けに残している（対応表の mapping は手動マッピングの後ろに並べる。削除は後続の変更で行う）。送信元のアドレスを記録するのは対応表を待っている間だけで、適用後の送受信はフレームごとのヒープ確保を増やさない
 - 受信 slug をどのレイヤーにも宣言していない既存の Profile でも、起動時に先頭レイヤー（対象レイヤー未指定時）へ受信値が合成されるようになった。意図して受信をレイヤーに繋いでいなかった場合は、対象レイヤーを選び直すか、受信値を入れたいレイヤーへ slug を手で宣言する
 - 属性ペアを知らない旧バージョンの受信側は、新しい送信側の広告を受け取ると未知の形式として警告を 1 回出してスキップする（route と目線の動作は従来どおり）
 - **破壊的変更**: OSC の受信ポートを `OscReceiverAdapterBinding` 本体、送信先リストを `OscSenderAdapterBinding` 本体に移した。Adapter Bindings から直接確認・変更できる。新規の Sender binding は送信先 1 件（`127.0.0.1:9000`）で始まる

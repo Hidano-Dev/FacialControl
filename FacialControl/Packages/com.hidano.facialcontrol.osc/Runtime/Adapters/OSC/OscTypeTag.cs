@@ -38,6 +38,8 @@ namespace Hidano.FacialControl.Adapters.OSC
         SenderId,
         Heartbeat,
         Preset,
-        GazeAdvertisement
+        GazeAdvertisement,
+        Values,
+        Layout
     }
 }

@@ -397,6 +397,37 @@ namespace Hidano.FacialControl.Osc.Tests.EditMode.Adapters.OSC
         }
 
         [Test]
+        public void GetLayoutRequestMessageSize_MatchesWrittenLength()
+        {
+            var indices = new[] { 0, 1, 2, 3, 4 };
+
+            byte[] packet = OscIndexedFrameCodec.WriteLayoutRequestMessage(SenderUuid, 314, indices);
+
+            Assert.That(OscIndexedFrameCodec.GetLayoutRequestMessageSize(indices.Length), Is.EqualTo(packet.Length));
+            Assert.That(OscIndexedFrameCodec.GetLayoutRequestMessageSize(0),
+                Is.EqualTo(OscIndexedFrameCodec.WriteLayoutRequestMessage(SenderUuid, 314, null).Length));
+        }
+
+        [Test]
+        public void GetMaxLayoutRequestChunkIndices_DefaultBudget_FitsAndOneMoreDoesNot()
+        {
+            int max = OscIndexedFrameCodec.GetMaxLayoutRequestChunkIndices(Budget);
+
+            Assert.That(max, Is.GreaterThan(0));
+            Assert.That(OscIndexedFrameCodec.GetLayoutRequestMessageSize(max), Is.LessThanOrEqualTo(Budget));
+            Assert.That(OscIndexedFrameCodec.GetLayoutRequestMessageSize(max + 1), Is.GreaterThan(Budget));
+        }
+
+        [Test]
+        public void GetMaxLayoutRequestChunkIndices_BudgetBelowEmptyRequest_ReturnsZero()
+        {
+            int emptySize = OscIndexedFrameCodec.GetLayoutRequestMessageSize(0);
+
+            Assert.That(OscIndexedFrameCodec.GetMaxLayoutRequestChunkIndices(emptySize), Is.EqualTo(0));
+            Assert.That(OscIndexedFrameCodec.GetMaxLayoutRequestChunkIndices(emptySize - 1), Is.EqualTo(0));
+        }
+
+        [Test]
         public void TryReadLayoutRequestMessage_ValuesMessage_ReturnsFalse()
         {
             var buffer = new byte[64];

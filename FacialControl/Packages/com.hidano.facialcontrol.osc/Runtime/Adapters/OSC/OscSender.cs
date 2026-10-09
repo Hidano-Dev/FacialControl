@@ -202,6 +202,40 @@ namespace Hidano.FacialControl.Adapters.OSC
         }
 
         /// <summary>
+        /// 送信元識別と値フレーム（<c>/_facialcontrol/values</c>）だけを同じ timestamp で送り、続けて対応表要求に返信する。
+        /// <see cref="ConfigureIndexedFrame"/> の前、または送信を開始していなければ何もしない。ヒープ確保をしない。
+        /// </summary>
+        public void SendIndexedFrame(byte[] senderUuidBytes, string startedAtUnixMs)
+        {
+            if (!_initialized || _client == null || !_client.isRunning || _indexedLayout == null)
+                return;
+
+            if (senderUuidBytes == null || senderUuidBytes.Length != SenderIdentity.UuidByteLength)
+                return;
+
+            if (string.IsNullOrEmpty(startedAtUnixMs))
+                return;
+
+            ulong timestamp = Timestamp.Now.value;
+            int packetCount = _bundleBuilder.BuildIndexedValuesPackets(
+                timestamp,
+                SenderIdentityAddressUtf8,
+                senderUuidBytes,
+                startedAtUnixMs,
+                _indexedLayout.Version,
+                new ReadOnlySpan<float>(_indexedSlotValues, 0, _indexedLayout.SlotCount));
+
+            EnsureBundleClient();
+            for (int i = 0; i < packetCount; i++)
+            {
+                OscBundlePacket packet = _bundleBuilder.GetPacket(i);
+                SendBundlePacket(packet);
+            }
+
+            PumpLayoutRequests();
+        }
+
+        /// <summary>
         /// 送信用ソケットに届いた対応表要求（<c>/_facialcontrol/layout_request</c>）を読み、要求元へ対応表の
         /// チャンクを返す。返信した要求の数を返す。自分の送信元 UUID 宛てで、バージョンが今の対応表と一致するか
         /// 未知（0）の要求だけに返す（違うバージョンの要求は、受信側が新しい値フレームを見て要求し直す）。

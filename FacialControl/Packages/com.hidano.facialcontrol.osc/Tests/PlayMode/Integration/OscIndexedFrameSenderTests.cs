@@ -179,6 +179,35 @@ namespace Hidano.FacialControl.Tests.PlayMode.Integration
             Assert.That(secondFrame.SenderUuid, Is.Not.EqualTo(firstFrame.SenderUuid));
         }
 
+        [Test]
+        public void OnLateTick_WithGaze_SendsOnlySenderIdAndValuesFrames()
+        {
+            string[] names = CreateNames(8);
+            var receiver = OpenSocket(out int port);
+            var bus = new FacialOutputBus();
+            OscSenderAdapterBinding binding = StartSender(bus, port, names, withGaze: true);
+            float[] output = CreateOutput(names.Length);
+            var gaze = new[] { new GazeSnapshot(GazeChannelId, 0.25f, -0.5f) };
+            var addresses = new HashSet<string>();
+
+            for (int tick = 0; tick < 5; tick++)
+            {
+                bus.Publish(output, gaze);
+                binding.OnLateTick(DeltaTime);
+                while (TryReceive(receiver, out byte[] datagram, out _))
+                {
+                    var reader = new OscPacketReader(datagram);
+                    while (reader.TryReadNext(out OscMessageView view))
+                    {
+                        addresses.Add(Encoding.UTF8.GetString(view.Address.ToArray()));
+                    }
+                }
+            }
+
+            // 名前つきアドレスの BlendShape / gaze、heartbeat、preset、gaze 広告は送らない。
+            Assert.That(addresses, Is.EquivalentTo(new[] { OscControlAddresses.SenderId, OscControlAddresses.Values }));
+        }
+
         private OscSenderAdapterBinding StartSender(FacialOutputBus bus, int port, string[] names, bool withGaze)
         {
             var host = new GameObject("OscIndexedFrameSenderTests");
