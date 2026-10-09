@@ -149,9 +149,6 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
         private List<string> _gazeChannelIdScratch;
 
         [NonSerialized]
-        private uint _lastGazeChannelHash;
-
-        [NonSerialized]
         private bool _hasAppliedGazeChannels;
 
         [NonSerialized]
@@ -380,7 +377,8 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
         public IReadOnlyList<GazeVector2InputSource> GazeSources =>
             _gazeSources ?? (IReadOnlyList<GazeVector2InputSource>)Array.Empty<GazeVector2InputSource>();
 
-        public uint LastGazeChannelHash => _lastGazeChannelHash;
+        /// <summary>適用中の対応表の gaze チャネル id（ordinal 順）の FNV-1a ハッシュ。診断・テスト用。</summary>
+        public uint LastGazeChannelHash => ComputeGazeChannelIdHash(_appliedGazeChannelIds);
 
         public bool HasAutoGazeRoutes => _autoGazeSourcesById != null && _autoGazeSourcesById.Count > 0;
 
@@ -629,7 +627,6 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
             _injectedGazeChannelIds = null;
             _hasInjectedGazeChannels = false;
             _warnedUnmatchedGazeConfigIds = null;
-            _lastGazeChannelHash = 0u;
             _hasAppliedGazeChannels = false;
             ClearGazeBundleState();
             _gazeBundleSync = null;
@@ -1247,7 +1244,6 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
 
             _appliedGazeChannelIds.Clear();
             _appliedGazeChannelIds.AddRange(_gazeChannelIdScratch);
-            _lastGazeChannelHash = ComputeGazeChannelIdHash(_appliedGazeChannelIds);
             _hasAppliedGazeChannels = true;
             RebuildGazeRoutes(_appliedGazeChannelIds);
         }
@@ -1273,6 +1269,11 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
         private static uint ComputeGazeChannelIdHash(List<string> sortedChannelIds)
         {
             uint hash = HeartbeatHashHelper.Fnv1aOffsetBasis;
+            if (sortedChannelIds == null)
+            {
+                return hash;
+            }
+
             for (int i = 0; i < sortedChannelIds.Count; i++)
             {
                 hash = HeartbeatHashHelper.AppendFnv1aString(hash, sortedChannelIds[i]);
