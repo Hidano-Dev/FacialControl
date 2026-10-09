@@ -12,210 +12,40 @@ namespace Hidano.FacialControl.Tests.EditMode.Adapters
     public class OscAddressFormatterTests : SizedTestFixture
     {
         [Test]
-        public void TryFormatBlendShapeAddress_VRChatNameWithMultibyteAndSymbols_WritesCompleteAddress()
+        public void GetOrAddAddressUtf8_AddressWithMultibyteAndSymbols_ReturnsUtf8Bytes()
         {
-            const string blendShapeName = "\u7b11\u9854_\u53e3.\u3042";
-            Span<char> destination = stackalloc char[64];
+            const string address = "/manual/笑顔_口.あ";
+            var pool = new Dictionary<string, byte[]>();
 
-            bool formatted = OscAddressFormatter.TryFormatBlendShapeAddress(
-                AddressPresetKind.VRChat,
-                blendShapeName.AsSpan(),
-                destination,
-                out int written);
+            byte[] bytes = OscAddressFormatter.GetOrAddAddressUtf8(pool, address);
 
-            Assert.IsTrue(formatted);
-            Assert.AreEqual("/avatar/parameters/" + blendShapeName, ToString(destination.Slice(0, written)));
+            Assert.AreEqual(address, Encoding.UTF8.GetString(bytes));
         }
 
         [Test]
-        public void TryFormatBlendShapeAddress_ARKitNameWithMultibyteAndSymbols_WritesCompleteAddress()
+        public void GetOrAddAddressUtf8_SameAddress_ReturnsCachedBytes()
         {
-            const string blendShapeName = "\u7b11\u9854_\u53e3.\u3042";
-            Span<char> destination = stackalloc char[64];
+            var pool = new Dictionary<string, byte[]>();
 
-            bool formatted = OscAddressFormatter.TryFormatBlendShapeAddress(
-                AddressPresetKind.ARKit,
-                blendShapeName.AsSpan(),
-                destination,
-                out int written);
-
-            Assert.IsTrue(formatted);
-            Assert.AreEqual("/ARKit/" + blendShapeName, ToString(destination.Slice(0, written)));
-        }
-
-        [Test]
-        public void TryFormatBlendShapeAddress_DestinationTooShort_ReturnsFalseAndRequiredLength()
-        {
-            const string blendShapeName = "jawOpen";
-            Span<char> destination = stackalloc char[4];
-
-            bool formatted = OscAddressFormatter.TryFormatBlendShapeAddress(
-                AddressPresetKind.VRChat,
-                blendShapeName.AsSpan(),
-                destination,
-                out int written);
-
-            Assert.IsFalse(formatted);
-            Assert.AreEqual(OscAddressFormatter.GetBlendShapeAddressLength(
-                AddressPresetKind.VRChat,
-                blendShapeName.AsSpan()), written);
-        }
-
-        [Test]
-        public void TryFormatGazeAddress_VRChatExpressionIdWithSymbols_WritesAxisAddress()
-        {
-            const string expressionId = "\u8996\u7dda.left_01";
-            Span<char> destination = stackalloc char[64];
-
-            bool formatted = OscAddressFormatter.TryFormatGazeAddress(
-                AddressPresetKind.VRChat,
-                expressionId.AsSpan(),
-                OscAddressFormatter.VRChatGazeXAxis,
-                destination,
-                out int written);
-
-            Assert.IsTrue(formatted);
-            Assert.AreEqual("/avatar/parameters/" + expressionId + "X", ToString(destination.Slice(0, written)));
-        }
-
-        [Test]
-        public void FormatBlendShapeAddress_VRChatName_ReturnsCompleteAddressString()
-        {
-            Assert.AreEqual(
-                "/avatar/parameters/eyeBlinkLeft",
-                OscAddressFormatter.FormatBlendShapeAddress(AddressPresetKind.VRChat, "eyeBlinkLeft"));
-        }
-
-        [Test]
-        public void FormatBlendShapeAddress_ARKitName_ReturnsCompleteAddressString()
-        {
-            Assert.AreEqual(
-                "/ARKit/eyeBlinkLeft",
-                OscAddressFormatter.FormatBlendShapeAddress(AddressPresetKind.ARKit, "eyeBlinkLeft"));
-        }
-
-        [Test]
-        public void FormatBlendShapeAddress_CustomPrefix_ReturnsCompleteAddressString()
-        {
-            Assert.AreEqual(
-                "/myapp/eyeBlinkLeft",
-                OscAddressFormatter.FormatBlendShapeAddress("/myapp/", "eyeBlinkLeft"));
-        }
-
-        [Test]
-        public void FormatBlendShapeAddress_CustomPrefixWithoutLeadingSlash_DoesNotAddSlash()
-        {
-            Assert.AreEqual(
-                "myapp/eyeBlinkLeft",
-                OscAddressFormatter.FormatBlendShapeAddress("myapp/", "eyeBlinkLeft"));
-        }
-
-        [Test]
-        public void FormatBlendShapeAddress_CustomPreset_ThrowsNotSupportedException()
-        {
-            Assert.Throws<NotSupportedException>(() =>
-                OscAddressFormatter.FormatBlendShapeAddress(AddressPresetKind.Custom, "eyeBlinkLeft"));
-        }
-
-        [Test]
-        public void FormatBlendShapeAddress_NullCustomPrefix_ThrowsArgumentException()
-        {
-            Assert.Throws<ArgumentException>(() =>
-                OscAddressFormatter.FormatBlendShapeAddress(null, "eyeBlinkLeft"));
-        }
-
-        [Test]
-        public void FormatBlendShapeAddress_EmptyCustomPrefix_ThrowsArgumentException()
-        {
-            Assert.Throws<ArgumentException>(() =>
-                OscAddressFormatter.FormatBlendShapeAddress(string.Empty, "eyeBlinkLeft"));
-        }
-
-        [Test]
-        public void FormatBlendShapeAddressUtf8_CustomPrefix_ReturnsCompleteAddressBytes()
-        {
-            byte[] bytes = OscAddressFormatter.FormatBlendShapeAddressUtf8("/myapp/", "eyeBlinkLeft");
-
-            Assert.AreEqual("/myapp/eyeBlinkLeft", Encoding.UTF8.GetString(bytes));
-        }
-
-        [Test]
-        public void GetOrAddBlendShapeAddressUtf8_SameNameAndPreset_ReturnsCachedBytes()
-        {
-            var pool = new Dictionary<(string name, AddressPresetKind preset), byte[]>();
-
-            byte[] first = OscAddressFormatter.GetOrAddBlendShapeAddressUtf8(
-                pool,
-                AddressPresetKind.ARKit,
-                "eyeBlinkLeft");
-            byte[] second = OscAddressFormatter.GetOrAddBlendShapeAddressUtf8(
-                pool,
-                AddressPresetKind.ARKit,
-                "eyeBlinkLeft");
+            byte[] first = OscAddressFormatter.GetOrAddAddressUtf8(pool, "/manual/smile");
+            byte[] second = OscAddressFormatter.GetOrAddAddressUtf8(pool, "/manual/smile");
 
             Assert.AreSame(first, second);
-            Assert.AreEqual("/ARKit/eyeBlinkLeft", Encoding.UTF8.GetString(first));
+            Assert.AreEqual(1, pool.Count);
         }
 
         [Test]
-        public void GetOrAddBlendShapeAddressUtf8_SameNameDifferentPreset_ReturnsDifferentAddresses()
+        public void GetOrAddAddressUtf8_NullPool_ThrowsArgumentNullException()
         {
-            var pool = new Dictionary<(string name, AddressPresetKind preset), byte[]>();
-
-            byte[] vrchat = OscAddressFormatter.GetOrAddBlendShapeAddressUtf8(
-                pool,
-                AddressPresetKind.VRChat,
-                "eyeBlinkLeft");
-            byte[] arkit = OscAddressFormatter.GetOrAddBlendShapeAddressUtf8(
-                pool,
-                AddressPresetKind.ARKit,
-                "eyeBlinkLeft");
-
-            Assert.AreNotSame(vrchat, arkit);
-            Assert.AreEqual("/avatar/parameters/eyeBlinkLeft", Encoding.UTF8.GetString(vrchat));
-            Assert.AreEqual("/ARKit/eyeBlinkLeft", Encoding.UTF8.GetString(arkit));
+            Assert.Throws<ArgumentNullException>(() => OscAddressFormatter.GetOrAddAddressUtf8(null, "/manual/smile"));
         }
 
         [Test]
-        public void GetOrAddBlendShapeAddressUtf8_SameNameAndCustomPrefix_ReturnsCachedBytes()
+        public void GetOrAddAddressUtf8_NullAddress_ThrowsArgumentNullException()
         {
-            var pool = new Dictionary<(string name, string customPrefix), byte[]>();
+            var pool = new Dictionary<string, byte[]>();
 
-            byte[] first = OscAddressFormatter.GetOrAddBlendShapeAddressUtf8(
-                pool,
-                "/myapp/",
-                "eyeBlinkLeft");
-            byte[] second = OscAddressFormatter.GetOrAddBlendShapeAddressUtf8(
-                pool,
-                "/myapp/",
-                "eyeBlinkLeft");
-
-            Assert.AreSame(first, second);
-            Assert.AreEqual("/myapp/eyeBlinkLeft", Encoding.UTF8.GetString(first));
-        }
-
-        [Test]
-        public void GetOrAddBlendShapeAddressUtf8_SameNameDifferentCustomPrefix_ReturnsDifferentAddresses()
-        {
-            var pool = new Dictionary<(string name, string customPrefix), byte[]>();
-
-            byte[] first = OscAddressFormatter.GetOrAddBlendShapeAddressUtf8(
-                pool,
-                "/first/",
-                "eyeBlinkLeft");
-            byte[] second = OscAddressFormatter.GetOrAddBlendShapeAddressUtf8(
-                pool,
-                "/second/",
-                "eyeBlinkLeft");
-
-            Assert.AreNotSame(first, second);
-            Assert.AreEqual("/first/eyeBlinkLeft", Encoding.UTF8.GetString(first));
-            Assert.AreEqual("/second/eyeBlinkLeft", Encoding.UTF8.GetString(second));
-        }
-
-        private static string ToString(ReadOnlySpan<char> value)
-        {
-            return new string(value.ToArray());
+            Assert.Throws<ArgumentNullException>(() => OscAddressFormatter.GetOrAddAddressUtf8(pool, null));
         }
     }
 }

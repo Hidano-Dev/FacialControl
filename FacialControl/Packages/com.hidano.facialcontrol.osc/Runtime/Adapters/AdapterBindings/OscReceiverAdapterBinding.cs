@@ -3,7 +3,6 @@ using System.Buffers.Binary;
 using System.Collections;
 using System.Collections.Generic;
 using System.Net;
-using System.Text;
 using System.Threading;
 using Hidano.FacialControl.Adapters.InputSources;
 using Hidano.FacialControl.Adapters.OSC;
@@ -42,26 +41,17 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
         public enum MappingOrigin
         {
             Manual,
-            HeartbeatAuto,
 
             /// <summary>値フレームの対応表（<c>/_facialcontrol/layout</c>）から作った mapping。</summary>
             Layout
         }
 
         public const string SenderIdentityAddress = SenderIdentity.OscAddress;
-        public const string BlendShapeNamesAddress = "/_facialcontrol/blendshape_names";
-        public const string PresetAddress = "/_facialcontrol/preset";
-        public const string GazeAdvertisementAddress = "/_facialcontrol/gaze";
 
         [NonSerialized]
         public OscReceiveOptions ReceiveOptions = OscReceiveOptions.Default;
 
         private const int MaxCachedBundleSenderDecisions = 32;
-        private const int HeartbeatScratchBytes = 32 * 1024;
-        private const int HeartbeatScratchNames = 1024;
-        private const int GazeAdvertisementScratchBytes = 8 * 1024;
-        private const int GazeAdvertisementScratchValues = 256 * 2;
-        private const int PresetScratchBytes = 256;
         private const int InitialGazeFramePoolCapacity = 4;
 
         /// <summary>対応表の状態を保持する送信元 UUID の数の上限。超えたら最後に値フレームを見た時刻が古いものから捨てる。</summary>
@@ -129,9 +119,6 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
         private MappingOrigin[] _mappingOrigins;
 
         [NonSerialized]
-        private IReadOnlyList<OscMappingEntry> _runtimeManualEntries;
-
-        [NonSerialized]
         private OscReceiverHost _helperHost;
 
         [NonSerialized]
@@ -168,9 +155,6 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
         private List<GazeVector2InputSource> _manualGazeSources;
 
         [NonSerialized]
-        private List<string> _gazeAdProcessingScratch;
-
-        [NonSerialized]
         private List<GazeAdvertisementResolver.GazeAdvertisement> _gazeAdPlan;
 
         [NonSerialized]
@@ -181,7 +165,7 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
 
         /// <summary>
         /// FacialController からリフレクション経由で注入された GazeConfig の
-        /// expressionId。広告由来 source の突合診断だけに使用し、設定自体は変更しない。
+        /// expressionId。対応表由来 source の突合診断だけに使用し、設定自体は変更しない。
         /// </summary>
         [NonSerialized]
         private HashSet<string> _injectedGazeChannelIds;
@@ -241,9 +225,6 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
         private HashSet<string> _normalBlendShapeNames;
 
         [NonSerialized]
-        private HeartbeatConsistencyChecker _heartbeatChecker;
-
-        [NonSerialized]
         private ZombieEvictionPolicy _zombiePolicy;
 
         [NonSerialized]
@@ -252,88 +233,10 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
         [NonSerialized]
         private Queue<ulong> _bundleSenderDecisionOrder;
 
-        [NonSerialized]
-        private List<string> _heartbeatScratch;
-
-        [NonSerialized]
-        private List<string> _heartbeatProcessingScratch;
-
-        [NonSerialized]
-        private object _heartbeatSync;
-
-        [NonSerialized]
-        private int _heartbeatDirty;
-
-        [NonSerialized]
-        private uint _lastHeartbeatHash;
-
-        [NonSerialized]
-        private bool _hasProcessedHeartbeat;
-
-        // heartbeat の BlendShape 名は MTU に収まるよう複数の
-        // /_facialcontrol/blendshape_names メッセージ (chunk) に分割されて届く。
-        // 同一 heartbeat の chunk 群は同じ bundle timestamp を共有するため、
-        // timestamp が同じ間は _heartbeatScratch へ accumulate し、新しい timestamp で reset する。
-        // 同じ timestamp で同一名が再度届いた場合は重複蓄積せず読み飛ばす（名前集合として扱う）。
-        [NonSerialized]
-        private ulong _heartbeatAccumulationTimestamp;
-
-        [NonSerialized]
-        private bool _heartbeatAccumulating;
-
-        [NonSerialized] private byte[] _heartbeatScratchBytes;
-        [NonSerialized] private int[] _heartbeatScratchOffsets;
-        [NonSerialized] private int _heartbeatScratchByteCount;
-        [NonSerialized] private int _heartbeatScratchNameCount;
-        [NonSerialized] private uint _lastHeartbeatBytesHash;
-        [NonSerialized] private bool _hasProcessedHeartbeatBytes;
-        [NonSerialized] private bool _warnedHeartbeatScratchOverflow;
-
-        [NonSerialized] private byte[] _presetBytes;
-        [NonSerialized] private byte[] _customPrefixBytes;
-        [NonSerialized] private int _presetByteCount;
-        [NonSerialized] private int _customPrefixByteCount;
-        [NonSerialized] private bool _hasCustomPrefixBytes;
-
-        [NonSerialized]
-        private List<string> _gazeAdScratch;
-
-        [NonSerialized]
-        private object _gazeAdSync;
-
-        [NonSerialized]
-        private int _gazeAdDirty;
-
-        [NonSerialized]
-        private ulong _gazeAdAccumulationTimestamp;
-
-        [NonSerialized]
-        private bool _gazeAdAccumulating;
-
-        [NonSerialized] private byte[] _gazeAdScratchBytes;
-        [NonSerialized] private int[] _gazeAdScratchOffsets;
-        [NonSerialized] private int _gazeAdScratchByteCount;
-        [NonSerialized] private int _gazeAdScratchValueCount;
-        [NonSerialized] private uint _lastGazeAdvertisementBytesHash;
-        [NonSerialized] private bool _hasProcessedGazeAdvertisementBytes;
-        [NonSerialized] private bool _warnedGazeAdvertisementScratchOverflow;
-
         /// <summary>
-        /// 送信側の gaze 広告に載った目ボーン path・可動範囲の上書き。広告の受信バイト列が変わったときだけ更新する。
+        /// 値フレームの対応表の gaze チャネル属性から得た目ボーン path・可動範囲の上書き。対応表を適用したときだけ更新する。
         /// </summary>
         [NonSerialized] private GazeChannelOverrideTable _gazeChannelOverrides;
-
-        [NonSerialized]
-        private bool _warnedOnEmptyHeartbeatIntersection;
-
-        [NonSerialized]
-        private bool _warnedOnAddressCollision;
-
-        [NonSerialized]
-        private bool _warnedOnUnknownPreset;
-
-        [NonSerialized]
-        private bool _warnedOnMissingCustomPrefix;
 
         [NonSerialized]
         private IInputSourceRegistry _runtimeRegistry;
@@ -349,12 +252,6 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
 
         [NonSerialized]
         private SenderIdentity _currentSenderId;
-
-        [NonSerialized]
-        private string _currentPresetName;
-
-        [NonSerialized]
-        private string _currentCustomPrefix;
 
         [NonSerialized]
         private double _lastAcceptedPacketTime;
@@ -538,20 +435,10 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
 
         public OscBundleAccumulator BundleAccumulator => _bundleAccumulator;
 
-        public HeartbeatConsistencyChecker HeartbeatChecker => _heartbeatChecker;
-
         public ZombieEvictionPolicy ZombiePolicy => _zombiePolicy;
 
         public SenderIdentity? CurrentSenderId =>
             _hasCurrentSenderId ? _currentSenderId : (SenderIdentity?)null;
-
-        public string CurrentPresetName => _currentPresetName;
-
-        public AddressPresetKind? CurrentPreset => ParseCurrentPreset(_currentPresetName);
-
-        public string CurrentCustomPrefix => _currentCustomPrefix;
-
-        public uint LastHeartbeatHash => _lastHeartbeatHash;
 
         public IReadOnlyList<GazeVector2InputSource> GazeSources =>
             _gazeSources ?? (IReadOnlyList<GazeVector2InputSource>)Array.Empty<GazeVector2InputSource>();
@@ -565,7 +452,7 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
             _gazeChannelOverrides != null ? _gazeChannelOverrides.Version : 0;
 
         /// <summary>
-        /// 送信側の gaze 広告から受け取った、チャネル id に対する目ボーン path・可動範囲の上書きを返す。
+        /// 値フレームの対応表から受け取った、チャネル id に対する目ボーン path・可動範囲の上書きを返す。
         /// FacialController がローカルの GazeChannel より優先して使う。
         /// </summary>
         public bool TryGetGazeChannelOverride(string channelId, out GazeChannelOverride value)
@@ -615,7 +502,7 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
             }
         }
 
-        /// <summary>手動 gaze mapping と広告駆動のワイルドカードを宣言する。</summary>
+        /// <summary>手動 gaze mapping と対応表駆動のワイルドカードを宣言する。</summary>
         public IEnumerable<GazeSourceDeclaration> GetGazeSourceDeclarations()
         {
             yield return new GazeSourceDeclaration(null, true);
@@ -800,9 +687,6 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
             _mappingOrigins = initialResult.Origins;
             _manualRuntimeMappings = runtimeMappings;
             _manualMappingOrigins = initialResult.Origins;
-            _runtimeManualEntries = _runtimeMappings != null && (_mappings == null || _mappings.Count == 0)
-                ? CreateManualEntriesFromRuntimeMappings(_runtimeMappings)
-                : _mappings;
             bool hasGazeMappings = HasGazeMappings(_mappings);
 
             if (!AdapterSlug.TryParse(Slug, out var slug))
@@ -818,7 +702,7 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
 
             StartReceiverPhase(ctx, settings, slug, runtimeMappings, hasGazeMappings);
 
-            StartBlendShapeMappingPhase(ctx, settings, runtimeMappings, out int[] mappingIndexToMeshIndex, out BitArray contributeMask);
+            StartBlendShapeMappingPhase(ctx, runtimeMappings, out int[] mappingIndexToMeshIndex, out BitArray contributeMask);
             RegisterOscInputSourcePhase(ctx, settings, slug, mappingIndexToMeshIndex, contributeMask);
 
             _started = true;
@@ -839,13 +723,6 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
             if (_helperHost != null)
             {
                 ProcessIndexedLayouts();
-                if (_activeIndexedMapping == null)
-                {
-                    // 対応表を適用した後は、名前つきアドレスの heartbeat・gaze 広告で mapping を上書きしない。
-                    ProcessPendingHeartbeatMappings();
-                    ProcessPendingGazeAdvertisement();
-                }
-
                 _helperHost.Tick();
             }
 
@@ -883,7 +760,6 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
             _manualGazeSources = null;
             _manualGazeRuntimeEntries = null;
             _manualGazeRoutes = null;
-            _gazeAdProcessingScratch = null;
             _gazeAdPlan = null;
             _gazeAdvertisedEntries = null;
             _gazeAdNormalizedScratch = null;
@@ -906,54 +782,15 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
             _hasCurrentGazeBundle = false;
             _normalAddresses = null;
             _normalBlendShapeNames = null;
-            _heartbeatChecker = null;
             _zombiePolicy = null;
             _bundleSenderDecisions = null;
             _bundleSenderDecisionOrder = null;
-            _heartbeatScratch = null;
-            _heartbeatProcessingScratch = null;
-            _heartbeatSync = null;
-            _heartbeatDirty = 0;
-            _lastHeartbeatHash = 0u;
-            _hasProcessedHeartbeat = false;
-            _heartbeatAccumulationTimestamp = 0u;
-            _heartbeatAccumulating = false;
-            _heartbeatScratchBytes = null;
-            _heartbeatScratchOffsets = null;
-            _heartbeatScratchByteCount = 0;
-            _heartbeatScratchNameCount = 0;
-            _lastHeartbeatBytesHash = 0u;
-            _hasProcessedHeartbeatBytes = false;
-            _warnedHeartbeatScratchOverflow = false;
-            _presetBytes = null;
-            _customPrefixBytes = null;
-            _presetByteCount = 0;
-            _customPrefixByteCount = 0;
-            _hasCustomPrefixBytes = false;
-            _gazeAdScratchBytes = null;
-            _gazeAdScratchOffsets = null;
-            _gazeAdScratchByteCount = 0;
-            _gazeAdScratchValueCount = 0;
-            _lastGazeAdvertisementBytesHash = 0u;
-            _hasProcessedGazeAdvertisementBytes = false;
-            _warnedGazeAdvertisementScratchOverflow = false;
-            _gazeAdScratch = null;
-            _gazeAdSync = null;
-            _gazeAdDirty = 0;
             _gazeChannelOverrides?.Clear();
-            _gazeAdAccumulationTimestamp = 0u;
-            _gazeAdAccumulating = false;
-            _warnedOnEmptyHeartbeatIntersection = false;
-            _warnedOnAddressCollision = false;
-            _warnedOnUnknownPreset = false;
-            _warnedOnMissingCustomPrefix = false;
             _runtimeRegistry = null;
             _runtimeSlug = default;
             _runtimeMeshBlendShapeNames = null;
             _timeProvider = null;
             _currentSenderId = default;
-            _currentPresetName = null;
-            _currentCustomPrefix = null;
             _hasCurrentSenderId = false;
             _hasBareSenderDecision = false;
             _bareSenderAccepted = false;
@@ -984,7 +821,6 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
             _legacyConvertedFrom = null;
             _runtimeMappings = null;
             _mappingOrigins = null;
-            _runtimeManualEntries = null;
 
             _started = false;
         }
@@ -1015,26 +851,6 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
             }
         }
 
-        private static AddressPresetKind? ParseCurrentPreset(string presetName)
-        {
-            if (string.Equals(presetName, AddressPresetEstimator.PresetVrChat, StringComparison.OrdinalIgnoreCase))
-            {
-                return AddressPresetKind.VRChat;
-            }
-
-            if (string.Equals(presetName, AddressPresetEstimator.PresetArKit, StringComparison.OrdinalIgnoreCase))
-            {
-                return AddressPresetKind.ARKit;
-            }
-
-            if (string.Equals(presetName, AddressPresetEstimator.PresetCustom, StringComparison.OrdinalIgnoreCase))
-            {
-                return AddressPresetKind.Custom;
-            }
-
-            return null;
-        }
-
         private void StartReceiverPhase(
             in AdapterBuildContext ctx,
             OscReceiverRuntimeSettingsSO settings,
@@ -1050,30 +866,15 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
             // 上限 +1 で事前確保し、bundle タイムスタンプが増えても定常で再確保しない（GC ゲート対策）
             _bundleSenderDecisions = new Dictionary<ulong, bool>(MaxCachedBundleSenderDecisions + 1);
             _bundleSenderDecisionOrder = new Queue<ulong>(MaxCachedBundleSenderDecisions + 1);
-            _heartbeatScratch = new List<string>();
-            _heartbeatProcessingScratch = new List<string>();
-            _heartbeatSync = new object();
-            _heartbeatScratchBytes = new byte[HeartbeatScratchBytes];
-            _heartbeatScratchOffsets = new int[HeartbeatScratchNames + 1];
-            _gazeAdScratch = new List<string>();
-            _gazeAdScratchBytes = new byte[GazeAdvertisementScratchBytes];
-            _gazeAdScratchOffsets = new int[GazeAdvertisementScratchValues + 1];
-            _presetBytes = new byte[PresetScratchBytes];
-            _customPrefixBytes = new byte[PresetScratchBytes];
-            _gazeAdSync = new object();
-            _gazeAdProcessingScratch = new List<string>();
             _gazeAdPlan = new List<GazeAdvertisementResolver.GazeAdvertisement>();
             _gazeAdvertisedEntries = new List<GazeAdvertisementResolver.GazeAdvertisement>();
             _gazeAdNormalizedScratch = new List<GazeAdvertisementResolver.GazeAdvertisement>();
             _autoGazeSourcesById = new Dictionary<string, GazeVector2InputSource>(StringComparer.Ordinal);
             _autoGazeRuntimeEntriesById = new Dictionary<string, GazeRuntimeEntry>(StringComparer.Ordinal);
             // ConfigureGazeChannels is normally called by FacialController before OnStart.
-            // Keep the unset state distinct so advertisement matching can be skipped for
+            // Keep the unset state distinct so layout gaze channel matching can be skipped for
             // standalone receiver use (see WarnForUnmatchedGazeConfigs).
             _warnedUnmatchedGazeConfigIds ??= new HashSet<string>(StringComparer.Ordinal);
-            _gazeAdDirty = 0;
-            _gazeAdAccumulationTimestamp = 0u;
-            _gazeAdAccumulating = false;
             _indexedSenders = new Dictionary<Guid, OscIndexedSenderLayoutState>();
             _activeIndexedMapping = null;
             _activeIndexedSender = Guid.Empty;
@@ -1111,7 +912,6 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
 
         private void StartBlendShapeMappingPhase(
             in AdapterBuildContext ctx,
-            OscReceiverRuntimeSettingsSO settings,
             OscMapping[] runtimeMappings,
             out int[] mappingIndexToMeshIndex,
             out BitArray contributeMask)
@@ -1120,10 +920,6 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
                 _runtimeMeshBlendShapeNames ?? ResolveMeshBlendShapeNames(ctx.BlendShapeNames, runtimeMappings);
             mappingIndexToMeshIndex = BuildMappingIndexToMeshIndex(meshBlendShapeNames, runtimeMappings);
             contributeMask = CreateContributeMask(meshBlendShapeNames.Count, mappingIndexToMeshIndex);
-            _heartbeatChecker = new HeartbeatConsistencyChecker(
-                meshBlendShapeNames,
-                runtimeMappings,
-                settings.ConsistencyCheckWarnLog);
         }
 
         private void RegisterOscInputSourcePhase(
@@ -1156,23 +952,7 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
                 origins[i] = MappingOrigin.Manual;
             }
 
-            return new RuntimeMappingResolver.ResolveResult(mappings, origins, mappings.Length, 0);
-        }
-
-        private static List<OscMappingEntry> CreateManualEntriesFromRuntimeMappings(OscMapping[] mappings)
-        {
-            var entries = new List<OscMappingEntry>(mappings.Length);
-            for (int i = 0; i < mappings.Length; i++)
-            {
-                entries.Add(new OscMappingEntry
-                {
-                    mode = OscMappingMode.Normal_BlendShape,
-                    expressionId = mappings[i].BlendShapeName,
-                    addressPattern = mappings[i].OscAddress
-                });
-            }
-
-            return entries;
+            return new RuntimeMappingResolver.ResolveResult(mappings, origins, mappings.Length);
         }
 
         private void RegisterGazeSources(
@@ -1396,24 +1176,6 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
                 return false;
             }
 
-            if (message.address == BlendShapeNamesAddress)
-            {
-                HandleHeartbeatMessage(message);
-                return false;
-            }
-
-            if (message.address == PresetAddress)
-            {
-                HandlePresetMessage(message);
-                return false;
-            }
-
-            if (message.address == GazeAdvertisementAddress)
-            {
-                HandleGazeAdvertisementMessage(message);
-                return false;
-            }
-
             bool handledGaze = TryHandleGazeMessage(message);
             if (handledGaze || IsKnownNormalBlendShapeMessage(message.address))
             {
@@ -1443,26 +1205,6 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
             if (resolved.Control == OscControlKind.Values)
             {
                 HandleValuesFrame(in view, resolved.TimestampKey);
-                return false;
-            }
-
-            if (resolved.Control == OscControlKind.Heartbeat ||
-                resolved.Control == OscControlKind.Preset ||
-                resolved.Control == OscControlKind.GazeAdvertisement)
-            {
-                if (resolved.Control == OscControlKind.Heartbeat)
-                {
-                    AccumulateHeartbeatBytes(in view);
-                    _helperHost?.Receiver?.Diagnostics?.IncrementHeartbeatArrivals();
-                }
-                else if (resolved.Control == OscControlKind.Preset)
-                {
-                    HandlePresetBytes(in view);
-                }
-                else
-                {
-                    AccumulateGazeAdvertisementBytes(in view);
-                }
                 return false;
             }
 
@@ -1789,8 +1531,8 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
             // gaze の属性だけが変わった（BlendShape の並びは同じ）なら受信バッファを作り直さない。
             if (!RuntimeMappingsEqual(_runtimeMappings, mappings))
             {
-                var result = new RuntimeMappingResolver.ResolveResult(mappings, origins, manualMappings.Length, 0);
-                if (!PublishRuntimeMappings(result, senderBlendShapeNames: null))
+                var result = new RuntimeMappingResolver.ResolveResult(mappings, origins, manualMappings.Length);
+                if (!PublishRuntimeMappings(result))
                 {
                     return false;
                 }
@@ -1815,7 +1557,7 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
 
             if (layout.GazeChannels.Count > 0 || _hasProcessedGazeAdvertisement)
             {
-                ApplyGazeAdvertisementPayload(_indexedGazePayloadScratch);
+                ApplyGazeChannelPayload(_indexedGazePayloadScratch);
             }
 
             _indexedGazeSlotRoutes = BuildIndexedGazeSlotRoutes(layout);
@@ -1877,76 +1619,6 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
             if (!OscBundleAccumulator.IsBundleTimestamp(timestampKey) && _hasBareSenderDecision)
                 return _bareSenderAccepted;
             return true;
-        }
-
-        private void HandlePresetMessage(uOSC.Message message)
-        {
-            if (message.values == null ||
-                message.values.Length == 0 ||
-                !(message.values[0] is string presetName) ||
-                string.IsNullOrEmpty(presetName))
-            {
-                return;
-            }
-
-            _currentPresetName = presetName;
-            _currentCustomPrefix = message.values.Length > 1 && message.values[1] is string customPrefix
-                ? customPrefix
-                : null;
-        }
-
-        private void HandlePresetBytes(in OscMessageView view)
-        {
-            if (_presetBytes == null || _customPrefixBytes == null)
-            {
-                return;
-            }
-
-            var reader = view.GetArgumentReader();
-            if (!reader.TryReadNext(out OscArgument preset) || !preset.IsString ||
-                preset.Bytes.Length == 0 || preset.Bytes.Length > PresetScratchBytes ||
-                !reader.TryReadNext(out OscArgument custom) && view.ArgumentCount > 1)
-            {
-                return;
-            }
-
-            bool hasCustom = view.ArgumentCount > 1;
-            if (hasCustom && (!custom.IsString || custom.Bytes.Length > PresetScratchBytes))
-            {
-                return;
-            }
-
-            bool presetChanged = !BytesEqual(_presetBytes, _presetByteCount, preset.Bytes);
-            bool customChanged = hasCustom != _hasCustomPrefixBytes ||
-                (hasCustom && !BytesEqual(_customPrefixBytes, _customPrefixByteCount, custom.Bytes));
-            if (!presetChanged && !customChanged)
-            {
-                return;
-            }
-
-            if (presetChanged)
-            {
-                preset.Bytes.CopyTo(_presetBytes);
-                _presetByteCount = preset.Bytes.Length;
-                _currentPresetName = Encoding.UTF8.GetString(_presetBytes, 0, _presetByteCount);
-            }
-
-            if (customChanged)
-            {
-                _hasCustomPrefixBytes = hasCustom;
-                if (hasCustom)
-                {
-                    custom.Bytes.CopyTo(_customPrefixBytes);
-                    _customPrefixByteCount = custom.Bytes.Length;
-                    _currentCustomPrefix = Encoding.UTF8.GetString(
-                        _customPrefixBytes, 0, _customPrefixByteCount);
-                }
-                else
-                {
-                    _customPrefixByteCount = 0;
-                    _currentCustomPrefix = null;
-                }
-            }
         }
 
         private void HandleSenderIdentityMessage(uOSC.Message message)
@@ -2020,232 +1692,10 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
             }
         }
 
-        private void AccumulateHeartbeatBytes(in OscMessageView view)
-        {
-            if (_heartbeatScratchBytes == null || _heartbeatScratchOffsets == null)
-            {
-                return;
-            }
-
-            lock (_heartbeatSync)
-            {
-                if (!_heartbeatAccumulating || view.TimestampKey != _heartbeatAccumulationTimestamp)
-                {
-                    _heartbeatScratchByteCount = 0;
-                    _heartbeatScratchNameCount = 0;
-                    _heartbeatScratchOffsets[0] = 0;
-                    _heartbeatAccumulationTimestamp = view.TimestampKey;
-                    _heartbeatAccumulating = true;
-                }
-
-                var reader = view.GetArgumentReader();
-                while (reader.TryReadNext(out OscArgument argument))
-                {
-                    if (!argument.IsString || argument.Bytes.Length == 0)
-                    {
-                        continue;
-                    }
-
-                    if (_heartbeatScratchNameCount >= HeartbeatScratchNames ||
-                        argument.Bytes.Length > HeartbeatScratchBytes - _heartbeatScratchByteCount)
-                    {
-                        if (!_warnedHeartbeatScratchOverflow)
-                        {
-                            _warnedHeartbeatScratchOverflow = true;
-                            Debug.LogWarning("[OscReceiverAdapterBinding] heartbeat scratch exceeded 32 KB / 1024 names; remaining names were truncated.");
-                        }
-
-                        break;
-                    }
-
-                    // 同じ timestamp key で同一内容の heartbeat が再送された場合（bare メッセージは
-                    // bundle timestamp を持たず常に同じ key で届く）、reset されずに名前が重複蓄積され、
-                    // 内容が同じでもバイト列ハッシュが変わって mapping 再構築（確保あり）が走ってしまう。
-                    // 蓄積済みの名前と一致する chunk 要素は読み飛ばし、名前集合として重複を排除する。
-                    if (ContainsHeartbeatNameLocked(argument.Bytes))
-                    {
-                        continue;
-                    }
-
-                    argument.Bytes.CopyTo(new Span<byte>(_heartbeatScratchBytes, _heartbeatScratchByteCount, argument.Bytes.Length));
-                    _heartbeatScratchByteCount += argument.Bytes.Length;
-                    _heartbeatScratchNameCount++;
-                    _heartbeatScratchOffsets[_heartbeatScratchNameCount] = _heartbeatScratchByteCount;
-                }
-            }
-
-            // ProcessPendingHeartbeatMappings は dirty が立っていなければ即 return するため、
-            // chunk を積むたびに必ず立てる（unchanged 判定はバイト列ハッシュ側で行う）。
-            Volatile.Write(ref _heartbeatDirty, 1);
-        }
-
         /// <summary>
-        /// 蓄積中の heartbeat scratch に同じバイト列の名前が既に含まれているかを返す（_heartbeatSync 保持下で呼ぶ）。
-        /// 長さ比較で大半を弾き、一致候補のみバイト列を比較する。ヒープ確保なし。
+        /// 対応表の gaze チャネルを並べた <c>(channelId, value)</c> の並びから、目ボーン path・可動範囲の上書きと gaze route を更新する。
         /// </summary>
-        private bool ContainsHeartbeatNameLocked(ReadOnlySpan<byte> nameBytes)
-        {
-            for (int i = 0; i < _heartbeatScratchNameCount; i++)
-            {
-                int start = _heartbeatScratchOffsets[i];
-                int length = _heartbeatScratchOffsets[i + 1] - start;
-                if (length != nameBytes.Length)
-                {
-                    continue;
-                }
-
-                if (new ReadOnlySpan<byte>(_heartbeatScratchBytes, start, length).SequenceEqual(nameBytes))
-                {
-                    return true;
-                }
-            }
-
-            return false;
-        }
-
-        private void HandleHeartbeatMessage(uOSC.Message message)
-        {
-            if (_heartbeatScratch == null || message.values == null)
-            {
-                return;
-            }
-
-            // 送信側は BlendShape 名を MTU に収まる分ずつ複数の
-            // /_facialcontrol/blendshape_names メッセージ (chunk) に分割して送る。
-            // 同一 heartbeat の chunk 群は同じ bundle timestamp を共有するので、
-            // timestamp が同じ間は accumulate し、新しい timestamp で reset する。
-            // これをしないと最後の chunk のみ残り、後続 BlendShape (まぶた/目尻/viseme 等)
-            // が mapping に載らず受信側で常にゼロになる。
-            ulong timestampKey = message.timestamp.value;
-            lock (_heartbeatSync)
-            {
-                if (!_heartbeatAccumulating || timestampKey != _heartbeatAccumulationTimestamp)
-                {
-                    _heartbeatScratch.Clear();
-                    _heartbeatAccumulationTimestamp = timestampKey;
-                    _heartbeatAccumulating = true;
-                }
-
-                for (int i = 0; i < message.values.Length; i++)
-                {
-                    if (message.values[i] is string name && !string.IsNullOrEmpty(name))
-                    {
-                        _heartbeatScratch.Add(name);
-                    }
-                }
-            }
-
-            Volatile.Write(ref _heartbeatDirty, 1);
-        }
-
-        private void HandleGazeAdvertisementMessage(uOSC.Message message)
-        {
-            if (_gazeAdScratch == null || message.values == null)
-            {
-                return;
-            }
-
-            ulong timestampKey = message.timestamp.value;
-            lock (_gazeAdSync)
-            {
-                if (!_gazeAdAccumulating || timestampKey != _gazeAdAccumulationTimestamp)
-                {
-                    _gazeAdScratch.Clear();
-                    _gazeAdAccumulationTimestamp = timestampKey;
-                    _gazeAdAccumulating = true;
-                }
-
-                for (int i = 0; i < message.values.Length; i++)
-                {
-                    if (message.values[i] is string value)
-                    {
-                        _gazeAdScratch.Add(value);
-                    }
-                }
-            }
-
-            Volatile.Write(ref _gazeAdDirty, 1);
-        }
-
-        private void AccumulateGazeAdvertisementBytes(in OscMessageView view)
-        {
-            if (_gazeAdScratchBytes == null || _gazeAdScratchOffsets == null)
-            {
-                return;
-            }
-
-            lock (_gazeAdSync)
-            {
-                if (!_gazeAdAccumulating || view.TimestampKey != _gazeAdAccumulationTimestamp)
-                {
-                    _gazeAdScratchByteCount = 0;
-                    _gazeAdScratchValueCount = 0;
-                    _gazeAdScratchOffsets[0] = 0;
-                    _gazeAdAccumulationTimestamp = view.TimestampKey;
-                    _gazeAdAccumulating = true;
-                }
-
-                var reader = view.GetArgumentReader();
-                while (reader.TryReadNext(out OscArgument argument))
-                {
-                    if (!argument.IsString || _gazeAdScratchValueCount >= GazeAdvertisementScratchValues ||
-                        argument.Bytes.Length > GazeAdvertisementScratchBytes - _gazeAdScratchByteCount)
-                    {
-                        if (!_warnedGazeAdvertisementScratchOverflow)
-                        {
-                            _warnedGazeAdvertisementScratchOverflow = true;
-                            Debug.LogWarning("[OscReceiverAdapterBinding] gaze advertisement scratch exceeded 8 KB / 256 pairs; remaining values were truncated.");
-                        }
-                        break;
-                    }
-
-                    argument.Bytes.CopyTo(new Span<byte>(
-                        _gazeAdScratchBytes, _gazeAdScratchByteCount, argument.Bytes.Length));
-                    _gazeAdScratchByteCount += argument.Bytes.Length;
-                    _gazeAdScratchValueCount++;
-                    _gazeAdScratchOffsets[_gazeAdScratchValueCount] = _gazeAdScratchByteCount;
-                }
-            }
-
-            Volatile.Write(ref _gazeAdDirty, 1);
-        }
-
-        private void ProcessPendingGazeAdvertisement()
-        {
-            if (Interlocked.Exchange(ref _gazeAdDirty, 0) == 0 ||
-                _gazeAdProcessingScratch == null ||
-                _gazeAdScratchBytes == null)
-            {
-                return;
-            }
-
-            lock (_gazeAdSync)
-            {
-                _gazeAdProcessingScratch.Clear();
-                uint bytesHash = ComputeGazeAdvertisementBytesHash();
-                if (_hasProcessedGazeAdvertisementBytes && bytesHash == _lastGazeAdvertisementBytesHash)
-                {
-                    return;
-                }
-
-                _lastGazeAdvertisementBytesHash = bytesHash;
-                _hasProcessedGazeAdvertisementBytes = true;
-                for (int i = 0; i < _gazeAdScratchValueCount; i++)
-                {
-                    int start = _gazeAdScratchOffsets[i];
-                    int length = _gazeAdScratchOffsets[i + 1] - start;
-                    _gazeAdProcessingScratch.Add(Encoding.UTF8.GetString(
-                        _gazeAdScratchBytes, start, length));
-                }
-            }
-
-            ApplyGazeAdvertisementPayload(_gazeAdProcessingScratch);
-        }
-
-        /// <summary>
-        /// gaze 広告と同じ <c>(channelId, value)</c> の並びから、目ボーン path・可動範囲の上書きと gaze route を更新する。
-        /// </summary>
-        private void ApplyGazeAdvertisementPayload(IReadOnlyList<string> payload)
+        private void ApplyGazeChannelPayload(IReadOnlyList<string> payload)
         {
             // 属性ペア (目ボーン path・可動範囲) は route のハッシュに含めないため、route の変化判定より前に読む。
             _gazeChannelOverrides ??= new GazeChannelOverrideTable();
@@ -2267,37 +1717,6 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
             _lastGazeAdvertisementHash = hash;
             _hasProcessedGazeAdvertisement = true;
             RebuildGazeRoutes(_gazeAdvertisedEntries);
-        }
-
-        private uint ComputeGazeAdvertisementBytesHash()
-        {
-            unchecked
-            {
-                uint hash = HeartbeatHashHelper.Fnv1aOffsetBasis;
-                for (int i = 0; i < _gazeAdScratchValueCount; i++)
-                {
-                    int start = _gazeAdScratchOffsets[i];
-                    int end = _gazeAdScratchOffsets[i + 1];
-                    for (int j = start; j < end; j++)
-                    {
-                        hash ^= _gazeAdScratchBytes[j];
-                        hash *= HeartbeatHashHelper.Fnv1aPrime;
-                    }
-                    hash ^= 0;
-                    hash *= HeartbeatHashHelper.Fnv1aPrime;
-                }
-                return hash;
-            }
-        }
-
-        private static bool BytesEqual(byte[] destination, int length, ReadOnlySpan<byte> source)
-        {
-            if (length != source.Length) return false;
-            for (int i = 0; i < length; i++)
-            {
-                if (destination[i] != source[i]) return false;
-            }
-            return true;
         }
 
         private void RebuildGazeRoutes(
@@ -2393,7 +1812,7 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
         private void WarnForUnmatchedGazeConfigs(
             IReadOnlyDictionary<string, GazeRuntimeEntry> autoEntries)
         {
-            // 注入なしの単体使用では突合をスキップし、広告ごとの誤警告を防ぐ。
+            // 注入なしの単体使用では突合をスキップし、対応表ごとの誤警告を防ぐ。
             // これは未注入時に一度警告する送信側とは異なる非対称な責務である。
             if (!_hasInjectedGazeChannels || autoEntries == null || autoEntries.Count == 0 ||
                 _injectedGazeChannelIds == null ||
@@ -2413,7 +1832,7 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
                 }
 
                 Debug.LogWarning(
-                    $"[OscReceiverAdapterBinding] 広告由来 gaze id '{expressionId}' に一致する GazeConfig がありません。"
+                    $"[OscReceiverAdapterBinding] 対応表由来 gaze id '{expressionId}' に一致する GazeConfig がありません。"
                     + $" GazeConfig の expressionId を '{expressionId}' に一致させると目ボーンへ反映されます。");
             }
         }
@@ -2539,107 +1958,11 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
             return clone;
         }
 
-        private void ProcessPendingHeartbeatMappings()
-        {
-            if (Interlocked.Exchange(ref _heartbeatDirty, 0) == 0 ||
-                _heartbeatProcessingScratch == null ||
-                _runtimeMeshBlendShapeNames == null ||
-                _heartbeatScratchBytes == null)
-            {
-                return;
-            }
-
-            lock (_heartbeatSync)
-            {
-                uint bytesHash = ComputeHeartbeatBytesHash();
-                if (_hasProcessedHeartbeatBytes && bytesHash == _lastHeartbeatBytesHash)
-                {
-                    return;
-                }
-
-                _lastHeartbeatBytesHash = bytesHash;
-                _hasProcessedHeartbeatBytes = true;
-                _heartbeatProcessingScratch.Clear();
-                for (int i = 0; i < _heartbeatScratchNameCount; i++)
-                {
-                    int start = _heartbeatScratchOffsets[i];
-                    int length = _heartbeatScratchOffsets[i + 1] - start;
-                    _heartbeatProcessingScratch.Add(Encoding.UTF8.GetString(
-                        _heartbeatScratchBytes, start, length));
-                }
-            }
-
-            if (_heartbeatChecker != null)
-            {
-                _heartbeatChecker.UpdateFromHeartbeat(_heartbeatProcessingScratch);
-            }
-
-            uint heartbeatHash = HeartbeatHashHelper.ComputeFnv1a(_heartbeatProcessingScratch);
-            _lastHeartbeatHash = heartbeatHash;
-            _hasProcessedHeartbeat = true;
-
-            AddressPresetEstimator.EstimationResult preset = AddressPresetEstimator.Estimate(
-                _currentPresetName,
-                _currentCustomPrefix,
-                _heartbeatProcessingScratch,
-                ref _warnedOnUnknownPreset,
-                ref _warnedOnMissingCustomPrefix);
-
-            RuntimeMappingResolver.ResolveResult result = RuntimeMappingResolver.MergeWithHeartbeat(
-                _runtimeManualEntries,
-                _heartbeatProcessingScratch,
-                _runtimeMeshBlendShapeNames,
-                preset.Preset,
-                preset.CustomPrefix,
-                ref _warnedOnEmptyHeartbeatIntersection,
-                ref _warnedOnAddressCollision);
-
-            if (ReferenceEquals(result.RuntimeMappings, _runtimeMappings) ||
-                RuntimeMappingsEqual(_runtimeMappings, result.RuntimeMappings))
-            {
-                _mappingOrigins = result.Origins;
-                return;
-            }
-
-            PublishRuntimeMappings(result);
-        }
-
-        private uint ComputeHeartbeatBytesHash()
-        {
-            unchecked
-            {
-                uint hash = HeartbeatHashHelper.Fnv1aOffsetBasis;
-                for (int i = 0; i < _heartbeatScratchNameCount; i++)
-                {
-                    int start = _heartbeatScratchOffsets[i];
-                    int end = _heartbeatScratchOffsets[i + 1];
-                    for (int j = start; j < end; j++)
-                    {
-                        hash ^= _heartbeatScratchBytes[j];
-                        hash *= HeartbeatHashHelper.Fnv1aPrime;
-                    }
-
-                    hash ^= 0;
-                    hash *= HeartbeatHashHelper.Fnv1aPrime;
-                }
-
-                return hash;
-            }
-        }
-
-        private void PublishRuntimeMappings(RuntimeMappingResolver.ResolveResult result)
-        {
-            PublishRuntimeMappings(result, _heartbeatProcessingScratch);
-        }
-
         /// <summary>
-        /// 受信バッファの並びを <paramref name="result"/> に差し替える。<paramref name="senderBlendShapeNames"/> は
-        /// 整合チェック（送信側だけ・受信側だけの BlendShape の警告）に使う送信側の名前。null なら整合チェックをしない
-        /// （対応表は名前の一致する BlendShape だけを使い、一致しない名前は警告しない）。差し替えられなければ false。
+        /// 受信バッファの並びを <paramref name="result"/> に差し替える。対応表は名前の一致する BlendShape だけを使い、
+        /// 一致しない名前は警告しない。差し替えられなければ false。
         /// </summary>
-        private bool PublishRuntimeMappings(
-            RuntimeMappingResolver.ResolveResult result,
-            IReadOnlyList<string> senderBlendShapeNames)
+        private bool PublishRuntimeMappings(RuntimeMappingResolver.ResolveResult result)
         {
             if (_buffer == null || _helperHost == null || _effectiveSettings == null)
             {
@@ -2671,14 +1994,6 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
                 _runtimeMappings,
                 _effectiveSettings.BundleMode == BundleInterpretationMode.AtomicSwap ? _bundleAccumulator : null);
 
-            _heartbeatChecker = new HeartbeatConsistencyChecker(
-                _runtimeMappings,
-                _effectiveSettings.ConsistencyCheckWarnLog);
-            if (senderBlendShapeNames != null)
-            {
-                _heartbeatChecker.UpdateFromHeartbeat(senderBlendShapeNames);
-            }
-
             return true;
         }
 
@@ -2688,7 +2003,6 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
             IReadOnlyList<string> meshBlendShapeNames)
         {
             int manualCount = 0;
-            int heartbeatAutoCount = 0;
             int layoutCount = 0;
             if (origins != null)
             {
@@ -2697,10 +2011,6 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
                     if (origins[i] == MappingOrigin.Manual)
                     {
                         manualCount++;
-                    }
-                    else if (origins[i] == MappingOrigin.HeartbeatAuto)
-                    {
-                        heartbeatAutoCount++;
                     }
                     else if (origins[i] == MappingOrigin.Layout)
                     {
@@ -2711,7 +2021,7 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
 
             int totalCount = mappings != null ? mappings.Length : 0;
             Debug.Log(
-                $"[OscReceiverAdapterBinding] runtime mappings published: total={totalCount}, manual={manualCount}, heartbeatAuto={heartbeatAutoCount}, layout={layoutCount}.");
+                $"[OscReceiverAdapterBinding] runtime mappings published: total={totalCount}, manual={manualCount}, layout={layoutCount}.");
 
             // カバレッジ診断: 受信側で実際に書き込まれる BlendShape 名と、メッシュにあるが
             // どの mapping にも解決されなかった BlendShape 名を列挙する。

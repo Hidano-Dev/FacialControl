@@ -417,7 +417,6 @@ namespace Hidano.FacialControl.Tests.EditMode.Adapters.AdapterBindings
                 Assert.That(binding.Buffer, Is.Not.Null);
                 Assert.That(binding.Buffer.Size, Is.EqualTo(0));
                 Assert.That(binding.InputSource, Is.Not.Null);
-                Assert.That(binding.HeartbeatChecker, Is.Not.Null);
                 Assert.That(registry.TryResolve("osc-empty", out IInputSource source), Is.True);
                 Assert.That(source, Is.SameAs(binding.InputSource));
                 Assert.That(source.ContributeMask.Cast<bool>(), Is.All.False);
@@ -718,53 +717,7 @@ namespace Hidano.FacialControl.Tests.EditMode.Adapters.AdapterBindings
         }
 
         [Test]
-        public void HeartbeatMismatch_LogsWarningWithoutChangingContributeMask()
-        {
-            var registry = new InputSourceRegistry();
-            var binding = new OscReceiverAdapterBinding
-            {
-                Slug = "osc",
-                Port = AllocatePort(),
-                StalenessSeconds = 0f,
-                BundleMode = BundleInterpretationMode.IndividualMessage,
-            };
-            binding.Configure("127.0.0.1", binding.Port, new[]
-            {
-                new OscMapping("/avatar/parameters/smile", "smile", "emotion"),
-                new OscMapping("/avatar/parameters/frown", "frown", "emotion"),
-            });
-
-            var host = new GameObject("OscAdapterBindingHeartbeatTests");
-            try
-            {
-                binding.OnStart(CreateContext(registry, host));
-
-                LogAssert.Expect(LogType.Warning, new Regex("HeartbeatConsistencyChecker mismatch"));
-                binding.HelperHost.Receiver.HandleOscMessage(
-                    new uOSC.Message(OscReceiverAdapterBinding.BlendShapeNamesAddress, "smile"));
-                binding.HelperHost.Receiver.HandleOscMessage(
-                    new uOSC.Message("/avatar/parameters/smile", 0.25f));
-                binding.HelperHost.Receiver.HandleOscMessage(
-                    new uOSC.Message("/avatar/parameters/frown", 0.9f));
-                binding.OnFixedTick(0.02f);
-
-                Assert.That(registry.TryResolve("osc", out IInputSource source), Is.True);
-                var output = new float[2];
-                Assert.That(source.TryWriteValues(output), Is.True);
-                Assert.That(output[0], Is.EqualTo(0.25f).Within(1e-6f));
-                Assert.That(output[1], Is.EqualTo(0.9f).Within(1e-6f));
-                Assert.That(source.ContributeMask[0], Is.True);
-                Assert.That(source.ContributeMask[1], Is.True);
-            }
-            finally
-            {
-                binding.Dispose();
-                UnityEngine.Object.DestroyImmediate(host);
-            }
-        }
-
-        [Test]
-        public void OnStart_MappingOrderDiffersFromMeshOrder_InitializesCheckerAndSourceInMeshIndexSpace()
+        public void OnStart_MappingOrderDiffersFromMeshOrder_InitializesSourceInMeshIndexSpace()
         {
             var registry = new InputSourceRegistry();
             var binding = new OscReceiverAdapterBinding
@@ -788,8 +741,6 @@ namespace Hidano.FacialControl.Tests.EditMode.Adapters.AdapterBindings
                     host,
                     blendShapeNames: new[] { "smile", "blink", "frown" }));
 
-                Assert.That(binding.HeartbeatChecker.BlendShapeCount, Is.EqualTo(2));
-
                 binding.HelperHost.Receiver.HandleOscMessage(
                     new uOSC.Message("/avatar/parameters/frown", 0.75f));
                 binding.HelperHost.Receiver.HandleOscMessage(
@@ -812,7 +763,7 @@ namespace Hidano.FacialControl.Tests.EditMode.Adapters.AdapterBindings
         }
 
         [Test]
-        public void HandleOscMessage_SameHeartbeatResentWithSameTimestamp_KeepsHeartbeatHashAndRuntimeMappings()
+        public void HandleOscMessage_LegacyHeartbeatPresetAndGazeAdvertisement_DoesNotCreateMappingsOrGazeSources()
         {
             var registry = new InputSourceRegistry();
             var binding = new OscReceiverAdapterBinding
@@ -824,36 +775,25 @@ namespace Hidano.FacialControl.Tests.EditMode.Adapters.AdapterBindings
                 Mappings = new List<OscMappingEntry>(),
             };
 
-            var host = new GameObject("OscAdapterBindingHeartbeatResendTests");
+            var host = new GameObject("OscAdapterBindingLegacyControlTests");
             try
             {
                 binding.OnStart(CreateContext(registry, host, blendShapeNames: new[] { "smile", "frown" }));
-
-                // bare メッセージ（bundle 無し）は常に同じ timestamp key で届く。
-                // 同一内容の heartbeat を再送しても chunk 蓄積に名前が重複せず、
-                // ハッシュも runtime mapping も変わらないこと（再構築が走らないこと）を検証する。
-                var heartbeat = new uOSC.Message(
-                    OscReceiverAdapterBinding.BlendShapeNamesAddress, "smile", "frown");
-                binding.HelperHost.Receiver.HandleOscMessage(heartbeat);
-                binding.OnFixedTick(0.02f);
-
                 OscInputSource source = binding.InputSource;
-                IReadOnlyList<OscMapping> mappings = binding.RuntimeMappings;
-                uint hash = binding.LastHeartbeatHash;
-                Assert.That(source, Is.Not.Null);
-                Assert.That(mappings.Count, Is.EqualTo(2));
-                Assert.That(hash, Is.EqualTo(HeartbeatHashHelper.ComputeFnv1a(new[] { "smile", "frown" })),
-                    "初回 heartbeat のハッシュは受信した名前列そのもののハッシュであるべき。");
 
-                binding.HelperHost.Receiver.HandleOscMessage(heartbeat);
+                // 旧送信側の heartbeat・preset・gaze 広告は受け取らず、名前の積集合から mapping を作らない。
+                binding.HelperHost.Receiver.HandleOscMessage(
+                    new uOSC.Message("/_facialcontrol/preset", "arkit"));
+                binding.HelperHost.Receiver.HandleOscMessage(
+                    new uOSC.Message("/_facialcontrol/blendshape_names", "smile", "frown"));
+                binding.HelperHost.Receiver.HandleOscMessage(
+                    new uOSC.Message("/_facialcontrol/gaze", "eye", "VRChat_XY"));
                 binding.OnFixedTick(0.02f);
 
-                Assert.That(binding.LastHeartbeatHash, Is.EqualTo(hash),
-                    "同一 heartbeat の再送でハッシュが変わってはならない（名前の重複蓄積）。");
+                Assert.That(binding.RuntimeMappings.Count, Is.EqualTo(0));
                 Assert.That(binding.InputSource, Is.SameAs(source));
-                Assert.That(binding.RuntimeMappings, Is.SameAs(mappings),
-                    "同一 heartbeat の再送で runtime mapping が再構築されてはならない。");
-                Assert.That(binding.RuntimeMappings.Count, Is.EqualTo(2));
+                Assert.That(binding.HasAutoGazeRoutes, Is.False);
+                Assert.That(binding.GazeSources.Count, Is.EqualTo(0));
             }
             finally
             {

@@ -42,31 +42,27 @@
 | `/_facialcontrol/sender_id` | 送信元識別（UUID + 起動時刻）。毎 bundle に同梱。受信側は最新起動の sender だけを採用しゾンビ送信元を排除 |
 | `/_facialcontrol/values` | 値フレーム `[対応表のバージョン, offset, 値...]`。毎フレーム。slot は BlendShape → gaze チャネルごとの X / Y |
 | `/_facialcontrol/layout_request` / `/_facialcontrol/layout` | 受信側が未知のバージョンを見たら送信側へ要求し、送信側が要求元へ対応表（BlendShape 名・gaze チャネルと目ボーン path・可動範囲）を返す |
-| `/_facialcontrol/blendshape_names` | 旧形式の heartbeat。受信側だけが解釈する（送信側は送らない。廃止予定） |
-| `/_facialcontrol/preset` | 旧形式のプリセット通知。受信側だけが解釈する（送信側は送らない。廃止予定） |
-| `/_facialcontrol/gaze` | 旧形式の Gaze 広告（受信側だけが解釈する。送信側は送らず、同じ属性を対応表の gaze チャネルに載せる。廃止予定）。チャネル id と形式（`VRChat_XY` / `ARKit_8BS`）の組に続けて、チャネルごとの属性ペア（`bone.left=<path>` / `bone.right=<path>` / `range=<上>,<下>,<外>,<内>`）を同梱 |
+旧形式の heartbeat（`/_facialcontrol/blendshape_names`）・プリセット通知（`/_facialcontrol/preset`）・Gaze 広告（`/_facialcontrol/gaze`）は送受信とも廃止した。受信側は未知のアドレスとして読み飛ばす。
 
-`/_facialcontrol/gaze` の引数は `[channelId, value, ...]` の文字列ペアの並び。value が形式識別子のペアは自動 route を、`key=value` 形式のペアはそのチャネルの目線設定を表す。
+対応表の gaze チャネルは、チャネル id ごとに次の属性（`key=value` 形式）を持つ。
 
-| 属性ペアの value | 送るとき | 受信側の扱い |
+| 属性の value | 送るとき | 受信側の扱い |
 |---|---|---|
 | `bone.left=<path>` / `bone.right=<path>` | 送信側の目線タブでその目の path を指定したときだけ | ローカルの目ボーン path より優先する。rest 回転・yaw / pitch 軸は、解決したボーンから実行時に導出する。path が見つからない場合は警告を 1 回出し、ローカルの規則（目線タブの path → Humanoid の目ボーン）で駆動する |
-| `range=<lookUp>,<lookDown>,<outerYaw>,<innerYaw>` | 毎回の広告で必ず | 可動範囲（度、InvariantCulture、0〜90 にクランプ）をローカル値より優先する |
+| `range=<lookUp>,<lookDown>,<outerYaw>,<innerYaw>` | 毎回の対応表で必ず | 可動範囲（度、InvariantCulture、0〜90 にクランプ）をローカル値より優先する |
 
-- 送信側はチャネルごとに path → `range=` の順で並べる。受信側は `range=` が届いた時点でそのチャネルの属性を確定する。MTU 分割された広告の途中で、上書きが一時的に消えることはない
+- 送信側はチャネルごとに path → `range=` の順で並べる。受信側は `range=` が届いた時点でそのチャネルの属性を確定する
 - 上書きを使うのは、そのチャネルを実際に駆動している OSC Receiver の分だけ。別の binding（InputSystem 等）が駆動するチャネルには適用しない
 - 上書き path のボーンの rest 回転・軸は、受信側 FacialController の初期化時の姿勢から導出する
-- 属性ペアの解析は広告の中身が変わったときだけ行い、上書きが変わったときだけ目ボーン provider を作り直す（毎フレームのヒープ確保は増えない）。送信側は heartbeat 間隔ごとに目線タブの変化を確かめ、変わっていれば対応表を別のバージョンで作り直す
+- 属性の解析は対応表を適用したときだけ行い、上書きが変わったときだけ目ボーン provider を作り直す（毎フレームのヒープ確保は増えない）。送信側は heartbeat 間隔ごとに目線タブの変化を確かめ、変わっていれば対応表を別のバージョンで作り直す
 - 一度受け取った上書きは、送信元が別のアプリに替わっても受信側の再初期化まで残る（自動 route と同じ扱い）
-- 属性ペアを知らない旧バージョンの受信側は、未知の形式として警告 1 回でスキップする
 
 ## 受信の動作
 
-- **自動マッピング**: heartbeat を受け取ると、送信側 BlendShape 名とモデルの BlendShape 名の積集合から mapping を生成する。手入力 mapping（`Mappings` リスト）があればそれを優先し、不足分だけ自動生成する。Gaze も `/_facialcontrol/gaze` 広告から自動で route を作る。広告に載った目ボーン path・可動範囲は受信側の目線タブの値より優先するので、FacialControl 同士なら受信側は目線タブを設定しなくてよい
+- **自動マッピング**: 値フレームの対応表を受け取ると、BlendShape 名が一致する受信側の BlendShape へ slot を割り当てる。Gaze も対応表の gaze チャネルから自動で route を作る。対応表に載った目ボーン path・可動範囲は受信側の目線タブの値より優先するので、FacialControl 同士なら受信側は目線タブを設定しなくてよい
 - **手動 mapping**: FacialControl 以外の送信元には `Mappings` に mode 別 entry を並べる。mode は `Normal_BlendShape` / `Gaze_VRChat_XY` / `Gaze_ARKit_8BS`
 - **bundle 解釈**: 既定 `AtomicSwap`（同一 bundle を 1 フレームで一括反映）。`IndividualMessage` で受信順に個別反映
 - **staleness fail-safe**: `stalenessSeconds` を超えて受信が途絶えると `RevertToBase`（ベース表情へ戻す）または `HoldLastValue`（最後の値を保持）
-- **整合性検査**: heartbeat と mapping の差分を警告ログに出す（`consistencyCheckWarnLog`）
 - **ポート自動繰り上げ**: listen ポートが使用中なら空きポートへ最大 10 回繰り上げ、警告で実際のポートを通知する
 - 受信スレッドは Unity API を呼ばず、メインスレッドの `Update` でパースと反映を行う
 

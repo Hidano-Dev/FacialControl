@@ -19,7 +19,6 @@ namespace Hidano.FacialControl.Adapters.OSC
         private long _truncatedDatagrams;
         private long _malformedElements;
         private long _staleRecords;
-        private long _heartbeatArrivals;
         private long _fixedTicks;
         private int _warningMask;
 
@@ -30,7 +29,6 @@ namespace Hidano.FacialControl.Adapters.OSC
         public long TruncatedDatagramCount => Interlocked.Read(ref _truncatedDatagrams);
         public long MalformedElementCount => Interlocked.Read(ref _malformedElements);
         public long StaleRecordCount => Interlocked.Read(ref _staleRecords);
-        public long HeartbeatArrivalCount => Interlocked.Read(ref _heartbeatArrivals);
         public long FixedTickCount => Interlocked.Read(ref _fixedTicks);
 
         public void IncrementReceivedDatagrams() => Interlocked.Increment(ref _receivedDatagrams);
@@ -41,7 +39,6 @@ namespace Hidano.FacialControl.Adapters.OSC
         public void IncrementTruncatedDatagrams() => Interlocked.Increment(ref _truncatedDatagrams);
         public void IncrementMalformedElements() => Interlocked.Increment(ref _malformedElements);
         public void IncrementStaleRecords() => Interlocked.Increment(ref _staleRecords);
-        public void IncrementHeartbeatArrivals() => Interlocked.Increment(ref _heartbeatArrivals);
         public void IncrementFixedTicks() => Interlocked.Increment(ref _fixedTicks);
 
         public bool TryMarkWarning(OscDiagnosticWarning warning)

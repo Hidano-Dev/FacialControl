@@ -17,8 +17,8 @@
 ## 受信内容
 
 - 受信ポート `9000`、全インターフェースで受信（使用中なら空きポートへ自動繰り上げ）
-- BlendShape: 送信側 heartbeat とモデルの BlendShape 名の積集合から自動マッピング
-- Gaze: `/_facialcontrol/gaze` 広告から `Gaze_VRChat_XY` / `Gaze_ARKit_8BS` の route を自動生成。目ボーン path と可動範囲も広告で届き、受信側の目線タブより優先する。送信側で目ボーン path を指定していれば、受信側は目線タブを設定しなくてよい。送信側で path が未指定なら、受信側の目線タブの path → Humanoid の Eye ボーンの順で解決する
+- BlendShape: 送信側から受け取った値フレームの対応表で、名前が一致するモデルの BlendShape へ自動マッピング
+- Gaze: 対応表の gaze チャネルから route を自動生成（左右共通）。目ボーン path と可動範囲も対応表で届き、受信側の目線タブより優先する。送信側で目ボーン path を指定していれば、受信側は目線タブを設定しなくてよい。送信側で path が未指定なら、受信側の目線タブの path → Humanoid の Eye ボーンの順で解決する
 - staleness 1 秒で base 表情へ復帰（`RevertToBase`）、bundle は `AtomicSwap`
 
 ## 手順
@@ -31,10 +31,10 @@
 
 ## FacialControl 以外の送信元から受ける場合
 
-heartbeat と Gaze 広告が無いため自動マッピングは働かない。`OscReceiverDemoProfile.asset` の **OSC Receiver → Mappings** に `Normal_BlendShape` entry（BlendShape 名と完全な OSC アドレス）と、必要なら `Gaze_VRChat_XY` / `Gaze_ARKit_8BS` entry を追加する。`OscReceiverOptions.json` に手動 mapping の記述例がある。
+値フレームの対応表が無いため自動マッピングは働かない。`OscReceiverDemoProfile.asset` の **OSC Receiver → Mappings** に `Normal_BlendShape` entry（BlendShape 名と完全な OSC アドレス）と、必要なら `Gaze_VRChat_XY` / `Gaze_ARKit_8BS` entry を追加する。`OscReceiverOptions.json` に手動 mapping の記述例がある。
 
 ## トラブルシューティング
 
-- **何も動かない**: `Character` 配下に `SkinnedMeshRenderer` があるか、送信側の heartbeat が届いているか、BlendShape 名が一致しているか（不一致は警告ログに出る）を確認
-- **目線だけ動かない**: Gaze 広告が届いているか、非 Humanoid モデルなら送信側か受信側の目線タブに目ボーン path が入っているかを確認。送信側の path が受信側モデルに無い場合は警告ログが出る。外部送信元の場合は Gaze mapping を手動設定する。Gaze だけ途絶した場合は最後の値を保持する
+- **何も動かない**: `Character` 配下に `SkinnedMeshRenderer` があるか、対応表が届いているか（揃わないと警告ログが出る）、BlendShape 名が一致しているか（対応表を適用したログに一致数が出る）を確認
+- **目線だけ動かない**: 送信側の目線タブにチャネルがあるか、非 Humanoid モデルなら送信側か受信側の目線タブに目ボーン path が入っているかを確認。送信側の path が受信側モデルに無い場合は警告ログが出る。外部送信元の場合は Gaze mapping を手動設定する。Gaze だけ途絶した場合は最後の値を保持する
 - **送信側と同居させる**: `OscOutputDemo` 側の **OSC Sender → 上級設定** に `OscSenderRuntimeSettingsSO` を割り当て、**Suppress Loopback** を OFF にする

@@ -350,7 +350,7 @@ namespace Hidano.FacialControl.Tests.PlayMode.Integration
 
                 // 旧 receiver は広告 route を知らないが、通常の未知アドレスとして無警告で読み飛ばす。
                 receiver.HandleOscMessage(new uOSC.Message(
-                    OscReceiverAdapterBinding.GazeAdvertisementAddress,
+                    "/_facialcontrol/gaze",
                     ExpressionId,
                     GazeAdvertisementResolver.VrChatXyFormat));
                 LogAssert.NoUnexpectedReceived();
