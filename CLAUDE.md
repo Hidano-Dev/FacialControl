@@ -73,7 +73,7 @@ pwsh ./scripts/check-test-sizes.ps1
 - **JSON ファーストの永続化**: コア機能は JSON フォーマット。Unity 向けオプションとして ScriptableObject に変換。ビルド後も JSON で表情設定を差し替え可能にする。preview 段階では破壊的変更を許容
 - **ランタイム JSON パース**: JSON → ScriptableObject 変換はランタイム機能。Asset ファイル保存のみ Editor ツール
 - **マルチレイヤー構成**: デフォルト 3 レイヤー（感情ベース / リップシンク / 目）。レイヤー優先度はユーザー設定可能。カテゴリ内排他は「後勝ち」と「ブレンド」を選択可能
-- **ネットワーク伝送**: UDP + uOsc（必須依存）。VRChat OSC 完全互換（`/avatar/parameters/{name}` 形式）。BlendShape 単位で個別 OSC メッセージ送受信。1 フレーム間に複数回送受信
+- **ネットワーク伝送**: UDP + uOsc（必須依存）。FacialControl 同士の独自プロトコル（OSC で運ぶ）。外部 OSC 互換（VRChat 等）が必要になったら別パッケージで追加する（2026-10-08 決定。HID-169）。1 フレーム間に複数回送受信
 
 ### 表情制御方式
 
@@ -84,7 +84,7 @@ pwsh ./scripts/check-test-sizes.ps1
 - FBX: プロトタイプから標準対応
 - VRM: リリース後の早期マイルストーン
 - ブレンドシェイプ命名規則は固定しない（2 バイト文字・特殊記号を正しく扱う）
-- ARKit 52 / PerfectSync: 初回プレリリースから完全対応。命名検出（`ARKitDetector` の完全一致）+ OSC プリセット（`/ARKit/{name}`）/ heartbeat 自動マッピングで対応。未対応パラメータは警告なしでスキップ（Expression 自動生成ツールは 2026-09 に廃止。HID-34）
+- ARKit 52 / PerfectSync: 初回プレリリースから完全対応。命名検出（`ARKitDetector` の完全一致）で対応。未対応パラメータは警告なしでスキップ（Expression 自動生成ツールは 2026-09 に廃止。HID-34）
 
 ### パッケージ情報
 
@@ -100,7 +100,7 @@ pwsh ./scripts/check-test-sizes.ps1
 | `com.hidano.facialcontrol` | コア（Domain / Application / Adapters / Editor。Editor は Profile Inspector・ルーティング配線ロジック） |
 | `com.hidano.facialcontrol.expression-creator` | Expression 作成ツール（Editor のみ。プレビュー / ベイク / PNG 書き出し） |
 | `com.hidano.facialcontrol.routing-editor` | ルーティングエディタ（Editor のみ。GraphView の薄い層。配線ロジックは core の `Editor/Windows/Routing/Logic`） |
-| `com.hidano.facialcontrol.osc` | OSC 通信（VRChat 互換） |
+| `com.hidano.facialcontrol.osc` | OSC 通信（FacialControl 同士の独自プロトコル） |
 | `com.hidano.facialcontrol.inputsystem` | InputSystem 連携 + `Multi Source Blend Demo` サンプル |
 | `com.hidano.facialcontrol.lipsync` | uLipSync 連携（音素 overlay 入力） |
 | `com.hidano.facialcontrol.ifacialmocap` | iFacialMocap 受信（ARKit 52 / gaze） |
