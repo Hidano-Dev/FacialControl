@@ -1,6 +1,6 @@
 # FacialControl OSC
 
-`com.hidano.facialcontrol` の OSC 送受信アダプタ。FacialControl 同士の独自プロトコル（送信元識別 + 対応表バージョン付きの値の配列）で BlendShape と Gaze を送受信する。対応表は受信側の要求に応じて送るので、mapping の手入力なしに繋がる。受信側には外部の送信元向けの名前つきアドレス（VRChat / ARKit 形式）の手動 mapping も残っている（廃止予定）。
+`com.hidano.facialcontrol` の OSC 送受信アダプタ。FacialControl 同士の独自プロトコル（送信元識別 + 対応表バージョン付きの値の配列）で BlendShape と Gaze を送受信する。対応表は受信側の要求に応じて送るので、mapping の手入力なしに繋がる。FacialControl 以外の OSC 送信元（名前つきアドレス）は受けない。
 
 ## 依存パッケージ
 
@@ -25,23 +25,19 @@
 2. Receiver は **受信ポート**（既定 9001。受信は常に全インターフェース）、Sender は **送信先**（既定 `127.0.0.1:9000` の 1 件。複数指定可、宛先ごとに有効 / 無効を選べる）を設定する
    - 上級設定を変えたい場合だけ、**Create → FacialControl → Adapter Runtime Settings Collection** に **Add → OscReceiverRuntimeSettingsSO** / **OscSenderRuntimeSettingsSO** で sub-asset を追加し、binding の **上級設定** に割り当てる
 3. Receiver の **対象レイヤー** で、受信値を足す既存レイヤーを選ぶ（未指定ならプロファイルの先頭レイヤー）。レイヤーの入力源を手で編集する必要はない（起動時の補い方は「受信の動作」）
-4. Gaze を受信する場合は Profile の目線タブでチャネル `gaze` の入力ソースに Receiver を選ぶ。送信側が FacialControl なら手動 mapping は不要
+4. Gaze を受信する場合は Profile の目線タブでチャネル `gaze` の入力ソースに Receiver を選ぶ。gaze の入力源は対応表の gaze チャネルから自動で作られる
 5. Play。**Import Sample** から `OscOutputDemo` / `OscReceiverDemo` を取り込むと、送信側・受信側それぞれの最小 Scene を確認できる
 
 ## アドレス形式
 
-| 種別 | VRChat プリセット | ARKit プリセット |
-|---|---|---|
-| BlendShape | `/avatar/parameters/{name}` (float 0〜1) | `/ARKit/{name}` |
-| Gaze | `/avatar/parameters/{channelId}X` と `...Y` | `/ARKit/eyeLook{In,Out,Up,Down}{Left,Right}` の固定 8 アドレスに分解 |
-
-制御アドレス（FacialControl 同士の連携用）:
+OSC Receiver / OSC Sender は次の制御アドレスだけを使う。BlendShape・Gaze ごとの名前つきアドレス（`/avatar/parameters/{name}` / `/ARKit/{name}` 等）は送受信しない（ARKit / PerfectSync binding は `/ARKit/{name}` を購読する）。
 
 | アドレス | 内容 |
 |---|---|
 | `/_facialcontrol/sender_id` | 送信元識別（UUID + 起動時刻）。毎 bundle に同梱。受信側は最新起動の sender だけを採用しゾンビ送信元を排除 |
 | `/_facialcontrol/values` | 値フレーム `[対応表のバージョン, offset, 値...]`。毎フレーム。slot は BlendShape → gaze チャネルごとの X / Y |
 | `/_facialcontrol/layout_request` / `/_facialcontrol/layout` | 受信側が未知のバージョンを見たら送信側へ要求し、送信側が要求元へ対応表（BlendShape 名・gaze チャネルと目ボーン path・可動範囲）を返す |
+
 旧形式の heartbeat（`/_facialcontrol/blendshape_names`）・プリセット通知（`/_facialcontrol/preset`）・Gaze 広告（`/_facialcontrol/gaze`）は送受信とも廃止した。受信側は未知のアドレスとして読み飛ばす。
 
 対応表の gaze チャネルは、チャネル id ごとに次の属性（`key=value` 形式）を持つ。
@@ -60,13 +56,13 @@
 ## 受信の動作
 
 - **自動マッピング**: 値フレームの対応表を受け取ると、BlendShape 名が一致する受信側の BlendShape へ slot を割り当てる。Gaze も対応表の gaze チャネルから自動で route を作る。対応表に載った目ボーン path・可動範囲は受信側の目線タブの値より優先するので、FacialControl 同士なら受信側は目線タブを設定しなくてよい
-- **手動 mapping**: FacialControl 以外の送信元には `Mappings` に mode 別 entry を並べる。mode は `Normal_BlendShape` / `Gaze_VRChat_XY` / `Gaze_ARKit_8BS`
+- **名前つきアドレスは受けない**: 値フレーム以外のアドレスは読み飛ばす。手動 mapping は無い
 - **bundle 解釈**: 既定 `AtomicSwap`（同一 bundle を 1 フレームで一括反映）。`IndividualMessage` で受信順に個別反映
 - **staleness fail-safe**: `stalenessSeconds` を超えて受信が途絶えると `RevertToBase`（ベース表情へ戻す）または `HoldLastValue`（最後の値を保持）
 - **ポート自動繰り上げ**: listen ポートが使用中なら空きポートへ最大 10 回繰り上げ、警告で実際のポートを通知する
 - 受信スレッドは Unity API を呼ばず、メインスレッドの `Update` でパースと反映を行う
 
-登録する入力源 id: BlendShape は `<slug>`、Gaze は `<slug>:<channelId>`（左右別は `.left` / `.right`）。
+登録する入力源 id: BlendShape は `<slug>`、Gaze は `<slug>:<channelId>`（左右共通）。
 
 - **レイヤーへの自動宣言**: 起動時に、対象レイヤーの入力源宣言へ `<slug>`（weight 1.0）を補う。補うのはランタイムの解決結果だけで、Profile アセットは書き換えない
   - `<slug>` がいずれかのレイヤーに手で宣言済みなら何もしない（従来の手動宣言はそのまま動き、同じ入力源を 2 回合成しない）

@@ -16,21 +16,22 @@ using UnityEngine;
 using UnityEngine.TestTools;
 
 using Hidano.FacialControl.Testing;
+using Hidano.FacialControl.Osc.Tests.PlayMode.Testing;
 namespace Hidano.FacialControl.Tests.PlayMode.Integration
 {
     /// <summary>
     /// <see cref="OscReceiverAdapterBinding"/> の PlayMode 統合テスト (host GameObject + <see cref="InputSourceRegistry"/> 前提)。
     /// <c>OnStart</c> による <see cref="OscReceiverHost"/> の AddComponent と slug 登録、実 UDP loopback での値到達、
-    /// 診断 API と Dispose による runtime 状態解放、Gaze VRChat_XY バンドル経路、<c>Dispose</c> による helper 破棄と socket 解放を検証する。
+    /// 対応表の適用と Dispose による runtime 状態解放、値フレームの gaze バンドル経路、<c>Dispose</c> による helper 破棄と socket 解放を検証する。
     /// </summary>
     [TestFixture]
     [MediumTest]
     public class OscReceiverAdapterBindingIntegrationTests : SizedTestFixture
     {
-        private const string TestEndpoint = "127.0.0.1";
+        private static readonly SenderIdentity Sender =
+            new SenderIdentity(Guid.Parse("44444444-4444-4444-4444-444444444444"), 1_000L);
 
         private GameObject _hostGameObject;
-        private GameObject _senderGameObject;
         private InputSourceRegistry _registry;
         private OscReceiverAdapterBinding _binding;
         private bool _bindingStarted;
@@ -60,11 +61,6 @@ namespace Hidano.FacialControl.Tests.PlayMode.Integration
             _binding = null;
             _bindingStarted = false;
 
-            if (_senderGameObject != null)
-            {
-                UnityEngine.Object.DestroyImmediate(_senderGameObject);
-                _senderGameObject = null;
-            }
             if (_hostGameObject != null)
             {
                 UnityEngine.Object.DestroyImmediate(_hostGameObject);
@@ -73,11 +69,11 @@ namespace Hidano.FacialControl.Tests.PlayMode.Integration
         }
 
         // ---------------------------------------------------------------
-        // OnStart / OnFixedTick: 空 mapping と診断 API
+        // OnStart / OnFixedTick: 対応表の適用前と診断 API
         // ---------------------------------------------------------------
 
         [UnityTest]
-        public IEnumerator OnStart_EmptyMappings_StartsSocketWithEmptyPrimaryInputSource()
+        public IEnumerator OnStart_BeforeLayout_StartsSocketWithEmptyPrimaryInputSource()
         {
             const string slug = "osc-empty-socket";
             int port = AllocatePort();
@@ -85,7 +81,6 @@ namespace Hidano.FacialControl.Tests.PlayMode.Integration
             {
                 Slug = slug,
                 Port = port,
-                Mappings = new List<OscMappingEntry>()
             };
             AdapterBuildContext ctx = CreateContext();
 
@@ -108,34 +103,29 @@ namespace Hidano.FacialControl.Tests.PlayMode.Integration
         }
 
         [Test]
-        public void DiagnosticApis_ExposeManualOriginsThenDisposeClearsRuntimeState()
+        public void DiagnosticApis_LayoutAppliedThenDisposeClearsRuntimeState()
         {
             const string slug = "osc-diagnostic-runtime-state";
-            int port = AllocatePort();
-            _binding = CreateBinding(slug: slug, endpoint: TestEndpoint, port: port,
-                mappings: CreateDefaultMappings());
+            _binding = CreateBinding(slug: slug, port: AllocatePort());
             AdapterBuildContext ctx = CreateContext(blendShapeNames: new List<string> { "smile", "frown" });
 
             _binding.OnStart(in ctx);
             _bindingStarted = true;
-            _binding.OnFixedTick(0.02f);
+            OscIndexedFrameMessages.ApplyLayout(_binding, Sender, new[] { "smile", "frown" });
 
+            Assert.That(_binding.ActiveLayoutVersion, Is.EqualTo(OscIndexedFrameMessages.LayoutVersion));
             Assert.That(_binding.RuntimeMappings.Count, Is.EqualTo(2));
-            Assert.That(_binding.GetMappingOrigin(0),
-                Is.EqualTo(OscReceiverAdapterBinding.MappingOrigin.Manual));
-            Assert.That(_binding.GetMappingOrigin(1),
-                Is.EqualTo(OscReceiverAdapterBinding.MappingOrigin.Manual));
-            Assert.Throws<ArgumentOutOfRangeException>(() => _binding.GetMappingOrigin(2));
+            Assert.That(_binding.RuntimeMappings[0].BlendShapeName, Is.EqualTo("smile"));
+            Assert.That(_binding.RuntimeMappings[1].BlendShapeName, Is.EqualTo("frown"));
 
             _binding.Dispose();
             _bindingStarted = false;
 
             Assert.That(_binding.RuntimeMappings.Count, Is.EqualTo(0));
-            Assert.That(_binding.MappingOrigins.Count, Is.EqualTo(0));
+            Assert.That(_binding.ActiveLayoutVersion, Is.EqualTo(OscFrameLayoutVersion.Unknown));
             Assert.That(_binding.Buffer, Is.Null);
             Assert.That(_binding.InputSource, Is.Null);
             Assert.That(_binding.IsStarted, Is.False);
-            Assert.Throws<ArgumentOutOfRangeException>(() => _binding.GetMappingOrigin(0));
         }
 
         // ---------------------------------------------------------------
@@ -146,8 +136,7 @@ namespace Hidano.FacialControl.Tests.PlayMode.Integration
         public void OnStart_AddsOscReceiverHostHelperToContextHostGameObject()
         {
             int port = AllocatePort();
-            OscMapping[] mappings = CreateDefaultMappings();
-            _binding = CreateBinding(slug: "osc-helper-add", endpoint: TestEndpoint, port: port, mappings: mappings);
+            _binding = CreateBinding(slug: "osc-helper-add", port: port);
 
             AdapterBuildContext ctx = CreateContext();
 
@@ -163,8 +152,7 @@ namespace Hidano.FacialControl.Tests.PlayMode.Integration
         public void OnStart_HelperHostHideFlags_DoesNotIncludeHideInInspector()
         {
             int port = AllocatePort();
-            _binding = CreateBinding(slug: "osc-helper-hideflags", endpoint: TestEndpoint, port: port,
-                mappings: CreateDefaultMappings());
+            _binding = CreateBinding(slug: "osc-helper-hideflags", port: port);
             AdapterBuildContext ctx = CreateContext();
 
             _binding.OnStart(in ctx);
@@ -183,8 +171,7 @@ namespace Hidano.FacialControl.Tests.PlayMode.Integration
         {
             const string slug = "osc-primary-resolve";
             int port = AllocatePort();
-            _binding = CreateBinding(slug: slug, endpoint: TestEndpoint, port: port,
-                mappings: CreateDefaultMappings());
+            _binding = CreateBinding(slug: slug, port: port);
             AdapterBuildContext ctx = CreateContext();
 
             _binding.OnStart(in ctx);
@@ -198,24 +185,20 @@ namespace Hidano.FacialControl.Tests.PlayMode.Integration
         }
 
         // ---------------------------------------------------------------
-        // OnStart: 手動 mapping の mesh index ContributeMask / Gaze バンドル / preset
+        // 対応表: mesh index ContributeMask / gaze バンドル
         // ---------------------------------------------------------------
 
         [Test]
-        public void OnStart_ManualBlendShapeMappings_RegistersPrimarySourceWithMeshIndexContributeMask()
+        public void OnFixedTick_LayoutBlendShapes_RegistersPrimarySourceWithMeshIndexContributeMask()
         {
-            const string slug = "osc-manual-mask-regression";
-            int port = AllocatePort();
-            OscMapping[] mappings = new[]
-            {
-                new OscMapping("/avatar/parameters/frown", "frown", "emotion"),
-                new OscMapping("/avatar/parameters/smile", "smile", "emotion")
-            };
-            _binding = CreateBinding(slug: slug, endpoint: TestEndpoint, port: port, mappings: mappings);
+            const string slug = "osc-layout-mask-regression";
+            _binding = CreateBinding(slug: slug, port: AllocatePort());
+            _binding.BundleMode = BundleInterpretationMode.IndividualMessage;
             AdapterBuildContext ctx = CreateContext(blendShapeNames: new List<string> { "smile", "blink", "frown" });
 
             _binding.OnStart(in ctx);
             _bindingStarted = true;
+            OscIndexedFrameMessages.ApplyLayout(_binding, Sender, new[] { "frown", "smile" });
 
             Assert.That(_binding.IsStarted, Is.True);
             Assert.That(_binding.Buffer, Is.Not.Null);
@@ -225,10 +208,7 @@ namespace Hidano.FacialControl.Tests.PlayMode.Integration
             Assert.That(source, Is.SameAs(_binding.InputSource));
             AssertMask(source.ContributeMask, true, false, true);
 
-            _binding.HelperHost.Receiver.HandleOscMessage(
-                new uOSC.Message("/avatar/parameters/frown", 0.75f));
-            _binding.HelperHost.Receiver.HandleOscMessage(
-                new uOSC.Message("/avatar/parameters/smile", 0.25f));
+            OscIndexedFrameMessages.SendFrame(_binding.HelperHost.Receiver, Sender, 2000UL, 0.75f, 0.25f);
             _binding.OnFixedTick(0.02f);
 
             var output = new float[] { -1f, -1f, -1f };
@@ -239,7 +219,7 @@ namespace Hidano.FacialControl.Tests.PlayMode.Integration
         }
 
         [Test]
-        public void OnFixedTick_GazeVrchatBundleOnly_UsesAccumulatorWithoutPrimaryOscInputSource()
+        public void OnFixedTick_LayoutGazeBundleOnly_UsesAccumulatorWithoutBlendShapeSlots()
         {
             const string slug = "osc-gaze-bundle-regression";
             var time = new ManualTimeProvider { UnscaledTimeSeconds = 0.0 };
@@ -250,20 +230,17 @@ namespace Hidano.FacialControl.Tests.PlayMode.Integration
                 StalenessSeconds = 0f,
                 BundleMode = BundleInterpretationMode.AtomicSwap,
                 BundleAccumulationTimeoutMs = 5f,
-                Mappings = new List<OscMappingEntry>
-                {
-                    new OscMappingEntry
-                    {
-                        mode = OscMappingMode.Gaze_VRChat_XY,
-                        expressionId = "eye",
-                        addressPattern = "/avatar/parameters/eye",
-                    }
-                }
             };
             AdapterBuildContext ctx = CreateContext(timeProvider: time);
 
             _binding.OnStart(in ctx);
             _bindingStarted = true;
+            OscIndexedFrameMessages.ApplyLayout(
+                _binding,
+                Sender,
+                Array.Empty<string>(),
+                new[] { new OscFrameLayoutGazeChannel("eye") },
+                timestamp: 50UL);
 
             Assert.That(_binding.InputSource, Is.Not.Null);
             Assert.That(_registry.TryResolve(slug, out IInputSource source), Is.True);
@@ -272,10 +249,7 @@ namespace Hidano.FacialControl.Tests.PlayMode.Integration
             Assert.That(inputSource, Is.InstanceOf<GazeVector2InputSource>());
             AssertMask(inputSource.ContributeMask);
 
-            _binding.HelperHost.Receiver.HandleOscMessage(
-                FloatMessage("/avatar/parameters/eyeX", 0.2f, timestamp: 100UL));
-            _binding.HelperHost.Receiver.HandleOscMessage(
-                FloatMessage("/avatar/parameters/eyeY", -0.6f, timestamp: 100UL));
+            OscIndexedFrameMessages.SendFrame(_binding.HelperHost.Receiver, Sender, 100UL, 0.2f, -0.6f);
             _binding.OnFixedTick(0.02f);
 
             var gaze = (GazeVector2InputSource)inputSource;
@@ -290,66 +264,6 @@ namespace Hidano.FacialControl.Tests.PlayMode.Integration
         }
 
         // ---------------------------------------------------------------
-        // OnStart: 実 UDP loopback でメッセージが registered InputSource に到達する
-        // ---------------------------------------------------------------
-
-        [UnityTest]
-        public IEnumerator OnStart_UdpLoopback_RegisteredInputSourceReceivesValue()
-        {
-            const string slug = "osc-loopback";
-            int port = AllocatePort();
-            OscMapping[] mappings = new OscMapping[]
-            {
-                new OscMapping("/avatar/parameters/smile", "smile", "emotion"),
-                new OscMapping("/avatar/parameters/frown", "frown", "emotion")
-            };
-
-            _binding = CreateBinding(slug: slug, endpoint: TestEndpoint, port: port, mappings: mappings);
-            AdapterBuildContext ctx = CreateContext(blendShapeNames: new List<string> { "smile", "frown" });
-
-            _binding.OnStart(in ctx);
-            _bindingStarted = true;
-
-            // socket bind 待ち
-            yield return new WaitForSeconds(0.2f);
-
-            _senderGameObject = new GameObject("OscAdapterBindingIntegrationSender");
-            OscSender sender = _senderGameObject.AddComponent<OscSender>();
-            sender.Endpoint = TestEndpoint;
-            sender.Port = port;
-            sender.Initialize(mappings);
-            sender.StartSending();
-
-            yield return new WaitForSeconds(0.2f);
-
-            Assert.IsTrue(_registry.TryResolve(slug, out IInputSource source));
-            Assert.IsNotNull(source);
-
-            float[] readBuffer = new float[mappings.Length];
-            bool received = false;
-            for (int attempt = 0; attempt < 10 && !received; attempt++)
-            {
-                sender.SendAll(new float[] { 0.7f, 0.3f });
-                yield return new WaitForSeconds(0.1f);
-                _binding.OnFixedTick(0.02f);
-
-                Array.Clear(readBuffer, 0, readBuffer.Length);
-                if (TryReadValues(source, readBuffer) && readBuffer[0] > 0.01f)
-                {
-                    received = true;
-                    Assert.That(readBuffer[0], Is.EqualTo(0.7f).Within(0.05f),
-                        "Loopback 送信値（smile = 0.7）が registered InputSource から読めるべき。");
-                    Assert.That(readBuffer[1], Is.EqualTo(0.3f).Within(0.05f),
-                        "Loopback 送信値（frown = 0.3）が registered InputSource から読めるべき。");
-                }
-            }
-
-            sender.StopSending();
-            Assert.IsTrue(received,
-                "実 UDP loopback で送信した値が registered InputSource に届くべき。");
-        }
-
-        // ---------------------------------------------------------------
         // Dispose: helper destroy + socket close
         // ---------------------------------------------------------------
 
@@ -357,8 +271,7 @@ namespace Hidano.FacialControl.Tests.PlayMode.Integration
         public IEnumerator Dispose_DestroysOscReceiverHostHelper()
         {
             int port = AllocatePort();
-            _binding = CreateBinding(slug: "osc-dispose-destroy", endpoint: TestEndpoint, port: port,
-                mappings: CreateDefaultMappings());
+            _binding = CreateBinding(slug: "osc-dispose-destroy", port: port);
             AdapterBuildContext ctx = CreateContext();
 
             _binding.OnStart(in ctx);
@@ -386,9 +299,8 @@ namespace Hidano.FacialControl.Tests.PlayMode.Integration
         {
             const string slug = "osc-dispose-socket";
             int port = AllocatePort();
-            OscMapping[] mappings = CreateDefaultMappings();
 
-            _binding = CreateBinding(slug: slug, endpoint: TestEndpoint, port: port, mappings: mappings);
+            _binding = CreateBinding(slug: slug, port: port);
             AdapterBuildContext ctx = CreateContext();
             _binding.OnStart(in ctx);
             _bindingStarted = true;
@@ -402,7 +314,7 @@ namespace Hidano.FacialControl.Tests.PlayMode.Integration
             yield return new WaitForSeconds(0.2f);
 
             // 同 port を新規 binding で再 bind できれば socket は close されている。
-            var second = CreateBinding(slug: slug + "-2", endpoint: TestEndpoint, port: port, mappings: mappings);
+            var second = CreateBinding(slug: slug + "-2", port: port);
             var secondContext = CreateContext();
             Assert.DoesNotThrow(() => second.OnStart(in secondContext),
                 "Dispose 後は同 port を別 binding で再 bind できるべき（socket 解放）。");
@@ -421,12 +333,13 @@ namespace Hidano.FacialControl.Tests.PlayMode.Integration
         // Helpers
         // ---------------------------------------------------------------
 
-        private OscReceiverAdapterBinding CreateBinding(string slug, string endpoint, int port, OscMapping[] mappings)
+        private static OscReceiverAdapterBinding CreateBinding(string slug, int port)
         {
-            var binding = new OscReceiverAdapterBinding();
-            binding.Slug = slug;
-            binding.Configure(endpoint, port, mappings);
-            return binding;
+            return new OscReceiverAdapterBinding
+            {
+                Slug = slug,
+                Port = port,
+            };
         }
 
         private AdapterBuildContext CreateContext(
@@ -448,27 +361,6 @@ namespace Hidano.FacialControl.Tests.PlayMode.Integration
             return OscReceiverAdapterBindingTestSupport.AllocatePort();
         }
 
-        private static OscMapping[] CreateDefaultMappings()
-        {
-            return new OscMapping[]
-            {
-                new OscMapping("/avatar/parameters/smile", "smile", "emotion"),
-                new OscMapping("/avatar/parameters/frown", "frown", "emotion")
-            };
-        }
-
-        private static bool TryReadValues(IInputSource source, float[] buffer)
-        {
-            return source.TryWriteValues(buffer.AsSpan());
-        }
-
-        private static uOSC.Message FloatMessage(string address, float value, ulong timestamp)
-        {
-            var message = new uOSC.Message(address, value);
-            message.timestamp = new uOSC.Timestamp(timestamp);
-            return message;
-        }
-
         private static void AssertMask(BitArray mask, params bool[] expected)
         {
             Assert.That(mask.Length, Is.EqualTo(expected.Length));
@@ -481,8 +373,8 @@ namespace Hidano.FacialControl.Tests.PlayMode.Integration
 
     /// <summary>
     /// <see cref="OscReceiverAdapterBinding"/> の PlayMode 統合テスト (BlendShape 付き <see cref="SkinnedMeshRenderer"/> 前提)。
-    /// 空 mapping では旧送信側の heartbeat が届いても renderer を動かさないこと、
-    /// VRChat_XY 左右独立指定の警告、Dispose による runtime 状態解放を検証する。
+    /// 対応表の適用前は旧送信側の heartbeat や名前つきアドレスが届いても renderer を動かさないこと、
+    /// 対応表を適用した値が renderer へ届くことと Dispose による runtime 状態解放を検証する。
     /// </summary>
     [TestFixture]
     [MediumTest]
@@ -537,7 +429,7 @@ namespace Hidano.FacialControl.Tests.PlayMode.Integration
         }
 
         [UnityTest]
-        public IEnumerator OnStart_EmptyMappingsAndLegacyHeartbeat_KeepsEmptyInputSourceAndDoesNotChangeRenderer()
+        public IEnumerator OnStart_NoLayoutWithLegacyHeartbeatAndNamedAddress_KeepsEmptyInputSourceAndDoesNotChangeRenderer()
         {
             StartBindingWithMesh("smile");
 
@@ -558,55 +450,12 @@ namespace Hidano.FacialControl.Tests.PlayMode.Integration
         }
 
         [Test]
-        public void OnStart_VrChatXyLeftRightIndependent_LogsRuntimeWarningOnceAndKeepsRoute()
+        public void Dispose_LayoutApplied_ReleasesRuntimeState()
         {
-            var mappings = new[]
-            {
-                new OscMappingEntry
-                {
-                    mode = OscMappingMode.Gaze_VRChat_XY,
-                    expressionId = "look",
-                    addressPattern = "/avatar/parameters/look",
-                    leftRightIndependent = true,
-                    sourceIdLeft = "look.left",
-                    sourceIdRight = "look.right"
-                },
-                new OscMappingEntry
-                {
-                    mode = OscMappingMode.Gaze_VRChat_XY,
-                    expressionId = "look2",
-                    addressPattern = "/avatar/parameters/look2",
-                    leftRightIndependent = true,
-                    sourceIdLeft = "look2.left",
-                    sourceIdRight = "look2.right"
-                }
-            };
-
-            LogAssert.Expect(
-                LogType.Warning,
-                new System.Text.RegularExpressions.Regex("VRChat_XY.*Vector2.*左右には同値"));
-            StartBindingWithMesh(mappings, "smile");
-
-            Assert.That(_registry.TryResolve(Slug + ":look.left", out _), Is.True);
-            Assert.That(_registry.TryResolve(Slug + ":look.right", out _), Is.True);
-            LogAssert.NoUnexpectedReceived();
-        }
-
-        [Test]
-        public void Dispose_ManualMappingsAllocated_ReleasesRuntimeState()
-        {
-            StartBindingWithMesh(
-                new[]
-                {
-                    new OscMappingEntry
-                    {
-                        mode = OscMappingMode.Normal_BlendShape,
-                        expressionId = "smile",
-                        addressPattern = "/manual/smile"
-                    }
-                },
-                "smile");
-            SendOscValue("/manual/smile", 0.25f);
+            StartBindingWithMesh("smile");
+            var sender = new SenderIdentity(Guid.NewGuid(), 1_000L);
+            OscIndexedFrameMessages.ApplyLayout(_binding, sender, new[] { "smile" });
+            OscIndexedFrameMessages.SendFrame(_binding.HelperHost.Receiver, sender, 2000UL, 0.25f);
             _binding.OnFixedTick(0.02f);
             ApplyRegisteredSourceToRenderer();
 
@@ -619,7 +468,6 @@ namespace Hidano.FacialControl.Tests.PlayMode.Integration
             _bindingStarted = false;
 
             Assert.That(_binding.RuntimeMappings.Count, Is.EqualTo(0));
-            Assert.That(_binding.MappingOrigins.Count, Is.EqualTo(0));
             Assert.That(_binding.InputSource, Is.Null);
             Assert.That(_binding.Buffer, Is.Null);
         }
@@ -630,18 +478,12 @@ namespace Hidano.FacialControl.Tests.PlayMode.Integration
 
         private void StartBindingWithMesh(params string[] blendShapeNames)
         {
-            StartBindingWithMesh(Array.Empty<OscMappingEntry>(), blendShapeNames);
-        }
-
-        private void StartBindingWithMesh(IReadOnlyList<OscMappingEntry> mappings, params string[] blendShapeNames)
-        {
             CreateRenderer(blendShapeNames);
             _binding = new OscReceiverAdapterBinding
             {
                 Slug = Slug,
                 Port = OscReceiverAdapterBindingTestSupport.AllocatePort(),
-                BundleMode = BundleInterpretationMode.IndividualMessage,
-                Mappings = new List<OscMappingEntry>(mappings)
+                BundleMode = BundleInterpretationMode.IndividualMessage
             };
 
             AdapterBuildContext ctx = new AdapterBuildContext(
@@ -798,27 +640,25 @@ namespace Hidano.FacialControl.Tests.PlayMode.Integration
 
             yield return new WaitForSecondsRealtime(0.2f);
 
-            GameObject senderHost = CreateGameObject("OscReceiverAdapterBindingWithRuntimeSettingsTests_RawSender");
-            OscSender sender = senderHost.AddComponent<OscSender>();
-            sender.Endpoint = Endpoint;
-            sender.Port = port;
-            OscMapping[] mappings = new[]
-            {
-                new OscMapping(OscAddressFormatter.VRChatParameterPrefix + BlendShapeNameA, BlendShapeNameA, "emotion"),
-                new OscMapping(OscAddressFormatter.VRChatParameterPrefix + BlendShapeNameB, BlendShapeNameB, "emotion"),
-            };
-            sender.Initialize(mappings);
-            sender.StartSending();
+            OscSenderRuntimeSettingsSO senderSettings = CreateSenderAdvancedSettings(
+                "{\"heartbeatIntervalSeconds\":60,\"suppressLoopback\":false}");
+            OscSenderAdapterBinding sender = CreateSender("osc-sender-port-only", port, senderSettings,
+                new[] { BlendShapeNameA, BlendShapeNameB });
+            var outputBus = new FacialOutputBus();
+            StartBinding(sender, CreateContext(new InputSourceRegistry(), outputBus,
+                CreateGameObject("OscReceiverAdapterBindingWithRuntimeSettingsTests_Sender"),
+                new[] { BlendShapeNameA, BlendShapeNameB }));
 
             yield return new WaitForSecondsRealtime(0.2f);
 
             Assert.That(registry.TryResolve(slug, out IInputSource source), Is.True);
 
-            float[] readBuffer = new float[mappings.Length];
+            float[] readBuffer = new float[2];
             bool received = false;
             for (int attempt = 0; attempt < 20 && !received; attempt++)
             {
-                sender.SendAll(new[] { 0.62f, 0.31f });
+                outputBus.Publish(new[] { 0.62f, 0.31f }, ReadOnlySpan<GazeSnapshot>.Empty);
+                sender.OnLateTick(0.016f);
                 yield return new WaitForSecondsRealtime(0.05f);
                 receiver.OnFixedTick(0.02f);
 
@@ -831,7 +671,6 @@ namespace Hidano.FacialControl.Tests.PlayMode.Integration
                 }
             }
 
-            sender.StopSending();
             Assert.That(received, Is.True,
                 "binding の受信ポートで bind した OscReceiver が UDP loopback 値を受信できるべき。");
         }
@@ -1010,21 +849,6 @@ namespace Hidano.FacialControl.Tests.PlayMode.Integration
                 Slug = slug,
                 Port = port,
                 AdvancedSettings = advancedSettings,
-                Mappings = new List<OscMappingEntry>
-                {
-                    new OscMappingEntry
-                    {
-                        mode = OscMappingMode.Normal_BlendShape,
-                        expressionId = BlendShapeNameA,
-                        addressPattern = OscAddressFormatter.VRChatParameterPrefix + BlendShapeNameA,
-                    },
-                    new OscMappingEntry
-                    {
-                        mode = OscMappingMode.Normal_BlendShape,
-                        expressionId = BlendShapeNameB,
-                        addressPattern = OscAddressFormatter.VRChatParameterPrefix + BlendShapeNameB,
-                    },
-                },
             };
         }
 

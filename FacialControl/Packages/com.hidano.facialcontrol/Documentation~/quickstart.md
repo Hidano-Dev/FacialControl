@@ -95,7 +95,7 @@ public class MyExpressionController : MonoBehaviour
 
 ## 6. ARKit / PerfectSync
 
-ARKit 52 / PerfectSync 命名の BlendShape を持つモデルは、キャプチャ入力の binding が BlendShape 名で直接駆動する。iFacialMocap などのキャプチャアプリから受け取る場合は `com.hidano.facialcontrol.ifacialmocap` を使う。外部の OSC 送信元から受ける場合は `com.hidano.facialcontrol.osc` の手動 mapping でアドレスを BlendShape に割り当てる。命名の判定には core の `ARKitDetector`（ARKit 52 + PerfectSync 13 の名前表と完全一致検出）を使う。
+ARKit 52 / PerfectSync 命名の BlendShape を持つモデルは、キャプチャ入力の binding が BlendShape 名で直接駆動する。iFacialMocap などのキャプチャアプリから受け取る場合は `com.hidano.facialcontrol.ifacialmocap` を使う。`com.hidano.facialcontrol.osc` は FacialControl 同士の送受信専用で、外部の OSC 送信元は受けない。命名の判定には core の `ARKitDetector`（ARKit 52 + PerfectSync 13 の名前表と完全一致検出）を使う。
 
 ## トラブルシューティング
 

@@ -149,54 +149,6 @@ namespace Hidano.FacialControl.Adapters.OSC
         }
 
         /// <summary>
-        /// Builds an auto route plan while excluding gaze expression ids that
-        /// are already covered by a valid manual gaze mapping.
-        /// </summary>
-        public static void BuildPlan(
-            IReadOnlyList<GazeAdvertisement> advertised,
-            IReadOnlyList<OscMappingEntry> manualEntries,
-            IList<GazeAdvertisement> planResults)
-        {
-            if (planResults == null)
-            {
-                throw new ArgumentNullException(nameof(planResults));
-            }
-
-            planResults.Clear();
-            if (advertised == null || advertised.Count == 0)
-            {
-                return;
-            }
-
-            for (int i = 0; i < advertised.Count; i++)
-            {
-                GazeAdvertisement entry = advertised[i];
-                bool manuallyCovered = false;
-                if (manualEntries != null)
-                {
-                    for (int manualIndex = 0; manualIndex < manualEntries.Count; manualIndex++)
-                    {
-                        OscMappingEntry manualEntry = manualEntries[manualIndex];
-                        if (IsValidManualGazeEntry(manualEntry) &&
-                            string.Equals(
-                                manualEntry.expressionId,
-                                entry.ExpressionId,
-                                StringComparison.Ordinal))
-                        {
-                            manuallyCovered = true;
-                            break;
-                        }
-                    }
-                }
-
-                if (!manuallyCovered)
-                {
-                    planResults.Add(entry);
-                }
-            }
-        }
-
-        /// <summary>
         /// <paramref name="channel"/> の目ボーン path (指定がある側のみ) と可動範囲を、
         /// <paramref name="channelId"/> の属性ペアとして <paramref name="pairs"/> へ追加する。
         /// </summary>
@@ -395,28 +347,6 @@ namespace Hidano.FacialControl.Adapters.OSC
         {
             return string.Equals(format, VrChatXyFormat, StringComparison.Ordinal) ||
                 string.Equals(format, ArKit8BsFormat, StringComparison.Ordinal);
-        }
-
-        private static bool IsGazeMode(OscMappingMode mode)
-        {
-            return mode == OscMappingMode.Gaze_VRChat_XY ||
-                mode == OscMappingMode.Gaze_ARKit_8BS;
-        }
-
-        private static bool IsValidManualGazeEntry(OscMappingEntry entry)
-        {
-            if (entry == null || !IsGazeMode(entry.mode) || string.IsNullOrEmpty(entry.expressionId))
-            {
-                return false;
-            }
-
-            if (entry.mode == OscMappingMode.Gaze_VRChat_XY && string.IsNullOrEmpty(entry.addressPattern))
-            {
-                return false;
-            }
-
-            return !entry.leftRightIndependent ||
-                (!string.IsNullOrEmpty(entry.sourceIdLeft) && !string.IsNullOrEmpty(entry.sourceIdRight));
         }
 
         private static int CompareByExpressionIdOrdinal(

@@ -17,7 +17,6 @@ namespace Hidano.FacialControl.Adapters.Json.Dto
         public const string BundleIndividualMessage = "individualMessage";
 
         public int listenPort = OscConfiguration.DefaultReceivePort;
-        public OscMappingEntryDto[] mappings = new OscMappingEntryDto[0];
         public float stalenessSeconds = DefaultStalenessSeconds;
         public string failSafeMode = FailSafeRevertToBase;
         public bool consistencyCheckWarnLog = true;
@@ -51,25 +50,6 @@ namespace Hidano.FacialControl.Adapters.Json.Dto
         {
             ApplyDefaults(logWarnings: false);
             return JsonUtility.ToJson(this, prettyPrint);
-        }
-
-        public OscMappingEntry[] ToMappingEntries()
-        {
-            ApplyTopLevelDefaults();
-
-            var result = new List<OscMappingEntry>(mappings.Length);
-            var normalizedDtos = new List<OscMappingEntryDto>(mappings.Length);
-            for (int i = 0; i < mappings.Length; i++)
-            {
-                if (mappings[i] != null && mappings[i].TryToMappingEntry(logWarnings: true, out OscMappingEntry entry))
-                {
-                    result.Add(entry);
-                    normalizedDtos.Add(mappings[i]);
-                }
-            }
-
-            mappings = normalizedDtos.ToArray();
-            return result.ToArray();
         }
 
         public FailSafeMode ToFailSafeMode()
@@ -138,7 +118,6 @@ namespace Hidano.FacialControl.Adapters.Json.Dto
         private void ApplyDefaults(bool logWarnings)
         {
             ApplyTopLevelDefaults();
-            mappings = NormalizeMappings(mappings, logWarnings);
         }
 
         private void ApplyTopLevelDefaults()
@@ -146,11 +125,6 @@ namespace Hidano.FacialControl.Adapters.Json.Dto
             if (listenPort <= 0 || listenPort > 65535)
             {
                 listenPort = OscConfiguration.DefaultReceivePort;
-            }
-
-            if (mappings == null)
-            {
-                mappings = new OscMappingEntryDto[0];
             }
 
             if (stalenessSeconds < 0f || float.IsNaN(stalenessSeconds))
@@ -165,31 +139,6 @@ namespace Hidano.FacialControl.Adapters.Json.Dto
             {
                 bundleAccumulationTimeoutMs = DefaultBundleAccumulationTimeoutMs;
             }
-        }
-
-        private static OscMappingEntryDto[] NormalizeMappings(OscMappingEntryDto[] entries, bool logWarnings)
-        {
-            if (entries == null || entries.Length == 0)
-            {
-                return new OscMappingEntryDto[0];
-            }
-
-            var result = new List<OscMappingEntryDto>(entries.Length);
-            for (int i = 0; i < entries.Length; i++)
-            {
-                OscMappingEntryDto entry = entries[i];
-                if (entry == null)
-                {
-                    continue;
-                }
-
-                if (entry.NormalizeForRuntime(logWarnings))
-                {
-                    result.Add(entry);
-                }
-            }
-
-            return result.ToArray();
         }
 
         private static string NormalizeFailSafeMode(string value)

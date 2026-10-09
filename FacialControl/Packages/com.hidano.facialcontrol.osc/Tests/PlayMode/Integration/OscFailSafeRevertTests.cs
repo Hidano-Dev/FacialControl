@@ -12,6 +12,7 @@ using NUnit.Framework;
 using UnityEngine;
 
 using Hidano.FacialControl.Testing;
+using Hidano.FacialControl.Osc.Tests.PlayMode.Testing;
 namespace Hidano.FacialControl.Tests.PlayMode.Integration
 {
     [TestFixture]
@@ -22,6 +23,9 @@ namespace Hidano.FacialControl.Tests.PlayMode.Integration
         private const string BlendShapeName = "smile";
         private const string GazeExpressionId = "eye-look";
         private const float StalenessSeconds = 0.5f;
+
+        private static readonly SenderIdentity Sender =
+            new SenderIdentity(Guid.Parse("33333333-3333-3333-3333-333333333333"), 1_000L);
 
         private static int s_portCounter;
 
@@ -50,8 +54,9 @@ namespace Hidano.FacialControl.Tests.PlayMode.Integration
             _host = new GameObject("OscFailSafeRevertTests_BlendShape");
             _binding = CreateBlendShapeReceiver();
             _binding.OnStart(CreateContext(registry, time));
+            OscIndexedFrameMessages.ApplyLayout(_binding, Sender, new[] { BlendShapeName });
 
-            HandleFloat(OscAddressFormatter.VRChatParameterPrefix + BlendShapeName, 0.72f);
+            SendFrame(2000UL, 0.72f);
             _binding.OnFixedTick(0.02f);
             AssertBlendShape(0.72f);
 
@@ -60,7 +65,7 @@ namespace Hidano.FacialControl.Tests.PlayMode.Integration
             AssertBlendShape(0f);
             Assert.That(_binding.InputSource.IsStale, Is.True);
 
-            HandleFloat(OscAddressFormatter.VRChatParameterPrefix + BlendShapeName, 0.31f);
+            SendFrame(3000UL, 0.31f);
             _binding.OnFixedTick(0.02f);
             AssertBlendShape(0.31f);
             Assert.That(_binding.InputSource.IsStale, Is.False);
@@ -74,9 +79,13 @@ namespace Hidano.FacialControl.Tests.PlayMode.Integration
             _host = new GameObject("OscFailSafeRevertTests_Gaze");
             _binding = CreateGazeReceiver();
             _binding.OnStart(CreateContext(registry, time));
+            OscIndexedFrameMessages.ApplyLayout(
+                _binding,
+                Sender,
+                Array.Empty<string>(),
+                new[] { new OscFrameLayoutGazeChannel(GazeExpressionId) });
 
-            HandleFloat(OscAddressFormatter.VRChatParameterPrefix + GazeExpressionId + "X", 0.44f);
-            HandleFloat(OscAddressFormatter.VRChatParameterPrefix + GazeExpressionId + "Y", -0.27f);
+            SendFrame(2000UL, 0.44f, -0.27f);
             _binding.OnFixedTick(0.02f);
             AssertGaze(registry, 0.44f, -0.27f);
 
@@ -84,8 +93,7 @@ namespace Hidano.FacialControl.Tests.PlayMode.Integration
             _binding.OnFixedTick(0.02f);
             AssertGaze(registry, 0f, 0f);
 
-            HandleFloat(OscAddressFormatter.VRChatParameterPrefix + GazeExpressionId + "X", -0.12f);
-            HandleFloat(OscAddressFormatter.VRChatParameterPrefix + GazeExpressionId + "Y", 0.63f);
+            SendFrame(3000UL, -0.12f, 0.63f);
             _binding.OnFixedTick(0.02f);
             AssertGaze(registry, -0.12f, 0.63f);
         }
@@ -100,16 +108,6 @@ namespace Hidano.FacialControl.Tests.PlayMode.Integration
                 FailSafeMode = FailSafeMode.RevertToBase,
                 BundleMode = BundleInterpretationMode.IndividualMessage
             };
-            binding.Configure(
-                "127.0.0.1",
-                binding.Port,
-                new[]
-                {
-                    new OscMapping(
-                        OscAddressFormatter.VRChatParameterPrefix + BlendShapeName,
-                        BlendShapeName,
-                        string.Empty)
-                });
             return binding;
         }
 
@@ -121,16 +119,7 @@ namespace Hidano.FacialControl.Tests.PlayMode.Integration
                 Port = AllocatePort(),
                 StalenessSeconds = StalenessSeconds,
                 FailSafeMode = FailSafeMode.RevertToBase,
-                BundleMode = BundleInterpretationMode.IndividualMessage,
-                Mappings = new List<OscMappingEntry>
-                {
-                    new OscMappingEntry
-                    {
-                        mode = OscMappingMode.Gaze_VRChat_XY,
-                        expressionId = GazeExpressionId,
-                        addressPattern = OscAddressFormatter.VRChatParameterPrefix + GazeExpressionId
-                    }
-                }
+                BundleMode = BundleInterpretationMode.IndividualMessage
             };
         }
 
@@ -148,9 +137,9 @@ namespace Hidano.FacialControl.Tests.PlayMode.Integration
                 lipSyncProvider: null);
         }
 
-        private void HandleFloat(string address, float value)
+        private void SendFrame(ulong timestamp, params float[] slots)
         {
-            _binding.HelperHost.Receiver.HandleOscMessage(new uOSC.Message(address, value));
+            OscIndexedFrameMessages.SendFrame(_binding.HelperHost.Receiver, Sender, timestamp, slots);
         }
 
         private void AssertBlendShape(float expected)
