@@ -215,20 +215,41 @@ namespace Hidano.FacialControl.Adapters.OSC
                 return;
             }
 
+            int start = pairs.Count;
+            AppendChannelAttributeValues(pairs, channel);
+            for (int i = pairs.Count - 1; i >= start; i--)
+            {
+                pairs.Insert(i, channelId);
+            }
+        }
+
+        /// <summary>
+        /// 1 チャネル分の属性の値（<c>bone.left=...</c> / <c>bone.right=...</c> / <c>range=...</c>）を
+        /// 広告と同じ順で <paramref name="attributes"/> に追加する。<paramref name="channel"/> が null なら何もしない。
+        /// </summary>
+        public static void AppendChannelAttributeValues(IList<string> attributes, GazeChannel channel)
+        {
+            if (attributes == null)
+            {
+                throw new ArgumentNullException(nameof(attributes));
+            }
+
+            if (channel == null)
+            {
+                return;
+            }
+
             if (!string.IsNullOrWhiteSpace(channel.leftEyeBonePath))
             {
-                pairs.Add(channelId);
-                pairs.Add(LeftEyeBonePathAttributePrefix + channel.leftEyeBonePath);
+                attributes.Add(LeftEyeBonePathAttributePrefix + channel.leftEyeBonePath);
             }
 
             if (!string.IsNullOrWhiteSpace(channel.rightEyeBonePath))
             {
-                pairs.Add(channelId);
-                pairs.Add(RightEyeBonePathAttributePrefix + channel.rightEyeBonePath);
+                attributes.Add(RightEyeBonePathAttributePrefix + channel.rightEyeBonePath);
             }
 
-            pairs.Add(channelId);
-            pairs.Add(FormatAngleLimits(
+            attributes.Add(FormatAngleLimits(
                 channel.lookUpAngle,
                 channel.lookDownAngle,
                 channel.outerYawAngle,

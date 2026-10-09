@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Globalization;
 using System.Net;
 using System.Net.Sockets;
@@ -98,6 +99,19 @@ namespace Hidano.FacialControl.Adapters.OSC
         // マッピング情報を保持
         private OscMapping[] _mappings;
 
+        // 値フレーム（/_facialcontrol/values）と対応表要求への返信。ConfigureIndexedFrame で設定する。
+        // チャンク番号を上限（MaxLayoutChunkCount）まで並べた要求も読める大きさ。
+        private const int LayoutRequestBufferBytes = 24 * 1024;
+        private const int MaxLayoutRequestsPerPump = 16;
+        private Guid _indexedSenderUuid;
+        private OscFrameLayout _indexedLayout;
+        private byte[][] _indexedLayoutChunkMessages = Array.Empty<byte[]>();
+        private float[] _indexedSlotValues;
+        private byte[] _layoutRequestBuffer;
+        private readonly List<int> _layoutRequestChunkIndices = new List<int>();
+        private bool[] _layoutChunkSentInPump = Array.Empty<bool>();
+        private int _layoutChunkSendBudget;
+
         /// <summary>
         /// 送信先エンドポイント（IP アドレス / host）。
         /// </summary>
@@ -138,6 +152,143 @@ namespace Hidano.FacialControl.Adapters.OSC
         /// マッピング数（送信対象の BlendShape 数）。
         /// </summary>
         public int MappingCount => _oscAddresses != null ? _oscAddresses.Length : 0;
+
+        /// <summary>
+        /// 値フレーム（<c>/_facialcontrol/values</c>）で送る対応表と slot の値の置き場を設定する。
+        /// <paramref name="slotValues"/> は参照を保持し、送信のたびに先頭 <see cref="OscFrameLayout.SlotCount"/> 個を送る
+        /// （呼び出し側が毎フレーム書き換える）。対応表はここで 1 回だけチャンクのメッセージに変換し、
+        /// <paramref name="senderUuid"/> 宛ての対応表要求に返す。
+        /// </summary>
+        public void ConfigureIndexedFrame(Guid senderUuid, OscFrameLayout layout, float[] slotValues)
+        {
+            if (layout == null)
+                throw new ArgumentNullException(nameof(layout));
+            if (slotValues == null)
+                throw new ArgumentNullException(nameof(slotValues));
+            if (slotValues.Length < layout.SlotCount)
+                throw new ArgumentException("Slot value buffer is shorter than the layout slot count.", nameof(slotValues));
+
+            OscFrameLayoutEntry[] entries = layout.ToEntries();
+            OscFrameLayoutChunk[] chunks = OscIndexedFrameCodec.SplitLayout(entries, OscIndexedFrameCodec.DefaultMaxMessageBytes);
+            if (chunks.Length > OscIndexedFrameCodec.MaxLayoutChunkCount)
+            {
+                Debug.LogWarning(
+                    $"[OscSender] 対応表のチャンク数 {chunks.Length} が上限 {OscIndexedFrameCodec.MaxLayoutChunkCount} を超えるため、値フレームを送りません。");
+                ClearIndexedFrame();
+                return;
+            }
+
+            var messages = new byte[chunks.Length][];
+            for (int i = 0; i < chunks.Length; i++)
+            {
+                messages[i] = OscIndexedFrameCodec.WriteLayoutMessage(layout.Version, i, chunks.Length, entries, chunks[i]);
+            }
+
+            _indexedSenderUuid = senderUuid;
+            _indexedLayout = layout;
+            _indexedLayoutChunkMessages = messages;
+            _layoutChunkSentInPump = new bool[messages.Length];
+            _indexedSlotValues = slotValues;
+        }
+
+        /// <summary>値フレームの送信と対応表要求への返信をやめる。</summary>
+        public void ClearIndexedFrame()
+        {
+            _indexedSenderUuid = Guid.Empty;
+            _indexedLayout = null;
+            _indexedLayoutChunkMessages = Array.Empty<byte[]>();
+            _layoutChunkSentInPump = Array.Empty<bool>();
+            _indexedSlotValues = null;
+        }
+
+        /// <summary>
+        /// 送信用ソケットに届いた対応表要求（<c>/_facialcontrol/layout_request</c>）を読み、要求元へ対応表の
+        /// チャンクを返す。返信した要求の数を返す。自分の送信元 UUID 宛てで、バージョンが今の対応表と一致するか
+        /// 未知（0）の要求だけに返す（違うバージョンの要求は、受信側が新しい値フレームを見て要求し直す）。
+        /// 1 回で読む要求は <see cref="MaxLayoutRequestsPerPump"/> 件まで、返すチャンクは合計で対応表 1 つ分まで
+        /// （同じ要求内の重複したチャンク番号は 1 回だけ返す）。返しきれなかった要求は、受信側の再要求で拾う。
+        /// 要求が届いていなければヒープ確保をしない。
+        /// </summary>
+        public int PumpLayoutRequests()
+        {
+            if (_indexedLayout == null || _udpBundleSender == null || _bundleSenderOverride != null)
+                return 0;
+
+            _layoutRequestBuffer ??= new byte[LayoutRequestBufferBytes];
+            _layoutChunkSendBudget = _indexedLayoutChunkMessages.Length;
+            int answered = 0;
+            for (int i = 0; i < MaxLayoutRequestsPerPump && _layoutChunkSendBudget > 0; i++)
+            {
+                if (!_udpBundleSender.TryReceive(_layoutRequestBuffer, out int length, out IPEndPoint remote))
+                    break;
+
+                if (TryAnswerLayoutRequest(new ReadOnlySpan<byte>(_layoutRequestBuffer, 0, length), remote))
+                    answered++;
+            }
+
+            return answered;
+        }
+
+        private bool TryAnswerLayoutRequest(ReadOnlySpan<byte> datagram, IPEndPoint remote)
+        {
+            var reader = new OscPacketReader(datagram);
+            bool answered = false;
+            while (reader.TryReadNext(out OscMessageView message))
+            {
+                if (!OscIndexedFrameCodec.IsLayoutRequestAddress(message.Address))
+                    continue;
+
+                if (!OscIndexedFrameCodec.TryReadLayoutRequestMessage(
+                        in message, out Guid senderUuid, out int version, _layoutRequestChunkIndices))
+                    continue;
+
+                if (senderUuid != _indexedSenderUuid)
+                    continue;
+
+                if (version != OscFrameLayoutVersion.Unknown && version != _indexedLayout.Version)
+                    continue;
+
+                SendLayoutChunks(remote);
+                answered = true;
+            }
+
+            return answered;
+        }
+
+        private void SendLayoutChunks(IPEndPoint remote)
+        {
+            byte[][] messages = _indexedLayoutChunkMessages;
+            if (_layoutRequestChunkIndices.Count == 0)
+            {
+                for (int i = 0; i < messages.Length && _layoutChunkSendBudget > 0; i++)
+                    SendLayoutChunk(messages[i], remote);
+                return;
+            }
+
+            Array.Clear(_layoutChunkSentInPump, 0, _layoutChunkSentInPump.Length);
+            for (int i = 0; i < _layoutRequestChunkIndices.Count && _layoutChunkSendBudget > 0; i++)
+            {
+                int chunkIndex = _layoutRequestChunkIndices[i];
+                if (chunkIndex >= messages.Length || _layoutChunkSentInPump[chunkIndex])
+                    continue;
+
+                _layoutChunkSentInPump[chunkIndex] = true;
+                SendLayoutChunk(messages[chunkIndex], remote);
+            }
+        }
+
+        private void SendLayoutChunk(byte[] message, IPEndPoint remote)
+        {
+            _layoutChunkSendBudget--;
+            try
+            {
+                _udpBundleSender.Send(message, message.Length, remote);
+            }
+            catch (SocketException ex)
+            {
+                Debug.LogWarning($"[OscSender] 対応表を {remote} へ返せませんでした: {ex.Message}");
+            }
+        }
 
         /// <summary>
         /// OscSender を初期化する。
@@ -362,6 +513,50 @@ namespace Hidano.FacialControl.Adapters.OSC
             string[] heartbeatNames,
             int heartbeatNameCount)
         {
+            SendBundle(
+                senderUuidBytes,
+                startedAtUnixMs,
+                addressUtf8,
+                values,
+                count,
+                heartbeatNames,
+                heartbeatNameCount,
+                includeIndexedValues: false);
+        }
+
+        /// <summary>
+        /// frame bundle を送る。<paramref name="includeIndexedValues"/> が true で <see cref="ConfigureIndexedFrame"/>
+        /// 済みなら、同じ timestamp の値フレームのパケットを後ろに足し、送信後に対応表要求へ返信する。
+        /// </summary>
+        public void SendBundle(
+            byte[] senderUuidBytes,
+            string startedAtUnixMs,
+            byte[][] addressUtf8,
+            float[] values,
+            int count,
+            bool includeIndexedValues)
+        {
+            SendBundle(
+                senderUuidBytes,
+                startedAtUnixMs,
+                addressUtf8,
+                values,
+                count,
+                heartbeatNames: null,
+                heartbeatNameCount: 0,
+                includeIndexedValues);
+        }
+
+        private void SendBundle(
+            byte[] senderUuidBytes,
+            string startedAtUnixMs,
+            byte[][] addressUtf8,
+            float[] values,
+            int count,
+            string[] heartbeatNames,
+            int heartbeatNameCount,
+            bool includeIndexedValues)
+        {
             if (!_initialized || _client == null || !_client.isRunning)
                 return;
 
@@ -401,12 +596,7 @@ namespace Hidano.FacialControl.Adapters.OSC
                     values,
                     messageCount);
 
-            EnsureBundleClient();
-            for (int i = 0; i < packetCount; i++)
-            {
-                OscBundlePacket packet = _bundleBuilder.GetPacket(i);
-                SendBundlePacket(packet);
-            }
+            SendFramePackets(packetCount, timestamp, senderUuidBytes, startedAtUnixMs, includeIndexedValues);
         }
 
         /// <summary>frame bundle に heartbeat / preset / gaze 広告を同一 timestamp で載せて送信する。</summary>
@@ -418,6 +608,22 @@ namespace Hidano.FacialControl.Adapters.OSC
             int count,
             in OscHeartbeatPayload heartbeat)
         {
+            SendBundle(senderUuidBytes, startedAtUnixMs, addressUtf8, values, count, in heartbeat, includeIndexedValues: false);
+        }
+
+        /// <summary>
+        /// frame bundle に heartbeat / preset / gaze 広告を同一 timestamp で載せて送信する。
+        /// <paramref name="includeIndexedValues"/> の扱いは <see cref="SendBundle(byte[], string, byte[][], float[], int, bool)"/> と同じ。
+        /// </summary>
+        public void SendBundle(
+            byte[] senderUuidBytes,
+            string startedAtUnixMs,
+            byte[][] addressUtf8,
+            float[] values,
+            int count,
+            in OscHeartbeatPayload heartbeat,
+            bool includeIndexedValues)
+        {
             if (!_initialized || _client == null || !_client.isRunning)
                 return;
 
@@ -428,8 +634,9 @@ namespace Hidano.FacialControl.Adapters.OSC
                 return;
 
             int messageCount = Math.Min(Math.Min(Math.Max(count, 0), values.Length), addressUtf8.Length);
+            ulong timestamp = Timestamp.Now.value;
             int packetCount = _bundleBuilder.BuildFrameBundle(
-                Timestamp.Now.value,
+                timestamp,
                 SenderIdentityAddressUtf8,
                 senderUuidBytes,
                 startedAtUnixMs,
@@ -446,11 +653,38 @@ namespace Hidano.FacialControl.Adapters.OSC
                 heartbeat.GazeAdvertisementPairs,
                 heartbeat.GazeAdvertisementPairCount);
 
+            SendFramePackets(packetCount, timestamp, senderUuidBytes, startedAtUnixMs, includeIndexedValues);
+        }
+
+        private void SendFramePackets(
+            int packetCount,
+            ulong timestamp,
+            byte[] senderUuidBytes,
+            string startedAtUnixMs,
+            bool includeIndexedValues)
+        {
+            bool sendIndexed = includeIndexedValues && _indexedLayout != null;
+            if (sendIndexed)
+            {
+                packetCount = _bundleBuilder.AppendIndexedValuesPackets(
+                    timestamp,
+                    SenderIdentityAddressUtf8,
+                    senderUuidBytes,
+                    startedAtUnixMs,
+                    _indexedLayout.Version,
+                    new ReadOnlySpan<float>(_indexedSlotValues, 0, _indexedLayout.SlotCount));
+            }
+
             EnsureBundleClient();
             for (int i = 0; i < packetCount; i++)
             {
                 OscBundlePacket packet = _bundleBuilder.GetPacket(i);
                 SendBundlePacket(packet);
+            }
+
+            if (sendIndexed)
+            {
+                PumpLayoutRequests();
             }
         }
 
@@ -502,12 +736,7 @@ namespace Hidano.FacialControl.Adapters.OSC
                 presetName,
                 customPrefix);
 
-            EnsureBundleClient();
-            for (int i = 0; i < packetCount; i++)
-            {
-                OscBundlePacket packet = _bundleBuilder.GetPacket(i);
-                SendBundlePacket(packet);
-            }
+            SendFramePackets(packetCount, timestamp, senderUuidBytes, startedAtUnixMs, includeIndexedValues: false);
         }
 
         /// <summary>
