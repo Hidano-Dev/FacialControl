@@ -546,7 +546,8 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
                             _sendPreset ? ToPresetName(slot.Preset) : null,
                             null,
                             slot.GazeAdvertisementPairs,
-                            slot.GazeAdvertisementPairCount));
+                            slot.GazeAdvertisementPairCount),
+                        includeIndexedValues: _hasPublishedFrame);
                 }
                 else
                 {
@@ -555,7 +556,8 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
                         _identityStartedAtUnixMs,
                         slot.ScratchAddressUtf8,
                         slot.ScratchFloatValues,
-                        slot.ScratchFloatCount);
+                        slot.ScratchFloatCount,
+                        includeIndexedValues: true);
                 }
 
                 sentAny = true;
@@ -639,15 +641,22 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
                 SendSlot slot = _sendSlots[slotIndex];
                 int[] sourceBlendShapeIndices = slot.SourceBlendShapeIndices;
                 slot.EnsureScratchCapacity();
+                // 値フレームの slot は BlendShape を同じ順で並べるので、名前つきアドレス用の値と同時に写す。
+                float[] indexedValues = slot.IndexedValues;
                 int writeIndex = 0;
                 for (int i = 0; i < sourceBlendShapeIndices.Length; i++)
                 {
                     int sourceIndex = sourceBlendShapeIndices[i];
+                    float value = sourceIndex >= 0 && sourceIndex < postBlendValues.Length
+                        ? postBlendValues[sourceIndex]
+                        : 0f;
                     slot.ScratchAddressUtf8[writeIndex] = slot.ConfiguredAddressUtf8[i];
-                    slot.ScratchFloatValues[writeIndex] =
-                        sourceIndex >= 0 && sourceIndex < postBlendValues.Length
-                            ? postBlendValues[sourceIndex]
-                            : 0f;
+                    slot.ScratchFloatValues[writeIndex] = value;
+                    if (i < indexedValues.Length)
+                    {
+                        indexedValues[i] = value;
+                    }
+
                     writeIndex++;
                 }
 
@@ -678,6 +687,10 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
             _identity = SenderIdentityGenerator.Generate();
             _identityUuidBytes = _identity.Uuid.ToByteArray();
             _identityStartedAtUnixMs = _identity.StartedAtUnixMs.ToString(CultureInfo.InvariantCulture);
+            for (int i = 0; i < _sendSlots.Count; i++)
+            {
+                ConfigureIndexedFrame(_sendSlots[i], OscFrameLayoutVersion.Unknown);
+            }
 
             _facialOutputBus = ctx.FacialOutputBus;
             _facialOutputBus.Subscribe(this);
@@ -972,18 +985,26 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
             }
         }
 
+        /// <summary>
+        /// gaze チャネルごとの名前つきアドレスのメッセージを足し、値フレームの gaze slot（X / Y）を写す。
+        /// 今回の出力に無いチャネルは、名前つきアドレスでは送らず、値フレームでは中立（0, 0）にする
+        /// （値フレームは毎フレーム全 slot を送るので、前回の値を残すと止まった目線を送り続けてしまう）。
+        /// </summary>
         private void AppendGazeMessages(SendSlot slot, ref int writeIndex)
         {
             string[] gazeIds = slot.GazeExpressionIds;
-            if (gazeIds.Length == 0 || _scratchGazeCount == 0)
+            if (gazeIds.Length == 0)
             {
                 return;
             }
 
+            float[] indexedValues = slot.IndexedValues;
+            int indexedSlot = slot.SourceBlendShapeIndices.Length;
             int addressIndex = slot.SourceBlendShapeIndices.Length;
             for (int i = 0; i < gazeIds.Length; i++)
             {
-                if (TryFindGazeSnapshot(gazeIds[i], out GazeSnapshot snapshot))
+                bool found = TryFindGazeSnapshot(gazeIds[i], out GazeSnapshot snapshot);
+                if (found)
                 {
                     if (slot.Preset == AddressPresetKind.ARKit)
                     {
@@ -995,7 +1016,14 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
                     }
                 }
 
+                if (indexedSlot + 1 < indexedValues.Length)
+                {
+                    indexedValues[indexedSlot] = found ? snapshot.X : 0f;
+                    indexedValues[indexedSlot + 1] = found ? snapshot.Y : 0f;
+                }
+
                 addressIndex += slot.GazeMessageCount;
+                indexedSlot += OscFrameLayout.GazeSlotsPerChannel;
             }
         }
 
@@ -1214,6 +1242,53 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
 
             slot.SetGazeAdvertisementPairs(
                 BuildGazeAdvertisementPairs(slot.Preset, slot.GazeExpressionIds, _gazeChannelSettings));
+            ConfigureIndexedFrame(slot, slot.IndexedLayout != null ? slot.IndexedLayout.Version : OscFrameLayoutVersion.Unknown);
+        }
+
+        /// <summary>
+        /// 値フレームの対応表（BlendShape 名 → gaze チャネルと属性）を組み立てて送信側に渡す。
+        /// 対応表が変わるとき（gaze の属性の変更）は <paramref name="previousVersion"/> と別のバージョンにする。
+        /// </summary>
+        private void ConfigureIndexedFrame(SendSlot slot, int previousVersion)
+        {
+            if (slot.Sender == null)
+            {
+                return;
+            }
+
+            OscFrameLayoutGazeChannel[] gazeChannels =
+                BuildIndexedGazeChannels(slot.GazeExpressionIds, _gazeChannelSettings);
+            OscFrameLayoutEntry[] entries = OscFrameLayout.ToEntries(slot.HeartbeatBlendShapeNames, gazeChannels);
+            int version = OscFrameLayoutVersion.Compute(_identity, entries, previousVersion);
+            var layout = new OscFrameLayout(version, slot.HeartbeatBlendShapeNames, gazeChannels);
+            slot.SetIndexedLayout(layout);
+            slot.Sender.ConfigureIndexedFrame(_identity.Uuid, layout, slot.IndexedValues);
+        }
+
+        /// <summary>
+        /// 対応表に載せる gaze チャネルを組み立てる。属性は gaze 広告と同じ（目ボーン path・可動範囲）。
+        /// </summary>
+        private static OscFrameLayoutGazeChannel[] BuildIndexedGazeChannels(
+            string[] gazeExpressionIds,
+            IReadOnlyList<GazeChannel> gazeChannelSettings)
+        {
+            if (gazeExpressionIds == null || gazeExpressionIds.Length == 0)
+            {
+                return Array.Empty<OscFrameLayoutGazeChannel>();
+            }
+
+            var channels = new OscFrameLayoutGazeChannel[gazeExpressionIds.Length];
+            var attributes = new List<string>();
+            for (int i = 0; i < gazeExpressionIds.Length; i++)
+            {
+                attributes.Clear();
+                GazeAdvertisementResolver.AppendChannelAttributeValues(
+                    attributes,
+                    FindGazeChannelSettings(gazeChannelSettings, gazeExpressionIds[i]));
+                channels[i] = new OscFrameLayoutGazeChannel(gazeExpressionIds[i], attributes);
+            }
+
+            return channels;
         }
 
         /// <summary>
@@ -1323,6 +1398,8 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
             public byte[][] ScratchAddressUtf8;
             public float[] ScratchFloatValues;
             public int ScratchFloatCount;
+            public OscFrameLayout IndexedLayout;
+            public float[] IndexedValues = Array.Empty<float>();
 
             public SendSlot(
                 OscSender sender,
@@ -1359,6 +1436,16 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
                 GazeAdvertisementPairCount = gazeAdvertisementPairs == null
                     ? 0
                     : gazeAdvertisementPairs.Length / 2;
+            }
+
+            /// <summary>対応表を差し替える。slot 数が変わらなければ値の置き場を使い回す（前回の値を残す）。</summary>
+            public void SetIndexedLayout(OscFrameLayout layout)
+            {
+                IndexedLayout = layout;
+                if (IndexedValues.Length != layout.SlotCount)
+                {
+                    IndexedValues = layout.SlotCount == 0 ? Array.Empty<float>() : new float[layout.SlotCount];
+                }
             }
 
             public void EnsureScratchCapacity()

@@ -465,6 +465,60 @@ namespace Hidano.FacialControl.Adapters.OSC
             }
         }
 
+        /// <summary>
+        /// 直前に組み立てたパケットの後ろに、送信元識別と値フレーム（<c>/_facialcontrol/values</c>）を載せた
+        /// パケットを同じ <paramref name="timestamp"/> で追加し、パケット総数を返す。値フレームは 1 通が
+        /// <see cref="OscIndexedFrameCodec.DefaultMaxMessageBytes"/> に収まるよう slot の offset 付きで分け、
+        /// 1 パケットに 1 通ずつ載せる（slot が 0 個でも 1 通送り、受信側がバージョンを知れるようにする）。
+        /// ヒープ確保をしない。
+        /// </summary>
+        public int AppendIndexedValuesPackets(
+            ulong timestamp,
+            byte[] senderIdentityAddressUtf8,
+            byte[] senderUuidBytes,
+            string startedAtUnixMs,
+            int layoutVersion,
+            ReadOnlySpan<float> slotValues)
+        {
+            ThrowIfDisposed();
+            ValidateAddress(senderIdentityAddressUtf8, nameof(senderIdentityAddressUtf8));
+            if (senderUuidBytes == null)
+            {
+                throw new ArgumentNullException(nameof(senderUuidBytes));
+            }
+
+            if (startedAtUnixMs == null)
+            {
+                throw new ArgumentNullException(nameof(startedAtUnixMs));
+            }
+
+            int senderIdentityElementSize = 4 + GetSenderIdentityMessageSize(
+                senderIdentityAddressUtf8.Length,
+                senderUuidBytes.Length,
+                startedAtUnixMs);
+            int maxValuesMessageBytes = Math.Min(
+                OscIndexedFrameCodec.DefaultMaxMessageBytes,
+                _maxPacketSize - BundleHeaderSize - senderIdentityElementSize - 4);
+            int maxValuesPerMessage = OscIndexedFrameCodec.GetMaxValuesPerMessage(maxValuesMessageBytes);
+            if (maxValuesPerMessage <= 0)
+            {
+                throw new InvalidOperationException(
+                    "The configured packet size cannot hold a values frame together with the sender identity.");
+            }
+
+            int messageCount = OscIndexedFrameCodec.GetValuesMessageCount(slotValues.Length, maxValuesPerMessage);
+            for (int i = 0; i < messageCount; i++)
+            {
+                int offset = i * maxValuesPerMessage;
+                int count = Math.Min(maxValuesPerMessage, slotValues.Length - offset);
+                BeginPacket(timestamp);
+                AddSenderIdentityMessage(timestamp, senderIdentityAddressUtf8, senderUuidBytes, startedAtUnixMs);
+                AddValuesMessage(timestamp, layoutVersion, offset, slotValues.Slice(offset, count));
+            }
+
+            return _packetCount;
+        }
+
         public int BuildHeartbeatBundle(
             ulong timestamp,
             byte[] addressUtf8,
@@ -721,6 +775,19 @@ namespace Hidano.FacialControl.Adapters.OSC
                 startedAtUnixMs);
             BeginMessage(timestamp, messageSize, out int packetIndex, out int messageStart);
             WriteSenderIdentityMessage(packetIndex, addressUtf8, senderUuidBytes, startedAtUnixMs);
+            CompleteMessage(packetIndex, messageStart, messageSize);
+        }
+
+        private void AddValuesMessage(ulong timestamp, int layoutVersion, int offset, ReadOnlySpan<float> values)
+        {
+            int messageSize = OscIndexedFrameCodec.GetValuesMessageSize(values.Length);
+            BeginMessage(timestamp, messageSize, out int packetIndex, out int messageStart);
+            int written = OscIndexedFrameCodec.WriteValuesMessage(
+                new Span<byte>(_buffers[packetIndex], messageStart, messageSize),
+                layoutVersion,
+                offset,
+                values);
+            _lengths[packetIndex] = messageStart + written;
             CompleteMessage(packetIndex, messageStart, messageSize);
         }
 
