@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Net;
 using Hidano.FacialControl.Domain.Interfaces;
 using Hidano.FacialControl.Domain.Models;
 using UnityEngine;
@@ -45,6 +46,8 @@ namespace Hidano.FacialControl.Adapters.OSC
         private string[] _listenerAddresses = Array.Empty<string>();
         private IReadOnlyList<string> _gazeAddresses;
         private int _activePort = -1;
+        private bool _captureRemoteEndPoints;
+        private EndPoint _currentRemoteEndPoint;
         private OscDoubleBuffer _buffer;
         private OscBundleAccumulator _bundleAccumulator;
         private BundleInterpretationMode _bundleMode;
@@ -90,6 +93,35 @@ namespace Hidano.FacialControl.Adapters.OSC
         public OscBundleAccumulator BundleAccumulator => _bundleAccumulator;
 
         public OscReceiveDiagnostics Diagnostics => _diagnostics;
+
+        /// <summary>
+        /// true の間、受信したデータグラムの送信元を記録し、<see cref="CurrentRemoteEndPoint"/> で読めるようにする。
+        /// 送信元ごとにヒープ確保が起きるので、対応表を要求する必要がある間だけ有効にする。
+        /// </summary>
+        public bool CaptureRemoteEndPoints
+        {
+            get => _captureRemoteEndPoints;
+            set
+            {
+                _captureRemoteEndPoints = value;
+                if (_receiveLoop != null)
+                {
+                    _receiveLoop.CaptureRemoteEndPoints = value;
+                }
+            }
+        }
+
+        /// <summary>
+        /// 今 <see cref="IOscResolvedMessageHandler"/> に渡しているメッセージが入っていたデータグラムの送信元。
+        /// ハンドラの呼び出し中だけ有効で、送信元を記録していなかったときは null。
+        /// </summary>
+        public EndPoint CurrentRemoteEndPoint => _currentRemoteEndPoint;
+
+        /// <summary>受信ソケットから <paramref name="remote"/> へデータグラムを送る。受信中でない、または送れなければ false。</summary>
+        public bool TrySendDatagram(byte[] buffer, int length, EndPoint remote)
+        {
+            return _receiveLoop != null && _receiveLoop.IsRunning && _receiveLoop.TrySendTo(buffer, length, remote);
+        }
         public OscReceiveOptions ReceiveOptions { get => _receiveOptions; set => _receiveOptions = value; }
 
         public void SetResolvedMessageHandler(IOscResolvedMessageHandler handler)
@@ -139,7 +171,11 @@ namespace Hidano.FacialControl.Adapters.OSC
             {
                 _ring = new OscDatagramRing(_receiveOptions, _diagnostics);
                 _drainBuffer = new OscDrainBuffer(_receiveOptions);
-                _receiveLoop = new OscUdpReceiveLoop(_ring, _diagnostics) { TableProvider = GetTable };
+                _receiveLoop = new OscUdpReceiveLoop(_ring, _diagnostics)
+                {
+                    TableProvider = GetTable,
+                    CaptureRemoteEndPoints = _captureRemoteEndPoints
+                };
             }
             _initialized = true;
         }
@@ -221,7 +257,15 @@ namespace Hidano.FacialControl.Adapters.OSC
             for (int i = 0; i < _drainBuffer.RecordCount; i++)
             {
                 ref readonly OscResolvedMessage resolved = ref _drainBuffer.GetRecord(i);
-                Apply(_drainBuffer.GetView(i), in resolved);
+                _currentRemoteEndPoint = _drainBuffer.GetRemoteEndPoint(i);
+                try
+                {
+                    Apply(_drainBuffer.GetView(i), in resolved);
+                }
+                finally
+                {
+                    _currentRemoteEndPoint = null;
+                }
             }
             WarnDiagnostics();
             ReportReceiveLoopFault();

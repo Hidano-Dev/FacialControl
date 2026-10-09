@@ -57,6 +57,19 @@ namespace Hidano.FacialControl.Adapters.OSC.Tests
         }
 
         [Test]
+        public void Builder_ValuesAndLayoutAddresses_ResolveAsControls()
+        {
+            var pool = new Dictionary<string, byte[]>(StringComparer.Ordinal);
+            var table = new OscAddressKeyTable.Builder(pool).Build(1);
+
+            Assert.That(table.TryResolve(Utf8(OscControlAddresses.Values), out var values), Is.True);
+            Assert.That(values.Control, Is.EqualTo(OscControlKind.Values));
+            Assert.That(values.MappingIndex, Is.EqualTo(-1));
+            Assert.That(table.TryResolve(Utf8(OscControlAddresses.Layout), out var layout), Is.True);
+            Assert.That(layout.Control, Is.EqualTo(OscControlKind.Layout));
+        }
+
+        [Test]
         public void TryResolve_DoesNotAllocateForKnownOrUnknownAddress()
         {
             var pool = new Dictionary<string, byte[]>(StringComparer.Ordinal);

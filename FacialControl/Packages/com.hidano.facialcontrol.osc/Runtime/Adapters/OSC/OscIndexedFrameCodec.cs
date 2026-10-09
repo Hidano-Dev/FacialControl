@@ -440,17 +440,49 @@ namespace Hidano.FacialControl.Adapters.OSC
 
         // ---- 対応表要求 ----
 
+        /// <summary>チャンク番号を <paramref name="indexCount"/> 個並べた対応表要求のバイト数。</summary>
+        public static int GetLayoutRequestMessageSize(int indexCount)
+        {
+            if (indexCount < 0)
+            {
+                throw new ArgumentOutOfRangeException(nameof(indexCount));
+            }
+
+            return GetPaddedStringSize(OscControlAddresses.LayoutRequestUtf8.Length)
+                + GetPaddedStringSize(1 + RequestHeaderArgumentCount + indexCount)
+                + 4 + SenderIdentity.UuidByteLength
+                + 4
+                + (indexCount * 4);
+        }
+
+        /// <summary>
+        /// <paramref name="maxMessageBytes"/> に収まる対応表要求 1 通あたりのチャンク番号の最大数。
+        /// これより多く欠けているときは、チャンク番号を省いた全チャンクの要求にする。
+        /// </summary>
+        public static int GetMaxLayoutRequestChunkIndices(int maxMessageBytes)
+        {
+            if (maxMessageBytes < GetLayoutRequestMessageSize(1))
+            {
+                return 0;
+            }
+
+            // 番号 1 つは値 4 バイト + 型タグ 1 バイト。型タグの 4 バイト境界で多少前後するので上から詰める。
+            int count = (maxMessageBytes - GetLayoutRequestMessageSize(0)) / 5 + 4;
+            while (count > 0 && GetLayoutRequestMessageSize(count) > maxMessageBytes)
+            {
+                count--;
+            }
+
+            return count;
+        }
+
         /// <summary>
         /// 対応表要求を OSC メッセージにする。<paramref name="chunkIndices"/> が null か空なら全チャンクの要求。
         /// </summary>
         public static byte[] WriteLayoutRequestMessage(Guid senderUuid, int version, IReadOnlyList<int> chunkIndices)
         {
             int indexCount = chunkIndices != null ? chunkIndices.Count : 0;
-            int size = GetPaddedStringSize(OscControlAddresses.LayoutRequestUtf8.Length)
-                + GetPaddedStringSize(1 + RequestHeaderArgumentCount + indexCount)
-                + 4 + SenderIdentity.UuidByteLength
-                + 4
-                + (indexCount * 4);
+            int size = GetLayoutRequestMessageSize(indexCount);
             var buffer = new byte[size];
             var destination = new Span<byte>(buffer);
             int position = 0;

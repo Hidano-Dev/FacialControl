@@ -186,6 +186,8 @@ namespace Hidano.FacialControl.Adapters.OSC
                 AddControl(OscControlAddresses.BlendShapeNames, OscControlKind.Heartbeat);
                 AddControl(OscControlAddresses.Preset, OscControlKind.Preset);
                 AddControl(OscControlAddresses.Gaze, OscControlKind.GazeAdvertisement);
+                AddControl(OscControlAddresses.Values, OscControlKind.Values);
+                AddControl(OscControlAddresses.Layout, OscControlKind.Layout);
 
                 var entries = new Entry[_entries.Count];
                 int index = 0;

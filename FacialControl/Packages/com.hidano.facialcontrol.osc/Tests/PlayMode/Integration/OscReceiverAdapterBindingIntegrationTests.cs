@@ -1128,19 +1128,9 @@ namespace Hidano.FacialControl.Tests.PlayMode.Integration
             GameObject senderHost = CreateGameObject("OscReceiverAdapterBindingWithRuntimeSettingsTests_Sender");
             var outputBus = new FacialOutputBus();
 
-            // 受信側は通常の OscReceiver MonoBehaviour を直接 bind して値を観測する。
-            GameObject receiverHost = CreateGameObject("OscReceiverAdapterBindingWithRuntimeSettingsTests_RawReceiver");
-            OscReceiver rawReceiver = receiverHost.AddComponent<OscReceiver>();
-            var buffer = new OscDoubleBuffer(1);
-            OscMapping[] mappings = new[]
-            {
-                new OscMapping(OscAddressFormatter.VRChatParameterPrefix + BlendShapeNameA, BlendShapeNameA, "emotion"),
-            };
-            rawReceiver.Port = port;
-            rawReceiver.Initialize(buffer, mappings);
-            rawReceiver.StartReceiving();
-
-            try
+            // 受信側は生の UDP ソケットで値フレーム（/_facialcontrol/values）を読んで値を観測する。
+            using (var rawReceiver = new System.Net.Sockets.UdpClient(
+                       new System.Net.IPEndPoint(System.Net.IPAddress.Loopback, port)))
             {
                 yield return new WaitForSecondsRealtime(0.2f);
 
@@ -1160,29 +1150,41 @@ namespace Hidano.FacialControl.Tests.PlayMode.Integration
 
                 bool received = false;
                 float[] postBlendValues = new[] { 0.81f };
+                var slots = new float[1];
                 for (int attempt = 0; attempt < 20 && !received; attempt++)
                 {
                     outputBus.Publish(postBlendValues, ReadOnlySpan<GazeSnapshot>.Empty);
                     sender.OnLateTick(0.016f);
                     yield return new WaitForSecondsRealtime(0.05f);
 
-                    buffer.Swap();
-                    float observed = buffer.GetReadBuffer()[0];
-                    if (observed > 0.01f)
+                    while (rawReceiver.Available > 0)
                     {
-                        received = true;
-                        Assert.That(observed, Is.EqualTo(0.81f).Within(Tolerance));
+                        System.Net.IPEndPoint remote = null;
+                        received |= TryReadSingleValue(rawReceiver.Receive(ref remote), slots);
                     }
                 }
 
                 Assert.That(received, Is.True,
-                    "binding の送信先で起動した OscSender が UDP 経由で値を送信するべき。");
+                    "binding の送信先で起動した OscSender が UDP 経由で値フレームを送信するべき。");
+                Assert.That(slots[0], Is.EqualTo(0.81f).Within(Tolerance));
             }
-            finally
+        }
+
+        /// <summary>データグラムに値 1 つの値フレームがあれば <paramref name="slots"/> に写して true。</summary>
+        private static bool TryReadSingleValue(byte[] datagram, float[] slots)
+        {
+            var reader = new OscPacketReader(datagram);
+            while (reader.TryReadNext(out OscMessageView view))
             {
-                rawReceiver.StopReceiving();
-                buffer.Dispose();
+                if (OscIndexedFrameCodec.IsValuesAddress(view.Address)
+                    && OscIndexedFrameCodec.TryCopyValues(in view, slots, out int written)
+                    && written == 1)
+                {
+                    return true;
+                }
             }
+
+            return false;
         }
 
         // ---------------------------------------------------------------

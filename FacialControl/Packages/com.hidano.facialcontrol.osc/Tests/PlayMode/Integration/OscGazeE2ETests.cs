@@ -403,13 +403,14 @@ namespace Hidano.FacialControl.Tests.PlayMode.Integration
             yield return new WaitForSecondsRealtime(0.2f);
             yield return SendGazeUntilProcessed(receiver, firstSender, ExpressionId);
             Assert.That(_registry.TryResolve("gaze-change-receiver:" + ExpressionId, out IInputSource removed), Is.True);
+            int firstLayoutVersion = receiver.ActiveLayoutVersion;
 
             firstSender.Dispose();
             OscSenderAdapterBinding secondSender = CreateSenderWithIds(
                 "gaze-change-sender-b", port, AddressPresetKind.VRChat, "eye-look-new");
             StartBinding(secondSender, CreateContext(CreateGameObject("OscGazeE2E_ChangeSenderB")));
 
-            yield return SendGazeUntilProcessed(receiver, secondSender, "eye-look-new");
+            yield return SendGazeUntilProcessed(receiver, secondSender, "eye-look-new", firstLayoutVersion);
 
             Assert.That(receiver.AutoGazeSourceIds, Does.Contain("gaze-change-receiver:eye-look-new"));
             Assert.That(receiver.AutoGazeSourceIds, Does.Not.Contain("gaze-change-receiver:" + ExpressionId));
@@ -495,10 +496,15 @@ namespace Hidano.FacialControl.Tests.PlayMode.Integration
             LogAssert.NoUnexpectedReceived();
         }
 
+        /// <summary>
+        /// 送信側の対応表（gaze チャネルと属性を含む）が受信側に適用されるまで送る。
+        /// <paramref name="previousLayoutVersion"/> を渡すと、それとは別の対応表が適用されるまで待つ。
+        /// </summary>
         private IEnumerator SendGazeUntilProcessed(
             OscReceiverAdapterBinding receiver,
             OscSenderAdapterBinding sender,
-            string expressionId)
+            string expressionId,
+            int previousLayoutVersion = OscFrameLayoutVersion.Unknown)
         {
             for (int attempt = 0; attempt < 20; attempt++)
             {
@@ -508,27 +514,14 @@ namespace Hidano.FacialControl.Tests.PlayMode.Integration
                 sender.OnLateTick(0.016f);
                 yield return new WaitForSecondsRealtime(0.05f);
                 receiver.OnFixedTick(0.02f);
-                if (receiver.LastGazeAdvertisementHash != 0u ||
-                    HasSourceId(receiver.AutoGazeSourceIds, receiver.Slug + ":" + expressionId))
+                if (receiver.ActiveLayoutVersion != OscFrameLayoutVersion.Unknown &&
+                    receiver.ActiveLayoutVersion != previousLayoutVersion)
                 {
                     yield break;
                 }
             }
 
-            Assert.Fail("gaze advertisement was not processed");
-        }
-
-        private static bool HasSourceId(IReadOnlyList<string> sourceIds, string expected)
-        {
-            for (int i = 0; i < sourceIds.Count; i++)
-            {
-                if (string.Equals(sourceIds[i], expected, StringComparison.Ordinal))
-                {
-                    return true;
-                }
-            }
-
-            return false;
+            Assert.Fail("gaze layout was not applied");
         }
 
         [UnityTest]
