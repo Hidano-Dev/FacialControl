@@ -142,7 +142,7 @@ namespace Hidano.FacialControl.Tests.PlayMode.Integration
             {
                 Slug = "osc-multi-endpoint-sender",
                 SuppressLoopback = false,
-                HeartbeatIntervalSeconds = 60f
+                LayoutRefreshIntervalSeconds = 60f
             };
             binding.ConfigureEndpoints(
                 new[]

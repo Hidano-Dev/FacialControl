@@ -57,7 +57,7 @@ namespace Hidano.FacialControl.Osc.Editor.AdapterBindings
                 "空のままにすると、対象キャラの全 BlendShape を自動送信します。subset 配信したい場合のみ名前を列挙してください。",
                 HelpBoxMessageType.Info));
             root.Add(new HelpBox(
-                "Gaze は Profile の目線タブで宣言されたチャネル (既定 gaze) を FacialController が自動注入して送信します。heartbeat 間隔 / loopback 抑制は「上級設定」で変更できます。",
+                "Gaze は Profile の目線タブで宣言されたチャネル (既定 gaze) を FacialController が自動注入して送信します。対応表の更新間隔 / loopback 抑制は「上級設定」で変更できます。",
                 HelpBoxMessageType.Info));
             AddSenderIdentityReadout(root, property);
 

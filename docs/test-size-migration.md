@@ -210,7 +210,7 @@ Small 候補 73 ファイルのうち残る 38 ファイルは Adapters / Editor
 | `com.hidano.facialcontrol.osc/Tests/EditMode/Adapters/InputSources/OscInputSourceTests.cs` | `Osc.Tests.EditMode` | EditMode | 17 | Small | 禁止 API なし |
 | `com.hidano.facialcontrol.osc/Tests/EditMode/Adapters/OSC/AddressPresetEstimatorTests.cs` | `Osc.Tests.EditMode` | EditMode | 9 | Small | 禁止 API なし |
 | `com.hidano.facialcontrol.osc/Tests/EditMode/Adapters/OSC/AddressPresetKindTests.cs` | `Osc.Tests.EditMode` | EditMode | 1 | Small | 禁止 API なし |
-| `com.hidano.facialcontrol.osc/Tests/EditMode/Adapters/OSC/GazeAdvertisementResolverTests.cs` | `Osc.Tests.EditMode` | EditMode | 9 | Small | 禁止 API なし |
+| `com.hidano.facialcontrol.osc/Tests/EditMode/Adapters/OSC/GazeChannelAttributesTests.cs` | `Osc.Tests.EditMode` | EditMode | 9 | Small | 禁止 API なし |
 | `com.hidano.facialcontrol.osc/Tests/EditMode/Adapters/OSC/HeartbeatConsistencyCheckerTests.cs` | `Osc.Tests.EditMode` | EditMode | 10 | Small | 禁止 API なし |
 | `com.hidano.facialcontrol.osc/Tests/EditMode/Adapters/OSC/HeartbeatHashHelperTests.cs` | `Osc.Tests.EditMode` | EditMode | 9 | Small | 禁止 API なし |
 | `com.hidano.facialcontrol.osc/Tests/EditMode/Adapters/OSC/LoopbackSuppressionPolicyTests.cs` | `Osc.Tests.EditMode` | EditMode | 4 | Small | 禁止 API なし |

@@ -18,5 +18,5 @@
     "BrowUp"
   ],
   "suppressLoopback": true,
-  "heartbeatIntervalSeconds": 5.0
+  "layoutRefreshIntervalSeconds": 5.0
 }

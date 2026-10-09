@@ -19,9 +19,9 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
     [FacialAdapterBinding(displayName: "OSC Sender")]
     public sealed class OscSenderAdapterBinding : AdapterBindingBase, IFacialOutputObserver, IGazeChannelConsumer, IGazeChannelSettingsConsumer
     {
-        public const float DefaultHeartbeatIntervalSeconds = 5f;
-        public const float MinHeartbeatIntervalSeconds = 0.5f;
-        public const float MaxHeartbeatIntervalSeconds = 60f;
+        public const float DefaultLayoutRefreshIntervalSeconds = 5f;
+        public const float MinLayoutRefreshIntervalSeconds = 0.5f;
+        public const float MaxLayoutRefreshIntervalSeconds = 60f;
 
         /// <summary>
         /// 送信先リスト。binding 本体に持たせ、Adapter Bindings から直接確認・変更できるようにする。
@@ -107,10 +107,10 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
         private string _identityStartedAtUnixMs;
 
         [NonSerialized]
-        private float _heartbeatElapsedSeconds;
+        private float _layoutRefreshElapsedSeconds;
 
         [NonSerialized]
-        private bool _sendHeartbeatOnNextTick;
+        private bool _refreshLayoutOnNextTick;
 
         [NonSerialized]
         private bool _hasPublishedFrame;
@@ -208,10 +208,10 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
             set => _blendShapeNames = value ?? new List<string>();
         }
 
-        public float HeartbeatIntervalSeconds
+        public float LayoutRefreshIntervalSeconds
         {
-            get => EffectiveSettings.HeartbeatIntervalSeconds;
-            set => EnsureRuntimeSettings().SetHeartbeatIntervalSeconds(value);
+            get => EffectiveSettings.LayoutRefreshIntervalSeconds;
+            set => EnsureRuntimeSettings().SetLayoutRefreshIntervalSeconds(value);
         }
 
         public bool SuppressLoopback
@@ -497,9 +497,9 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
             }
 
             // 送るのは送信元識別と値フレームだけ。対応表は受信側の要求に応じて OscSender が返す。
-            // gaze の設定（目ボーン path・可動範囲）の変更は heartbeat 間隔ごとに確かめ、変わっていれば対応表を作り直す
+            // gaze の設定（目ボーン path・可動範囲）の変更は対応表の更新間隔ごとに確かめ、変わっていれば対応表を作り直す
             // （バージョンが変わるので、受信側が取り直す）。
-            bool refreshLayout = ShouldSendHeartbeat(deltaTime);
+            bool refreshLayout = ShouldRefreshLayout(deltaTime);
             if (!_hasPublishedFrame)
             {
                 return;
@@ -525,8 +525,8 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
 
             if (refreshLayout && sentAny)
             {
-                _sendHeartbeatOnNextTick = false;
-                _heartbeatElapsedSeconds = 0f;
+                _refreshLayoutOnNextTick = false;
+                _layoutRefreshElapsedSeconds = 0f;
             }
         }
 
@@ -567,8 +567,8 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
             _identityUuidBytes = null;
             _identityStartedAtUnixMs = null;
             _loopbackSuppressionPolicy = null;
-            _heartbeatElapsedSeconds = 0f;
-            _sendHeartbeatOnNextTick = false;
+            _layoutRefreshElapsedSeconds = 0f;
+            _refreshLayoutOnNextTick = false;
             _hasPublishedFrame = false;
             _effectiveSettings = null;
             OscRuntimeSettingsInstances.Destroy(ref _runtimeSettings);
@@ -618,17 +618,17 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
         private void CompleteStart(in AdapterBuildContext ctx, List<SendSlot> sendSlots)
         {
             _sendSlots = sendSlots;
-            float clampedHeartbeat = ClampHeartbeatInterval(
+            float clampedInterval = ClampLayoutRefreshInterval(
                 _effectiveSettings != null
-                    ? _effectiveSettings.HeartbeatIntervalSeconds
-                    : DefaultHeartbeatIntervalSeconds,
+                    ? _effectiveSettings.LayoutRefreshIntervalSeconds
+                    : DefaultLayoutRefreshIntervalSeconds,
                 logWarning: true);
             if (_effectiveSettings != null)
             {
-                _effectiveSettings.SetHeartbeatIntervalSeconds(clampedHeartbeat);
+                _effectiveSettings.SetLayoutRefreshIntervalSeconds(clampedInterval);
             }
-            _heartbeatElapsedSeconds = 0f;
-            _sendHeartbeatOnNextTick = true;
+            _layoutRefreshElapsedSeconds = 0f;
+            _refreshLayoutOnNextTick = true;
             _scratchGazeSnapshots = Array.Empty<GazeSnapshot>();
             _scratchGazeCount = 0;
             _hasPublishedFrame = false;
@@ -840,46 +840,46 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
             return false;
         }
 
-        private bool ShouldSendHeartbeat(float deltaTime)
+        private bool ShouldRefreshLayout(float deltaTime)
         {
-            if (_sendHeartbeatOnNextTick)
+            if (_refreshLayoutOnNextTick)
             {
                 return true;
             }
 
             if (deltaTime > 0f)
             {
-                _heartbeatElapsedSeconds += deltaTime;
+                _layoutRefreshElapsedSeconds += deltaTime;
             }
 
             float interval = _effectiveSettings != null
-                ? _effectiveSettings.HeartbeatIntervalSeconds
-                : DefaultHeartbeatIntervalSeconds;
-            return _heartbeatElapsedSeconds >= interval;
+                ? _effectiveSettings.LayoutRefreshIntervalSeconds
+                : DefaultLayoutRefreshIntervalSeconds;
+            return _layoutRefreshElapsedSeconds >= interval;
         }
 
-        private static float ClampHeartbeatInterval(float intervalSeconds, bool logWarning)
+        private static float ClampLayoutRefreshInterval(float intervalSeconds, bool logWarning)
         {
-            if (float.IsNaN(intervalSeconds) || intervalSeconds < MinHeartbeatIntervalSeconds)
+            if (float.IsNaN(intervalSeconds) || intervalSeconds < MinLayoutRefreshIntervalSeconds)
             {
                 if (logWarning)
                 {
                     Debug.LogWarning(
-                        $"[OscSenderAdapterBinding] heartbeatIntervalSeconds {intervalSeconds.ToString(CultureInfo.InvariantCulture)} is below {MinHeartbeatIntervalSeconds.ToString(CultureInfo.InvariantCulture)} and was clamped.");
+                        $"[OscSenderAdapterBinding] layoutRefreshIntervalSeconds {intervalSeconds.ToString(CultureInfo.InvariantCulture)} is below {MinLayoutRefreshIntervalSeconds.ToString(CultureInfo.InvariantCulture)} and was clamped.");
                 }
 
-                return MinHeartbeatIntervalSeconds;
+                return MinLayoutRefreshIntervalSeconds;
             }
 
-            if (float.IsInfinity(intervalSeconds) || intervalSeconds > MaxHeartbeatIntervalSeconds)
+            if (float.IsInfinity(intervalSeconds) || intervalSeconds > MaxLayoutRefreshIntervalSeconds)
             {
                 if (logWarning)
                 {
                     Debug.LogWarning(
-                        $"[OscSenderAdapterBinding] heartbeatIntervalSeconds {intervalSeconds.ToString(CultureInfo.InvariantCulture)} is above {MaxHeartbeatIntervalSeconds.ToString(CultureInfo.InvariantCulture)} and was clamped.");
+                        $"[OscSenderAdapterBinding] layoutRefreshIntervalSeconds {intervalSeconds.ToString(CultureInfo.InvariantCulture)} is above {MaxLayoutRefreshIntervalSeconds.ToString(CultureInfo.InvariantCulture)} and was clamped.");
                 }
 
-                return MaxHeartbeatIntervalSeconds;
+                return MaxLayoutRefreshIntervalSeconds;
             }
 
             return intervalSeconds;
@@ -976,7 +976,7 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
             for (int i = 0; i < gazeExpressionIds.Length; i++)
             {
                 attributes.Clear();
-                GazeAdvertisementResolver.AppendChannelAttributeValues(
+                GazeChannelAttributes.AppendChannelAttributeValues(
                     attributes,
                     FindGazeChannelSettings(gazeChannelSettings, gazeExpressionIds[i]));
                 channels[i] = new OscFrameLayoutGazeChannel(gazeExpressionIds[i], attributes);

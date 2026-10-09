@@ -7,7 +7,7 @@ AdapterRuntimeSettingsCollection.asset
   ├─ OscReceiverRuntimeSettingsSO    (com.hidano.facialcontrol.osc、割り当て任意)
   │    └─ stalenessSeconds / failSafeMode / bundleMode / bundleAccumulationTimeoutMs
   ├─ OscSenderRuntimeSettingsSO      (com.hidano.facialcontrol.osc、割り当て任意)
-  │    └─ heartbeatIntervalSeconds / suppressLoopback
+  │    └─ layoutRefreshIntervalSeconds / suppressLoopback
   └─ IFacialMocapRuntimeSettingsSO   (com.hidano.facialcontrol.ifacialmocap)
 ```
 

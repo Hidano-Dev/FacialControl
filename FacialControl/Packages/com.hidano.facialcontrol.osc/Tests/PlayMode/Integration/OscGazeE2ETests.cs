@@ -140,7 +140,7 @@ namespace Hidano.FacialControl.Tests.PlayMode.Integration
             {
                 Slug = "gaze-e2e-sender",
                 SuppressLoopback = false,
-                HeartbeatIntervalSeconds = 60f,
+                LayoutRefreshIntervalSeconds = 60f,
             };
             senderBinding.ConfigureEndpoints(
                 new[] { new OscSenderEndpointConfig(Endpoint, port, true) },
@@ -202,7 +202,7 @@ namespace Hidano.FacialControl.Tests.PlayMode.Integration
             {
                 Slug = "gaze-override-sender",
                 SuppressLoopback = false,
-                HeartbeatIntervalSeconds = 60f,
+                LayoutRefreshIntervalSeconds = 60f,
             };
             senderBinding.ConfigureEndpoints(
                 new[] { new OscSenderEndpointConfig(Endpoint, port, true) },
@@ -316,7 +316,7 @@ namespace Hidano.FacialControl.Tests.PlayMode.Integration
                 receiver.HandleOscMessage(new uOSC.Message(
                     "/_facialcontrol/gaze",
                     ExpressionId,
-                    GazeAdvertisementResolver.VrChatXyFormat));
+                    "VRChat_XY"));
                 LogAssert.NoUnexpectedReceived();
             }
             finally
@@ -613,7 +613,7 @@ namespace Hidano.FacialControl.Tests.PlayMode.Integration
             {
                 Slug = slug,
                 SuppressLoopback = false,
-                HeartbeatIntervalSeconds = 60f,
+                LayoutRefreshIntervalSeconds = 60f,
             };
             binding.ConfigureEndpoints(
                 new[]

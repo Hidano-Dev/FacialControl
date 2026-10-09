@@ -100,15 +100,15 @@ namespace Hidano.FacialControl.Tests.PlayMode.Performance
                 bus,
                 blendShapeNames,
                 Array.Empty<string>(),
-                OscSenderAdapterBinding.MinHeartbeatIntervalSeconds);
+                OscSenderAdapterBinding.MinLayoutRefreshIntervalSeconds);
 
             float[] values = CreateValues(blendShapeNames.Length);
-            WarmUp(bus, values, Array.Empty<GazeSnapshot>(), deltaTime: OscSenderAdapterBinding.MinHeartbeatIntervalSeconds);
+            WarmUp(bus, values, Array.Empty<GazeSnapshot>(), deltaTime: OscSenderAdapterBinding.MinLayoutRefreshIntervalSeconds);
 
             BaselineResult baseline = MeasureFrames(() =>
             {
                 bus.Publish(values, Array.Empty<GazeSnapshot>());
-                _binding.OnLateTick(OscSenderAdapterBinding.MinHeartbeatIntervalSeconds);
+                _binding.OnLateTick(OscSenderAdapterBinding.MinLayoutRefreshIntervalSeconds);
             });
 
             Assert.That(_binding.IsStarted, Is.True);
@@ -125,10 +125,10 @@ namespace Hidano.FacialControl.Tests.PlayMode.Performance
                 bus,
                 blendShapeNames,
                 new[] { GazeExpressionId },
-                OscSenderAdapterBinding.MinHeartbeatIntervalSeconds);
+                OscSenderAdapterBinding.MinLayoutRefreshIntervalSeconds);
 
             float[] values = CreateValues(blendShapeNames.Length);
-            WarmUp(bus, values, gazeSnapshots, OscSenderAdapterBinding.MinHeartbeatIntervalSeconds);
+            WarmUp(bus, values, gazeSnapshots, OscSenderAdapterBinding.MinLayoutRefreshIntervalSeconds);
             StabilizeManagedHeap();
             using var recorder = ProfilerRecorder.StartNew(
                 ProfilerCategory.Memory,
@@ -137,10 +137,10 @@ namespace Hidano.FacialControl.Tests.PlayMode.Performance
                 ProfilerRecorderOptions.SumAllSamplesInFrame
                     | ProfilerRecorderOptions.CollectOnlyOnCurrentThread);
 
-            for (int heartbeat = 0; heartbeat < FrameCount; heartbeat++)
+            for (int tick = 0; tick < FrameCount; tick++)
             {
                 bus.Publish(values, gazeSnapshots);
-                _binding.OnLateTick(OscSenderAdapterBinding.MinHeartbeatIntervalSeconds);
+                _binding.OnLateTick(OscSenderAdapterBinding.MinLayoutRefreshIntervalSeconds);
             }
 
             Assert.That(recorder.LastValue, Is.EqualTo(0L),
@@ -151,13 +151,13 @@ namespace Hidano.FacialControl.Tests.PlayMode.Performance
             FacialOutputBus bus,
             IReadOnlyList<string> blendShapeNames,
             IReadOnlyList<string> gazeExpressionIds,
-            float heartbeatIntervalSeconds)
+            float layoutRefreshIntervalSeconds)
         {
             _host = new GameObject("OscSenderGCAllocationTests");
             _binding = new OscSenderAdapterBinding
             {
                 Slug = "osc-sender-gc",
-                HeartbeatIntervalSeconds = heartbeatIntervalSeconds,
+                LayoutRefreshIntervalSeconds = layoutRefreshIntervalSeconds,
                 SuppressLoopback = false,
             };
 

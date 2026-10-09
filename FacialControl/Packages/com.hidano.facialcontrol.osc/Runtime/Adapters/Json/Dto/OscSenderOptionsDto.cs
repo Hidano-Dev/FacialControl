@@ -6,7 +6,7 @@ namespace Hidano.FacialControl.Adapters.Json.Dto
     [Serializable]
     public sealed class OscSenderOptionsDto : ISerializationCallbackReceiver
     {
-        public const float DefaultHeartbeatIntervalSeconds = 5f;
+        public const float DefaultLayoutRefreshIntervalSeconds = 5f;
 
         public OscSenderEndpointDto[] endpoints =
         {
@@ -15,7 +15,8 @@ namespace Hidano.FacialControl.Adapters.Json.Dto
 
         public string[] blendShapeMapping = new string[0];
         public bool suppressLoopback = true;
-        public float heartbeatIntervalSeconds = DefaultHeartbeatIntervalSeconds;
+        /// <summary>gaze の設定の変更を確かめ、変わっていれば対応表を作り直す間隔（秒）。旧キーは <c>heartbeatIntervalSeconds</c>。</summary>
+        public float layoutRefreshIntervalSeconds = DefaultLayoutRefreshIntervalSeconds;
 
         public static OscSenderOptionsDto FromJson(string json)
         {
@@ -34,6 +35,14 @@ namespace Hidano.FacialControl.Adapters.Json.Dto
             if (!hasSuppressLoopback)
             {
                 dto.suppressLoopback = true;
+            }
+
+            if (!ContainsJsonKey(json, nameof(layoutRefreshIntervalSeconds)))
+            {
+                LegacyIntervalDto legacy = JsonUtility.FromJson<LegacyIntervalDto>(json);
+                dto.layoutRefreshIntervalSeconds = legacy != null
+                    ? legacy.heartbeatIntervalSeconds
+                    : DefaultLayoutRefreshIntervalSeconds;
             }
 
             dto.ApplyDefaults();
@@ -73,9 +82,9 @@ namespace Hidano.FacialControl.Adapters.Json.Dto
                 blendShapeMapping = new string[0];
             }
 
-            if (heartbeatIntervalSeconds <= 0f || float.IsNaN(heartbeatIntervalSeconds))
+            if (layoutRefreshIntervalSeconds <= 0f || float.IsNaN(layoutRefreshIntervalSeconds))
             {
-                heartbeatIntervalSeconds = DefaultHeartbeatIntervalSeconds;
+                layoutRefreshIntervalSeconds = DefaultLayoutRefreshIntervalSeconds;
             }
         }
 
@@ -87,6 +96,13 @@ namespace Hidano.FacialControl.Adapters.Json.Dto
         public void OnAfterDeserialize()
         {
             ApplyDefaults();
+        }
+
+        /// <summary>旧キー <c>heartbeatIntervalSeconds</c> だけを読むための DTO（書き出しは新キーのみ）。</summary>
+        [Serializable]
+        private sealed class LegacyIntervalDto
+        {
+            public float heartbeatIntervalSeconds = DefaultLayoutRefreshIntervalSeconds;
         }
 
         private static bool ContainsJsonKey(string json, string key)
