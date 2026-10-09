@@ -2,7 +2,6 @@
   "listenPort": 9000,
   "stalenessSeconds": 1.0,
   "failSafeMode": "revertToBase",
-  "consistencyCheckWarnLog": true,
   "bundleMode": "atomicSwap",
   "bundleAccumulationTimeoutMs": 5.0
 }

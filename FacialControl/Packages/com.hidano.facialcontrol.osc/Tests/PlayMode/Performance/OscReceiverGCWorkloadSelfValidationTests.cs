@@ -36,10 +36,10 @@ namespace Hidano.FacialControl.Tests.PlayMode.Performance
         {
             byte[][] floatAddresses = new byte[54][];
             float[] floatValues = new float[54];
-            string[] heartbeatNames = ARKitDetector.ARKit52Names;
+            string[] arkitNames = ARKitDetector.ARKit52Names;
             for (int i = 0; i < 52; i++)
             {
-                string name = heartbeatNames[i];
+                string name = arkitNames[i];
                 floatAddresses[i] = Encoding.UTF8.GetBytes("/avatar/parameters/" + name);
                 floatValues[i] = i / 52f;
             }
@@ -52,12 +52,8 @@ namespace Hidano.FacialControl.Tests.PlayMode.Performance
             byte[] senderAddress = Encoding.UTF8.GetBytes("/_facialcontrol/sender_id");
             byte[] senderUuid = new byte[16];
             for (int i = 0; i < senderUuid.Length; i++) senderUuid[i] = (byte)(i + 1);
-            byte[] heartbeatAddress = Encoding.UTF8.GetBytes("/_facialcontrol/blendshape_names");
-            byte[] presetAddress = Encoding.UTF8.GetBytes("/_facialcontrol/preset");
-            string[] gazePairs = { "eye", GazeAdvertisementResolver.VrChatXyFormat };
-            byte[] gazeAddress = Encoding.UTF8.GetBytes("/_facialcontrol/gaze");
             byte[][] normalPackets;
-            byte[][] heartbeatPackets;
+            byte[][] valuesPackets;
 
             using (var builder = new OscBundleBuilder(MaxPacketSize))
             {
@@ -74,26 +70,16 @@ namespace Hidano.FacialControl.Tests.PlayMode.Performance
                 AssertPacketSizes(builder, normalCount);
                 normalPackets = CopyPackets(builder, normalCount);
 
-                int heartbeatCount = builder.BuildFrameBundle(
+                int valuesCount = builder.BuildIndexedValuesPackets(
                     2UL,
                     senderAddress,
                     senderUuid,
                     "1700000000000",
-                    floatAddresses,
-                    floatValues,
-                    floatAddresses.Length,
-                    heartbeatAddress,
-                    heartbeatNames,
-                    heartbeatNames.Length,
-                    presetAddress,
-                    "vrchat",
-                    null,
-                    gazeAddress,
-                    gazePairs,
-                    1);
-                Assert.That(heartbeatCount, Is.GreaterThanOrEqualTo(2), "heartbeat フレームも有効な MTU パケット列であること");
-                AssertPacketSizes(builder, heartbeatCount);
-                heartbeatPackets = CopyPackets(builder, builder.PacketCount);
+                    1,
+                    floatValues);
+                Assert.That(valuesCount, Is.EqualTo(1), "値フレームは 1 パケットに収まること");
+                AssertPacketSizes(builder, valuesCount);
+                valuesPackets = CopyPackets(builder, valuesCount);
             }
 
             var options = new OscReceiveOptions(2048, 32, 0);
@@ -124,9 +110,9 @@ namespace Hidano.FacialControl.Tests.PlayMode.Performance
                     }
 
                     long m3Before = GC.GetTotalMemory(false);
-                    long expectedPackets = normalPackets.Length + heartbeatPackets.Length;
+                    long expectedPackets = normalPackets.Length + valuesPackets.Length;
                     SendPackets(sender, normalPackets);
-                    SendPackets(sender, heartbeatPackets);
+                    SendPackets(sender, valuesPackets);
 
                     long m2Window = 0;
                     long m1Window = 0;

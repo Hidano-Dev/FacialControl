@@ -33,6 +33,7 @@
 - **出典**: 2026-08-09 `osc-gaze-auto-mapping` タスク 4.6 / 8.4 のフル PlayMode 検証。
 - **決着**: gaze mapping 未設定ログは本 spec の実装で削除され、当該ログ由来の赤は解消した。残る 2 件の heartbeat ハッシュ期待値（実測 `122830949` / `133301657`）と、別系統の `OscInputSource` 診断ログ追従は本 spec の範囲外として残件化する。
 - **残件トリガ**: heartbeat payload のハッシュ仕様または診断ログ契約を変更する OSC テスト改修時。
+- **2026-10-09 追記**: heartbeat は送受信とも廃止した（HID-185 / HID-187）。heartbeat ハッシュ期待値の残件は対象が無くなった。
 
 ### S-22: CI を実行するランナーが存在しない（`runs-on: self-hosted` が永久 queued）
 - **出典**: 2026-09-26 セッション「CI が一晩経っても終わらない」調査（PR #18）。
@@ -310,6 +311,7 @@
 - **トリガ**: bare メッセージで heartbeat を送る外部送信元（VRChat 以外の OSC ツール）対応時 / M-16 着手時
 - **影響範囲**: `Packages/com.hidano.facialcontrol.osc/Runtime/Adapters/AdapterBindings/OscReceiverAdapterBinding.cs`、`Tests/EditMode/Adapters/AdapterBindings/OscReceiverAdapterBindingTests.cs`
 - **関連**: M-16（uOSC vendor copy + zero-alloc fork）
+- **2026-10-09 追記**: heartbeat の受信・蓄積処理ごと削除したため（HID-185）、(1)(2) とも対象が無くなった。クローズ扱い。
 
 ---
 

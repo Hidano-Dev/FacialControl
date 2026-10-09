@@ -326,7 +326,7 @@ namespace Hidano.FacialControl.Tests.PlayMode.Integration
         }
 
         [UnityTest]
-        public IEnumerator GazeAdvertisement_SameContentTwice_ReusesSources()
+        public IEnumerator GazeChannels_SameContentTwice_ReusesSources()
         {
             int port = AllocatePort();
             OscReceiverAdapterBinding receiver = CreateReceiver("gaze-reuse-receiver", port);
@@ -340,17 +340,17 @@ namespace Hidano.FacialControl.Tests.PlayMode.Integration
 
             Assert.That(receiver.GazeSources.Count, Is.EqualTo(1));
             GazeVector2InputSource original = receiver.GazeSources[0];
-            uint originalHash = receiver.LastGazeAdvertisementHash;
+            uint originalHash = receiver.LastGazeChannelHash;
 
             yield return SendGazeUntilProcessed(receiver, sender, ExpressionId);
 
-            Assert.That(receiver.LastGazeAdvertisementHash, Is.EqualTo(originalHash));
+            Assert.That(receiver.LastGazeChannelHash, Is.EqualTo(originalHash));
             Assert.That(receiver.GazeSources.Count, Is.EqualTo(1));
             Assert.That(receiver.GazeSources[0], Is.SameAs(original));
         }
 
         [UnityTest]
-        public IEnumerator GazeAdvertisement_ContentChanged_RebuildsAndUnregistersRemovedId()
+        public IEnumerator GazeChannels_ContentChanged_RebuildsAndUnregistersRemovedId()
         {
             int port = AllocatePort();
             OscReceiverAdapterBinding receiver = CreateReceiver("gaze-change-receiver", port);
@@ -377,7 +377,7 @@ namespace Hidano.FacialControl.Tests.PlayMode.Integration
         }
 
         [UnityTest]
-        public IEnumerator GazeAdvertisement_Stops_PreservesRoutesAndSources()
+        public IEnumerator GazeChannels_Stops_PreservesRoutesAndSources()
         {
             int port = AllocatePort();
             OscReceiverAdapterBinding receiver = CreateReceiver("gaze-stop-receiver", port);
@@ -403,7 +403,7 @@ namespace Hidano.FacialControl.Tests.PlayMode.Integration
         }
 
         [UnityTest]
-        public IEnumerator GazeAdvertisement_GazeConfigMatch_IsAcceptedForLateBoneConnection()
+        public IEnumerator GazeChannels_GazeConfigMatch_IsAcceptedForLateBoneConnection()
         {
             int port = AllocatePort();
             OscReceiverAdapterBinding receiver = CreateReceiver("gaze-config-receiver", port);

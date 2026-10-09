@@ -47,7 +47,6 @@ namespace Hidano.FacialControl.Osc.Tests.EditMode.Adapters.RuntimeSettings
             Assert.AreEqual(9001, _instance.ListenPort);
             Assert.AreEqual(0f, _instance.StalenessSeconds);
             Assert.AreEqual(FailSafeMode.RevertToBase, _instance.FailSafeMode);
-            Assert.IsTrue(_instance.ConsistencyCheckWarnLog);
             Assert.AreEqual(BundleInterpretationMode.AtomicSwap, _instance.BundleMode);
             Assert.AreEqual(
                 OscRuntimeSettingsSO.DefaultBundleAccumulationTimeoutMs,
@@ -81,13 +80,12 @@ namespace Hidano.FacialControl.Osc.Tests.EditMode.Adapters.RuntimeSettings
         public void FromJson_BoolKeysMissing_KeepsDefaultTrue()
         {
             _instance.FromJson(
-                "{\"receiverEnabled\":false,\"consistencyCheckWarnLog\":false,"
+                "{\"receiverEnabled\":false,"
                 + "\"senderEnabled\":false,\"suppressLoopback\":false}");
 
             _instance.FromJson("{\"listenPort\":9100}");
 
             Assert.IsTrue(_instance.ReceiverEnabled);
-            Assert.IsTrue(_instance.ConsistencyCheckWarnLog);
             Assert.IsTrue(_instance.SenderEnabled);
             Assert.IsTrue(_instance.SuppressLoopback);
         }
@@ -100,7 +98,6 @@ namespace Hidano.FacialControl.Osc.Tests.EditMode.Adapters.RuntimeSettings
                 listenPort: 9100,
                 stalenessSeconds: 1.5f,
                 failSafeMode: FailSafeMode.HoldLastValue,
-                consistencyCheckWarnLog: false,
                 bundleMode: BundleInterpretationMode.IndividualMessage,
                 bundleAccumulationTimeoutMs: 12.5f);
             AssignSenderFields(
@@ -115,7 +112,6 @@ namespace Hidano.FacialControl.Osc.Tests.EditMode.Adapters.RuntimeSettings
             Assert.AreEqual(9100, _instance.ListenPort);
             Assert.AreEqual(1.5f, _instance.StalenessSeconds);
             Assert.AreEqual(FailSafeMode.HoldLastValue, _instance.FailSafeMode);
-            Assert.IsFalse(_instance.ConsistencyCheckWarnLog);
             Assert.AreEqual(BundleInterpretationMode.IndividualMessage, _instance.BundleMode);
             Assert.AreEqual(12.5f, _instance.BundleAccumulationTimeoutMs);
 
@@ -138,7 +134,6 @@ namespace Hidano.FacialControl.Osc.Tests.EditMode.Adapters.RuntimeSettings
                 listenPort: 9100,
                 stalenessSeconds: 1.5f,
                 failSafeMode: FailSafeMode.HoldLastValue,
-                consistencyCheckWarnLog: false,
                 bundleMode: BundleInterpretationMode.IndividualMessage,
                 bundleAccumulationTimeoutMs: 12.5f);
             AssignSenderFields(
@@ -160,7 +155,6 @@ namespace Hidano.FacialControl.Osc.Tests.EditMode.Adapters.RuntimeSettings
                 Assert.AreEqual(_instance.ListenPort, restored.ListenPort);
                 Assert.AreEqual(_instance.StalenessSeconds, restored.StalenessSeconds);
                 Assert.AreEqual(_instance.FailSafeMode, restored.FailSafeMode);
-                Assert.AreEqual(_instance.ConsistencyCheckWarnLog, restored.ConsistencyCheckWarnLog);
                 Assert.AreEqual(_instance.BundleMode, restored.BundleMode);
                 Assert.AreEqual(_instance.BundleAccumulationTimeoutMs, restored.BundleAccumulationTimeoutMs);
 
@@ -188,7 +182,6 @@ namespace Hidano.FacialControl.Osc.Tests.EditMode.Adapters.RuntimeSettings
                 listenPort: 9100,
                 stalenessSeconds: 1.5f,
                 failSafeMode: FailSafeMode.HoldLastValue,
-                consistencyCheckWarnLog: false,
                 bundleMode: BundleInterpretationMode.IndividualMessage,
                 bundleAccumulationTimeoutMs: 12.5f);
             AssignSenderFields(
@@ -209,7 +202,6 @@ namespace Hidano.FacialControl.Osc.Tests.EditMode.Adapters.RuntimeSettings
             StringAssert.Contains("\"_listenPort\":9100", json);
             StringAssert.Contains("\"_stalenessSeconds\":1.5", json);
             StringAssert.Contains("\"_failSafeMode\":1", json);
-            StringAssert.Contains("\"_consistencyCheckWarnLog\":false", json);
             StringAssert.Contains("\"_bundleMode\":1", json);
             StringAssert.Contains("\"_bundleAccumulationTimeoutMs\":12.5", json);
 
@@ -330,7 +322,6 @@ namespace Hidano.FacialControl.Osc.Tests.EditMode.Adapters.RuntimeSettings
             int listenPort,
             float stalenessSeconds,
             FailSafeMode failSafeMode,
-            bool consistencyCheckWarnLog,
             BundleInterpretationMode bundleMode,
             float bundleAccumulationTimeoutMs)
         {
@@ -339,7 +330,6 @@ namespace Hidano.FacialControl.Osc.Tests.EditMode.Adapters.RuntimeSettings
             so.FindProperty("_listenPort").intValue = listenPort;
             so.FindProperty("_stalenessSeconds").floatValue = stalenessSeconds;
             so.FindProperty("_failSafeMode").enumValueIndex = (int)failSafeMode;
-            so.FindProperty("_consistencyCheckWarnLog").boolValue = consistencyCheckWarnLog;
             so.FindProperty("_bundleMode").enumValueIndex = (int)bundleMode;
             so.FindProperty("_bundleAccumulationTimeoutMs").floatValue = bundleAccumulationTimeoutMs;
             so.ApplyModifiedPropertiesWithoutUndo();
@@ -415,7 +405,6 @@ namespace Hidano.FacialControl.Osc.Tests.EditMode.Adapters.RuntimeSettings
                 listenPort: 9100,
                 stalenessSeconds: 1.5f,
                 failSafeMode: FailSafeMode.HoldLastValue,
-                consistencyCheckWarnLog: false,
                 bundleMode: BundleInterpretationMode.IndividualMessage,
                 bundleAccumulationTimeoutMs: 12.5f,
                 senderEnabled: false,
@@ -437,7 +426,6 @@ namespace Hidano.FacialControl.Osc.Tests.EditMode.Adapters.RuntimeSettings
             Assert.AreEqual(_source.ListenPort, _restored.ListenPort);
             Assert.AreEqual(_source.StalenessSeconds, _restored.StalenessSeconds);
             Assert.AreEqual(_source.FailSafeMode, _restored.FailSafeMode);
-            Assert.AreEqual(_source.ConsistencyCheckWarnLog, _restored.ConsistencyCheckWarnLog);
             Assert.AreEqual(_source.BundleMode, _restored.BundleMode);
             Assert.AreEqual(_source.BundleAccumulationTimeoutMs, _restored.BundleAccumulationTimeoutMs);
             Assert.AreEqual(_source.SenderEnabled, _restored.SenderEnabled);
@@ -527,7 +515,6 @@ namespace Hidano.FacialControl.Osc.Tests.EditMode.Adapters.RuntimeSettings
             int listenPort,
             float stalenessSeconds,
             FailSafeMode failSafeMode,
-            bool consistencyCheckWarnLog,
             BundleInterpretationMode bundleMode,
             float bundleAccumulationTimeoutMs,
             bool senderEnabled,
@@ -543,7 +530,6 @@ namespace Hidano.FacialControl.Osc.Tests.EditMode.Adapters.RuntimeSettings
             so.FindProperty("_listenPort").intValue = listenPort;
             so.FindProperty("_stalenessSeconds").floatValue = stalenessSeconds;
             so.FindProperty("_failSafeMode").enumValueIndex = (int)failSafeMode;
-            so.FindProperty("_consistencyCheckWarnLog").boolValue = consistencyCheckWarnLog;
             so.FindProperty("_bundleMode").enumValueIndex = (int)bundleMode;
             so.FindProperty("_bundleAccumulationTimeoutMs").floatValue = bundleAccumulationTimeoutMs;
             so.FindProperty("_senderEnabled").boolValue = senderEnabled;

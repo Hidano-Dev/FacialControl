@@ -270,7 +270,7 @@ Unity InputSystem による Expression 切り替え入力の管理。
 
 ARKit 52 ブレンドシェイプおよび PerfectSync に対応したモデルの命名検出。
 
-> **2026-09 改訂（HID-34）**: 当初の「Expression 自動生成 + OSC マッピング自動生成」（ARKit 検出ツール）は廃止した。生成される Expression はグループ内の BlendShape を全部 1.0 にした塊で、Clip ベース + キャプチャ入力の運用では使われなかったため。キャプチャ連動は OSC Receiver / iFacialMocap binding が BlendShape 名で直接駆動し、OSC マッピングは `com.hidano.facialcontrol.osc` の heartbeat 自動マッピングと ARKit プリセットで代替する。
+> **2026-09 改訂（HID-34）**: 当初の「Expression 自動生成 + OSC マッピング自動生成」（ARKit 検出ツール）は廃止した。生成される Expression はグループ内の BlendShape を全部 1.0 にした塊で、Clip ベース + キャプチャ入力の運用では使われなかったため。キャプチャ連動は OSC Receiver / iFacialMocap binding が BlendShape 名で直接駆動し、OSC マッピングは `com.hidano.facialcontrol.osc` の値フレームの対応表（送信側の BlendShape 名から受信側で自動照合）で代替する（heartbeat 自動マッピングと ARKit プリセットは 2026-10 に廃止。HID-170）。
 
 **仕様**
 

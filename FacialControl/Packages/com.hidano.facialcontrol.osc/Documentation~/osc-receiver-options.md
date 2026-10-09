@@ -5,7 +5,7 @@
 | 置き場所 | 項目 | 理由 |
 |---|---|---|
 | binding（Profile 内） | `port` / `targetLayer` | 受信ポートは一番よく変える項目。対象レイヤーはキャラクター固有 |
-| `OscReceiverRuntimeSettingsSO`（上級設定 sub-asset、割り当て任意） | `stalenessSeconds` / `failSafeMode` / `consistencyCheckWarnLog` / `bundleMode` / `bundleAccumulationTimeoutMs` | 滅多に変えない。未割り当てなら既定値で動く |
+| `OscReceiverRuntimeSettingsSO`（上級設定 sub-asset、割り当て任意） | `stalenessSeconds` / `failSafeMode` / `bundleMode` / `bundleAccumulationTimeoutMs` | 滅多に変えない。未割り当てなら既定値で動く |
 
 受信は常に全インターフェース（`0.0.0.0` 相当、IPv6 dual-mode）で行うため、受信 IP の設定は無い。受信を止めたいときは binding を外す。
 
@@ -23,7 +23,6 @@ BlendShape と Gaze の割り当ては、送信側から受け取る値フレー
 |---|---|---|---|
 | `stalenessSeconds` | float | `0` | 受信途絶とみなす秒数。0 で無効 |
 | `failSafeMode` | `RevertToBase` / `HoldLastValue` | `RevertToBase` | 途絶時にベース表情へ戻すか、最後の値を保持するか |
-| `consistencyCheckWarnLog` | bool | `true` | 現在は使われない（heartbeat の受信を廃止したため。後続の変更で削除予定） |
 | `bundleMode` | `AtomicSwap` / `IndividualMessage` | `AtomicSwap` | bundle を 1 フレームで一括反映するか、受信順に個別反映するか |
 | `bundleAccumulationTimeoutMs` | float | `5` | 同一 bundle として蓄積する待ち時間（ミリ秒） |
 
@@ -43,7 +42,6 @@ BlendShape と Gaze の割り当ては、送信側から受け取る値フレー
 | `listenPort` | `9001` |
 | `stalenessSeconds` | `0.0` |
 | `failSafeMode` | `"revertToBase"` / `"holdLastValue"` |
-| `consistencyCheckWarnLog` | `true` |
 | `bundleMode` | `"atomicSwap"` / `"individualMessage"` |
 | `bundleAccumulationTimeoutMs` | `5.0` |
 
@@ -52,7 +50,6 @@ BlendShape と Gaze の割り当ては、送信側から受け取る値フレー
   "listenPort": 9001,
   "stalenessSeconds": 0.25,
   "failSafeMode": "revertToBase",
-  "consistencyCheckWarnLog": true,
   "bundleMode": "atomicSwap",
   "bundleAccumulationTimeoutMs": 5.0
 }

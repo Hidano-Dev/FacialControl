@@ -200,7 +200,6 @@ namespace Hidano.FacialControl.Tests.EditMode.Adapters.AdapterBindings
                 Assert.That(binding.AdvancedSettings, Is.Null);
                 Assert.That(binding.StalenessSeconds, Is.EqualTo(OscReceiverRuntimeSettingsSO.DefaultStalenessSeconds));
                 Assert.That(binding.FailSafeMode, Is.EqualTo(FailSafeMode.RevertToBase));
-                Assert.That(binding.ConsistencyCheckWarnLog, Is.True);
                 Assert.That(binding.BundleMode, Is.EqualTo(BundleInterpretationMode.AtomicSwap));
                 Assert.That(binding.BundleAccumulationTimeoutMs,
                     Is.EqualTo(OscReceiverRuntimeSettingsSO.DefaultBundleAccumulationTimeoutMs));
@@ -246,7 +245,7 @@ namespace Hidano.FacialControl.Tests.EditMode.Adapters.AdapterBindings
             var advanced = ScriptableObject.CreateInstance<OscReceiverRuntimeSettingsSO>();
             advanced.hideFlags = HideFlags.HideAndDontSave;
             advanced.FromJson(
-                "{\"stalenessSeconds\":0.5,\"failSafeMode\":\"holdLastValue\",\"consistencyCheckWarnLog\":false,"
+                "{\"stalenessSeconds\":0.5,\"failSafeMode\":\"holdLastValue\","
                 + "\"bundleMode\":\"individualMessage\",\"bundleAccumulationTimeoutMs\":12.0}");
 
             var binding = new OscReceiverAdapterBinding
@@ -266,7 +265,6 @@ namespace Hidano.FacialControl.Tests.EditMode.Adapters.AdapterBindings
                 Assert.That(binding.EffectiveSettings, Is.SameAs(advanced));
                 Assert.That(binding.StalenessSeconds, Is.EqualTo(0.5f));
                 Assert.That(binding.FailSafeMode, Is.EqualTo(FailSafeMode.HoldLastValue));
-                Assert.That(binding.ConsistencyCheckWarnLog, Is.False);
                 Assert.That(binding.BundleMode, Is.EqualTo(BundleInterpretationMode.IndividualMessage));
                 Assert.That(binding.BundleAccumulationTimeoutMs, Is.EqualTo(12f));
             }

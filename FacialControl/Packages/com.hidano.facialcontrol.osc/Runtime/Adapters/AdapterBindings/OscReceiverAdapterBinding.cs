@@ -148,10 +148,10 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
         private List<GazeAdvertisementResolver.GazeAdvertisement> _gazeAdNormalizedScratch;
 
         [NonSerialized]
-        private uint _lastGazeAdvertisementHash;
+        private uint _lastGazeChannelHash;
 
         [NonSerialized]
-        private bool _hasProcessedGazeAdvertisement;
+        private bool _hasAppliedGazeChannels;
 
         [NonSerialized]
         private bool _warnedOnUnknownGazeFormat;
@@ -349,12 +349,6 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
             set => EnsureRuntimeSettings().SetFailSafeMode(value);
         }
 
-        public bool ConsistencyCheckWarnLog
-        {
-            get => EffectiveSettings.ConsistencyCheckWarnLog;
-            set => EnsureRuntimeSettings().SetConsistencyCheckWarnLog(value);
-        }
-
         public BundleInterpretationMode BundleMode
         {
             get => EffectiveSettings.BundleMode;
@@ -389,7 +383,7 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
         public IReadOnlyList<GazeVector2InputSource> GazeSources =>
             _gazeSources ?? (IReadOnlyList<GazeVector2InputSource>)Array.Empty<GazeVector2InputSource>();
 
-        public uint LastGazeAdvertisementHash => _lastGazeAdvertisementHash;
+        public uint LastGazeChannelHash => _lastGazeChannelHash;
 
         public bool HasAutoGazeRoutes => _autoGazeSourcesById != null && _autoGazeSourcesById.Count > 0;
 
@@ -442,7 +436,7 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
                 _warnedUnmatchedGazeConfigIds = new HashSet<string>(StringComparer.Ordinal);
             }
 
-            if (_hasProcessedGazeAdvertisement && _autoGazeRuntimeEntriesById != null)
+            if (_hasAppliedGazeChannels && _autoGazeRuntimeEntriesById != null)
             {
                 WarnForUnmatchedGazeConfigs(_autoGazeRuntimeEntriesById);
             }
@@ -638,8 +632,8 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
             _injectedGazeChannelIds = null;
             _hasInjectedGazeChannels = false;
             _warnedUnmatchedGazeConfigIds = null;
-            _lastGazeAdvertisementHash = 0u;
-            _hasProcessedGazeAdvertisement = false;
+            _lastGazeChannelHash = 0u;
+            _hasAppliedGazeChannels = false;
             _warnedOnUnknownGazeFormat = false;
             ClearGazeBundleState();
             _gazeBundleSync = null;
@@ -1159,7 +1153,7 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
                 }
             }
 
-            if (layout.GazeChannels.Count > 0 || _hasProcessedGazeAdvertisement)
+            if (layout.GazeChannels.Count > 0 || _hasAppliedGazeChannels)
             {
                 ApplyGazeChannelPayload(_indexedGazePayloadScratch);
             }
@@ -1262,13 +1256,13 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
             uint hash = GazeAdvertisementResolver.ComputeNormalizedHash(
                 _gazeAdvertisedEntries,
                 _gazeAdNormalizedScratch);
-            if (_hasProcessedGazeAdvertisement && hash == _lastGazeAdvertisementHash)
+            if (_hasAppliedGazeChannels && hash == _lastGazeChannelHash)
             {
                 return;
             }
 
-            _lastGazeAdvertisementHash = hash;
-            _hasProcessedGazeAdvertisement = true;
+            _lastGazeChannelHash = hash;
+            _hasAppliedGazeChannels = true;
             RebuildGazeRoutes(_gazeAdvertisedEntries);
         }
 
