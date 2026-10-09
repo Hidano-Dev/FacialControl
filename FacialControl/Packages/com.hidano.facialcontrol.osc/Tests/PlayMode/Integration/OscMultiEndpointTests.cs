@@ -78,7 +78,7 @@ namespace Hidano.FacialControl.Tests.PlayMode.Integration
                     new FacialOutputBus(),
                     CreateGameObject("OscMultiEndpointTests_ReceiverA"),
                     new UnityTimeProvider(),
-                    Array.Empty<string>()));
+                    new[] { Smile, Blink }));
             StartBinding(
                 secondReceiver,
                 CreateContext(
@@ -86,7 +86,7 @@ namespace Hidano.FacialControl.Tests.PlayMode.Integration
                     new FacialOutputBus(),
                     CreateGameObject("OscMultiEndpointTests_ReceiverB"),
                     new UnityTimeProvider(),
-                    Array.Empty<string>()));
+                    new[] { Smile, Blink }));
 
             yield return new WaitForSecondsRealtime(0.2f);
 
@@ -105,7 +105,8 @@ namespace Hidano.FacialControl.Tests.PlayMode.Integration
             var gazeSnapshots = new[] { new GazeSnapshot(GazeExpressionId, GazeX, GazeY) };
             bool bothEndpointsReached = false;
 
-            for (int attempt = 0; attempt < 20 && !bothEndpointsReached; attempt++)
+            // 受信側は最初の値フレームで対応表を要求し、適用後の値フレームから書き込む。
+            for (int attempt = 0; attempt < 60 && !bothEndpointsReached; attempt++)
             {
                 outputBus.Publish(postBlendValues, gazeSnapshots);
                 sender.OnLateTick(0.016f);
@@ -131,18 +132,7 @@ namespace Hidano.FacialControl.Tests.PlayMode.Integration
                 Port = port,
                 StalenessSeconds = 0f,
                 BundleMode = BundleInterpretationMode.AtomicSwap,
-                BundleAccumulationTimeoutMs = 5f,
-                Mappings = new List<OscMappingEntry>
-                {
-                    CreateBlendShapeEntry(Smile),
-                    CreateBlendShapeEntry(Blink),
-                    new OscMappingEntry
-                    {
-                        mode = OscMappingMode.Gaze_VRChat_XY,
-                        expressionId = GazeExpressionId,
-                        addressPattern = OscAddressFormatter.VRChatParameterPrefix + GazeExpressionId
-                    }
-                }
+                BundleAccumulationTimeoutMs = 5f
             };
         }
 
@@ -163,16 +153,6 @@ namespace Hidano.FacialControl.Tests.PlayMode.Integration
                 new[] { Smile, Blink });
             binding.ConfigureGazeChannels(new[] { GazeExpressionId });
             return binding;
-        }
-
-        private static OscMappingEntry CreateBlendShapeEntry(string name)
-        {
-            return new OscMappingEntry
-            {
-                mode = OscMappingMode.Normal_BlendShape,
-                expressionId = name,
-                addressPattern = OscAddressFormatter.VRChatParameterPrefix + name
-            };
         }
 
         private AdapterBuildContext CreateContext(

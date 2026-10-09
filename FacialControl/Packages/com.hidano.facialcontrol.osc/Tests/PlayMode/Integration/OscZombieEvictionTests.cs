@@ -12,6 +12,7 @@ using UnityEngine;
 using UnityEngine.TestTools;
 
 using Hidano.FacialControl.Testing;
+using Hidano.FacialControl.Osc.Tests.PlayMode.Testing;
 namespace Hidano.FacialControl.Tests.PlayMode.Integration
 {
     [TestFixture]
@@ -60,12 +61,11 @@ namespace Hidano.FacialControl.Tests.PlayMode.Integration
 
             LogAssert.Expect(LogType.Log, SenderSwitchLog(oldSender, newSender));
 
-            HandleSender(oldSender);
-            HandleFloat(0.2f);
-            HandleSender(newSender);
-            HandleFloat(0.8f);
-            HandleSender(oldSender);
-            HandleFloat(0.1f);
+            OscReceiver receiver = _binding.HelperHost.Receiver;
+            OscIndexedFrameMessages.SendFrame(receiver, oldSender, 100UL, 0.2f);
+            OscIndexedFrameMessages.ApplyLayout(_binding, newSender, new[] { BlendShapeName }, timestamp: 150UL);
+            OscIndexedFrameMessages.SendFrame(receiver, newSender, 200UL, 0.8f);
+            OscIndexedFrameMessages.SendFrame(receiver, oldSender, 300UL, 0.1f);
 
             _binding.OnFixedTick(0.02f);
 
@@ -84,16 +84,6 @@ namespace Hidano.FacialControl.Tests.PlayMode.Integration
                 StalenessSeconds = 0f,
                 BundleMode = BundleInterpretationMode.IndividualMessage
             };
-            binding.Configure(
-                Endpoint,
-                binding.Port,
-                new[]
-                {
-                    new OscMapping(
-                        OscAddressFormatter.VRChatParameterPrefix + BlendShapeName,
-                        BlendShapeName,
-                        string.Empty)
-                });
             return binding;
         }
 
@@ -109,23 +99,6 @@ namespace Hidano.FacialControl.Tests.PlayMode.Integration
                 timeProvider,
                 _host,
                 lipSyncProvider: null);
-        }
-
-        private void HandleSender(SenderIdentity identity)
-        {
-            _binding.HelperHost.Receiver.HandleOscMessage(
-                new uOSC.Message(
-                    OscReceiverAdapterBinding.SenderIdentityAddress,
-                    identity.SenderId.ToByteArray(),
-                    identity.StartedAtUnixMs));
-        }
-
-        private void HandleFloat(float value)
-        {
-            _binding.HelperHost.Receiver.HandleOscMessage(
-                new uOSC.Message(
-                    OscAddressFormatter.VRChatParameterPrefix + BlendShapeName,
-                    value));
         }
 
         private void AssertBlendShape(float expected)

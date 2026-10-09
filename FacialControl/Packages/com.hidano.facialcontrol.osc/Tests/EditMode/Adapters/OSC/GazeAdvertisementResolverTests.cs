@@ -136,59 +136,6 @@ namespace Hidano.FacialControl.Tests.EditMode.Adapters
         }
 
         [Test]
-        public void BuildPlan_ExcludesMatchingManualGazeEntriesUsingOrdinalComparison()
-        {
-            var advertised = new[]
-            {
-                new GazeAdvertisementResolver.GazeAdvertisement("eye_look", "ARKit_8BS"),
-                new GazeAdvertisementResolver.GazeAdvertisement("gaze", "VRChat_XY"),
-                new GazeAdvertisementResolver.GazeAdvertisement("Gaze", "VRChat_XY")
-            };
-            var manual = new[]
-            {
-                new OscMappingEntry
-                {
-                    mode = OscMappingMode.Gaze_ARKit_8BS,
-                    expressionId = "eye_look"
-                },
-                new OscMappingEntry
-                {
-                    mode = OscMappingMode.Gaze_VRChat_XY,
-                    expressionId = "gaze",
-                    addressPattern = "/avatar/parameters/gaze"
-                },
-                new OscMappingEntry
-                {
-                    mode = OscMappingMode.Normal_BlendShape,
-                    expressionId = "Gaze"
-                }
-            };
-            var plan = new List<GazeAdvertisementResolver.GazeAdvertisement>();
-
-            GazeAdvertisementResolver.BuildPlan(advertised, manual, plan);
-
-            Assert.That(plan, Has.Count.EqualTo(1));
-            Assert.That(plan[0].ExpressionId, Is.EqualTo("Gaze"));
-        }
-
-        [Test]
-        public void BuildPlan_WithNoManualGazeEntries_ReturnsEveryAdvertisedEntry()
-        {
-            var advertised = new[]
-            {
-                new GazeAdvertisementResolver.GazeAdvertisement("eye_look", "ARKit_8BS"),
-                new GazeAdvertisementResolver.GazeAdvertisement("gaze", "VRChat_XY")
-            };
-            var plan = new List<GazeAdvertisementResolver.GazeAdvertisement>();
-
-            GazeAdvertisementResolver.BuildPlan(advertised, null, plan);
-
-            Assert.That(plan, Has.Count.EqualTo(2));
-            Assert.That(plan[0].ExpressionId, Is.EqualTo("eye_look"));
-            Assert.That(plan[1].ExpressionId, Is.EqualTo("gaze"));
-        }
-
-        [Test]
         public void Parse_ChannelAttributePairs_SkipsThemWithoutWarning()
         {
             var entries = new List<GazeAdvertisementResolver.GazeAdvertisement>();

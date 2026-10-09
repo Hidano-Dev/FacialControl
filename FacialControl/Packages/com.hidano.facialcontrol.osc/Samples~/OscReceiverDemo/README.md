@@ -7,10 +7,10 @@
 | ファイル | 役割 |
 |---|---|
 | `OscReceiverDemo.unity` | `FacialController` と `OscReceiverDemoProfile` を結線済みの最小 Scene |
-| `OscReceiverDemoProfile.asset` | `OscReceiverAdapterBinding`（slug `osc`）を持つ `FacialCharacterProfileSO`。受信ポートは binding 本体にある。レイヤーは 1 つ、`mappings` は空（自動マッピング前提） |
+| `OscReceiverDemoProfile.asset` | `OscReceiverAdapterBinding`（slug `osc`）を持つ `FacialCharacterProfileSO`。受信ポートは binding 本体にある。レイヤーは 1 つ。BlendShape・Gaze の割り当ては対応表から自動で作る |
 | `OscReceiverDemoSettings.asset` | `OscReceiverRuntimeSettingsSO` を sub-asset に持つ `AdapterRuntimeSettingsCollectionSO`。staleness などの上級設定の例（割り当ては任意） |
 | `OscReceiverDemoBootstrap.cs` | `Application.runInBackground = true` を有効化する helper |
-| `OscReceiverOptions.json` | 手動 mapping を含む設定例を JSON で表した参考ファイル（ランタイムは読まない） |
+| `OscReceiverOptions.json` | 上級設定の例を JSON で表した参考ファイル（ランタイムは読まない） |
 
 > キャラモデル（FBX / VRM / prefab）は同梱していない。
 
@@ -29,12 +29,10 @@
 4. 受信ポートを変えるときは `OscReceiverDemoProfile.asset` の **OSC Receiver → 受信ポート** を編集する。staleness 等は **上級設定** に割り当てた `OscReceiverDemoSettings.asset` の sub-asset で変える（外せば既定値で動く）
 5. Play。送信側（`OscOutputDemo` 等）から `127.0.0.1:9000` へ送ると反映される
 
-## FacialControl 以外の送信元から受ける場合
-
-値フレームの対応表が無いため自動マッピングは働かない。`OscReceiverDemoProfile.asset` の **OSC Receiver → Mappings** に `Normal_BlendShape` entry（BlendShape 名と完全な OSC アドレス）と、必要なら `Gaze_VRChat_XY` / `Gaze_ARKit_8BS` entry を追加する。`OscReceiverOptions.json` に手動 mapping の記述例がある。
+FacialControl 以外の OSC 送信元（VRChat / ARKit 形式の名前つきアドレス）からは受けられない。
 
 ## トラブルシューティング
 
 - **何も動かない**: `Character` 配下に `SkinnedMeshRenderer` があるか、対応表が届いているか（揃わないと警告ログが出る）、BlendShape 名が一致しているか（対応表を適用したログに一致数が出る）を確認
-- **目線だけ動かない**: 送信側の目線タブにチャネルがあるか、非 Humanoid モデルなら送信側か受信側の目線タブに目ボーン path が入っているかを確認。送信側の path が受信側モデルに無い場合は警告ログが出る。外部送信元の場合は Gaze mapping を手動設定する。Gaze だけ途絶した場合は最後の値を保持する
+- **目線だけ動かない**: 送信側の目線タブにチャネルがあるか、非 Humanoid モデルなら送信側か受信側の目線タブに目ボーン path が入っているかを確認。送信側の path が受信側モデルに無い場合は警告ログが出る。Gaze だけ途絶した場合は最後の値を保持する
 - **送信側と同居させる**: `OscOutputDemo` 側の **OSC Sender → 上級設定** に `OscSenderRuntimeSettingsSO` を割り当て、**Suppress Loopback** を OFF にする

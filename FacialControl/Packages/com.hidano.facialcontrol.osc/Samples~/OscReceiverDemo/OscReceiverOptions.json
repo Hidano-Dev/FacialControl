@@ -1,27 +1,5 @@
 {
   "listenPort": 9000,
-  "mappings": [
-    {
-      "mode": "blendShape",
-      "expressionId": "Joy",
-      "addressPattern": "/avatar/parameters/Joy"
-    },
-    {
-      "mode": "blendShape",
-      "expressionId": "Blink",
-      "addressPattern": "/avatar/parameters/Blink"
-    },
-    {
-      "mode": "blendShape",
-      "expressionId": "MouthOpen",
-      "addressPattern": "/avatar/parameters/MouthOpen"
-    },
-    {
-      "mode": "blendShape",
-      "expressionId": "BrowUp",
-      "addressPattern": "/avatar/parameters/BrowUp"
-    }
-  ],
   "stalenessSeconds": 1.0,
   "failSafeMode": "revertToBase",
   "consistencyCheckWarnLog": true,

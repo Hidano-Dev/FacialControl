@@ -18,34 +18,11 @@ namespace Hidano.FacialControl.Tests.EditMode.Adapters.Json
         }
 
         [Test]
-        public void JsonRoundTrip_ThreeModes_PreservesValues()
+        public void JsonRoundTrip_AllKeys_PreservesValues()
         {
             var source = new OscReceiverOptionsDto
             {
                 listenPort = 9100,
-                mappings = new[]
-                {
-                    new OscMappingEntryDto
-                    {
-                        mode = OscMappingEntryDto.ModeBlendShape,
-                        expressionId = "Smile",
-                        addressPattern = "/avatar/parameters/Smile"
-                    },
-                    new OscMappingEntryDto
-                    {
-                        mode = OscMappingEntryDto.ModeGazeVrchatXy,
-                        expressionId = "Eyes",
-                        addressPattern = "/avatar/parameters/Eyes",
-                        sourceIdLeft = "Eyes.left",
-                        sourceIdRight = "Eyes.right",
-                        leftRightIndependent = true
-                    },
-                    new OscMappingEntryDto
-                    {
-                        mode = OscMappingEntryDto.ModeGazeArkit8Bs,
-                        expressionId = "EyesArKit"
-                    }
-                },
                 stalenessSeconds = 0.25f,
                 failSafeMode = OscReceiverOptionsDto.FailSafeHoldLastValue,
                 consistencyCheckWarnLog = false,
@@ -58,20 +35,9 @@ namespace Hidano.FacialControl.Tests.EditMode.Adapters.Json
 
             StringAssert.DoesNotContain("listenEndpoint", json,
                 "受信 IP は廃止したため JSON に書き出さない。");
+            StringAssert.DoesNotContain("mappings", json,
+                "手動のアドレス mapping は廃止したため JSON に書き出さない。");
             Assert.AreEqual(9100, result.listenPort);
-            Assert.AreEqual(3, result.mappings.Length);
-            Assert.AreEqual(OscMappingEntryDto.ModeBlendShape, result.mappings[0].mode);
-            Assert.AreEqual("Smile", result.mappings[0].expressionId);
-            Assert.AreEqual("/avatar/parameters/Smile", result.mappings[0].addressPattern);
-            Assert.AreEqual(OscMappingEntryDto.ModeGazeVrchatXy, result.mappings[1].mode);
-            Assert.AreEqual("Eyes", result.mappings[1].expressionId);
-            Assert.AreEqual("/avatar/parameters/Eyes", result.mappings[1].addressPattern);
-            Assert.AreEqual("Eyes.left", result.mappings[1].sourceIdLeft);
-            Assert.AreEqual("Eyes.right", result.mappings[1].sourceIdRight);
-            Assert.IsTrue(result.mappings[1].leftRightIndependent);
-            Assert.AreEqual(OscMappingEntryDto.ModeGazeArkit8Bs, result.mappings[2].mode);
-            Assert.AreEqual("EyesArKit", result.mappings[2].expressionId);
-            Assert.AreEqual(string.Empty, result.mappings[2].addressPattern);
             Assert.AreEqual(0.25f, result.stalenessSeconds);
             Assert.AreEqual(OscReceiverOptionsDto.FailSafeHoldLastValue, result.failSafeMode);
             Assert.IsFalse(result.consistencyCheckWarnLog);
@@ -82,7 +48,7 @@ namespace Hidano.FacialControl.Tests.EditMode.Adapters.Json
         [Test]
         public void FromJson_UnknownKeys_IgnoresUnknownKeys()
         {
-            // listenEndpoint は廃止した旧キー。旧形式の JSON を読んでも他の値は壊れない。
+            // listenEndpoint・mappings は廃止した旧キー。旧形式の JSON を読んでも他の値は壊れない。
             const string Json =
                 "{" +
                 "\"unknownRoot\":123," +
@@ -104,9 +70,6 @@ namespace Hidano.FacialControl.Tests.EditMode.Adapters.Json
             OscReceiverOptionsDto result = OscReceiverOptionsDto.FromJson(Json);
 
             Assert.AreEqual(9200, result.listenPort);
-            Assert.AreEqual(1, result.mappings.Length);
-            Assert.AreEqual("Blink_L", result.mappings[0].expressionId);
-            Assert.AreEqual("/avatar/parameters/Blink_L", result.mappings[0].addressPattern);
             Assert.AreEqual(1.5f, result.stalenessSeconds);
             Assert.AreEqual(OscReceiverOptionsDto.FailSafeRevertToBase, result.failSafeMode);
             Assert.IsTrue(result.consistencyCheckWarnLog);
@@ -120,8 +83,6 @@ namespace Hidano.FacialControl.Tests.EditMode.Adapters.Json
             OscReceiverOptionsDto result = OscReceiverOptionsDto.FromJson("{}");
 
             Assert.AreEqual(OscConfiguration.DefaultReceivePort, result.listenPort);
-            Assert.IsNotNull(result.mappings);
-            Assert.IsEmpty(result.mappings);
             Assert.AreEqual(OscReceiverOptionsDto.DefaultStalenessSeconds, result.stalenessSeconds);
             Assert.AreEqual(OscReceiverOptionsDto.FailSafeRevertToBase, result.failSafeMode);
             Assert.IsTrue(result.consistencyCheckWarnLog);
@@ -130,27 +91,14 @@ namespace Hidano.FacialControl.Tests.EditMode.Adapters.Json
         }
 
         [Test]
-        public void ToMappingEntries_ConvertsStringsToRuntimeEnums()
+        public void ToRuntimeEnums_ConvertsStrings()
         {
             var dto = new OscReceiverOptionsDto
             {
-                mappings = new[]
-                {
-                    new OscMappingEntryDto
-                    {
-                        mode = "gazeVrchatXy",
-                        expressionId = "Eyes",
-                        addressPattern = "/avatar/parameters/Eyes"
-                    }
-                },
                 failSafeMode = "holdLastValue",
                 bundleMode = "individualMessage"
             };
 
-            OscMappingEntry[] mappings = dto.ToMappingEntries();
-
-            Assert.AreEqual(1, mappings.Length);
-            Assert.AreEqual(OscMappingMode.Gaze_VRChat_XY, mappings[0].mode);
             Assert.AreEqual(FailSafeMode.HoldLastValue, dto.ToFailSafeMode());
             Assert.AreEqual(BundleInterpretationMode.IndividualMessage, dto.ToBundleInterpretationMode());
         }

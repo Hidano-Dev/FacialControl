@@ -19,6 +19,7 @@ using UnityEngine.TestTools;
 using UnityEngine.Profiling;
 
 using Hidano.FacialControl.Testing;
+using Hidano.FacialControl.Osc.Tests.PlayMode.Testing;
 namespace Hidano.FacialControl.Tests.PlayMode.Performance
 {
     [TestFixture]
@@ -27,8 +28,10 @@ namespace Hidano.FacialControl.Tests.PlayMode.Performance
     {
         private const int FrameCount = 100;
         private const int PortBase = 19700;
-        private const string Endpoint = "127.0.0.1";
         private const string Slug = "osc-receiver-gc";
+        private static readonly string[] BlendShapeNames = { "smile", "frown" };
+        private static readonly SenderIdentity Sender =
+            new SenderIdentity(Guid.Parse("55555555-5555-5555-5555-555555555555"), 1_000L);
 
         private static int s_portCounter;
 
@@ -59,11 +62,7 @@ namespace Hidano.FacialControl.Tests.PlayMode.Performance
             var timeProvider = new ManualTimeProvider();
             StartReceiver(registry, timeProvider, BundleInterpretationMode.IndividualMessage, includeGaze: false);
 
-            uOSC.Message[] messages =
-            {
-                new uOSC.Message("/avatar/parameters/smile", 0.25f),
-                new uOSC.Message("/avatar/parameters/frown", 0.75f),
-            };
+            uOSC.Message[] messages = FrameMessages(100UL, 0.25f, 0.75f);
 
             WarmUp(messages, timeProvider);
 
@@ -88,12 +87,8 @@ namespace Hidano.FacialControl.Tests.PlayMode.Performance
             var timeProvider = new ManualTimeProvider();
             StartReceiver(registry, timeProvider, BundleInterpretationMode.AtomicSwap, includeGaze: true);
 
-            uOSC.Message[] messages =
-            {
-                FloatMessage("/avatar/parameters/smile", 0.25f, timestamp: 100UL),
-                FloatMessage("/avatar/parameters/eyeX", -0.4f, timestamp: 100UL),
-                FloatMessage("/avatar/parameters/eyeY", 0.6f, timestamp: 100UL),
-            };
+            // slot: smile, frown, eye.X, eye.Y
+            uOSC.Message[] messages = FrameMessages(100UL, 0.25f, 0.75f, -0.4f, 0.6f);
 
             WarmUp(messages, timeProvider);
 
@@ -109,172 +104,6 @@ namespace Hidano.FacialControl.Tests.PlayMode.Performance
             Assert.That(x, Is.EqualTo(-0.4f).Within(1e-6f));
             Assert.That(y, Is.EqualTo(0.6f).Within(1e-6f));
             LogBaseline(nameof(OscReceiverGCAllocationTests), "atomicBundleGazeMessages", baseline);
-        }
-
-        [UnityTest]
-        public IEnumerator OnFixedTick_RealUdp100Frames_ZeroGC()
-        {
-            var registry = new InputSourceRegistry();
-            var timeProvider = new ManualTimeProvider();
-            StartReceiverWithManualMappings(registry, timeProvider, "smile", "frown");
-            var receiver = _binding.HelperHost.Receiver;
-            if (!receiver.IsRunning)
-                receiver.StartReceiving();
-
-            byte[][] normalPackets;
-            byte[][] addresses =
-            {
-                Encoding.UTF8.GetBytes("/avatar/parameters/smile"),
-                Encoding.UTF8.GetBytes("/avatar/parameters/frown")
-            };
-            float[] values = { 0.25f, 0.75f };
-            byte[] senderAddress = Encoding.UTF8.GetBytes(OscReceiverAdapterBinding.SenderIdentityAddress);
-            byte[] senderUuid = new byte[16];
-            for (int i = 0; i < senderUuid.Length; i++) senderUuid[i] = (byte)(i + 1);
-
-            using (var builder = new OscBundleBuilder())
-            {
-                int normalCount = builder.BuildFrameBundle(1, senderAddress, senderUuid, "1700000000000", addresses, values, 2);
-                normalPackets = CopyPackets(builder, normalCount);
-            }
-
-            // 計測窓が触るものは全て窓の前に確保し、窓内で初回確保（JIT・容量拡張）が起きないようにする。
-            // 1 イテレーション = `yield return null` の 1 フレーム。バッチモードでは WaitForFixedUpdate が数百フレームを
-            // 消費して受信スレッドの確保フレームを見逃すため使わない。OnFixedTick は手動で呼び FixedTickCount で回数を確認する。
-            var allocations = new long[FrameCount];
-            var mainThreadAllocations = new long[FrameCount];
-            var failures = new StringBuilder();
-            const int BaselineFrames = 20;
-            var harnessBaseline = new long[BaselineFrames];
-            var sendOnly = new long[BaselineFrames];
-            var sendAndPump = new long[BaselineFrames];
-
-            using (var sender = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp))
-            // M2: 全スレッドのマネージド確保（GC Allocated In Frame）。受信スレッド分を含む authoritative なゲート
-            using (var allThreads = ManagedAllocationProbe.Start(256))
-            // M1: メインスレッドの GC.Alloc マーカー（診断用。100 byte 単位に丸められ、受信スレッドは集計されない）
-            using (var mainThread = ProfilerRecorder.StartNew(
-                       ProfilerCategory.Memory, "GC.Alloc", 256,
-                       ProfilerRecorderOptions.SumAllSamplesInFrame | ProfilerRecorderOptions.CollectOnlyOnCurrentThread))
-            {
-                sender.Connect(new IPEndPoint(IPAddress.Loopback, receiver.ActivePort));
-                yield return null;
-                int warmupSent = 0;
-                for (int frame = 1; frame <= 30; frame++)
-                {
-                    SendPackets(sender, normalPackets);
-                    warmupSent += normalPackets.Length;
-                    yield return null;
-                    receiver.PumpReceived();
-                    _binding.OnFixedTick(1f / 60f);
-                    allocations[0] = allThreads.LastValue;
-                    mainThreadAllocations[0] = mainThread.LastValue;
-                }
-
-                for (int i = 0; i < 120 && receiver.Diagnostics.AppliedDatagramCount < warmupSent; i++)
-                {
-                    yield return null;
-                    receiver.PumpReceived();
-                }
-
-                Assert.That(receiver.Diagnostics.AppliedDatagramCount, Is.EqualTo(warmupSent));
-                Assert.That(_binding.InputSource, Is.Not.Null);
-                StabilizeManagedHeap();
-
-                // ハーネス固定分（テストランナーのコルーチン 1 ステップあたりの確保）を同じループ形で計測する。
-                // 製品経路は一切呼ばない。
-                for (int i = 0; i < BaselineFrames; i++)
-                {
-                    yield return null;
-                    harnessBaseline[i] = allThreads.LastValue;
-                }
-                long baseline = Median(harnessBaseline);
-
-                // 切り分け用の内訳（記録のみ）: 送信のみ / 送信 + ドレイン
-                long sentForBreakdown = receiver.Diagnostics.AppliedDatagramCount;
-                for (int i = 0; i < BaselineFrames; i++)
-                {
-                    SendPackets(sender, normalPackets);
-                    sentForBreakdown += normalPackets.Length;
-                    yield return null;
-                    sendOnly[i] = allThreads.LastValue;
-                }
-                for (int i = 0; i < BaselineFrames; i++)
-                {
-                    SendPackets(sender, normalPackets);
-                    sentForBreakdown += normalPackets.Length;
-                    yield return null;
-                    receiver.PumpReceived();
-                    sendAndPump[i] = allThreads.LastValue;
-                }
-                for (int i = 0; i < 120 && receiver.Diagnostics.AppliedDatagramCount < sentForBreakdown; i++)
-                {
-                    yield return null;
-                    receiver.PumpReceived();
-                }
-                Assert.That(receiver.Diagnostics.AppliedDatagramCount, Is.EqualTo(sentForBreakdown));
-
-                long fixedTicksBefore = receiver.Diagnostics.FixedTickCount;
-                long sent = sentForBreakdown;
-                // 直前の Assert（NUnit の constraint 生成）が同じフレームで確保するため、空フレームを挟んで窓から切り離す
-                yield return null;
-
-                for (int frame = 0; frame < FrameCount; frame++)
-                {
-                    SendPackets(sender, normalPackets);
-                    sent += normalPackets.Length;
-                    yield return null;
-                    receiver.PumpReceived();
-                    _binding.OnFixedTick(1f / 60f);
-                    allocations[frame] = allThreads.LastValue;
-                    mainThreadAllocations[frame] = mainThread.LastValue;
-                }
-
-                for (int i = 0; i < 120 && receiver.Diagnostics.AppliedDatagramCount < sent; i++)
-                {
-                    yield return null;
-                    receiver.PumpReceived();
-                }
-
-                Assert.That(receiver.Diagnostics.AppliedDatagramCount, Is.EqualTo(sent));
-                Assert.That(receiver.Diagnostics.FixedTickCount - fixedTicksBefore, Is.EqualTo(FrameCount));
-
-                int failedFrames = 0;
-                for (int frame = 0; frame < FrameCount; frame++)
-                {
-                    long productBytes = allocations[frame] - baseline;
-                    if (productBytes != 0)
-                    {
-                        failedFrames++;
-                        failures.Append("frame=").Append(frame)
-                            .Append(" gcAllocBytes=").Append(productBytes)
-                            .Append(" (allThreads=").Append(allocations[frame])
-                            .Append(" harnessBaseline=").Append(baseline)
-                            .Append(" mainThreadGcAlloc=").Append(mainThreadAllocations[frame])
-                            .Append(")\n");
-                    }
-                }
-                TestContext.Out.WriteLine(
-                    "[OscReceiverGCAllocationTests] frames=" + FrameCount +
-                    " harnessBaselinePerFrame=" + baseline +
-                    " breakdown(harness/sendOnly/sendAndPump/window median)=" + baseline + "/" + Median(sendOnly) + "/" + Median(sendAndPump) + "/" + Median(allocations) +
-                    " harnessPerFrame=" + string.Join(",", harnessBaseline) +
-                    " sendOnlyPerFrame=" + string.Join(",", sendOnly) +
-                    " sendAndPumpPerFrame=" + string.Join(",", sendAndPump) +
-                    " allThreadsPerFrame=" + string.Join(",", allocations) +
-                    " mainThreadPerFrame=" + string.Join(",", mainThreadAllocations));
-                Assert.That(failedFrames, Is.EqualTo(0),
-                    failedFrames + " フレームで GC 確保を検出（ハーネス固定分 " + baseline + " byte/frame 差引後）:\n" + failures +
-                    "breakdown(harness/sendOnly/sendAndPump/window median)=" + baseline + "/" + Median(sendOnly) + "/" + Median(sendAndPump) + "/" + Median(allocations) +
-                    "\nallThreadsPerFrame=" + string.Join(",", allocations));
-            }
-        }
-
-        private static long Median(long[] values)
-        {
-            var sorted = (long[])values.Clone();
-            Array.Sort(sorted);
-            return sorted[sorted.Length / 2];
         }
 
         [Test]
@@ -326,62 +155,17 @@ namespace Hidano.FacialControl.Tests.PlayMode.Performance
                 BundleAccumulationTimeoutMs = 0f,
             };
 
-            if (includeGaze)
-            {
-                _binding.Mappings = new List<OscMappingEntry>
-                {
-                    new OscMappingEntry
-                    {
-                        mode = OscMappingMode.Gaze_VRChat_XY,
-                        expressionId = "eye",
-                        addressPattern = "/avatar/parameters/eye",
-                    },
-                };
-            }
-
-            _binding.Configure(Endpoint, _binding.Port, new[]
-            {
-                new OscMapping("/avatar/parameters/smile", "smile", "emotion"),
-                new OscMapping("/avatar/parameters/frown", "frown", "emotion"),
-            });
-            _binding.OnStart(CreateContext(registry, timeProvider));
+            _binding.OnStart(CreateContext(registry, timeProvider, BlendShapeNames));
+            OscIndexedFrameMessages.ApplyLayout(
+                _binding,
+                Sender,
+                BlendShapeNames,
+                includeGaze ? new[] { new OscFrameLayoutGazeChannel("eye") } : null,
+                timestamp: 50UL);
 
             Assert.That(_binding.IsStarted, Is.True);
             Assert.That(_binding.HelperHost, Is.Not.Null);
-        }
-
-        private void StartReceiverWithManualMappings(
-            InputSourceRegistry registry,
-            ManualTimeProvider timeProvider,
-            params string[] blendShapeNames)
-        {
-            _host = new GameObject("OscReceiverGCAllocationTests");
-            var mappings = new List<OscMappingEntry>(blendShapeNames.Length);
-            for (int i = 0; i < blendShapeNames.Length; i++)
-            {
-                mappings.Add(new OscMappingEntry
-                {
-                    mode = OscMappingMode.Normal_BlendShape,
-                    expressionId = blendShapeNames[i],
-                    addressPattern = OscAddressFormatter.VRChatParameterPrefix + blendShapeNames[i],
-                });
-            }
-
-            _binding = new OscReceiverAdapterBinding
-            {
-                Slug = Slug,
-                Port = AllocatePort(),
-                StalenessSeconds = 0f,
-                BundleMode = BundleInterpretationMode.IndividualMessage,
-                Mappings = mappings,
-                ReceiveOptions = new OscReceiveOptions(2048, 32, 0),
-            };
-
-            _binding.OnStart(CreateContext(registry, timeProvider, blendShapeNames));
-
-            Assert.That(_binding.IsStarted, Is.True);
-            Assert.That(_binding.HelperHost, Is.Not.Null);
-            Assert.That(_binding.InputSource, Is.Not.Null);
+            Assert.That(_binding.ActiveLayoutVersion, Is.EqualTo(OscIndexedFrameMessages.LayoutVersion));
         }
 
         private AdapterBuildContext CreateContext(
@@ -417,11 +201,14 @@ namespace Hidano.FacialControl.Tests.PlayMode.Performance
             }
         }
 
-        private static uOSC.Message FloatMessage(string address, float value, ulong timestamp)
+        /// <summary>sender_id と値フレーム（同じ bundle）。値は slot 0 から並べる。</summary>
+        private static uOSC.Message[] FrameMessages(ulong timestamp, params float[] slots)
         {
-            var message = new uOSC.Message(address, value);
-            message.timestamp = new uOSC.Timestamp(timestamp);
-            return message;
+            return new[]
+            {
+                OscIndexedFrameMessages.SenderId(Sender, timestamp),
+                OscIndexedFrameMessages.Values(OscIndexedFrameMessages.LayoutVersion, 0, timestamp, slots),
+            };
         }
 
         private static GazeVector2InputSource ResolveGaze(InputSourceRegistry registry, string id)
@@ -470,24 +257,6 @@ namespace Hidano.FacialControl.Tests.PlayMode.Performance
         private static int AllocatePort()
         {
             return PortBase + System.Threading.Interlocked.Increment(ref s_portCounter);
-        }
-
-        private static void SendPackets(Socket sender, byte[][] packets)
-        {
-            for (int i = 0; i < packets.Length; i++)
-                sender.Send(packets[i], 0, packets[i].Length, SocketFlags.None);
-        }
-
-        private static byte[][] CopyPackets(OscBundleBuilder builder, int packetCount)
-        {
-            var packets = new byte[packetCount][];
-            for (int i = 0; i < packetCount; i++)
-            {
-                OscBundlePacket packet = builder.GetPacket(i);
-                packets[i] = new byte[packet.Length];
-                Buffer.BlockCopy(packet.Buffer, 0, packets[i], 0, packet.Length);
-            }
-            return packets;
         }
 
         private readonly struct BaselineResult

@@ -38,14 +38,6 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
     [FacialAdapterBinding(displayName: "OSC Receiver")]
     public sealed class OscReceiverAdapterBinding : AdapterBindingBase, IGazeChannelConsumer, IGazeSourceProvider, IOscResolvedMessageHandler, IGazeChannelOverrideProvider, IAdapterBindingTargetLayerInput, IAdapterBindingDeclaredInputs
     {
-        public enum MappingOrigin
-        {
-            Manual,
-
-            /// <summary>値フレームの対応表（<c>/_facialcontrol/layout</c>）から作った mapping。</summary>
-            Layout
-        }
-
         public const string SenderIdentityAddress = SenderIdentity.OscAddress;
 
         [NonSerialized]
@@ -65,9 +57,6 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
         /// <summary>受信 UDP ポート。binding 本体に持たせ、上級設定アセットなしで受信できるようにする。</summary>
         [SerializeField]
         private int _port = OscConfiguration.DefaultReceivePort;
-
-        [SerializeField]
-        private List<OscMappingEntry> _mappings = new List<OscMappingEntry>();
 
         /// <summary>
         /// 受信値を足す既存レイヤーの名前。起動時にこのレイヤーの入力源宣言へ slug を自動で補う
@@ -116,9 +105,6 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
         private OscMapping[] _runtimeMappings;
 
         [NonSerialized]
-        private MappingOrigin[] _mappingOrigins;
-
-        [NonSerialized]
         private OscReceiverHost _helperHost;
 
         [NonSerialized]
@@ -135,27 +121,6 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
 
         [NonSerialized]
         private List<GazeRuntimeEntry> _gazeRuntimeEntries;
-
-        [NonSerialized]
-        private Dictionary<string, List<GazeRoute>> _gazeRoutes;
-
-        [NonSerialized]
-        private List<GazeRoute>[] _gazeRouteSets;
-
-        [NonSerialized]
-        private string[] _gazeRouteAddresses;
-
-        [NonSerialized]
-        private Dictionary<string, List<GazeRoute>> _manualGazeRoutes;
-
-        [NonSerialized]
-        private List<GazeRuntimeEntry> _manualGazeRuntimeEntries;
-
-        [NonSerialized]
-        private List<GazeVector2InputSource> _manualGazeSources;
-
-        [NonSerialized]
-        private List<GazeAdvertisementResolver.GazeAdvertisement> _gazeAdPlan;
 
         [NonSerialized]
         private Dictionary<string, GazeVector2InputSource> _autoGazeSourcesById;
@@ -192,9 +157,6 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
         private bool _warnedOnUnknownGazeFormat;
 
         [NonSerialized]
-        private bool _warnedOnVrChatXyLeftRightIndependent;
-
-        [NonSerialized]
         private object _gazeBundleSync;
 
         [NonSerialized]
@@ -217,12 +179,6 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
 
         [NonSerialized]
         private bool _hasCurrentGazeBundle;
-
-        [NonSerialized]
-        private HashSet<string> _normalAddresses;
-
-        [NonSerialized]
-        private HashSet<string> _normalBlendShapeNames;
 
         [NonSerialized]
         private ZombieEvictionPolicy _zombiePolicy;
@@ -277,7 +233,7 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
         /// <summary>送信元 UUID ごとの対応表の状態。</summary>
         [NonSerialized] private Dictionary<Guid, OscIndexedSenderLayoutState> _indexedSenders;
 
-        /// <summary>今受信バッファに適用している対応表と、その送信元。null なら名前つきアドレスの受信だけ。</summary>
+        /// <summary>今受信バッファに適用している対応表と、その送信元。null なら未適用（値を書き込まない）。</summary>
         [NonSerialized] private OscIndexedLayoutMapping _activeIndexedMapping;
         [NonSerialized] private Guid _activeIndexedSender;
 
@@ -288,10 +244,6 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
         [NonSerialized] private Guid _lastSenderIdUuid;
         [NonSerialized] private ulong _lastSenderIdTimestampKey;
         [NonSerialized] private bool _hasLastSenderId;
-
-        /// <summary>起動時の手動 mapping。対応表の mapping はこの後ろに並べる（名前つきアドレスの手動受信を残すため）。</summary>
-        [NonSerialized] private OscMapping[] _manualRuntimeMappings;
-        [NonSerialized] private MappingOrigin[] _manualMappingOrigins;
 
         [NonSerialized] private List<OscFrameLayoutEntry> _layoutEntryScratch;
         [NonSerialized] private List<string> _indexedGazePayloadScratch;
@@ -359,12 +311,6 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
         {
             get => EffectiveSettings.StalenessSeconds;
             set => EnsureRuntimeSettings().SetStalenessSeconds(value);
-        }
-
-        public List<OscMappingEntry> Mappings
-        {
-            get => _mappings;
-            set => _mappings = value ?? new List<OscMappingEntry>();
         }
 
         /// <summary>受信値を足す既存レイヤーの名前。null / 空ならプロファイルの先頭レイヤー。</summary>
@@ -502,28 +448,13 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
             }
         }
 
-        /// <summary>手動 gaze mapping と対応表駆動のワイルドカードを宣言する。</summary>
+        /// <summary>
+        /// 対応表駆動のワイルドカードを宣言する。gaze の入力源は対応表の gaze チャネルから左右共通
+        /// （<c>&lt;slug&gt;:&lt;channelId&gt;</c>）でだけ作る。
+        /// </summary>
         public IEnumerable<GazeSourceDeclaration> GetGazeSourceDeclarations()
         {
-            yield return new GazeSourceDeclaration(null, true);
-            if (_mappings == null)
-            {
-                yield break;
-            }
-
-            for (int i = 0; i < _mappings.Count; i++)
-            {
-                OscMappingEntry entry = _mappings[i];
-                if (entry == null || !IsGazeMode(entry.mode) ||
-                    !GazeSourceIdConvention.IsValidChannelId(entry.expressionId))
-                {
-                    continue;
-                }
-
-                yield return new GazeSourceDeclaration(
-                    entry.expressionId,
-                    entry.mode == OscMappingMode.Gaze_ARKit_8BS || entry.leftRightIndependent);
-            }
+            yield return new GazeSourceDeclaration(null, false);
         }
 
         public IReadOnlyList<string> AutoGazeSourceIds =>
@@ -537,22 +468,6 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
         public IReadOnlyList<OscMapping> RuntimeMappings =>
             _runtimeMappings ?? (IReadOnlyList<OscMapping>)Array.Empty<OscMapping>();
 
-        public IReadOnlyList<MappingOrigin> MappingOrigins =>
-            _mappingOrigins ?? (IReadOnlyList<MappingOrigin>)Array.Empty<MappingOrigin>();
-
-        public MappingOrigin GetMappingOrigin(int runtimeMappingIndex)
-        {
-            if (_mappingOrigins == null ||
-                runtimeMappingIndex < 0 ||
-                runtimeMappingIndex >= _mappingOrigins.Length)
-            {
-                throw new ArgumentOutOfRangeException(nameof(runtimeMappingIndex), runtimeMappingIndex,
-                    "runtimeMappingIndex must point to an active runtime mapping.");
-            }
-
-            return _mappingOrigins[runtimeMappingIndex];
-        }
-
         /// <summary>OnStart 済みかどうか。</summary>
         public bool IsStarted => _started;
 
@@ -562,37 +477,6 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
         /// </summary>
         public int ActiveLayoutVersion =>
             _activeIndexedMapping != null ? _activeIndexedMapping.Version : OscFrameLayoutVersion.Unknown;
-
-        /// <summary>
-        /// Runtime / テストから port・mappings をまとめて設定する。
-        /// </summary>
-        public void Configure(int port, OscMapping[] mappings)
-        {
-            if (mappings == null) throw new ArgumentNullException(nameof(mappings));
-
-            _port = port;
-            _runtimeMappings = mappings;
-        }
-
-        /// <summary>
-        /// 旧シグネチャ。受信は常に全インターフェースで行うため <paramref name="endpoint"/> は使わない。
-        /// </summary>
-        public void Configure(string endpoint, int port, OscMapping[] mappings)
-        {
-            Configure(port, mappings);
-        }
-
-        /// <summary>
-        /// 上級設定アセットと mappings を流し込む診断 API。
-        /// テストで sub-asset を経由せずに上級設定の経路をそのまま検証するために使用する。
-        /// </summary>
-        public void Configure(OscReceiverRuntimeSettingsSO advancedSettings, OscMapping[] mappings)
-        {
-            if (mappings == null) throw new ArgumentNullException(nameof(mappings));
-
-            _advancedSettings = advancedSettings;
-            _runtimeMappings = mappings;
-        }
 
         private OscReceiverRuntimeSettingsSO EnsureRuntimeSettings()
         {
@@ -674,20 +558,8 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
 
             OscReceiverRuntimeSettingsSO settings = EffectiveSettings;
 
-            if (_mappings == null)
-            {
-                _mappings = new List<OscMappingEntry>();
-            }
-
-            RuntimeMappingResolver.ResolveResult initialResult = _runtimeMappings != null
-                ? CreateConfiguredRuntimeMappingResult(_runtimeMappings)
-                : RuntimeMappingResolver.ResolveInitialMappings(_mappings);
-            OscMapping[] runtimeMappings = initialResult.RuntimeMappings;
-            _runtimeMappings = runtimeMappings;
-            _mappingOrigins = initialResult.Origins;
-            _manualRuntimeMappings = runtimeMappings;
-            _manualMappingOrigins = initialResult.Origins;
-            bool hasGazeMappings = HasGazeMappings(_mappings);
+            // 受信バッファは対応表を適用するまで空。値は値フレームの slot からだけ書き込む。
+            _runtimeMappings = Array.Empty<OscMapping>();
 
             if (!AdapterSlug.TryParse(Slug, out var slug))
             {
@@ -698,12 +570,15 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
 
             _runtimeRegistry = ctx.InputSourceRegistry;
             _runtimeSlug = slug;
-            _runtimeMeshBlendShapeNames = ResolveMeshBlendShapeNames(ctx.BlendShapeNames, runtimeMappings);
+            _runtimeMeshBlendShapeNames = ctx.BlendShapeNames ?? (IReadOnlyList<string>)Array.Empty<string>();
 
-            StartReceiverPhase(ctx, settings, slug, runtimeMappings, hasGazeMappings);
-
-            StartBlendShapeMappingPhase(ctx, runtimeMappings, out int[] mappingIndexToMeshIndex, out BitArray contributeMask);
-            RegisterOscInputSourcePhase(ctx, settings, slug, mappingIndexToMeshIndex, contributeMask);
+            StartReceiverPhase(ctx, settings);
+            RegisterOscInputSourcePhase(
+                ctx,
+                settings,
+                slug,
+                Array.Empty<int>(),
+                CreateContributeMask(_runtimeMeshBlendShapeNames.Count, null));
 
             _started = true;
         }
@@ -756,11 +631,6 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
             _inputSource = null;
             _gazeSources = null;
             _gazeRuntimeEntries = null;
-            _gazeRoutes = null;
-            _manualGazeSources = null;
-            _manualGazeRuntimeEntries = null;
-            _manualGazeRoutes = null;
-            _gazeAdPlan = null;
             _gazeAdvertisedEntries = null;
             _gazeAdNormalizedScratch = null;
             _autoGazeSourcesById = null;
@@ -771,7 +641,6 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
             _lastGazeAdvertisementHash = 0u;
             _hasProcessedGazeAdvertisement = false;
             _warnedOnUnknownGazeFormat = false;
-            _warnedOnVrChatXyLeftRightIndependent = false;
             ClearGazeBundleState();
             _gazeBundleSync = null;
             _readyGazeFrames = null;
@@ -780,8 +649,6 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
             _currentGazeTimestampKey = 0UL;
             _currentGazeBundleFirstReceivedAtSeconds = 0d;
             _hasCurrentGazeBundle = false;
-            _normalAddresses = null;
-            _normalBlendShapeNames = null;
             _zombiePolicy = null;
             _bundleSenderDecisions = null;
             _bundleSenderDecisionOrder = null;
@@ -805,8 +672,6 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
             _hasLastSenderId = false;
             _layoutEntryScratch = null;
             _indexedGazePayloadScratch = null;
-            _manualRuntimeMappings = null;
-            _manualMappingOrigins = null;
 
             if (_buffer != null)
             {
@@ -820,7 +685,6 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
             OscRuntimeSettingsInstances.Destroy(ref _legacyConvertedSettings);
             _legacyConvertedFrom = null;
             _runtimeMappings = null;
-            _mappingOrigins = null;
 
             _started = false;
         }
@@ -853,10 +717,7 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
 
         private void StartReceiverPhase(
             in AdapterBuildContext ctx,
-            OscReceiverRuntimeSettingsSO settings,
-            AdapterSlug slug,
-            OscMapping[] runtimeMappings,
-            bool hasGazeMappings)
+            OscReceiverRuntimeSettingsSO settings)
         {
             _effectiveSettings = settings;
             _timeProvider = ctx.TimeProvider;
@@ -866,7 +727,6 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
             // 上限 +1 で事前確保し、bundle タイムスタンプが増えても定常で再確保しない（GC ゲート対策）
             _bundleSenderDecisions = new Dictionary<ulong, bool>(MaxCachedBundleSenderDecisions + 1);
             _bundleSenderDecisionOrder = new Queue<ulong>(MaxCachedBundleSenderDecisions + 1);
-            _gazeAdPlan = new List<GazeAdvertisementResolver.GazeAdvertisement>();
             _gazeAdvertisedEntries = new List<GazeAdvertisementResolver.GazeAdvertisement>();
             _gazeAdNormalizedScratch = new List<GazeAdvertisementResolver.GazeAdvertisement>();
             _autoGazeSourcesById = new Dictionary<string, GazeVector2InputSource>(StringComparer.Ordinal);
@@ -882,14 +742,7 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
             _hasLastSenderId = false;
             _layoutEntryScratch = new List<OscFrameLayoutEntry>();
             _indexedGazePayloadScratch = new List<string>();
-            BuildNormalLookup(runtimeMappings);
-
-            if (hasGazeMappings)
-            {
-                InitializeGazeBundleState();
-                RegisterGazeSources(ctx.InputSourceRegistry, slug, _mappings);
-            }
-            _buffer = new OscDoubleBuffer(runtimeMappings.Length);
+            _buffer = new OscDoubleBuffer(0);
             _bundleAccumulator = new OscBundleAccumulator(_buffer, settings.BundleAccumulationTimeoutMs);
 
             _helperHost = ctx.HostGameObject.AddComponent<OscReceiverHost>();
@@ -897,7 +750,7 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
                 ListenAllInterfaces,
                 Port,
                 _buffer,
-                runtimeMappings,
+                Array.Empty<OscMapping>(),
                 settings.BundleMode == BundleInterpretationMode.AtomicSwap ? _bundleAccumulator : null,
                 settings.BundleMode,
                 ctx.TimeProvider,
@@ -906,20 +759,7 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
             if (_helperHost.Receiver != null)
             {
                 _helperHost.Receiver.SetResolvedMessageHandler(this);
-                PublishGazeRoutesToReceiver();
             }
-        }
-
-        private void StartBlendShapeMappingPhase(
-            in AdapterBuildContext ctx,
-            OscMapping[] runtimeMappings,
-            out int[] mappingIndexToMeshIndex,
-            out BitArray contributeMask)
-        {
-            IReadOnlyList<string> meshBlendShapeNames =
-                _runtimeMeshBlendShapeNames ?? ResolveMeshBlendShapeNames(ctx.BlendShapeNames, runtimeMappings);
-            mappingIndexToMeshIndex = BuildMappingIndexToMeshIndex(meshBlendShapeNames, runtimeMappings);
-            contributeMask = CreateContributeMask(meshBlendShapeNames.Count, mappingIndexToMeshIndex);
         }
 
         private void RegisterOscInputSourcePhase(
@@ -937,178 +777,6 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
                 contributeMask,
                 mappingIndexToMeshIndex);
             ctx.InputSourceRegistry.Register(slug, _inputSource);
-        }
-
-        private static OscMapping[] ResolveInitialNormalBlendShapeMappings(List<OscMappingEntry> mappings)
-        {
-            return RuntimeMappingResolver.ResolveInitialMappings(mappings).RuntimeMappings;
-        }
-
-        private static RuntimeMappingResolver.ResolveResult CreateConfiguredRuntimeMappingResult(OscMapping[] mappings)
-        {
-            var origins = new MappingOrigin[mappings.Length];
-            for (int i = 0; i < origins.Length; i++)
-            {
-                origins[i] = MappingOrigin.Manual;
-            }
-
-            return new RuntimeMappingResolver.ResolveResult(mappings, origins, mappings.Length);
-        }
-
-        private void RegisterGazeSources(
-            IInputSourceRegistry registry,
-            AdapterSlug slug,
-            List<OscMappingEntry> mappings)
-        {
-            _gazeSources = new List<GazeVector2InputSource>();
-            _gazeRuntimeEntries = new List<GazeRuntimeEntry>();
-            _gazeRoutes = new Dictionary<string, List<GazeRoute>>(StringComparer.Ordinal);
-
-            for (int i = 0; i < mappings.Count; i++)
-            {
-                OscMappingEntry entry = mappings[i];
-                if (entry == null || !IsGazeMode(entry.mode) ||
-                    !GazeSourceIdConvention.IsValidChannelId(entry.expressionId))
-                {
-                    continue;
-                }
-
-                if (entry.mode == OscMappingMode.Gaze_VRChat_XY &&
-                    entry.leftRightIndependent &&
-                    !_warnedOnVrChatXyLeftRightIndependent)
-                {
-                    Debug.LogWarning(
-                        "[OscReceiverAdapterBinding] VRChat_XY 形式は単一 Vector2 のみを運ぶため左右には同値が配られます。"
-                        + "左右独立にするには ARKit_8BS を使用してください。");
-                    _warnedOnVrChatXyLeftRightIndependent = true;
-                }
-
-                if (entry.leftRightIndependent &&
-                    (string.IsNullOrEmpty(entry.sourceIdLeft) || string.IsNullOrEmpty(entry.sourceIdRight)))
-                {
-                    Debug.LogWarning(
-                        "[OscReceiverAdapterBinding] leftRightIndependent=true の Gaze entry は "
-                        + $"sourceIdLeft/sourceIdRight が必須です。expressionId='{entry.expressionId}' をスキップします。");
-                    continue;
-                }
-
-                if (entry.mode == OscMappingMode.Gaze_VRChat_XY && string.IsNullOrEmpty(entry.addressPattern))
-                {
-                    Debug.LogWarning(
-                        $"[OscReceiverAdapterBinding] Gaze_VRChat_XY entry '{entry.expressionId}' の addressPattern が空のためスキップします。");
-                    continue;
-                }
-
-                var runtime = new GazeRuntimeEntry(entry.mode);
-                runtime.ExpressionId = entry.expressionId;
-                runtime.AddressPattern = entry.addressPattern;
-                if (entry.mode == OscMappingMode.Gaze_ARKit_8BS || entry.leftRightIndependent)
-                {
-                    runtime.LeftSource = RegisterGazeSource(
-                        registry, slug, GazeSourceIdConvention.ComposeSub(entry.expressionId, GazeSide.Left));
-                    runtime.RightSource = RegisterGazeSource(
-                        registry, slug, GazeSourceIdConvention.ComposeSub(entry.expressionId, GazeSide.Right));
-                }
-                else
-                {
-                    runtime.CommonSource = RegisterGazeSource(
-                        registry, slug, GazeSourceIdConvention.ComposeSub(entry.expressionId, GazeSide.Shared));
-                }
-
-                if (!runtime.HasAnySource)
-                {
-                    continue;
-                }
-
-                _gazeRuntimeEntries.Add(runtime);
-                RegisterGazeRoutes(entry, runtime);
-            }
-
-            _manualGazeSources = new List<GazeVector2InputSource>(_gazeSources);
-            _manualGazeRuntimeEntries = new List<GazeRuntimeEntry>(_gazeRuntimeEntries);
-            _manualGazeRoutes = _gazeRoutes;
-            PublishGazeRoutesToReceiver();
-        }
-
-        private GazeVector2InputSource RegisterGazeSource(
-            IInputSourceRegistry registry,
-            AdapterSlug slug,
-            string sub)
-        {
-            string id = slug.Value + ":" + sub;
-            if (!InputSourceId.TryParse(id, out InputSourceId sourceId))
-            {
-                Debug.LogWarning(
-                    $"[OscReceiverAdapterBinding] Gaze source id '{id}' is not a valid InputSourceId. Skipping.");
-                return null;
-            }
-
-            var source = new GazeVector2InputSource(sourceId);
-            registry.Register(slug, sub, source);
-            _gazeSources.Add(source);
-            return source;
-        }
-
-        private void RegisterGazeRoutes(OscMappingEntry entry, GazeRuntimeEntry runtime)
-        {
-            if (entry.mode == OscMappingMode.Gaze_VRChat_XY)
-            {
-                AddGazeRoute(entry.addressPattern + "X", runtime, GazeRuntimeEntry.VrChatXIndex);
-                AddGazeRoute(entry.addressPattern + "Y", runtime, GazeRuntimeEntry.VrChatYIndex);
-                return;
-            }
-
-            for (int i = 0; i < PerfectSyncEyeLook.Count; i++)
-            {
-                AddGazeRoute(PerfectSyncEyeLook.ArKitAddressPrefix + PerfectSyncEyeLook.Names[i], runtime, i);
-            }
-        }
-
-        private static void RegisterGazeRoutes(
-            Dictionary<string, List<GazeRoute>> routes,
-            GazeRuntimeEntry runtime)
-        {
-            if (runtime == null || string.IsNullOrEmpty(runtime.ExpressionId))
-            {
-                return;
-            }
-
-            if (runtime.Mode == OscMappingMode.Gaze_VRChat_XY)
-            {
-                AddGazeRoute(routes, runtime.AddressPattern + "X", runtime, GazeRuntimeEntry.VrChatXIndex);
-                AddGazeRoute(routes, runtime.AddressPattern + "Y", runtime, GazeRuntimeEntry.VrChatYIndex);
-                return;
-            }
-
-            for (int i = 0; i < PerfectSyncEyeLook.Count; i++)
-            {
-                AddGazeRoute(routes, PerfectSyncEyeLook.ArKitAddressPrefix + PerfectSyncEyeLook.Names[i], runtime, i);
-            }
-        }
-
-        private void AddGazeRoute(string address, GazeRuntimeEntry runtime, int axisIndex)
-        {
-            AddGazeRoute(_gazeRoutes, address, runtime, axisIndex);
-        }
-
-        private static void AddGazeRoute(
-            Dictionary<string, List<GazeRoute>> routes,
-            string address,
-            GazeRuntimeEntry runtime,
-            int axisIndex)
-        {
-            if (routes == null || string.IsNullOrEmpty(address))
-            {
-                return;
-            }
-
-            if (!routes.TryGetValue(address, out var routeList))
-            {
-                routeList = new List<GazeRoute>();
-                routes.Add(address, routeList);
-            }
-
-            routeList.Add(new GazeRoute(runtime, axisIndex));
         }
 
         private void InitializeGazeBundleState()
@@ -1163,28 +831,6 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
             }
         }
 
-        private bool HandleIncomingOscMessage(uOSC.Message message)
-        {
-            if (message.address == SenderIdentityAddress)
-            {
-                HandleSenderIdentityMessage(message);
-                return false;
-            }
-
-            if (!IsAcceptedSenderMessage(message))
-            {
-                return false;
-            }
-
-            bool handledGaze = TryHandleGazeMessage(message);
-            if (handledGaze || IsKnownNormalBlendShapeMessage(message.address))
-            {
-                MarkAcceptedPacket();
-            }
-
-            return true;
-        }
-
         public bool HandleIncomingOscMessage(in OscMessageView view, in OscResolvedMessage resolved)
         {
             if (resolved.Control == OscControlKind.SenderId)
@@ -1208,25 +854,8 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
                 return false;
             }
 
-            bool handledGaze = false;
-            if (resolved.GazeRouteSet >= 0 && resolved.HasFloat &&
-                _gazeRouteSets != null && resolved.GazeRouteSet < _gazeRouteSets.Length)
-            {
-                List<GazeRoute> routes = _gazeRouteSets[resolved.GazeRouteSet];
-                BundleInterpretationMode mode = _effectiveSettings != null
-                    ? _effectiveSettings.BundleMode
-                    : BundleInterpretationMode.AtomicSwap;
-                for (int i = 0; i < routes.Count; i++)
-                {
-                    if (mode == BundleInterpretationMode.AtomicSwap)
-                        RecordBufferedGazeMessage(resolved.TimestampKey, routes[i], resolved.FloatValue);
-                    else
-                        routes[i].Runtime.Record(routes[i].AxisIndex, resolved.FloatValue);
-                }
-                handledGaze = true;
-            }
-
-            if (handledGaze || resolved.MappingIndex >= 0) MarkAcceptedPacket();
+            // 値フレーム以外の名前つきアドレスは受けない。受信器には BlendShape のアドレスを登録していないので、
+            // ここで true を返しても受信バッファへは書かれない（受信器に直接登録した analog listener だけが動く）。
             return true;
         }
 
@@ -1508,38 +1137,13 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
         /// </summary>
         private bool ActivateIndexedLayout(Guid senderUuid, OscFrameLayout layout)
         {
-            OscMapping[] manualMappings = _manualRuntimeMappings ?? Array.Empty<OscMapping>();
-            OscIndexedLayoutMapping mapping = OscIndexedLayoutMapping.Create(
-                layout, _runtimeMeshBlendShapeNames, manualMappings.Length);
-            int total = manualMappings.Length + mapping.RuntimeMappings.Length;
-            var mappings = new OscMapping[total];
-            var origins = new MappingOrigin[total];
-            Array.Copy(manualMappings, mappings, manualMappings.Length);
-            for (int i = 0; i < manualMappings.Length; i++)
-            {
-                origins[i] = _manualMappingOrigins != null && i < _manualMappingOrigins.Length
-                    ? _manualMappingOrigins[i]
-                    : MappingOrigin.Manual;
-            }
-
-            for (int i = manualMappings.Length; i < total; i++)
-            {
-                mappings[i] = mapping.RuntimeMappings[i - manualMappings.Length];
-                origins[i] = MappingOrigin.Layout;
-            }
+            OscIndexedLayoutMapping mapping = OscIndexedLayoutMapping.Create(layout, _runtimeMeshBlendShapeNames);
 
             // gaze の属性だけが変わった（BlendShape の並びは同じ）なら受信バッファを作り直さない。
-            if (!RuntimeMappingsEqual(_runtimeMappings, mappings))
+            if (!RuntimeMappingsEqual(_runtimeMappings, mapping.RuntimeMappings) &&
+                !PublishRuntimeMappings(mapping.RuntimeMappings))
             {
-                var result = new RuntimeMappingResolver.ResolveResult(mappings, origins, manualMappings.Length);
-                if (!PublishRuntimeMappings(result))
-                {
-                    return false;
-                }
-            }
-            else
-            {
-                _mappingOrigins = origins;
+                return false;
             }
 
             _indexedGazePayloadScratch.Clear();
@@ -1570,8 +1174,7 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
         }
 
         /// <summary>
-        /// gaze チャネルの X / Y slot を、同じ id の gaze runtime へ向ける（左右共通の値）。手動 mapping が ARKit_8BS
-        /// 形式なら、X / Y を左右同じ向きの 8 BlendShape 値に直して書く。
+        /// gaze チャネルの X / Y slot を、同じ id の gaze runtime へ向ける（左右共通の値）。
         /// </summary>
         private List<GazeRoute>[] BuildIndexedGazeSlotRoutes(OscFrameLayout layout)
         {
@@ -1618,56 +1221,6 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
                 _bundleSenderDecisions.TryGetValue(timestampKey, out bool accepted)) return accepted;
             if (!OscBundleAccumulator.IsBundleTimestamp(timestampKey) && _hasBareSenderDecision)
                 return _bareSenderAccepted;
-            return true;
-        }
-
-        private void HandleSenderIdentityMessage(uOSC.Message message)
-        {
-            if (!TryParseSenderIdentity(message.values, out SenderIdentity identity))
-            {
-                Debug.LogWarning("[OscReceiverAdapterBinding] sender_id message の payload を解釈できません。");
-                return;
-            }
-
-            if (_zombiePolicy == null)
-            {
-                _zombiePolicy = new ZombieEvictionPolicy();
-            }
-
-            bool accepted = _zombiePolicy.Observe(identity);
-            if (_zombiePolicy.HasCurrentSender)
-            {
-                _currentSenderId = _zombiePolicy.CurrentSender;
-                _hasCurrentSenderId = true;
-            }
-
-            ulong timestampKey = message.timestamp.value;
-            if (OscBundleAccumulator.IsBundleTimestamp(timestampKey))
-            {
-                RememberBundleSenderDecision(timestampKey, accepted);
-            }
-            else
-            {
-                _hasBareSenderDecision = true;
-                _bareSenderAccepted = accepted;
-            }
-        }
-
-        private bool IsAcceptedSenderMessage(uOSC.Message message)
-        {
-            ulong timestampKey = message.timestamp.value;
-            if (OscBundleAccumulator.IsBundleTimestamp(timestampKey) &&
-                _bundleSenderDecisions != null &&
-                _bundleSenderDecisions.TryGetValue(timestampKey, out bool accepted))
-            {
-                return accepted;
-            }
-
-            if (!OscBundleAccumulator.IsBundleTimestamp(timestampKey) && _hasBareSenderDecision)
-            {
-                return _bareSenderAccepted;
-            }
-
             return true;
         }
 
@@ -1727,18 +1280,12 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
                 InitializeGazeBundleState();
             }
 
-            if (_manualGazeRoutes == null)
-            {
-                _manualGazeRoutes = new Dictionary<string, List<GazeRoute>>(StringComparer.Ordinal);
-            }
-
-            GazeAdvertisementResolver.BuildPlan(advertised, _mappings, _gazeAdPlan);
             var desiredSourceIds = new HashSet<string>(StringComparer.Ordinal);
             var desiredRuntimeKeys = new HashSet<string>(StringComparer.Ordinal);
 
-            for (int i = 0; i < _gazeAdPlan.Count; i++)
+            for (int i = 0; i < advertised.Count; i++)
             {
-                GazeAdvertisementResolver.GazeAdvertisement advertisement = _gazeAdPlan[i];
+                GazeAdvertisementResolver.GazeAdvertisement advertisement = advertised[i];
                 string runtimeKey = advertisement.ExpressionId + "\u001f" + advertisement.Format;
                 desiredRuntimeKeys.Add(runtimeKey);
                 GazeRuntimeEntry runtime;
@@ -1783,29 +1330,20 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
                 UnregisterGazeSource(sourceId);
             }
 
-            var newRoutes = CloneGazeRoutes(_manualGazeRoutes);
-            var newRuntimeEntries = _manualGazeRuntimeEntries != null
-                ? new List<GazeRuntimeEntry>(_manualGazeRuntimeEntries)
-                : new List<GazeRuntimeEntry>();
-            var newSources = _manualGazeSources != null
-                ? new List<GazeVector2InputSource>(_manualGazeSources)
-                : new List<GazeVector2InputSource>();
-
+            var newRuntimeEntries = new List<GazeRuntimeEntry>();
+            var newSources = new List<GazeVector2InputSource>();
             foreach (KeyValuePair<string, GazeRuntimeEntry> pair in _autoGazeRuntimeEntriesById)
             {
                 GazeRuntimeEntry runtime = pair.Value;
                 newRuntimeEntries.Add(runtime);
                 AddRuntimeSources(runtime, newSources);
-                RegisterGazeRoutes(newRoutes, runtime);
             }
 
             _gazeSources = newSources;
-            // Publish only fully-built immutable snapshots. Readers retain their local dictionary reference.
+            // Publish only fully-built immutable snapshots.
             Volatile.Write(ref _gazeRuntimeEntries, newRuntimeEntries);
-            Volatile.Write(ref _gazeRoutes, newRoutes);
-            PublishGazeRoutesToReceiver(newRoutes);
 
-            LogGazeRouteDiagnostics(_manualGazeRuntimeEntries, _autoGazeRuntimeEntriesById);
+            LogGazeRouteDiagnostics(_autoGazeRuntimeEntriesById);
             WarnForUnmatchedGazeConfigs(_autoGazeRuntimeEntriesById);
         }
 
@@ -1838,10 +1376,8 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
         }
 
         private static void LogGazeRouteDiagnostics(
-            IReadOnlyList<GazeRuntimeEntry> manualEntries,
             IReadOnlyDictionary<string, GazeRuntimeEntry> autoEntries)
         {
-            int manualCount = manualEntries == null ? 0 : manualEntries.Count;
             int autoCount = autoEntries == null ? 0 : autoEntries.Count;
             var autoIds = new List<string>(autoCount);
             if (autoEntries != null)
@@ -1857,7 +1393,7 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
 
             autoIds.Sort(StringComparer.Ordinal);
             Debug.Log(
-                $"[OscReceiverAdapterBinding] gaze routes published: manual={manualCount}, auto={autoCount}, " +
+                $"[OscReceiverAdapterBinding] gaze routes published: auto={autoCount}, " +
                 $"autoIds=[{string.Join(", ", autoIds.ToArray())}]");
         }
 
@@ -1865,42 +1401,20 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
             GazeAdvertisementResolver.GazeAdvertisement advertisement,
             ISet<string> desiredSourceIds)
         {
-            OscMappingMode mode = string.Equals(
-                    advertisement.Format,
-                    GazeAdvertisementResolver.ArKit8BsFormat,
-                    StringComparison.Ordinal)
-                ? OscMappingMode.Gaze_ARKit_8BS
-                : OscMappingMode.Gaze_VRChat_XY;
-            var runtime = new GazeRuntimeEntry(mode);
+            var runtime = new GazeRuntimeEntry();
             runtime.ExpressionId = advertisement.ExpressionId;
-            runtime.AddressPattern = mode == OscMappingMode.Gaze_VRChat_XY
-                ? OscAddressFormatter.VRChatParameterPrefix + advertisement.ExpressionId
-                : string.Empty;
-            if (mode == OscMappingMode.Gaze_ARKit_8BS)
-            {
-                runtime.LeftSource = GetOrCreateAutoGazeSource(GazeSide.Left, advertisement.ExpressionId, desiredSourceIds);
-                runtime.RightSource = GetOrCreateAutoGazeSource(GazeSide.Right, advertisement.ExpressionId, desiredSourceIds);
-            }
-            else
-            {
-                runtime.CommonSource = GetOrCreateAutoGazeSource(GazeSide.Shared, advertisement.ExpressionId, desiredSourceIds);
-            }
-
+            runtime.CommonSource = GetOrCreateAutoGazeSource(GazeSide.Shared, advertisement.ExpressionId, desiredSourceIds);
             return runtime;
         }
 
         private void AddRuntimeSourceIds(GazeRuntimeEntry runtime, ISet<string> desiredSourceIds)
         {
             if (runtime.CommonSource != null) desiredSourceIds.Add(runtime.CommonSource.Id);
-            if (runtime.LeftSource != null) desiredSourceIds.Add(runtime.LeftSource.Id);
-            if (runtime.RightSource != null) desiredSourceIds.Add(runtime.RightSource.Id);
         }
 
         private static void AddRuntimeSources(GazeRuntimeEntry runtime, IList<GazeVector2InputSource> destination)
         {
             if (runtime.CommonSource != null && !destination.Contains(runtime.CommonSource)) destination.Add(runtime.CommonSource);
-            if (runtime.LeftSource != null && !destination.Contains(runtime.LeftSource)) destination.Add(runtime.LeftSource);
-            if (runtime.RightSource != null && !destination.Contains(runtime.RightSource)) destination.Add(runtime.RightSource);
         }
 
         private GazeVector2InputSource GetOrCreateAutoGazeSource(
@@ -1946,30 +1460,18 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
             }
         }
 
-        private static Dictionary<string, List<GazeRoute>> CloneGazeRoutes(
-            Dictionary<string, List<GazeRoute>> source)
-        {
-            var clone = new Dictionary<string, List<GazeRoute>>(StringComparer.Ordinal);
-            if (source == null) return clone;
-            foreach (KeyValuePair<string, List<GazeRoute>> pair in source)
-            {
-                clone.Add(pair.Key, new List<GazeRoute>(pair.Value));
-            }
-            return clone;
-        }
-
         /// <summary>
-        /// 受信バッファの並びを <paramref name="result"/> に差し替える。対応表は名前の一致する BlendShape だけを使い、
+        /// 受信バッファの並びを <paramref name="mappings"/> に差し替える。対応表は名前の一致する BlendShape だけを使い、
         /// 一致しない名前は警告しない。差し替えられなければ false。
         /// </summary>
-        private bool PublishRuntimeMappings(RuntimeMappingResolver.ResolveResult result)
+        private bool PublishRuntimeMappings(OscMapping[] mappings)
         {
             if (_buffer == null || _helperHost == null || _effectiveSettings == null)
             {
                 return false;
             }
 
-            int[] mappingIndexToMeshIndex = BuildMappingIndexToMeshIndex(_runtimeMeshBlendShapeNames, result.RuntimeMappings);
+            int[] mappingIndexToMeshIndex = BuildMappingIndexToMeshIndex(_runtimeMeshBlendShapeNames, mappings);
             BitArray contributeMask = CreateContributeMask(_runtimeMeshBlendShapeNames.Count, mappingIndexToMeshIndex);
             try
             {
@@ -1982,16 +1484,14 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
                 return false;
             }
 
-            _runtimeMappings = result.RuntimeMappings;
-            _mappingOrigins = result.Origins;
-            LogRuntimeMappingDiagnostics(_runtimeMappings, _mappingOrigins, _runtimeMeshBlendShapeNames);
-            BuildNormalLookup(_runtimeMappings);
+            _runtimeMappings = mappings;
+            LogRuntimeMappingDiagnostics(_runtimeMappings, _runtimeMeshBlendShapeNames);
 
             _buffer.Resize(_runtimeMappings.Length);
             _bundleAccumulator = new OscBundleAccumulator(_buffer, _effectiveSettings.BundleAccumulationTimeoutMs);
             _helperHost.ReconfigureMappings(
                 _buffer,
-                _runtimeMappings,
+                Array.Empty<OscMapping>(),
                 _effectiveSettings.BundleMode == BundleInterpretationMode.AtomicSwap ? _bundleAccumulator : null);
 
             return true;
@@ -1999,29 +1499,11 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
 
         private static void LogRuntimeMappingDiagnostics(
             OscMapping[] mappings,
-            MappingOrigin[] origins,
             IReadOnlyList<string> meshBlendShapeNames)
         {
-            int manualCount = 0;
-            int layoutCount = 0;
-            if (origins != null)
-            {
-                for (int i = 0; i < origins.Length; i++)
-                {
-                    if (origins[i] == MappingOrigin.Manual)
-                    {
-                        manualCount++;
-                    }
-                    else if (origins[i] == MappingOrigin.Layout)
-                    {
-                        layoutCount++;
-                    }
-                }
-            }
-
             int totalCount = mappings != null ? mappings.Length : 0;
             Debug.Log(
-                $"[OscReceiverAdapterBinding] runtime mappings published: total={totalCount}, manual={manualCount}, layout={layoutCount}.");
+                $"[OscReceiverAdapterBinding] runtime mappings published: total={totalCount}.");
 
             // カバレッジ診断: 受信側で実際に書き込まれる BlendShape 名と、メッシュにあるが
             // どの mapping にも解決されなかった BlendShape 名を列挙する。
@@ -2093,37 +1575,6 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
             return true;
         }
 
-        private void PublishGazeRoutesToReceiver()
-        {
-            PublishGazeRoutesToReceiver(_gazeRoutes);
-        }
-
-        private void PublishGazeRoutesToReceiver(Dictionary<string, List<GazeRoute>> routes)
-        {
-            if (routes == null)
-            {
-                _gazeRouteSets = Array.Empty<List<GazeRoute>>();
-                _gazeRouteAddresses = Array.Empty<string>();
-            }
-            else
-            {
-                var addresses = new string[routes.Count];
-                var sets = new List<GazeRoute>[routes.Count];
-                int index = 0;
-                foreach (KeyValuePair<string, List<GazeRoute>> pair in routes)
-                {
-                    addresses[index] = pair.Key;
-                    sets[index] = pair.Value;
-                    index++;
-                }
-                _gazeRouteAddresses = addresses;
-                _gazeRouteSets = sets;
-            }
-
-            if (_helperHost != null && _helperHost.Receiver != null)
-                _helperHost.Receiver.SetGazeAddresses(_gazeRouteAddresses);
-        }
-
         private void RecordBufferedGazeMessage(ulong timestampKey, GazeRoute route, float value)
         {
             if (_gazeBundleSync == null)
@@ -2139,57 +1590,6 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
                     RecordGazeBundleMessageLocked(timestampKey, route, value, receivedAtSeconds);
                 else
                     RecordBareGazeMessageLocked(route, value);
-            }
-        }
-
-        private bool TryHandleGazeMessage(uOSC.Message message)
-        {
-            Dictionary<string, List<GazeRoute>> routesSnapshot = Volatile.Read(ref _gazeRoutes);
-            if (routesSnapshot == null ||
-                !routesSnapshot.TryGetValue(message.address, out var routes) ||
-                !TryGetFloat(message, out float value))
-            {
-                return false;
-            }
-
-            BundleInterpretationMode currentBundleMode = _effectiveSettings != null
-                ? _effectiveSettings.BundleMode
-                : BundleInterpretationMode.AtomicSwap;
-            for (int i = 0; i < routes.Count; i++)
-            {
-                if (currentBundleMode == BundleInterpretationMode.AtomicSwap)
-                {
-                    RecordBufferedGazeMessage(message, routes[i], value);
-                }
-                else
-                {
-                    routes[i].Runtime.Record(routes[i].AxisIndex, value);
-                }
-            }
-
-            return true;
-        }
-
-        private void RecordBufferedGazeMessage(uOSC.Message message, GazeRoute route, float value)
-        {
-            if (_gazeBundleSync == null)
-            {
-                route.Runtime.Record(route.AxisIndex, value);
-                return;
-            }
-
-            ulong timestampKey = message.timestamp.value;
-            double receivedAtSeconds = GetCurrentTimeSeconds();
-            lock (_gazeBundleSync)
-            {
-                if (OscBundleAccumulator.IsBundleTimestamp(timestampKey))
-                {
-                    RecordGazeBundleMessageLocked(timestampKey, route, value, receivedAtSeconds);
-                }
-                else
-                {
-                    RecordBareGazeMessageLocked(route, value);
-                }
             }
         }
 
@@ -2382,62 +1782,6 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
             }
         }
 
-        private void BuildNormalLookup(OscMapping[] runtimeMappings)
-        {
-            _normalAddresses = new HashSet<string>(StringComparer.Ordinal);
-            _normalBlendShapeNames = new HashSet<string>(StringComparer.Ordinal);
-
-            for (int i = 0; i < runtimeMappings.Length; i++)
-            {
-                OscMapping mapping = runtimeMappings[i];
-                if (!string.IsNullOrEmpty(mapping.OscAddress))
-                {
-                    _normalAddresses.Add(mapping.OscAddress);
-                }
-
-                if (!string.IsNullOrEmpty(mapping.BlendShapeName))
-                {
-                    _normalBlendShapeNames.Add(mapping.BlendShapeName);
-                }
-            }
-        }
-
-        private bool IsKnownNormalBlendShapeMessage(string address)
-        {
-            if (string.IsNullOrEmpty(address))
-            {
-                return false;
-            }
-
-            if (_normalAddresses != null && _normalAddresses.Contains(address))
-            {
-                return true;
-            }
-
-            string blendShapeName = OscReceiver.ExtractBlendShapeName(address);
-            return blendShapeName != null &&
-                _normalBlendShapeNames != null &&
-                _normalBlendShapeNames.Contains(blendShapeName);
-        }
-
-        private static IReadOnlyList<string> ResolveMeshBlendShapeNames(
-            IReadOnlyList<string> contextBlendShapeNames,
-            OscMapping[] runtimeMappings)
-        {
-            if (contextBlendShapeNames != null && contextBlendShapeNames.Count > 0)
-            {
-                return contextBlendShapeNames;
-            }
-
-            string[] fallbackNames = new string[runtimeMappings.Length];
-            for (int i = 0; i < runtimeMappings.Length; i++)
-            {
-                fallbackNames[i] = runtimeMappings[i].BlendShapeName ?? string.Empty;
-            }
-
-            return fallbackNames;
-        }
-
         private static int[] BuildMappingIndexToMeshIndex(
             IReadOnlyList<string> meshBlendShapeNames,
             OscMapping[] runtimeMappings)
@@ -2499,109 +1843,6 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
             }
         }
 
-        private static bool HasGazeMappings(List<OscMappingEntry> mappings)
-        {
-            if (mappings == null)
-            {
-                return false;
-            }
-
-            for (int i = 0; i < mappings.Count; i++)
-            {
-                OscMappingEntry entry = mappings[i];
-                if (entry != null && IsGazeMode(entry.mode) && !string.IsNullOrEmpty(entry.expressionId))
-                {
-                    return true;
-                }
-            }
-
-            return false;
-        }
-
-        private static bool IsGazeMode(OscMappingMode mode)
-        {
-            return mode == OscMappingMode.Gaze_VRChat_XY
-                || mode == OscMappingMode.Gaze_ARKit_8BS;
-        }
-
-        private static bool TryGetFloat(uOSC.Message message, out float value)
-        {
-            value = default;
-            if (message.values == null || message.values.Length == 0)
-            {
-                return false;
-            }
-
-            if (message.values[0] is float f)
-            {
-                value = f;
-                return true;
-            }
-
-            if (message.values[0] is int i)
-            {
-                value = i;
-                return true;
-            }
-
-            return false;
-        }
-
-        private static bool TryParseSenderIdentity(object[] values, out SenderIdentity identity)
-        {
-            identity = default;
-            if (values == null || values.Length < 2)
-            {
-                return false;
-            }
-
-            Guid senderId;
-            if (values[0] is byte[] bytes && bytes.Length == SenderIdentity.UuidByteLength)
-            {
-                senderId = new Guid(bytes);
-            }
-            else if (values[0] is string idText && Guid.TryParse(idText, out Guid parsed))
-            {
-                senderId = parsed;
-            }
-            else
-            {
-                return false;
-            }
-
-            long startedAtUnixMs;
-            if (values[1] is long l)
-            {
-                startedAtUnixMs = l;
-            }
-            else if (values[1] is int i)
-            {
-                startedAtUnixMs = i;
-            }
-            else if (values[1] is string text && long.TryParse(text, out long parsedLong))
-            {
-                startedAtUnixMs = parsedLong;
-            }
-            else
-            {
-                return false;
-            }
-
-            try
-            {
-                identity = new SenderIdentity(senderId, startedAtUnixMs);
-                return true;
-            }
-            catch (ArgumentOutOfRangeException)
-            {
-                return false;
-            }
-            catch (ArgumentException)
-            {
-                return false;
-            }
-        }
-
         private readonly struct GazeRoute
         {
             public readonly GazeRuntimeEntry Runtime;
@@ -2628,186 +1869,75 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
             }
         }
 
+        /// <summary>
+        /// 1 つの gaze チャネルの受信値。値フレームの gaze slot（左右共通の X / Y）を記録し、tick で入力源へ配る。
+        /// </summary>
         private sealed class GazeRuntimeEntry
         {
-            public const int VrChatXIndex = 0;
-            public const int VrChatYIndex = 1;
-
-            /// <summary>値フレームの gaze slot（左右共通の X / Y）。どちらの形式の runtime にも書ける。</summary>
-            public const int SharedXIndex = -2;
-            public const int SharedYIndex = -3;
+            /// <summary>値フレームの gaze slot（左右共通の X / Y）。</summary>
+            public const int SharedXIndex = 0;
+            public const int SharedYIndex = 1;
 
             private readonly object _sync = new object();
-            private readonly OscMappingMode _mode;
-            private readonly float[] _arkitValues;
 
-            private float _vrChatX;
-            private float _vrChatY;
+            private float _x;
+            private float _y;
             private bool _dirty;
-
-            public GazeRuntimeEntry(OscMappingMode mode)
-            {
-                _mode = mode;
-                if (mode == OscMappingMode.Gaze_ARKit_8BS)
-                {
-                    _arkitValues = new float[PerfectSyncEyeLook.Count];
-                }
-            }
-
-            public OscMappingMode Mode => _mode;
 
             public string ExpressionId { get; set; }
 
-            public string AddressPattern { get; set; }
-
             public GazeVector2InputSource CommonSource { get; set; }
-
-            public GazeVector2InputSource LeftSource { get; set; }
-
-            public GazeVector2InputSource RightSource { get; set; }
-
-            public bool HasAnySource =>
-                CommonSource != null || LeftSource != null || RightSource != null;
 
             public void Record(int axisIndex, float value)
             {
                 lock (_sync)
                 {
-                    if (axisIndex == SharedXIndex || axisIndex == SharedYIndex)
+                    if (axisIndex == SharedXIndex)
                     {
-                        RecordSharedLocked(axisIndex == SharedXIndex, value);
-                        _dirty = true;
-                        return;
+                        _x = value;
                     }
-
-                    if (_mode == OscMappingMode.Gaze_VRChat_XY)
+                    else if (axisIndex == SharedYIndex)
                     {
-                        if (axisIndex == VrChatXIndex)
-                        {
-                            _vrChatX = value;
-                        }
-                        else if (axisIndex == VrChatYIndex)
-                        {
-                            _vrChatY = value;
-                        }
-                        else
-                        {
-                            return;
-                        }
+                        _y = value;
                     }
                     else
                     {
-                        if (axisIndex < 0 || axisIndex >= _arkitValues.Length)
-                        {
-                            return;
-                        }
-
-                        _arkitValues[axisIndex] = value;
+                        return;
                     }
 
                     _dirty = true;
                 }
             }
 
-            /// <summary>左右共通の X / Y を記録する。ARKit_8BS 形式では左右同じ向きの 8 値に直す。</summary>
-            private void RecordSharedLocked(bool isX, float value)
-            {
-                if (isX)
-                {
-                    _vrChatX = value;
-                }
-                else
-                {
-                    _vrChatY = value;
-                }
-
-                if (_arkitValues != null)
-                {
-                    var shared = new Vector2(_vrChatX, _vrChatY);
-                    PerfectSyncEyeLook.Compose(shared, shared, _arkitValues);
-                }
-            }
-
             public void PublishPending()
             {
-                if (_mode == OscMappingMode.Gaze_VRChat_XY)
+                float x;
+                float y;
+                lock (_sync)
                 {
-                    float x;
-                    float y;
-                    lock (_sync)
+                    if (!_dirty)
                     {
-                        if (!_dirty)
-                        {
-                            return;
-                        }
-
-                        x = _vrChatX;
-                        y = _vrChatY;
-                        _dirty = false;
+                        return;
                     }
 
-                    PublishVrChat(x, y);
+                    x = _x;
+                    y = _y;
+                    _dirty = false;
                 }
-                else
-                {
-                    Vector2 left;
-                    Vector2 right;
-                    lock (_sync)
-                    {
-                        if (!_dirty)
-                        {
-                            return;
-                        }
 
-                        PerfectSyncEyeLook.Decompose(_arkitValues, out left, out right);
-                        _dirty = false;
-                    }
-
-                    PublishArKit(left, right);
-                }
+                CommonSource?.Publish(x, y);
             }
 
             public void PublishZero()
             {
                 lock (_sync)
                 {
-                    _vrChatX = 0f;
-                    _vrChatY = 0f;
-                    if (_arkitValues != null)
-                    {
-                        Array.Clear(_arkitValues, 0, _arkitValues.Length);
-                    }
-
+                    _x = 0f;
+                    _y = 0f;
                     _dirty = false;
                 }
 
                 CommonSource?.PublishZero();
-                LeftSource?.PublishZero();
-                RightSource?.PublishZero();
-            }
-
-            private void PublishVrChat(float x, float y)
-            {
-                if (CommonSource != null)
-                {
-                    CommonSource.Publish(x, y);
-                }
-
-                if (LeftSource != null)
-                {
-                    LeftSource.Publish(x, y);
-                }
-
-                if (RightSource != null)
-                {
-                    RightSource.Publish(x, y);
-                }
-            }
-
-            private void PublishArKit(Vector2 left, Vector2 right)
-            {
-                LeftSource?.Publish(left);
-                RightSource?.Publish(right);
             }
         }
     }

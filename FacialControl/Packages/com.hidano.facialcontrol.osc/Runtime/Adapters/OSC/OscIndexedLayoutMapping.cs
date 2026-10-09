@@ -7,7 +7,7 @@ namespace Hidano.FacialControl.Adapters.OSC
     /// <summary>
     /// 受信した対応表を、受信側の BlendShape へ値を書き込むための変換表にしたもの。
     /// BlendShape の slot ごとに受信バッファの index を持ち、受信側のメッシュに無い名前の slot は -1 にする
-    /// （警告は出さない）。受信バッファでは、<see cref="RuntimeMappings"/> が <c>firstMappingIndex</c> から並ぶ。
+    /// （警告は出さない）。受信バッファの index は <see cref="RuntimeMappings"/> の並びと一致する。
     /// </summary>
     public sealed class OscIndexedLayoutMapping
     {
@@ -45,21 +45,14 @@ namespace Hidano.FacialControl.Adapters.OSC
         /// <summary>
         /// 対応表の BlendShape 名を受信側のメッシュの BlendShape 名と完全一致（序数比較）で突き合わせる。
         /// 同じ名前が対応表に重複していれば、それぞれの slot に別の index を割り当てる（どちらも同じ BlendShape に書く）。
-        /// <paramref name="firstMappingIndex"/> は受信バッファで対応表の mapping が始まる位置（手前に手動 mapping を置く場合）。
         /// </summary>
         public static OscIndexedLayoutMapping Create(
             OscFrameLayout layout,
-            IReadOnlyList<string> meshBlendShapeNames,
-            int firstMappingIndex = 0)
+            IReadOnlyList<string> meshBlendShapeNames)
         {
             if (layout == null)
             {
                 throw new ArgumentNullException(nameof(layout));
-            }
-
-            if (firstMappingIndex < 0)
-            {
-                throw new ArgumentOutOfRangeException(nameof(firstMappingIndex));
             }
 
             var meshNames = new HashSet<string>(StringComparer.Ordinal);
@@ -86,7 +79,7 @@ namespace Hidano.FacialControl.Adapters.OSC
                     continue;
                 }
 
-                slotToMappingIndex[slot] = firstMappingIndex + mappings.Count;
+                slotToMappingIndex[slot] = mappings.Count;
                 mappings.Add(new OscMapping(string.Empty, name, string.Empty));
             }
 

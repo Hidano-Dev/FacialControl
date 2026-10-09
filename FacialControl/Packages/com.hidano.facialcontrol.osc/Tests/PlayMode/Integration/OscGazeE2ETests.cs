@@ -22,6 +22,7 @@ using UnityEngine.InputSystem.LowLevel;
 using UnityEngine.TestTools;
 
 using Hidano.FacialControl.Testing;
+using Hidano.FacialControl.Osc.Tests.PlayMode.Testing;
 namespace Hidano.FacialControl.Tests.PlayMode.Integration
 {
     [TestFixture]
@@ -106,7 +107,7 @@ namespace Hidano.FacialControl.Tests.PlayMode.Integration
             int port = AllocatePort();
             var expected = new Vector2(0.64f, -0.37f);
 
-            // 手動 mapping は空。送信側の対応表の gaze チャネルだけで route を生成する。
+            // 送信側の対応表の gaze チャネルだけで route を生成する。
             OscReceiverAdapterBinding receiver = CreateReceiver("vrchat-gaze-receiver", port);
 
             OscSenderAdapterBinding sender = CreateSender("vrchat-gaze-sender", port);
@@ -158,8 +159,6 @@ namespace Hidano.FacialControl.Tests.PlayMode.Integration
             yield return null;
 
             Assert.That(receiverController.IsInitialized, Is.True);
-            Assert.That(receiverBinding.Mappings, Is.Empty,
-                "受信側は Gaze セクションの既定チャネルだけで構成し、手動 OSC mapping を持たないこと。");
 
             Quaternion initialRotation = receiverLeftEye.localRotation;
 
@@ -280,7 +279,7 @@ namespace Hidano.FacialControl.Tests.PlayMode.Integration
             int port = AllocatePort();
             var expected = new Vector2(-0.42f, 0.58f);
 
-            // 手動 mapping は空。対応表の gaze チャネルから作った source が左右の目に同じ値を配る。
+            // 対応表の gaze チャネルから作った source が左右の目に同じ値を配る。
             OscReceiverAdapterBinding receiver = CreateReceiver("arkit-gaze-receiver", port);
 
             OscSenderAdapterBinding sender = CreateSender("arkit-gaze-sender", port);
@@ -301,41 +300,6 @@ namespace Hidano.FacialControl.Tests.PlayMode.Integration
                         new[] { new GazeSnapshot(ExpressionId, expected.x, expected.y) });
                     sender.OnLateTick(0.016f);
                 });
-        }
-
-        [UnityTest]
-        public IEnumerator GazeArKit8Bs_DefaultConfig_PreservesLeftRightAsymmetricVectors()
-        {
-            int port = AllocatePort();
-            var expectedLeft = new Vector2(0.75f, -0.2f);
-            var expectedRight = new Vector2(-0.35f, 0.6f);
-            float[] values = new float[PerfectSyncEyeLook.Count];
-            PerfectSyncEyeLook.Compose(expectedLeft, expectedRight, values);
-
-            OscReceiverAdapterBinding receiver = CreateReceiver(
-                "arkit-asymmetric-receiver",
-                port,
-                new OscMappingEntry
-                {
-                    mode = OscMappingMode.Gaze_ARKit_8BS,
-                    expressionId = ExpressionId,
-                    leftRightIndependent = false,
-                });
-
-            OscSender sender = CreateRawSender(
-                "OscGazeE2E_ARKitRawSender",
-                port,
-                CreateArKitMappings());
-
-            StartBinding(receiver, CreateContext(CreateGameObject("OscGazeE2E_ARKitAsymmetricReceiver")));
-
-            yield return new WaitForSecondsRealtime(0.2f);
-
-            yield return WaitUntilResolvedGazeArrives(
-                receiver,
-                expectedLeft,
-                expectedRight,
-                () => sender.SendAll(values));
         }
 
         [Test]
@@ -439,31 +403,6 @@ namespace Hidano.FacialControl.Tests.PlayMode.Integration
         }
 
         [UnityTest]
-        public IEnumerator GazeAdvertisement_ManualSameId_ManualMappingWinsWithoutError()
-        {
-            int port = AllocatePort();
-            OscReceiverAdapterBinding receiver = CreateReceiver(
-                "gaze-manual-receiver",
-                port,
-                new OscMappingEntry
-                {
-                    mode = OscMappingMode.Gaze_VRChat_XY,
-                    expressionId = ExpressionId,
-                    addressPattern = OscAddressFormatter.VRChatParameterPrefix + ExpressionId,
-                });
-            OscSenderAdapterBinding sender = CreateSender("gaze-manual-sender", port);
-            StartBinding(receiver, CreateContext(CreateGameObject("OscGazeE2E_ManualReceiver")));
-            StartBinding(sender, CreateContext(CreateGameObject("OscGazeE2E_ManualSender")));
-
-            yield return new WaitForSecondsRealtime(0.2f);
-            yield return SendGazeUntilProcessed(receiver, sender, ExpressionId);
-
-            Assert.That(receiver.AutoGazeSourceIds, Is.Empty);
-            Assert.That(receiver.GazeSources.Count, Is.EqualTo(1));
-            Assert.That(receiver.GazeSources[0].Id, Is.EqualTo("gaze-manual-receiver:" + ExpressionId));
-        }
-
-        [UnityTest]
         public IEnumerator GazeAdvertisement_GazeConfigMatch_IsAcceptedForLateBoneConnection()
         {
             int port = AllocatePort();
@@ -480,7 +419,7 @@ namespace Hidano.FacialControl.Tests.PlayMode.Integration
         }
 
         [Test]
-        public void NoAdvertisementNoManual_NoRoutesNoErrorLog()
+        public void NoLayout_NoRoutesNoErrorLog()
         {
             OscReceiverAdapterBinding receiver = CreateReceiver("gaze-empty-receiver", AllocatePort());
             StartBinding(receiver, CreateContext(CreateGameObject("OscGazeE2E_EmptyReceiver")));
@@ -525,27 +464,19 @@ namespace Hidano.FacialControl.Tests.PlayMode.Integration
             var inputValue = new Vector2(-0.55f, 0.25f);
             var oscValue = new Vector2(0.91f, -0.87f);
 
-            OscReceiverAdapterBinding receiver = CreateReceiver(
-                "z-osc-gaze",
-                port,
-                new OscMappingEntry
-                {
-                    mode = OscMappingMode.Gaze_VRChat_XY,
-                    expressionId = ExpressionId,
-                    addressPattern = OscAddressFormatter.VRChatParameterPrefix + ExpressionId,
-                    leftRightIndependent = false,
-                });
-
+            OscReceiverAdapterBinding receiver = CreateReceiver("z-osc-gaze", port);
             InputSystemAdapterBinding inputBinding = CreateInputSystemGazeBinding("a-input-system-gaze");
-            OscSender rawSender = CreateRawSender(
-                "OscGazeE2E_VRChatRawSender",
-                port,
-                CreateVrChatMappings());
+            var oscSender = new SenderIdentity(Guid.NewGuid(), 1_000L);
 
             _gamepad = UnityEngine.InputSystem.InputSystem.AddDevice<Gamepad>();
 
             StartBinding(receiver, CreateContext(CreateGameObject("OscGazeE2E_DeterministicOsc")));
             StartBinding(inputBinding, CreateContext(CreateGameObject("OscGazeE2E_DeterministicInput")));
+            OscIndexedFrameMessages.ApplyLayout(
+                receiver,
+                oscSender,
+                Array.Empty<string>(),
+                new[] { new OscFrameLayoutGazeChannel(ExpressionId) });
 
             yield return new WaitForSecondsRealtime(0.2f);
 
@@ -557,9 +488,11 @@ namespace Hidano.FacialControl.Tests.PlayMode.Integration
             UnityEngine.InputSystem.InputSystem.Update();
             inputBinding.OnLateTick(0.016f);
 
-            rawSender.SendAll(new[] { oscValue.x, oscValue.y });
+            OscIndexedFrameMessages.SendFrame(receiver.HelperHost.Receiver, oscSender, 2000UL, oscValue.x, oscValue.y);
             yield return new WaitForSecondsRealtime(0.05f);
             receiver.OnFixedTick(0.02f);
+            Assert.That(_registry.TryResolve("z-osc-gaze:" + ExpressionId, out _), Is.True,
+                "OSC 側の gaze source も同じ id で登録されていること（その上で辞書順の先頭 slug を採る）。");
 
             bool resolved = GazeChannelResolver.TryResolve(
                 new GazeChannel { id = "gaze" },
@@ -631,17 +564,13 @@ namespace Hidano.FacialControl.Tests.PlayMode.Integration
             Assert.Fail("GazeChannel 既定解決経路で左右 Gaze source を読み取れませんでした。");
         }
 
-        private OscReceiverAdapterBinding CreateReceiver(
-            string slug,
-            int port,
-            params OscMappingEntry[] entries)
+        private OscReceiverAdapterBinding CreateReceiver(string slug, int port)
         {
             return new OscReceiverAdapterBinding
             {
                 Slug = slug,
                 Port = port,
                 BundleMode = BundleInterpretationMode.AtomicSwap,
-                Mappings = new List<OscMappingEntry>(entries ?? Array.Empty<OscMappingEntry>()),
             };
         }
 
@@ -767,20 +696,6 @@ namespace Hidano.FacialControl.Tests.PlayMode.Integration
             }
         }
 
-        private OscSender CreateRawSender(
-            string name,
-            int port,
-            OscMapping[] mappings)
-        {
-            GameObject go = CreateGameObject(name);
-            OscSender sender = go.AddComponent<OscSender>();
-            sender.Endpoint = Endpoint;
-            sender.Port = port;
-            sender.Initialize(mappings);
-            sender.StartSending();
-            return sender;
-        }
-
         private AdapterBuildContext CreateContext(GameObject host)
         {
             return new AdapterBuildContext(
@@ -843,35 +758,6 @@ namespace Hidano.FacialControl.Tests.PlayMode.Integration
             Assert.That(TryReadVector(source, out Vector2 actual), Is.True, message);
             Assert.That(actual.x, Is.EqualTo(expected.x).Within(Tolerance), message);
             Assert.That(actual.y, Is.EqualTo(expected.y).Within(Tolerance), message);
-        }
-
-        private static OscMapping[] CreateVrChatMappings()
-        {
-            return new[]
-            {
-                new OscMapping(
-                    OscAddressFormatter.VRChatParameterPrefix + ExpressionId + OscAddressFormatter.VRChatGazeXAxis,
-                    ExpressionId + "X",
-                    string.Empty),
-                new OscMapping(
-                    OscAddressFormatter.VRChatParameterPrefix + ExpressionId + OscAddressFormatter.VRChatGazeYAxis,
-                    ExpressionId + "Y",
-                    string.Empty),
-            };
-        }
-
-        private static OscMapping[] CreateArKitMappings()
-        {
-            var mappings = new OscMapping[PerfectSyncEyeLook.Count];
-            for (int i = 0; i < PerfectSyncEyeLook.Count; i++)
-            {
-                mappings[i] = new OscMapping(
-                    PerfectSyncEyeLook.ArKitAddressPrefix + PerfectSyncEyeLook.Names[i],
-                    PerfectSyncEyeLook.Names[i],
-                    string.Empty);
-            }
-
-            return mappings;
         }
 
         private static int AllocatePort()

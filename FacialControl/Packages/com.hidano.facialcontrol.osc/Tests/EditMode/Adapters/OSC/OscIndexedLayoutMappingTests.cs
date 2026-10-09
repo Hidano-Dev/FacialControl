@@ -26,19 +26,6 @@ namespace Hidano.FacialControl.Osc.Tests.EditMode.Adapters.OSC
         }
 
         [Test]
-        public void Create_FirstMappingIndex_OffsetsBufferIndices()
-        {
-            var layout = new OscFrameLayout(5, new[] { "a", "x", "b" });
-
-            OscIndexedLayoutMapping mapping = OscIndexedLayoutMapping.Create(layout, new[] { "a", "b" }, firstMappingIndex: 3);
-
-            Assert.That(mapping.GetMappingIndex(0), Is.EqualTo(3));
-            Assert.That(mapping.GetMappingIndex(1), Is.EqualTo(-1));
-            Assert.That(mapping.GetMappingIndex(2), Is.EqualTo(4));
-            Assert.That(mapping.RuntimeMappings.Length, Is.EqualTo(2));
-        }
-
-        [Test]
         public void GetMappingIndex_SlotOutOfRange_ReturnsMinusOne()
         {
             OscIndexedLayoutMapping mapping = OscIndexedLayoutMapping.Create(new OscFrameLayout(5, new[] { "a" }), new[] { "a" });

@@ -16,8 +16,8 @@
 | 機能 | 説明 |
 |------|------|
 | コア（プロファイル + レイヤー + 遷移） | 表情プロファイル管理、マルチレイヤー制御、表情遷移・補間 |
-| OSC 送受信 | uOsc ベースの UDP 通信。FacialControl 同士は値フレーム + 対応表、外部送信元は手動 mapping |
-| OSC 自動マッピング | 値フレームの対応表による受信 mapping の自動構築（BlendShape / gaze）。手動 mapping との共存 |
+| OSC 送受信 | uOsc ベースの UDP 通信。FacialControl 同士の値フレーム + 対応表のみ（外部送信元は受けない） |
+| OSC 自動マッピング | 値フレームの対応表による受信 mapping の自動構築（BlendShape / gaze）。手動 mapping は無い |
 | ARKit 52 / PerfectSync | 手動トリガーによる BlendShape スキャン + Expression 自動生成 |
 | 視線制御（Gaze セクション） | 独立チャネルの Vector2 入力（OSC / InputSystem / Timeline / iFacialMocap）→ 目ボーン yaw/pitch。入力源はドロップダウンで選択し、可動角はチャネル単位で設定 |
 | AdapterBinding アーキテクチャ | 入力源・出力先を `IAdapterBinding` として `FacialCharacterProfileSO` に結線。ランタイム設定は `AdapterRuntimeSettingsCollectionSO` |

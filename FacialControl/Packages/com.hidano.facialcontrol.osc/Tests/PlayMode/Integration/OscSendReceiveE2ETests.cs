@@ -94,13 +94,7 @@ namespace Hidano.FacialControl.Tests.PlayMode.Integration
                 Slug = ReceiverSlug,
                 BundleMode = BundleInterpretationMode.AtomicSwap
             };
-            receiverBinding.Configure(
-                Endpoint,
-                port,
-                new[]
-                {
-                    new OscMapping("/avatar/parameters/" + BlendShapeName, BlendShapeName, LayerName)
-                });
+            receiverBinding.Port = port;
 
             _sourceProfileSo = CreateProfileSo(
                 CreateSourceProfile(),

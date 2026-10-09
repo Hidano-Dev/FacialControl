@@ -4,12 +4,12 @@
 
 | 置き場所 | 項目 | 理由 |
 |---|---|---|
-| binding（Profile 内） | `port` / `mappings[]` | 受信ポートは一番よく変える項目。どの OSC アドレスをどの BlendShape / Gaze に流すかはキャラクター固有 |
+| binding（Profile 内） | `port` / `targetLayer` | 受信ポートは一番よく変える項目。対象レイヤーはキャラクター固有 |
 | `OscReceiverRuntimeSettingsSO`（上級設定 sub-asset、割り当て任意） | `stalenessSeconds` / `failSafeMode` / `consistencyCheckWarnLog` / `bundleMode` / `bundleAccumulationTimeoutMs` | 滅多に変えない。未割り当てなら既定値で動く |
 
 受信は常に全インターフェース（`0.0.0.0` 相当、IPv6 dual-mode）で行うため、受信 IP の設定は無い。受信を止めたいときは binding を外す。
 
-FacialControl 同士の接続では値フレームの対応表から mapping が自動生成されるため、`mappings` は空でよい。
+BlendShape と Gaze の割り当ては、送信側から受け取る値フレームの対応表から自動で作る（手で入力する mapping は無い）。値フレーム以外の名前つきアドレス（VRChat / ARKit 形式）は受けない。
 
 ## binding の受信ポート
 
@@ -27,34 +27,20 @@ FacialControl 同士の接続では値フレームの対応表から mapping が
 | `bundleMode` | `AtomicSwap` / `IndividualMessage` | `AtomicSwap` | bundle を 1 フレームで一括反映するか、受信順に個別反映するか |
 | `bundleAccumulationTimeoutMs` | float | `5` | 同一 bundle として蓄積する待ち時間（ミリ秒） |
 
-## mappings[]（`OscMappingEntry`）
+## 登録される入力源 id
 
-| フィールド | 型 | 説明 |
-|---|---|---|
-| `mode` | `Normal_BlendShape` / `Gaze_VRChat_XY` / `Gaze_ARKit_8BS` | entry の種類 |
-| `expressionId` | string | BlendShape 名（Normal）または Gaze チャネル id（Gaze） |
-| `addressPattern` | string | Normal: 完全な OSC アドレス。VRChat_XY: 末尾 X / Y を除いた base アドレス。ARKit_8BS: 無視（固定 8 アドレス） |
-| `leftRightIndependent` | bool | Gaze を左右別の入力源として登録する |
-| `sourceIdLeft` / `sourceIdRight` | string | `leftRightIndependent` のとき両方非空であること（値は id の生成には使われない） |
-
-登録される入力源 id:
-
-| 条件 | id |
+| 入力 | id |
 |---|---|
-| BlendShape（有効な Normal mapping が 1 件以上） | `<slug>` |
-| `Gaze_VRChat_XY` かつ左右共通 | `<slug>:<channelId>` |
-| `Gaze_ARKit_8BS`、または `leftRightIndependent` | `<slug>:<channelId>.left` / `<slug>:<channelId>.right` |
-
-対応表から自動生成された gaze 入力源も同じ規約で登録される。手入力と同じ id は自動生成の対象外。
+| BlendShape | `<slug>`（起動時に登録。対応表を適用するまでは何も書き込まない） |
+| 対応表の gaze チャネル | `<slug>:<channelId>`（左右共通。対応表を適用したときに登録） |
 
 ## OscReceiverOptionsDto（参考用 JSON）
 
-設定内容を JSON で記述・共有するための DTO（`Samples~/OscReceiverDemo/OscReceiverOptions.json`）。ランタイムの設定経路は上記の binding と SO であり、この DTO は直接読み込まれない。旧形式の `listenEndpoint` キーは廃止した（残っていても無視される）。
+設定内容を JSON で記述・共有するための DTO（`Samples~/OscReceiverDemo/OscReceiverOptions.json`）。ランタイムの設定経路は上記の binding と SO であり、この DTO は直接読み込まれない。旧形式の `listenEndpoint`・`mappings` キーは廃止した（残っていても無視される）。
 
 | フィールド | 既定値 |
 |---|---|
 | `listenPort` | `9001` |
-| `mappings[]` | `[]`。各 entry は `mode`（`"blendShape"` / `"gazeVrchatXy"` / `"gazeArkit8Bs"`）、`expressionId`、`addressPattern`、`sourceIdLeft`、`sourceIdRight`、`leftRightIndependent` |
 | `stalenessSeconds` | `0.0` |
 | `failSafeMode` | `"revertToBase"` / `"holdLastValue"` |
 | `consistencyCheckWarnLog` | `true` |
@@ -64,10 +50,6 @@ FacialControl 同士の接続では値フレームの対応表から mapping が
 ```json
 {
   "listenPort": 9001,
-  "mappings": [
-    { "mode": "blendShape", "expressionId": "Smile", "addressPattern": "/avatar/parameters/Smile" },
-    { "mode": "gazeVrchatXy", "expressionId": "gaze", "addressPattern": "/avatar/parameters/gaze" }
-  ],
   "stalenessSeconds": 0.25,
   "failSafeMode": "revertToBase",
   "consistencyCheckWarnLog": true,

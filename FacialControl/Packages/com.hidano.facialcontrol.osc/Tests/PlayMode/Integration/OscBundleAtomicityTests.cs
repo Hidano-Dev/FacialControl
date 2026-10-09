@@ -12,6 +12,7 @@ using NUnit.Framework;
 using UnityEngine;
 
 using Hidano.FacialControl.Testing;
+using Hidano.FacialControl.Osc.Tests.PlayMode.Testing;
 namespace Hidano.FacialControl.Tests.PlayMode.Integration
 {
     [TestFixture]
@@ -54,21 +55,25 @@ namespace Hidano.FacialControl.Tests.PlayMode.Integration
 
             const ulong timestamp = 100UL;
             SenderIdentity identity = new SenderIdentity(Guid.NewGuid(), 1_000L);
+            OscIndexedFrameMessages.ApplyLayout(
+                _binding,
+                identity,
+                new[] { Smile, Blink },
+                new[] { new OscFrameLayoutGazeChannel(GazeExpressionId) },
+                timestamp: 50UL);
+            OscReceiver receiver = _binding.HelperHost.Receiver;
 
-            _binding.HelperHost.Receiver.HandleOscMessage(SenderMessage(identity, timestamp));
-            _binding.HelperHost.Receiver.HandleOscMessage(
-                FloatMessage(OscAddressFormatter.VRChatParameterPrefix + Smile, 0.25f, timestamp));
+            // 1 つの bundle（同じ timestamp）の値フレームを 2 通に分けて届ける。
+            receiver.HandleOscMessage(OscIndexedFrameMessages.SenderId(identity, timestamp));
+            receiver.HandleOscMessage(OscIndexedFrameMessages.Values(
+                OscIndexedFrameMessages.LayoutVersion, 0, timestamp, 0.25f));
             _binding.OnFixedTick(0.02f);
 
             AssertBlendShapes(new[] { 0f, 0f });
             AssertGazeUnavailable(registry);
 
-            _binding.HelperHost.Receiver.HandleOscMessage(
-                FloatMessage(OscAddressFormatter.VRChatParameterPrefix + Blink, 0.75f, timestamp));
-            _binding.HelperHost.Receiver.HandleOscMessage(
-                FloatMessage(OscAddressFormatter.VRChatParameterPrefix + GazeExpressionId + "X", 0.4f, timestamp));
-            _binding.HelperHost.Receiver.HandleOscMessage(
-                FloatMessage(OscAddressFormatter.VRChatParameterPrefix + GazeExpressionId + "Y", -0.6f, timestamp));
+            receiver.HandleOscMessage(OscIndexedFrameMessages.Values(
+                OscIndexedFrameMessages.LayoutVersion, 1, timestamp, 0.75f, 0.4f, -0.6f));
             _binding.OnFixedTick(0.02f);
 
             AssertBlendShapes(new[] { 0f, 0f });
@@ -89,28 +94,7 @@ namespace Hidano.FacialControl.Tests.PlayMode.Integration
                 Port = AllocatePort(),
                 StalenessSeconds = 0f,
                 BundleMode = BundleInterpretationMode.AtomicSwap,
-                BundleAccumulationTimeoutMs = 5f,
-                Mappings = new List<OscMappingEntry>
-                {
-                    CreateBlendShapeEntry(Smile),
-                    CreateBlendShapeEntry(Blink),
-                    new OscMappingEntry
-                    {
-                        mode = OscMappingMode.Gaze_VRChat_XY,
-                        expressionId = GazeExpressionId,
-                        addressPattern = OscAddressFormatter.VRChatParameterPrefix + GazeExpressionId
-                    }
-                }
-            };
-        }
-
-        private static OscMappingEntry CreateBlendShapeEntry(string name)
-        {
-            return new OscMappingEntry
-            {
-                mode = OscMappingMode.Normal_BlendShape,
-                expressionId = name,
-                addressPattern = OscAddressFormatter.VRChatParameterPrefix + name
+                BundleAccumulationTimeoutMs = 5f
             };
         }
 
@@ -120,7 +104,7 @@ namespace Hidano.FacialControl.Tests.PlayMode.Integration
         {
             return new AdapterBuildContext(
                 new FacialProfile("2.0.0"),
-                Array.Empty<string>(),
+                new[] { Smile, Blink },
                 registry,
                 new FacialOutputBus(),
                 timeProvider,
@@ -154,23 +138,6 @@ namespace Hidano.FacialControl.Tests.PlayMode.Integration
             Assert.That(gaze.TryReadVector2(out float x, out float y), Is.True);
             Assert.That(x, Is.EqualTo(expectedX).Within(1e-6f));
             Assert.That(y, Is.EqualTo(expectedY).Within(1e-6f));
-        }
-
-        private static uOSC.Message SenderMessage(SenderIdentity identity, ulong timestamp)
-        {
-            var message = new uOSC.Message(
-                OscReceiverAdapterBinding.SenderIdentityAddress,
-                identity.SenderId.ToByteArray(),
-                identity.StartedAtUnixMs);
-            message.timestamp = new uOSC.Timestamp(timestamp);
-            return message;
-        }
-
-        private static uOSC.Message FloatMessage(string address, float value, ulong timestamp)
-        {
-            var message = new uOSC.Message(address, value);
-            message.timestamp = new uOSC.Timestamp(timestamp);
-            return message;
         }
 
         private static int AllocatePort()

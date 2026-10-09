@@ -87,7 +87,9 @@ namespace Hidano.FacialControl.Tests.PlayMode.Integration
             yield return new WaitForSecondsRealtime(0.2f);
 
             receiver.OnFixedTick(0.02f);
-            AssertBlendShape(receiver, expected: 0f, tolerance: 1e-6f);
+            // 値フレームが 1 通も届かないので対応表も適用されず、受信値は書き込まれない。
+            Assert.That(receiver.ActiveLayoutVersion, Is.EqualTo(OscFrameLayoutVersion.Unknown));
+            Assert.That(TryReadBlendShape(receiver, out _), Is.False);
         }
 
         [UnityTest]
@@ -133,16 +135,7 @@ namespace Hidano.FacialControl.Tests.PlayMode.Integration
                 Slug = ReceiverSlug,
                 BundleMode = BundleInterpretationMode.IndividualMessage
             };
-            receiver.Configure(
-                Endpoint,
-                port,
-                new[]
-                {
-                    new OscMapping(
-                        OscAddressFormatter.VRChatParameterPrefix + BlendShapeName,
-                        BlendShapeName,
-                        string.Empty)
-                });
+            receiver.Port = port;
             return receiver;
         }
 
@@ -186,15 +179,6 @@ namespace Hidano.FacialControl.Tests.PlayMode.Integration
             var gameObject = new GameObject(name);
             _gameObjects.Add(gameObject);
             return gameObject;
-        }
-
-        private static void AssertBlendShape(
-            OscReceiverAdapterBinding receiver,
-            float expected,
-            float tolerance)
-        {
-            Assert.That(TryReadBlendShape(receiver, out float actual), Is.True);
-            Assert.That(actual, Is.EqualTo(expected).Within(tolerance));
         }
 
         private static bool TryReadBlendShape(OscReceiverAdapterBinding receiver, out float value)
