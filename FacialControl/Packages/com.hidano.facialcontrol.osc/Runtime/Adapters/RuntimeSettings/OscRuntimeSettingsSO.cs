@@ -130,7 +130,7 @@ namespace Hidano.FacialControl.Adapters.RuntimeSettings
                 OscSenderEndpointConfig src = value[i];
                 _endpoints.Add(src == null
                     ? null
-                    : new OscSenderEndpointConfig(src.endpoint, src.port, src.enabled, src.preset));
+                    : new OscSenderEndpointConfig(src.endpoint, src.port, src.enabled));
             }
         }
 
@@ -236,7 +236,7 @@ namespace Hidano.FacialControl.Adapters.RuntimeSettings
             {
                 OscSenderEndpointConfig src = source[i];
                 array[i] = src != null
-                    ? new OscSenderEndpointConfig(src.endpoint, src.port, src.enabled, src.preset)
+                    ? new OscSenderEndpointConfig(src.endpoint, src.port, src.enabled)
                     : new OscSenderEndpointConfig();
             }
             return array;

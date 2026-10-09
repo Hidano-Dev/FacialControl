@@ -120,9 +120,7 @@ namespace Hidano.FacialControl.Osc.Tests.EditMode.Adapters.AdapterBindings
             Assert.That(sender.Endpoints[0].endpoint, Is.EqualTo("192.168.1.20"));
             Assert.That(sender.Endpoints[0].port, Is.EqualTo(9000));
             Assert.That(sender.Endpoints[0].enabled, Is.True);
-            Assert.That(sender.Endpoints[0].preset, Is.EqualTo(AddressPresetKind.VRChat));
             Assert.That(sender.Endpoints[1].enabled, Is.False);
-            Assert.That(sender.Endpoints[1].preset, Is.EqualTo(AddressPresetKind.ARKit));
             Assert.That(sender.AdvancedSettings, Is.Not.Null);
             Assert.That(sender.AdvancedSettings.HeartbeatIntervalSeconds, Is.EqualTo(2f));
         }

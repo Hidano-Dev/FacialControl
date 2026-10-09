@@ -1,6 +1,6 @@
 # FacialControl OSC
 
-`com.hidano.facialcontrol` の OSC 送受信アダプタ。VRChat / ARKit（PerfectSync）互換のアドレスで BlendShape と Gaze を送受信し、FacialControl 同士なら heartbeat による自動マッピングで mapping の手入力なしに繋がる。
+`com.hidano.facialcontrol` の OSC 送受信アダプタ。FacialControl 同士の独自プロトコル（送信元識別 + 対応表バージョン付きの値の配列）で BlendShape と Gaze を送受信する。対応表は受信側の要求に応じて送るので、mapping の手入力なしに繋がる。受信側には外部の送信元向けの名前つきアドレス（VRChat / ARKit 形式）の手動 mapping も残っている（廃止予定）。
 
 ## 依存パッケージ
 
@@ -22,7 +22,7 @@
 ## 使い方
 
 1. `FacialCharacterProfileSO` の **Adapter Bindings** で **OSC Receiver** / **OSC Sender** を Add する
-2. Receiver は **受信ポート**（既定 9001。受信は常に全インターフェース）、Sender は **送信先**（既定 `127.0.0.1:9000` の 1 件。複数指定可、宛先ごとに有効 / プリセット VRChat・ARKit を選べる）を設定する
+2. Receiver は **受信ポート**（既定 9001。受信は常に全インターフェース）、Sender は **送信先**（既定 `127.0.0.1:9000` の 1 件。複数指定可、宛先ごとに有効 / 無効を選べる）を設定する
    - 上級設定を変えたい場合だけ、**Create → FacialControl → Adapter Runtime Settings Collection** に **Add → OscReceiverRuntimeSettingsSO** / **OscSenderRuntimeSettingsSO** で sub-asset を追加し、binding の **上級設定** に割り当てる
 3. Receiver の **対象レイヤー** で、受信値を足す既存レイヤーを選ぶ（未指定ならプロファイルの先頭レイヤー）。レイヤーの入力源を手で編集する必要はない（起動時の補い方は「受信の動作」）
 4. Gaze を受信する場合は Profile の目線タブでチャネル `gaze` の入力ソースに Receiver を選ぶ。送信側が FacialControl なら手動 mapping は不要
@@ -40,9 +40,11 @@
 | アドレス | 内容 |
 |---|---|
 | `/_facialcontrol/sender_id` | 送信元識別（UUID + 起動時刻）。毎 bundle に同梱。受信側は最新起動の sender だけを採用しゾンビ送信元を排除 |
-| `/_facialcontrol/blendshape_names` | heartbeat。送信側が持つ BlendShape 名一覧。起動時と `heartbeatIntervalSeconds`（既定 5 秒）周期 |
-| `/_facialcontrol/preset` | `"vrchat"` / `"arkit"` のプリセット通知（Sender の Send Preset Address が ON のとき） |
-| `/_facialcontrol/gaze` | Gaze 広告。チャネル id と形式（`VRChat_XY` / `ARKit_8BS`）の組に続けて、チャネルごとの属性ペア（`bone.left=<path>` / `bone.right=<path>` / `range=<上>,<下>,<外>,<内>`）を同梱 |
+| `/_facialcontrol/values` | 値フレーム `[対応表のバージョン, offset, 値...]`。毎フレーム。slot は BlendShape → gaze チャネルごとの X / Y |
+| `/_facialcontrol/layout_request` / `/_facialcontrol/layout` | 受信側が未知のバージョンを見たら送信側へ要求し、送信側が要求元へ対応表（BlendShape 名・gaze チャネルと目ボーン path・可動範囲）を返す |
+| `/_facialcontrol/blendshape_names` | 旧形式の heartbeat。受信側だけが解釈する（送信側は送らない。廃止予定） |
+| `/_facialcontrol/preset` | 旧形式のプリセット通知。受信側だけが解釈する（送信側は送らない。廃止予定） |
+| `/_facialcontrol/gaze` | 旧形式の Gaze 広告（受信側だけが解釈する。送信側は送らず、同じ属性を対応表の gaze チャネルに載せる。廃止予定）。チャネル id と形式（`VRChat_XY` / `ARKit_8BS`）の組に続けて、チャネルごとの属性ペア（`bone.left=<path>` / `bone.right=<path>` / `range=<上>,<下>,<外>,<内>`）を同梱 |
 
 `/_facialcontrol/gaze` の引数は `[channelId, value, ...]` の文字列ペアの並び。value が形式識別子のペアは自動 route を、`key=value` 形式のペアはそのチャネルの目線設定を表す。
 
@@ -54,7 +56,7 @@
 - 送信側はチャネルごとに path → `range=` の順で並べる。受信側は `range=` が届いた時点でそのチャネルの属性を確定する。MTU 分割された広告の途中で、上書きが一時的に消えることはない
 - 上書きを使うのは、そのチャネルを実際に駆動している OSC Receiver の分だけ。別の binding（InputSystem 等）が駆動するチャネルには適用しない
 - 上書き path のボーンの rest 回転・軸は、受信側 FacialController の初期化時の姿勢から導出する
-- 属性ペアの解析は広告の中身が変わったときだけ行い、上書きが変わったときだけ目ボーン provider を作り直す（毎フレームのヒープ確保は増えない）。送信側は heartbeat ごとに目線タブの変化を確かめ、変わっていれば広告を組み直す
+- 属性ペアの解析は広告の中身が変わったときだけ行い、上書きが変わったときだけ目ボーン provider を作り直す（毎フレームのヒープ確保は増えない）。送信側は heartbeat 間隔ごとに目線タブの変化を確かめ、変わっていれば対応表を別のバージョンで作り直す
 - 一度受け取った上書きは、送信元が別のアプリに替わっても受信側の再初期化まで残る（自動 route と同じ扱い）
 - 属性ペアを知らない旧バージョンの受信側は、未知の形式として警告 1 回でスキップする
 
@@ -77,7 +79,7 @@
 
 ## 送信の動作
 
-- `FacialOutputBus` を購読し、`OnLateTick` で 1 フレーム 1 bundle を送る。MTU（1472 byte）を超える場合は同一タイムスタンプの複数 bundle に分割
+- `FacialOutputBus` を購読し、`OnLateTick` で 1 フレーム 1 bundle（`/_facialcontrol/sender_id` + 値フレーム `/_facialcontrol/values`）を送る。MTU（1472 byte）を超える場合は同一タイムスタンプの複数 bundle に分割。対応表は受信側の要求に応じて返す。送信先ごとのアドレス形式（プリセット）は無い
 - 送信対象の BlendShape は既定でモデルの全 BlendShape。**BlendShape Names (Optional Filter)** に列挙すると絞り込める
 - Gaze は Profile の目線タブに宣言されたチャネルが `FacialController` から自動注入される。Inspector で個別指定する項目はない
 - **Suppress Loopback**（既定 ON）: 同じ Profile 内の OSC Receiver と同じ endpoint への送信を抑止する。同一プロセスで送受信デモを同居させるときは OFF にする
@@ -87,8 +89,8 @@
 
 | Sample | 内容 |
 |---|---|
-| `OscOutputDemo` | sin 波のデモ信号を BlendShape / Gaze として合成し、VRChat（9000）と ARKit（9001）の 2 endpoint へ送信 |
-| `OscReceiverDemo` | 9000 で受信し、heartbeat 自動マッピングでモデルへ反映。Gaze は広告から自動 route |
+| `OscOutputDemo` | sin 波のデモ信号を BlendShape / Gaze として合成し、9000 と 9001 の 2 endpoint へ値フレームで送信 |
+| `OscReceiverDemo` | 9000 で受信し、値フレームの対応表でモデルへ反映。Gaze も対応表から自動 route |
 
 ## JSON リファレンス
 

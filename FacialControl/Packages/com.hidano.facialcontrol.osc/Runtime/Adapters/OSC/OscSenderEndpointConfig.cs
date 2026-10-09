@@ -11,7 +11,6 @@ namespace Hidano.FacialControl.Adapters.OSC
         public string endpoint = DefaultEndpoint;
         public int port = OscConfiguration.DefaultSendPort;
         public bool enabled = true;
-        public AddressPresetKind preset = AddressPresetKind.VRChat;
 
         public OscSenderEndpointConfig()
         {
@@ -20,13 +19,11 @@ namespace Hidano.FacialControl.Adapters.OSC
         public OscSenderEndpointConfig(
             string endpoint,
             int port,
-            bool enabled = true,
-            AddressPresetKind preset = AddressPresetKind.VRChat)
+            bool enabled = true)
         {
             this.endpoint = endpoint ?? string.Empty;
             this.port = port;
             this.enabled = enabled;
-            this.preset = preset;
         }
     }
 }

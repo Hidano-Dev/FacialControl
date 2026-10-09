@@ -15,12 +15,12 @@
 
 ## 送信される内容
 
-- VRChat 形式 endpoint `127.0.0.1:9000`: `/avatar/parameters/{BlendShape 名}` と `/avatar/parameters/gazeX` / `gazeY`
-- ARKit 形式 endpoint `127.0.0.1:9001`: `/ARKit/{BlendShape 名}` と `eyeLook*` 8 アドレス
+- endpoint `127.0.0.1:9000` と `127.0.0.1:9001` の両方へ同じ内容を送る
+- 毎フレーム `/_facialcontrol/sender_id` と値フレーム `/_facialcontrol/values`（BlendShape → gaze の X / Y の順に並べた値の配列）
+- 対応表（BlendShape 名・gaze チャネル）は受信側の要求に応じて返す。BlendShape 名に 2 バイト文字や独自名があってもそのまま届く
 - BlendShape はモデルの全 BlendShape（binding の **BlendShape Names (Optional Filter)** が空のため）
 - Gaze は Profile の目線タブに宣言された既定チャネル `gaze`
-- heartbeat `/_facialcontrol/blendshape_names`（5 秒周期）、`/_facialcontrol/preset`、`/_facialcontrol/gaze` 広告、`/_facialcontrol/sender_id` を同梱
-- Gaze 広告には目線タブの可動範囲と、指定されていれば目ボーン path を載せる。受信側はこれを自分の目線タブより優先するので、Humanoid 以外のモデルでも目線タブの設定は送信側だけでよい
+- 対応表の gaze チャネルには目線タブの可動範囲と、指定されていれば目ボーン path を載せる。受信側はこれを自分の目線タブより優先するので、Humanoid 以外のモデルでも目線タブの設定は送信側だけでよい
 - loopback 抑制 ON
 
 ## 手順
@@ -28,12 +28,12 @@
 1. `OscOutputDemo.unity` を開く
 2. お手持ちのモデル prefab を Hierarchy の **`Character` の子** に配置する。`FacialController` が子の `SkinnedMeshRenderer` を自動探索する
 3. 送信先を変えるときは `OscOutputDemoProfile.asset` の **OSC Sender → 送信先** を編集する
-4. Play。受信側で `/avatar/parameters/...` または `/ARKit/...` が届くことを確認する
+4. Play。`OscReceiverDemo`（別プロセス、受信ポートを送信先に合わせる）で表情が再現されることを確認する
 
 ## 補足
 
 - 一部の BlendShape だけ送りたい場合は `OscOutputDemoProfile.asset` の **OSC Sender → BlendShape Names (Optional Filter)** に名前を列挙する
 - heartbeat 間隔と loopback 抑制は既定値のまま（上級設定アセットは割り当てていない）。変えたい場合は `AdapterRuntimeSettingsCollection` に `OscSenderRuntimeSettingsSO` を追加し、**OSC Sender → 上級設定** に割り当てる
 - 同一プロセスで `OscReceiverDemo` も動かす場合は、上記の上級設定アセットで **Suppress Loopback** を OFF にする
-- 受信側の自動マッピングは heartbeat 到着後に成立する。最初の数フレームは反映されない
+- 受信側は対応表を受け取ってから値を反映する。最初の数フレームは反映されない
 - デモ信号 binding は動作確認専用。実運用では Input System / iFacialMocap などの入力源 binding に差し替える

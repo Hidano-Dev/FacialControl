@@ -81,7 +81,7 @@ namespace Hidano.FacialControl.Tests.PlayMode.Performance
                 HeartbeatIntervalSeconds = 60f,
             };
             _sender.ConfigureEndpoints(
-                new[] { new OscSenderEndpointConfig("127.0.0.1", receiver.ActivePort, preset: AddressPresetKind.VRChat) },
+                new[] { new OscSenderEndpointConfig("127.0.0.1", receiver.ActivePort) },
                 names);
             _sender.ConfigureGazeChannels(new[] { GazeChannelId });
             _sender.OnStart(new AdapterBuildContext(
