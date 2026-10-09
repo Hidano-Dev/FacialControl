@@ -43,9 +43,6 @@ namespace Hidano.FacialControl.Adapters.OSC
         private const int DefaultPacketCapacity = 64;
         private const int FloatMessageTypeCount = 1;
         private const int SenderIdentityMessageTypeCount = 2;
-        private const int PresetBaseMessageTypeCount = 1;
-        private const int PresetCustomMessageTypeCount = 2;
-        private const string PresetCustom = "custom";
         private const byte TypeBlob = (byte)'b';
         private const byte TypeFloat = (byte)'f';
         private const byte TypeString = (byte)'s';
@@ -196,139 +193,6 @@ namespace Hidano.FacialControl.Adapters.OSC
             float[] floatValues,
             int floatCount)
         {
-            return BuildFrameBundle(
-                timestamp,
-                senderIdentityAddressUtf8,
-                senderUuidBytes,
-                startedAtUnixMs,
-                floatAddressUtf8,
-                floatValues,
-                floatCount,
-                heartbeatAddressUtf8: null,
-                heartbeatNames: null,
-                heartbeatNameCount: 0);
-        }
-
-        public int BuildFrameBundle(
-            ulong timestamp,
-            byte[] senderIdentityAddressUtf8,
-            byte[] senderUuidBytes,
-            string startedAtUnixMs,
-            byte[][] floatAddressUtf8,
-            float[] floatValues,
-            int floatCount,
-            byte[] heartbeatAddressUtf8,
-            string[] heartbeatNames,
-            int heartbeatNameCount,
-            byte[] presetAddressUtf8,
-            string presetName,
-            string customPrefix)
-        {
-            return BuildFrameBundleCore(
-                timestamp,
-                senderIdentityAddressUtf8,
-                senderUuidBytes,
-                startedAtUnixMs,
-                floatAddressUtf8,
-                floatValues,
-                floatCount,
-                heartbeatAddressUtf8,
-                heartbeatNames,
-                heartbeatNameCount,
-                presetAddressUtf8,
-                presetName,
-                customPrefix,
-                gazeAdvertisementAddressUtf8: null,
-                gazeAdvertisementPairs: null,
-                gazeAdvertisementPairCount: 0);
-        }
-
-        public int BuildFrameBundle(
-            ulong timestamp,
-            byte[] senderIdentityAddressUtf8,
-            byte[] senderUuidBytes,
-            string startedAtUnixMs,
-            byte[][] floatAddressUtf8,
-            float[] floatValues,
-            int floatCount,
-            byte[] heartbeatAddressUtf8,
-            string[] heartbeatNames,
-            int heartbeatNameCount,
-            byte[] presetAddressUtf8,
-            string presetName,
-            string customPrefix,
-            byte[] gazeAdvertisementAddressUtf8,
-            string[] gazeAdvertisementPairs,
-            int gazeAdvertisementPairCount)
-        {
-            return BuildFrameBundleCore(
-                timestamp,
-                senderIdentityAddressUtf8,
-                senderUuidBytes,
-                startedAtUnixMs,
-                floatAddressUtf8,
-                floatValues,
-                floatCount,
-                heartbeatAddressUtf8,
-                heartbeatNames,
-                heartbeatNameCount,
-                presetAddressUtf8,
-                presetName,
-                customPrefix,
-                gazeAdvertisementAddressUtf8,
-                gazeAdvertisementPairs,
-                gazeAdvertisementPairCount);
-        }
-
-        public int BuildFrameBundle(
-            ulong timestamp,
-            byte[] senderIdentityAddressUtf8,
-            byte[] senderUuidBytes,
-            string startedAtUnixMs,
-            byte[][] floatAddressUtf8,
-            float[] floatValues,
-            int floatCount,
-            byte[] heartbeatAddressUtf8,
-            string[] heartbeatNames,
-            int heartbeatNameCount)
-        {
-            return BuildFrameBundleCore(
-                timestamp,
-                senderIdentityAddressUtf8,
-                senderUuidBytes,
-                startedAtUnixMs,
-                floatAddressUtf8,
-                floatValues,
-                floatCount,
-                heartbeatAddressUtf8,
-                heartbeatNames,
-                heartbeatNameCount,
-                presetAddressUtf8: null,
-                presetName: null,
-                customPrefix: null,
-                gazeAdvertisementAddressUtf8: null,
-                gazeAdvertisementPairs: null,
-                gazeAdvertisementPairCount: 0);
-        }
-
-        private int BuildFrameBundleCore(
-            ulong timestamp,
-            byte[] senderIdentityAddressUtf8,
-            byte[] senderUuidBytes,
-            string startedAtUnixMs,
-            byte[][] floatAddressUtf8,
-            float[] floatValues,
-            int floatCount,
-            byte[] heartbeatAddressUtf8,
-            string[] heartbeatNames,
-            int heartbeatNameCount,
-            byte[] presetAddressUtf8,
-            string presetName,
-            string customPrefix,
-            byte[] gazeAdvertisementAddressUtf8,
-            string[] gazeAdvertisementPairs,
-            int gazeAdvertisementPairCount)
-        {
             ThrowIfDisposed();
             ValidateAddress(senderIdentityAddressUtf8, nameof(senderIdentityAddressUtf8));
 
@@ -357,73 +221,6 @@ namespace Hidano.FacialControl.Adapters.OSC
                 throw new ArgumentOutOfRangeException(nameof(floatCount));
             }
 
-            bool includeHeartbeat = heartbeatAddressUtf8 != null;
-            if (includeHeartbeat)
-            {
-                ValidateAddress(heartbeatAddressUtf8, nameof(heartbeatAddressUtf8));
-
-                if (heartbeatNames == null)
-                {
-                    throw new ArgumentNullException(nameof(heartbeatNames));
-                }
-
-                if (heartbeatNameCount < 0 || heartbeatNameCount > heartbeatNames.Length)
-                {
-                    throw new ArgumentOutOfRangeException(nameof(heartbeatNameCount));
-                }
-            }
-            else if (heartbeatNames != null || heartbeatNameCount != 0)
-            {
-                throw new ArgumentException(
-                    "Heartbeat address must be provided when heartbeat names are provided.",
-                    nameof(heartbeatAddressUtf8));
-            }
-
-            bool includePreset = presetAddressUtf8 != null;
-            if (includePreset)
-            {
-                ValidateAddress(presetAddressUtf8, nameof(presetAddressUtf8));
-                ValidatePresetName(presetName, nameof(presetName));
-            }
-            else if (presetName != null || customPrefix != null)
-            {
-                throw new ArgumentException(
-                    "Preset address must be provided when preset payload is provided.",
-                    nameof(presetAddressUtf8));
-            }
-
-            bool includeGazeAdvertisement = gazeAdvertisementAddressUtf8 != null;
-            if (includeGazeAdvertisement)
-            {
-                ValidateAddress(gazeAdvertisementAddressUtf8, nameof(gazeAdvertisementAddressUtf8));
-                if (gazeAdvertisementPairs == null)
-                {
-                    throw new ArgumentNullException(nameof(gazeAdvertisementPairs));
-                }
-
-                if (gazeAdvertisementPairCount < 0 ||
-                    gazeAdvertisementPairCount > gazeAdvertisementPairs.Length / 2)
-                {
-                    throw new ArgumentOutOfRangeException(nameof(gazeAdvertisementPairCount));
-                }
-
-                for (int i = 0; i < gazeAdvertisementPairCount * 2; i++)
-                {
-                    if (string.IsNullOrEmpty(gazeAdvertisementPairs[i]))
-                    {
-                        throw new ArgumentException(
-                            "Gaze advertisement pairs must contain non-empty strings.",
-                            nameof(gazeAdvertisementPairs));
-                    }
-                }
-            }
-            else if (gazeAdvertisementPairs != null || gazeAdvertisementPairCount != 0)
-            {
-                throw new ArgumentException(
-                    "Gaze advertisement address must be provided when advertisement pairs are provided.",
-                    nameof(gazeAdvertisementAddressUtf8));
-            }
-
             ResetBuildState();
             SetFrameSplitSenderIdentity(senderIdentityAddressUtf8, senderUuidBytes, startedAtUnixMs);
             try
@@ -436,25 +233,6 @@ namespace Hidano.FacialControl.Adapters.OSC
                     byte[] address = floatAddressUtf8[i];
                     ValidateAddress(address, nameof(floatAddressUtf8));
                     AddFloatMessage(timestamp, address, floatValues[i]);
-                }
-
-                if (includeHeartbeat)
-                {
-                    AddHeartbeatMessages(timestamp, heartbeatAddressUtf8, heartbeatNames, heartbeatNameCount);
-                }
-
-                if (includePreset)
-                {
-                    AddPresetMessage(timestamp, presetAddressUtf8, presetName, customPrefix);
-                }
-
-                if (includeGazeAdvertisement && gazeAdvertisementPairCount > 0)
-                {
-                    AddGazeAdvertisementMessages(
-                        timestamp,
-                        gazeAdvertisementAddressUtf8,
-                        gazeAdvertisementPairs,
-                        gazeAdvertisementPairCount);
                 }
 
                 LogMtuSplitIfNeeded();
@@ -543,201 +321,6 @@ namespace Hidano.FacialControl.Adapters.OSC
             return _packetCount;
         }
 
-        public int BuildHeartbeatBundle(
-            ulong timestamp,
-            byte[] addressUtf8,
-            ReadOnlySpan<string> names)
-        {
-            return BuildHeartbeatBundle(
-                timestamp,
-                addressUtf8,
-                names,
-                presetAddressUtf8: null,
-                presetName: null,
-                customPrefix: null);
-        }
-
-        public int BuildHeartbeatBundle(
-            ulong timestamp,
-            byte[] addressUtf8,
-            ReadOnlySpan<string> names,
-            byte[] presetAddressUtf8,
-            string presetName,
-            string customPrefix)
-        {
-            ThrowIfDisposed();
-            ValidateAddress(addressUtf8, nameof(addressUtf8));
-            bool includePreset = presetAddressUtf8 != null;
-            if (includePreset)
-            {
-                ValidateAddress(presetAddressUtf8, nameof(presetAddressUtf8));
-                ValidatePresetName(presetName, nameof(presetName));
-            }
-            else if (presetName != null || customPrefix != null)
-            {
-                throw new ArgumentException(
-                    "Preset address must be provided when preset payload is provided.",
-                    nameof(presetAddressUtf8));
-            }
-
-            ResetBuildState();
-            BeginPacket(timestamp);
-
-            if (names.Length == 0)
-            {
-                AddStringMessage(timestamp, addressUtf8, ReadOnlySpan<string>.Empty);
-                if (includePreset)
-                {
-                    AddPresetMessage(timestamp, presetAddressUtf8, presetName, customPrefix);
-                }
-
-                LogMtuSplitIfNeeded();
-                return _packetCount;
-            }
-
-            int index = 0;
-            while (index < names.Length)
-            {
-                int chunkCount = GetFittingStringChunkCount(addressUtf8.Length, names, index);
-                if (chunkCount <= 0)
-                {
-                    throw new InvalidOperationException(
-                        "A single OSC heartbeat string message exceeds the configured packet size.");
-                }
-
-                ReadOnlySpan<string> chunk = names.Slice(index, chunkCount);
-                AddStringMessage(timestamp, addressUtf8, chunk);
-                index += chunkCount;
-            }
-
-            if (includePreset)
-            {
-                AddPresetMessage(timestamp, presetAddressUtf8, presetName, customPrefix);
-            }
-
-            LogMtuSplitIfNeeded();
-            return _packetCount;
-        }
-
-        public int BuildHeartbeatBundle(
-            ulong timestamp,
-            byte[] addressUtf8,
-            string[] names,
-            int count)
-        {
-            if (names == null)
-            {
-                throw new ArgumentNullException(nameof(names));
-            }
-
-            if (count < 0 || count > names.Length)
-            {
-                throw new ArgumentOutOfRangeException(nameof(count));
-            }
-
-            return BuildHeartbeatBundle(timestamp, addressUtf8, new ReadOnlySpan<string>(names, 0, count));
-        }
-
-        public int BuildHeartbeatBundle(
-            ulong timestamp,
-            byte[] addressUtf8,
-            string[] names,
-            int count,
-            byte[] presetAddressUtf8,
-            string presetName,
-            string customPrefix)
-        {
-            if (names == null)
-            {
-                throw new ArgumentNullException(nameof(names));
-            }
-
-            if (count < 0 || count > names.Length)
-            {
-                throw new ArgumentOutOfRangeException(nameof(count));
-            }
-
-            return BuildHeartbeatBundle(
-                timestamp,
-                addressUtf8,
-                new ReadOnlySpan<string>(names, 0, count),
-                presetAddressUtf8,
-                presetName,
-                customPrefix);
-        }
-
-        public int BuildPresetBundle(
-            ulong timestamp,
-            byte[] presetAddressUtf8,
-            string presetName,
-            string customPrefix)
-        {
-            ThrowIfDisposed();
-            ValidateAddress(presetAddressUtf8, nameof(presetAddressUtf8));
-            ValidatePresetName(presetName, nameof(presetName));
-
-            ResetBuildState();
-            BeginPacket(timestamp);
-            AddPresetMessage(timestamp, presetAddressUtf8, presetName, customPrefix);
-            return _packetCount;
-        }
-
-        private void AddHeartbeatMessages(
-            ulong timestamp,
-            byte[] addressUtf8,
-            string[] names,
-            int count)
-        {
-            if (count == 0)
-            {
-                AddStringMessage(timestamp, addressUtf8, ReadOnlySpan<string>.Empty);
-                return;
-            }
-
-            ReadOnlySpan<string> nameSpan = new ReadOnlySpan<string>(names, 0, count);
-            int index = 0;
-            while (index < nameSpan.Length)
-            {
-                int chunkCount = GetFittingStringChunkCount(addressUtf8.Length, nameSpan, index);
-                if (chunkCount <= 0)
-                {
-                    throw new InvalidOperationException(
-                        "A single OSC heartbeat string message exceeds the configured packet size.");
-                }
-
-                AddStringMessage(timestamp, addressUtf8, nameSpan.Slice(index, chunkCount));
-                index += chunkCount;
-            }
-        }
-
-        private void AddGazeAdvertisementMessages(
-            ulong timestamp,
-            byte[] addressUtf8,
-            string[] pairs,
-            int pairCount)
-        {
-            ReadOnlySpan<string> pairSpan = new ReadOnlySpan<string>(pairs, 0, pairCount * 2);
-            int index = 0;
-            while (index < pairSpan.Length)
-            {
-                int chunkPairCount = GetFittingGazeAdvertisementPairCount(
-                    addressUtf8.Length,
-                    pairSpan,
-                    index);
-                if (chunkPairCount <= 0)
-                {
-                    throw new InvalidOperationException(
-                        "A single OSC gaze advertisement pair message exceeds the configured packet size.");
-                }
-
-                AddStringMessage(
-                    timestamp,
-                    addressUtf8,
-                    pairSpan.Slice(index, chunkPairCount * 2));
-                index += chunkPairCount * 2;
-            }
-        }
-
         public void Dispose()
         {
             if (_disposed)
@@ -812,27 +395,6 @@ namespace Hidano.FacialControl.Adapters.OSC
                 offset,
                 values);
             _lengths[packetIndex] = messageStart + written;
-            CompleteMessage(packetIndex, messageStart, messageSize);
-        }
-
-        private void AddStringMessage(ulong timestamp, byte[] addressUtf8, ReadOnlySpan<string> values)
-        {
-            int messageSize = GetStringMessageSize(addressUtf8.Length, values);
-            BeginMessage(timestamp, messageSize, out int packetIndex, out int messageStart);
-            WriteStringMessage(packetIndex, addressUtf8, values);
-            CompleteMessage(packetIndex, messageStart, messageSize);
-        }
-
-        private void AddPresetMessage(
-            ulong timestamp,
-            byte[] presetAddressUtf8,
-            string presetName,
-            string customPrefix)
-        {
-            bool includeCustomPrefix = ShouldIncludeCustomPrefix(presetName, customPrefix);
-            int messageSize = GetPresetMessageSize(presetAddressUtf8.Length, presetName, includeCustomPrefix, customPrefix);
-            BeginMessage(timestamp, messageSize, out int packetIndex, out int messageStart);
-            WritePresetMessage(packetIndex, presetAddressUtf8, presetName, includeCustomPrefix, customPrefix);
             CompleteMessage(packetIndex, messageStart, messageSize);
         }
 
@@ -921,115 +483,6 @@ namespace Hidano.FacialControl.Adapters.OSC
             _lengths[packetIndex] = offset;
         }
 
-        private void WriteStringMessage(int packetIndex, byte[] addressUtf8, ReadOnlySpan<string> values)
-        {
-            byte[] buffer = _buffers[packetIndex];
-            int offset = _lengths[packetIndex];
-
-            WriteOscString(buffer, ref offset, addressUtf8);
-            WriteTypeTags(buffer, ref offset, TypeString, values.Length);
-            for (int i = 0; i < values.Length; i++)
-            {
-                WriteOscString(buffer, ref offset, values[i]);
-            }
-
-            _lengths[packetIndex] = offset;
-        }
-
-        private void WritePresetMessage(
-            int packetIndex,
-            byte[] presetAddressUtf8,
-            string presetName,
-            bool includeCustomPrefix,
-            string customPrefix)
-        {
-            byte[] buffer = _buffers[packetIndex];
-            int offset = _lengths[packetIndex];
-
-            WriteOscString(buffer, ref offset, presetAddressUtf8);
-            WriteTypeTags(
-                buffer,
-                ref offset,
-                TypeString,
-                includeCustomPrefix ? PresetCustomMessageTypeCount : PresetBaseMessageTypeCount);
-            WriteOscString(buffer, ref offset, presetName);
-            if (includeCustomPrefix)
-            {
-                WriteOscString(buffer, ref offset, customPrefix);
-            }
-
-            _lengths[packetIndex] = offset;
-        }
-
-        private int GetFittingStringChunkCount(
-            int addressByteCount,
-            ReadOnlySpan<string> values,
-            int startIndex)
-        {
-            int count = 0;
-            int stringsSize = 0;
-            int maxElementPayloadSize = _maxPacketSize
-                - BundleHeaderSize
-                - 4
-                - GetFrameSplitSenderIdentityElementSize();
-
-            for (int i = startIndex; i < values.Length; i++)
-            {
-                int nextStringSize = GetOscStringSize(GetUtf8ByteCount(values[i]));
-                int nextCount = count + 1;
-                int nextMessageSize =
-                    GetOscStringSize(addressByteCount) +
-                    GetOscStringSize(1 + nextCount) +
-                    stringsSize +
-                    nextStringSize;
-
-                if (nextMessageSize > maxElementPayloadSize)
-                {
-                    break;
-                }
-
-                stringsSize += nextStringSize;
-                count = nextCount;
-            }
-
-            return count;
-        }
-
-        private int GetFittingGazeAdvertisementPairCount(
-            int addressByteCount,
-            ReadOnlySpan<string> values,
-            int startIndex)
-        {
-            int pairCount = 0;
-            int stringsSize = 0;
-            int maxElementPayloadSize = _maxPacketSize
-                - BundleHeaderSize
-                - 4
-                - GetFrameSplitSenderIdentityElementSize();
-
-            for (int i = startIndex; i < values.Length; i += 2)
-            {
-                int nextPairCount = pairCount + 1;
-                int nextStringsSize = stringsSize
-                    + GetOscStringSize(GetUtf8ByteCount(values[i]))
-                    + GetOscStringSize(GetUtf8ByteCount(values[i + 1]));
-                int nextMessageSize =
-                    GetOscStringSize(addressByteCount)
-                    + GetOscStringSize(1 + (nextPairCount * 2))
-                    + nextStringsSize;
-
-                if (nextMessageSize > maxElementPayloadSize)
-                {
-                    break;
-                }
-
-                stringsSize = nextStringsSize;
-                pairCount = nextPairCount;
-            }
-
-            return pairCount;
-        }
-
         private void SetFrameSplitSenderIdentity(
             byte[] addressUtf8,
             byte[] senderUuidBytes,
@@ -1061,19 +514,6 @@ namespace Hidano.FacialControl.Adapters.OSC
                 _frameStartedAtUnixMs);
         }
 
-        private int GetFrameSplitSenderIdentityElementSize()
-        {
-            if (_frameSenderIdentityAddressUtf8 == null)
-            {
-                return 0;
-            }
-
-            return 4 + GetSenderIdentityMessageSize(
-                _frameSenderIdentityAddressUtf8.Length,
-                _frameSenderUuidBytes.Length,
-                _frameStartedAtUnixMs);
-        }
-
         private int GetFloatMessageSize(int addressByteCount)
         {
             return GetOscStringSize(addressByteCount)
@@ -1091,42 +531,6 @@ namespace Hidano.FacialControl.Adapters.OSC
                 + 4
                 + GetAlignedSize(senderUuidByteCount)
                 + GetOscStringSize(GetUtf8ByteCount(startedAtUnixMs));
-        }
-
-        private int GetStringMessageSize(int addressByteCount, ReadOnlySpan<string> values)
-        {
-            int size = GetOscStringSize(addressByteCount) + GetOscStringSize(1 + values.Length);
-            for (int i = 0; i < values.Length; i++)
-            {
-                size += GetOscStringSize(GetUtf8ByteCount(values[i]));
-            }
-
-            return size;
-        }
-
-        private int GetPresetMessageSize(
-            int addressByteCount,
-            string presetName,
-            bool includeCustomPrefix,
-            string customPrefix)
-        {
-            int typeCount = includeCustomPrefix ? PresetCustomMessageTypeCount : PresetBaseMessageTypeCount;
-            int size = GetOscStringSize(addressByteCount)
-                + GetOscStringSize(1 + typeCount)
-                + GetOscStringSize(GetUtf8ByteCount(presetName));
-
-            if (includeCustomPrefix)
-            {
-                size += GetOscStringSize(GetUtf8ByteCount(customPrefix));
-            }
-
-            return size;
-        }
-
-        private static bool ShouldIncludeCustomPrefix(string presetName, string customPrefix)
-        {
-            return customPrefix != null &&
-                string.Equals(presetName, PresetCustom, StringComparison.OrdinalIgnoreCase);
         }
 
         private static int GetOscStringSize(int utf8ByteCount)
@@ -1282,19 +686,6 @@ namespace Hidano.FacialControl.Adapters.OSC
             if (addressUtf8.Length == 0 || addressUtf8[0] != (byte)'/')
             {
                 throw new ArgumentException("OSC address must be a non-empty UTF-8 byte array starting with '/'.", paramName);
-            }
-        }
-
-        private static void ValidatePresetName(string presetName, string paramName)
-        {
-            if (presetName == null)
-            {
-                throw new ArgumentNullException(paramName);
-            }
-
-            if (presetName.Length == 0)
-            {
-                throw new ArgumentException("Preset name must be a non-empty string.", paramName);
             }
         }
 

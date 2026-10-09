@@ -37,7 +37,6 @@ namespace Hidano.FacialControl.Osc.Tests.EditMode.Adapters.RuntimeSettings
         {
             Assert.AreEqual(0f, _instance.StalenessSeconds);
             Assert.AreEqual(FailSafeMode.RevertToBase, _instance.FailSafeMode);
-            Assert.IsTrue(_instance.ConsistencyCheckWarnLog);
             Assert.AreEqual(BundleInterpretationMode.AtomicSwap, _instance.BundleMode);
             Assert.AreEqual(
                 OscReceiverRuntimeSettingsSO.DefaultBundleAccumulationTimeoutMs,
@@ -50,7 +49,7 @@ namespace Hidano.FacialControl.Osc.Tests.EditMode.Adapters.RuntimeSettings
         {
             _instance.FromJson(
                 "{\"label\":\"studio\",\"stalenessSeconds\":0.5,\"failSafeMode\":\"holdLastValue\","
-                + "\"consistencyCheckWarnLog\":false,\"bundleMode\":\"individualMessage\",\"bundleAccumulationTimeoutMs\":12.0}");
+                + "\"bundleMode\":\"individualMessage\",\"bundleAccumulationTimeoutMs\":12.0}");
 
             string json = _instance.ToJson();
             var restored = ScriptableObject.CreateInstance<OscReceiverRuntimeSettingsSO>();
@@ -61,7 +60,6 @@ namespace Hidano.FacialControl.Osc.Tests.EditMode.Adapters.RuntimeSettings
                 Assert.AreEqual("studio", restored.Label);
                 Assert.AreEqual(0.5f, restored.StalenessSeconds);
                 Assert.AreEqual(FailSafeMode.HoldLastValue, restored.FailSafeMode);
-                Assert.IsFalse(restored.ConsistencyCheckWarnLog);
                 Assert.AreEqual(BundleInterpretationMode.IndividualMessage, restored.BundleMode);
                 Assert.AreEqual(12f, restored.BundleAccumulationTimeoutMs);
                 Assert.IsFalse(restored.IsDefault);
@@ -73,13 +71,14 @@ namespace Hidano.FacialControl.Osc.Tests.EditMode.Adapters.RuntimeSettings
         }
 
         [Test]
-        public void ToJson_DoesNotContainListenEndpointPortOrEnabled()
+        public void ToJson_DoesNotContainListenEndpointPortEnabledOrConsistencyCheck()
         {
             string json = _instance.ToJson();
 
             StringAssert.DoesNotContain("listenEndpoint", json);
             StringAssert.DoesNotContain("listenPort", json);
             StringAssert.DoesNotContain("receiverEnabled", json);
+            StringAssert.DoesNotContain("consistencyCheckWarnLog", json);
         }
 
         [Test]
@@ -91,16 +90,6 @@ namespace Hidano.FacialControl.Osc.Tests.EditMode.Adapters.RuntimeSettings
             Assert.AreEqual(
                 OscReceiverRuntimeSettingsSO.DefaultBundleAccumulationTimeoutMs,
                 _instance.BundleAccumulationTimeoutMs);
-        }
-
-        [Test]
-        public void FromJson_ConsistencyCheckWarnLogKeyMissing_KeepsDefaultTrue()
-        {
-            _instance.FromJson("{\"consistencyCheckWarnLog\":false}");
-
-            _instance.FromJson("{\"stalenessSeconds\":0.5}");
-
-            Assert.IsTrue(_instance.ConsistencyCheckWarnLog);
         }
 
         [Test]
@@ -119,7 +108,6 @@ namespace Hidano.FacialControl.Osc.Tests.EditMode.Adapters.RuntimeSettings
                 Assert.AreEqual("old", created.Label);
                 Assert.AreEqual(1f, created.StalenessSeconds);
                 Assert.AreEqual(FailSafeMode.HoldLastValue, created.FailSafeMode);
-                Assert.IsFalse(created.ConsistencyCheckWarnLog);
                 Assert.AreEqual(BundleInterpretationMode.IndividualMessage, created.BundleMode);
                 Assert.AreEqual(8f, created.BundleAccumulationTimeoutMs);
             }

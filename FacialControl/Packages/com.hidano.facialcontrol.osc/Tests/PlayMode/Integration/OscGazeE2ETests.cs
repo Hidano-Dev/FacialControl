@@ -340,11 +340,11 @@ namespace Hidano.FacialControl.Tests.PlayMode.Integration
 
             Assert.That(receiver.GazeSources.Count, Is.EqualTo(1));
             GazeVector2InputSource original = receiver.GazeSources[0];
-            uint originalHash = receiver.LastGazeAdvertisementHash;
+            uint originalHash = receiver.LastGazeChannelHash;
 
             yield return SendGazeUntilProcessed(receiver, sender, ExpressionId);
 
-            Assert.That(receiver.LastGazeAdvertisementHash, Is.EqualTo(originalHash));
+            Assert.That(receiver.LastGazeChannelHash, Is.EqualTo(originalHash));
             Assert.That(receiver.GazeSources.Count, Is.EqualTo(1));
             Assert.That(receiver.GazeSources[0], Is.SameAs(original));
         }

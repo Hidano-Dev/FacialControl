@@ -30,9 +30,6 @@ namespace Hidano.FacialControl.Adapters.RuntimeSettings
         private FailSafeMode _failSafeMode = FailSafeMode.RevertToBase;
 
         [SerializeField]
-        private bool _consistencyCheckWarnLog = true;
-
-        [SerializeField]
         private BundleInterpretationMode _bundleMode = BundleInterpretationMode.AtomicSwap;
 
         [SerializeField]
@@ -42,8 +39,6 @@ namespace Hidano.FacialControl.Adapters.RuntimeSettings
 
         public FailSafeMode FailSafeMode => _failSafeMode;
 
-        public bool ConsistencyCheckWarnLog => _consistencyCheckWarnLog;
-
         public BundleInterpretationMode BundleMode => _bundleMode;
 
         public float BundleAccumulationTimeoutMs => _bundleAccumulationTimeoutMs;
@@ -52,7 +47,6 @@ namespace Hidano.FacialControl.Adapters.RuntimeSettings
         public bool IsDefault =>
             _stalenessSeconds == DefaultStalenessSeconds
             && _failSafeMode == FailSafeMode.RevertToBase
-            && _consistencyCheckWarnLog
             && _bundleMode == BundleInterpretationMode.AtomicSwap
             && _bundleAccumulationTimeoutMs == DefaultBundleAccumulationTimeoutMs;
 
@@ -60,7 +54,6 @@ namespace Hidano.FacialControl.Adapters.RuntimeSettings
         // 個別フィールドを更新するための write hook。通常運用では Inspector / FromJson 経由で値を反映する。
         internal void SetStalenessSeconds(float value) => _stalenessSeconds = value;
         internal void SetFailSafeMode(FailSafeMode value) => _failSafeMode = value;
-        internal void SetConsistencyCheckWarnLog(bool value) => _consistencyCheckWarnLog = value;
         internal void SetBundleMode(BundleInterpretationMode value) => _bundleMode = value;
         internal void SetBundleAccumulationTimeoutMs(float value) => _bundleAccumulationTimeoutMs = value;
 
@@ -78,7 +71,6 @@ namespace Hidano.FacialControl.Adapters.RuntimeSettings
                 created._label = legacy.Label ?? string.Empty;
                 created._stalenessSeconds = legacy.StalenessSeconds;
                 created._failSafeMode = legacy.FailSafeMode;
-                created._consistencyCheckWarnLog = legacy.ConsistencyCheckWarnLog;
                 created._bundleMode = legacy.BundleMode;
                 created._bundleAccumulationTimeoutMs = legacy.BundleAccumulationTimeoutMs;
             }
@@ -111,7 +103,6 @@ namespace Hidano.FacialControl.Adapters.RuntimeSettings
                 label = _label ?? string.Empty,
                 stalenessSeconds = _stalenessSeconds,
                 failSafeMode = ToFailSafeModeString(_failSafeMode),
-                consistencyCheckWarnLog = _consistencyCheckWarnLog,
                 bundleMode = ToBundleModeString(_bundleMode),
                 bundleAccumulationTimeoutMs = _bundleAccumulationTimeoutMs,
             };
@@ -132,9 +123,6 @@ namespace Hidano.FacialControl.Adapters.RuntimeSettings
             _label = dto.label ?? string.Empty;
             _stalenessSeconds = dto.stalenessSeconds;
             _failSafeMode = ToFailSafeMode(dto.failSafeMode);
-            _consistencyCheckWarnLog = ContainsJsonKey(json, nameof(JsonDto.consistencyCheckWarnLog))
-                ? dto.consistencyCheckWarnLog
-                : true;
             _bundleMode = ToBundleInterpretationMode(dto.bundleMode);
             _bundleAccumulationTimeoutMs = dto.bundleAccumulationTimeoutMs;
 
@@ -206,16 +194,8 @@ namespace Hidano.FacialControl.Adapters.RuntimeSettings
             public string label = string.Empty;
             public float stalenessSeconds = DefaultStalenessSeconds;
             public string failSafeMode = FailSafeRevertToBase;
-            public bool consistencyCheckWarnLog = true;
             public string bundleMode = BundleAtomicSwap;
             public float bundleAccumulationTimeoutMs = DefaultBundleAccumulationTimeoutMs;
-        }
-
-        // JsonUtility は JSON に無い bool を false にするため、既定 true の bool はキーの有無で補正する
-        // （OscReceiverOptionsDto / OscSenderOptionsDto と同じ扱い）。
-        private static bool ContainsJsonKey(string json, string key)
-        {
-            return json.IndexOf("\"" + key + "\"", StringComparison.Ordinal) >= 0;
         }
 
         private void NormalizeFields()

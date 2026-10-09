@@ -19,7 +19,6 @@ namespace Hidano.FacialControl.Adapters.Json.Dto
         public int listenPort = OscConfiguration.DefaultReceivePort;
         public float stalenessSeconds = DefaultStalenessSeconds;
         public string failSafeMode = FailSafeRevertToBase;
-        public bool consistencyCheckWarnLog = true;
         public string bundleMode = BundleAtomicSwap;
         public float bundleAccumulationTimeoutMs = DefaultBundleAccumulationTimeoutMs;
 
@@ -30,16 +29,10 @@ namespace Hidano.FacialControl.Adapters.Json.Dto
                 return new OscReceiverOptionsDto();
             }
 
-            bool hasConsistencyCheckWarnLog = ContainsJsonKey(json, nameof(consistencyCheckWarnLog));
             OscReceiverOptionsDto dto = JsonUtility.FromJson<OscReceiverOptionsDto>(json);
             if (dto == null)
             {
                 dto = new OscReceiverOptionsDto();
-            }
-
-            if (!hasConsistencyCheckWarnLog)
-            {
-                dto.consistencyCheckWarnLog = true;
             }
 
             dto.ApplyDefaults(logWarnings: true);
@@ -173,12 +166,6 @@ namespace Hidano.FacialControl.Adapters.Json.Dto
             }
 
             return BundleAtomicSwap;
-        }
-
-        private static bool ContainsJsonKey(string json, string key)
-        {
-            return !string.IsNullOrEmpty(json)
-                && json.IndexOf("\"" + key + "\"", StringComparison.Ordinal) >= 0;
         }
     }
 }

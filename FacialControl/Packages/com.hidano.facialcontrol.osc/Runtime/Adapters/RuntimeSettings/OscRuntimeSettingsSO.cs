@@ -50,9 +50,6 @@ namespace Hidano.FacialControl.Adapters.RuntimeSettings
         private FailSafeMode _failSafeMode = FailSafeMode.RevertToBase;
 
         [SerializeField]
-        private bool _consistencyCheckWarnLog = true;
-
-        [SerializeField]
         private BundleInterpretationMode _bundleMode = BundleInterpretationMode.AtomicSwap;
 
         [SerializeField]
@@ -82,8 +79,6 @@ namespace Hidano.FacialControl.Adapters.RuntimeSettings
 
         public FailSafeMode FailSafeMode => _failSafeMode;
 
-        public bool ConsistencyCheckWarnLog => _consistencyCheckWarnLog;
-
         public BundleInterpretationMode BundleMode => _bundleMode;
 
         public float BundleAccumulationTimeoutMs => _bundleAccumulationTimeoutMs;
@@ -105,7 +100,6 @@ namespace Hidano.FacialControl.Adapters.RuntimeSettings
         internal void SetListenPort(int value) => _listenPort = value;
         internal void SetStalenessSeconds(float value) => _stalenessSeconds = value;
         internal void SetFailSafeMode(FailSafeMode value) => _failSafeMode = value;
-        internal void SetConsistencyCheckWarnLog(bool value) => _consistencyCheckWarnLog = value;
         internal void SetBundleMode(BundleInterpretationMode value) => _bundleMode = value;
         internal void SetBundleAccumulationTimeoutMs(float value) => _bundleAccumulationTimeoutMs = value;
         internal void SetSenderEnabled(bool value) => _senderEnabled = value;
@@ -161,7 +155,6 @@ namespace Hidano.FacialControl.Adapters.RuntimeSettings
                 listenPort = _listenPort,
                 stalenessSeconds = _stalenessSeconds,
                 failSafeMode = ToFailSafeModeString(_failSafeMode),
-                consistencyCheckWarnLog = _consistencyCheckWarnLog,
                 bundleMode = ToBundleModeString(_bundleMode),
                 bundleAccumulationTimeoutMs = _bundleAccumulationTimeoutMs,
                 senderEnabled = _senderEnabled,
@@ -190,7 +183,6 @@ namespace Hidano.FacialControl.Adapters.RuntimeSettings
             _listenPort = dto.listenPort;
             _stalenessSeconds = dto.stalenessSeconds;
             _failSafeMode = ToFailSafeMode(dto.failSafeMode);
-            _consistencyCheckWarnLog = ContainsJsonKey(json, nameof(JsonDto.consistencyCheckWarnLog)) ? dto.consistencyCheckWarnLog : true;
             _bundleMode = ToBundleInterpretationMode(dto.bundleMode);
             _bundleAccumulationTimeoutMs = dto.bundleAccumulationTimeoutMs;
 
@@ -252,7 +244,6 @@ namespace Hidano.FacialControl.Adapters.RuntimeSettings
             public int listenPort = OscConfiguration.DefaultReceivePort;
             public float stalenessSeconds;
             public string failSafeMode = FailSafeRevertToBase;
-            public bool consistencyCheckWarnLog = true;
             public string bundleMode = BundleAtomicSwap;
             public float bundleAccumulationTimeoutMs = DefaultBundleAccumulationTimeoutMs;
             public bool senderEnabled = true;
@@ -262,7 +253,7 @@ namespace Hidano.FacialControl.Adapters.RuntimeSettings
         }
 
         // JsonUtility は JSON に無い bool を false にするため、既定 true の bool はキーの有無で補正する
-        // （OscReceiverOptionsDto / OscSenderOptionsDto と同じ扱い）。
+        // （OscSenderOptionsDto と同じ扱い）。
         private static bool ContainsJsonKey(string json, string key)
         {
             return json.IndexOf("\"" + key + "\"", StringComparison.Ordinal) >= 0;

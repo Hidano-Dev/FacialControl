@@ -61,7 +61,6 @@ FacialCharacterProfileSO (1 個)
   - `holdLastValue`: 最後の値を保持
 - staleness は binding 単位で共有される。BlendShape の受信が継続している状態で gaze だけが途絶しても gaze route は破棄されず、gaze は最後に受信した値を保持する（gaze 単位での個別タイムアウトや自動リセットではない）。
 - `bundleMode` は既定 `atomicSwap`（bundle 全件を 1 フレームに一括反映）。`individualMessage` を選べば受信順で個別反映。
-- 送信側 heartbeat と mapping を突き合わせ、**不一致 BlendShape のみ更新を停止**しつつ、一致分は通常通り反映。差分は Unity 警告ログへ出す（`consistencyCheckWarnLog`）。
 - 受信値とローカル入力は同じバスに流れ、**後勝ち（LastWins）で統一**される。
 
 ## 5. 同一プロセスで Sender と Receiver を同居させる時

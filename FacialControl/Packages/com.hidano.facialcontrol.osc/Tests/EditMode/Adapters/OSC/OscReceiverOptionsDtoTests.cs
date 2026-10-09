@@ -25,7 +25,6 @@ namespace Hidano.FacialControl.Tests.EditMode.Adapters.Json
                 listenPort = 9100,
                 stalenessSeconds = 0.25f,
                 failSafeMode = OscReceiverOptionsDto.FailSafeHoldLastValue,
-                consistencyCheckWarnLog = false,
                 bundleMode = OscReceiverOptionsDto.BundleIndividualMessage,
                 bundleAccumulationTimeoutMs = 12f
             };
@@ -37,10 +36,11 @@ namespace Hidano.FacialControl.Tests.EditMode.Adapters.Json
                 "受信 IP は廃止したため JSON に書き出さない。");
             StringAssert.DoesNotContain("mappings", json,
                 "手動のアドレス mapping は廃止したため JSON に書き出さない。");
+            StringAssert.DoesNotContain("consistencyCheckWarnLog", json,
+                "heartbeat の整合チェックは廃止したため JSON に書き出さない。");
             Assert.AreEqual(9100, result.listenPort);
             Assert.AreEqual(0.25f, result.stalenessSeconds);
             Assert.AreEqual(OscReceiverOptionsDto.FailSafeHoldLastValue, result.failSafeMode);
-            Assert.IsFalse(result.consistencyCheckWarnLog);
             Assert.AreEqual(OscReceiverOptionsDto.BundleIndividualMessage, result.bundleMode);
             Assert.AreEqual(12f, result.bundleAccumulationTimeoutMs);
         }
@@ -48,7 +48,7 @@ namespace Hidano.FacialControl.Tests.EditMode.Adapters.Json
         [Test]
         public void FromJson_UnknownKeys_IgnoresUnknownKeys()
         {
-            // listenEndpoint・mappings は廃止した旧キー。旧形式の JSON を読んでも他の値は壊れない。
+            // listenEndpoint・mappings・consistencyCheckWarnLog は廃止した旧キー。旧形式の JSON を読んでも他の値は壊れない。
             const string Json =
                 "{" +
                 "\"unknownRoot\":123," +
@@ -72,7 +72,6 @@ namespace Hidano.FacialControl.Tests.EditMode.Adapters.Json
             Assert.AreEqual(9200, result.listenPort);
             Assert.AreEqual(1.5f, result.stalenessSeconds);
             Assert.AreEqual(OscReceiverOptionsDto.FailSafeRevertToBase, result.failSafeMode);
-            Assert.IsTrue(result.consistencyCheckWarnLog);
             Assert.AreEqual(OscReceiverOptionsDto.BundleAtomicSwap, result.bundleMode);
             Assert.AreEqual(9f, result.bundleAccumulationTimeoutMs);
         }
@@ -85,7 +84,6 @@ namespace Hidano.FacialControl.Tests.EditMode.Adapters.Json
             Assert.AreEqual(OscConfiguration.DefaultReceivePort, result.listenPort);
             Assert.AreEqual(OscReceiverOptionsDto.DefaultStalenessSeconds, result.stalenessSeconds);
             Assert.AreEqual(OscReceiverOptionsDto.FailSafeRevertToBase, result.failSafeMode);
-            Assert.IsTrue(result.consistencyCheckWarnLog);
             Assert.AreEqual(OscReceiverOptionsDto.BundleAtomicSwap, result.bundleMode);
             Assert.AreEqual(OscReceiverOptionsDto.DefaultBundleAccumulationTimeoutMs, result.bundleAccumulationTimeoutMs);
         }
