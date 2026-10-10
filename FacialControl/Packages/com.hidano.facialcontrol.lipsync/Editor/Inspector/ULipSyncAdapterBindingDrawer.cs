@@ -39,6 +39,7 @@ namespace Hidano.FacialControl.LipSync.Editor.Inspector
             AddAnalyzerProfileField(root, property);
             AddPhonemeEntryList(root, property);
             AddMaxWeightScaleField(root, property);
+            ULipSyncVoiceGateSection.Add(root, property);
 
             return root;
         }
