@@ -6,6 +6,7 @@ using Hidano.FacialControl.Adapters.Bone;
 using Hidano.FacialControl.Domain.Models;
 using Hidano.FacialControl.Editor.AutoExport;
 using Hidano.FacialControl.Testing;
+using Hidano.FacialControl.Timeline.Adapters;
 using Hidano.FacialControl.Timeline.Editor;
 using Hidano.FacialControl.Timeline.Editor.AnimationTrackConversion;
 using Hidano.FacialControl.Timeline.Tests.Shared;
@@ -206,6 +207,44 @@ namespace Hidano.FacialControl.Timeline.Tests.PlayMode
 
             Assert.That(results, Is.Empty, "対象ごとに分けられない合成を焼き込まない");
             Assert.That(CountOutputTracks(_fixture.Timeline), Is.EqualTo(trackCount));
+        }
+
+        [Test]
+        public void Convert_UnboundTrackWithTwoReceiversOnDirector_LogsErrorAndAddsNoTrack()
+        {
+            TimelineE2ECharacter character = Prepare(new RecFixtureWriter.Recording());
+
+            // 同じ Director を使う 2 つ目の Receiver があると、未設定のトラックの対象は決まらない。
+            var otherHost = new GameObject("OtherReceiver");
+            otherHost.SetActive(false);
+            FacialTimelineReceiver other = otherHost.AddComponent<FacialTimelineReceiver>();
+            other.DirectorOverride = character.Director;
+            otherHost.SetActive(true);
+            try
+            {
+                TrackAsset bound = null;
+                foreach (TrackAsset track in _fixture.Timeline.GetOutputTracks())
+                {
+                    if (FacialAnimationTrackConverter.IsFacialTrack(track))
+                    {
+                        bound ??= track;
+                        character.Director.SetGenericBinding(track, track == bound ? character.Receiver : null);
+                    }
+                }
+
+                int trackCount = CountOutputTracks(_fixture.Timeline);
+
+                LogAssert.Expect(LogType.Error, new Regex("対象（FacialTimelineReceiver）を解決できない"));
+                List<AnimationTrackConversionResult> results =
+                    FacialAnimationTrackConverter.Convert(character.Director, new[] { bound });
+
+                Assert.That(results, Is.Empty, "Play で適用されない未設定トラックを焼き込まない");
+                Assert.That(CountOutputTracks(_fixture.Timeline), Is.EqualTo(trackCount));
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(otherHost);
+            }
         }
 
         private TimelineE2ECharacter Prepare(RecFixtureWriter.Recording recording)

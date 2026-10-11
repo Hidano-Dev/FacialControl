@@ -118,9 +118,14 @@ namespace Hidano.FacialControl.Timeline.Editor.AnimationTrackConversion
 
             // 合成（Bake・導出・Edit プレビュー）は TimelineAsset 全体を 1 つの対象として評価するため、複数の対象の独自 Track が
             // 同じ Timeline にあると、各対象の AnimationClip に他の対象のトラックが混ざる。分けられないので変換しない。
-            if (HasMultipleReceivers(timeline, resolver))
+            // 対象を解決できない独自 Track も、Play では適用されないのに合成には入るため同じく変換しない。
+            if (!TryFindSingleTarget(timeline, resolver, out TrackAsset unresolved))
             {
-                Debug.LogError(LogPrefix + $"'{timeline.name}' には複数の対象（FacialTimelineReceiver）の独自 Track があるため変換しません。合成は Timeline 全体を 1 つの対象として評価するので、対象ごとに Timeline を分けてから変換してください。", timeline);
+                Debug.LogError(
+                    LogPrefix + (unresolved != null
+                        ? $"'{timeline.name}' の独自 Track '{unresolved.name}' の対象（FacialTimelineReceiver）を解決できないため変換しません。トラックの binding を設定してください。"
+                        : $"'{timeline.name}' には複数の対象（FacialTimelineReceiver）の独自 Track があるため変換しません。合成は Timeline 全体を 1 つの対象として評価するので、対象ごとに Timeline を分けてから変換してください。"),
+                    timeline);
                 return results;
             }
 
@@ -139,8 +144,13 @@ namespace Hidano.FacialControl.Timeline.Editor.AnimationTrackConversion
             return results;
         }
 
-        private static bool HasMultipleReceivers(TimelineAsset timeline, ReceiverResolver resolver)
+        /// <summary>
+        /// Timeline の独自 Track がすべて同じ 1 つの対象に解決できれば true。解決できないトラックがあれば
+        /// <paramref name="unresolved"/> にそれを入れて false、複数の対象に分かれていれば null のまま false。
+        /// </summary>
+        private static bool TryFindSingleTarget(TimelineAsset timeline, ReceiverResolver resolver, out TrackAsset unresolved)
         {
+            unresolved = null;
             var tracks = new List<(TrackAsset track, bool mutedInHierarchy)>();
             CollectAllTracks(timeline, tracks);
             FacialTimelineReceiver first = null;
@@ -154,7 +164,8 @@ namespace Hidano.FacialControl.Timeline.Editor.AnimationTrackConversion
                 FacialTimelineReceiver receiver = resolver.Resolve(tracks[i].track);
                 if (receiver == null)
                 {
-                    continue;
+                    unresolved = tracks[i].track;
+                    return false;
                 }
 
                 if (first == null)
@@ -163,11 +174,11 @@ namespace Hidano.FacialControl.Timeline.Editor.AnimationTrackConversion
                 }
                 else if (first != receiver)
                 {
-                    return true;
+                    return false;
                 }
             }
 
-            return false;
+            return true;
         }
 
         private static List<FacialTimelineReceiver> CollectSelectedReceivers(ReceiverResolver resolver, IEnumerable<TrackAsset> selection)
