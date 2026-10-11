@@ -9,6 +9,7 @@ using Hidano.FacialControl.Testing;
 using Hidano.FacialControl.Timeline.Editor;
 using Hidano.FacialControl.Timeline.Editor.AnimationTrackConversion;
 using Hidano.FacialControl.Timeline.Tests.Shared;
+using Hidano.FacialControl.Timeline.Tracks;
 using NUnit.Framework;
 using UnityEditor;
 using UnityEngine;
@@ -156,6 +157,29 @@ namespace Hidano.FacialControl.Timeline.Tests.PlayMode
                 FacialAnimationTrackConverter.Convert(character.Director, _fixture.Timeline.GetOutputTracks());
 
             Assert.That(second, Is.Empty, "ミュートした変換元を再び焼き込まない");
+            Assert.That(CountOutputTracks(_fixture.Timeline), Is.EqualTo(trackCount));
+        }
+
+        [Test]
+        public void Convert_MutedChildLaneTrack_LogsErrorAndAddsNoTrack()
+        {
+            TimelineE2ECharacter character = Prepare(new RecFixtureWriter.Recording());
+            FacialExpressionTrack parent = null;
+            foreach (TrackAsset track in _fixture.Timeline.GetRootTracks())
+            {
+                parent ??= track as FacialExpressionTrack;
+            }
+
+            Assert.That(parent, Is.Not.Null, "前提: 表情トラックがある");
+            var lane = _fixture.Timeline.CreateTrack<FacialExpressionTrack>(parent, parent.name + " Lane 1");
+            lane.muted = true;
+            int trackCount = CountOutputTracks(_fixture.Timeline);
+
+            LogAssert.Expect(LogType.Error, new Regex("ミュート中の独自 Track"));
+            List<AnimationTrackConversionResult> results =
+                FacialAnimationTrackConverter.Convert(character.Director, _fixture.Timeline.GetOutputTracks());
+
+            Assert.That(results, Is.Empty, "子トラック（Lane）のミュートも検出する");
             Assert.That(CountOutputTracks(_fixture.Timeline), Is.EqualTo(trackCount));
         }
 

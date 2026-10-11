@@ -262,9 +262,13 @@ namespace Hidano.FacialControl.Timeline.Editor.AnimationTrackConversion
             FacialTimelineReceiver receiver,
             out TrackAsset mutedTrack)
         {
-            foreach (TrackAsset track in timeline.GetOutputTracks())
+            // Lane の子トラックは出力トラックに含まれないため、Group・子トラックを含む全階層を親のミュートごと調べる。
+            var tracks = new List<(TrackAsset track, bool mutedInHierarchy)>();
+            CollectAllTracks(timeline, tracks);
+            for (int i = 0; i < tracks.Count; i++)
             {
-                if (IsFacialTrack(track) && track.muted && resolver.Resolve(track) == receiver)
+                (TrackAsset track, bool muted) = tracks[i];
+                if (muted && IsFacialTrack(track) && resolver.Resolve(track) == receiver)
                 {
                     mutedTrack = track;
                     return true;
@@ -273,6 +277,25 @@ namespace Hidano.FacialControl.Timeline.Editor.AnimationTrackConversion
 
             mutedTrack = null;
             return false;
+        }
+
+        /// <summary>Group・子トラックを含む全トラックを、親階層のミュートを畳み込んだ状態とともに深さ優先で集める。</summary>
+        internal static void CollectAllTracks(TimelineAsset timeline, List<(TrackAsset track, bool mutedInHierarchy)> results)
+        {
+            foreach (TrackAsset root in timeline.GetRootTracks())
+            {
+                CollectTrack(root, false, results);
+            }
+        }
+
+        private static void CollectTrack(TrackAsset track, bool parentMuted, List<(TrackAsset track, bool mutedInHierarchy)> results)
+        {
+            bool muted = parentMuted || track.muted;
+            results.Add((track, muted));
+            foreach (TrackAsset child in track.GetChildTracks())
+            {
+                CollectTrack(child, muted, results);
+            }
         }
 
         private static List<TrackAsset> MuteSourceTracks(TimelineAsset timeline, ReceiverResolver resolver, FacialTimelineReceiver receiver)
@@ -533,7 +556,9 @@ namespace Hidano.FacialControl.Timeline.Editor.AnimationTrackConversion
         private static List<double> CollectStepCandidateTimes(TimelineAsset timeline, FacialTimelineBakeAsset bake)
         {
             var times = new List<double>();
-            foreach (TrackAsset track in timeline.GetOutputTracks())
+            var tracks = new List<(TrackAsset track, bool mutedInHierarchy)>();
+            CollectAllTracks(timeline, tracks);
+            foreach ((TrackAsset track, bool _) in tracks)
             {
                 if (!IsFacialTrack(track))
                 {
