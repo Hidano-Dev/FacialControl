@@ -29,8 +29,11 @@ namespace Hidano.FacialControl.LipSync.Adapters
         private readonly BitArray[] _phonemeContributeMasks;
         private readonly int _phonemeCount;
 
+        private readonly BitArray _suppressMask;
+
         private bool _zeroOutputRequested;
         private bool _isDisposed;
+        private bool _hasSuppressIndices;
         private bool _unknownPhonemeWarningEmitted;
 
         public ULipSyncProvider(
@@ -90,6 +93,53 @@ namespace Hidano.FacialControl.LipSync.Adapters
             }
 
             _phonemeCount = validCount;
+            _suppressMask = new BitArray(blendShapeCount, false);
+            OutputEnabled = true;
+        }
+
+        /// <summary>
+        /// false の間は全音素の出力を止める（<see cref="TryComposePhonemeWeights(string, Span{float})"/> は false、
+        /// <see cref="GetLipSyncValues"/> はゼロ）。発話ゲートが閉じている間に下位レイヤーをそのまま通すために使う。
+        /// </summary>
+        public bool OutputEnabled { get; set; }
+
+        /// <summary>
+        /// 発話中に 0 で押さえ込む BlendShape の index 集合（mesh index 空間。長さは blendShapeCount）。
+        /// 構築後に <see cref="SetSuppressIndices"/> で設定する。
+        /// </summary>
+        public BitArray SuppressMask => _suppressMask;
+
+        /// <summary><see cref="SuppressMask"/> に 1 つ以上 index が立っているか。</summary>
+        public bool HasSuppressIndices => _hasSuppressIndices;
+
+        /// <summary>
+        /// true の間、phoneme overlay 入力源は無音でも <see cref="SuppressMask"/> の BlendShape へ 0
+        /// （母音側が同じ BlendShape を動かす場合はその値）を書く。
+        /// </summary>
+        public bool SuppressActive { get; set; }
+
+        /// <summary>
+        /// 押さえ込み対象の BlendShape index を設定する。範囲外の index は無視する。
+        /// phoneme overlay 入力源を構築する前に呼ぶ（入力源は構築時に mask を合成する）。
+        /// </summary>
+        public void SetSuppressIndices(IReadOnlyList<int> indices)
+        {
+            _suppressMask.SetAll(false);
+            _hasSuppressIndices = false;
+            if (indices == null)
+            {
+                return;
+            }
+
+            for (int i = 0; i < indices.Count; i++)
+            {
+                int index = indices[i];
+                if (index >= 0 && index < _suppressMask.Length)
+                {
+                    _suppressMask[index] = true;
+                    _hasSuppressIndices = true;
+                }
+            }
         }
 
         public ReadOnlySpan<string> BlendShapeNames => _blendShapeNames;
@@ -156,6 +206,12 @@ namespace Hidano.FacialControl.LipSync.Adapters
                 return false;
             }
 
+            if (!OutputEnabled)
+            {
+                output.Clear();
+                return false;
+            }
+
             // factor = 音素ウェイト(uLipSync 委譲) * 音量(uLipSync 委譲)。
             // SmoothDamp / sum=1 正規化 / volume 正規化はいずれも source 側（uLipSync 公式）で
             // 適用済み。本クラスは snapshot への適用のみ行う。
@@ -178,6 +234,13 @@ namespace Hidano.FacialControl.LipSync.Adapters
                 output.Clear();
                 Array.Clear(_accum, 0, _accum.Length);
                 _zeroOutputRequested = false;
+                return;
+            }
+
+            if (!OutputEnabled)
+            {
+                output.Clear();
+                Array.Clear(_accum, 0, _accum.Length);
                 return;
             }
 

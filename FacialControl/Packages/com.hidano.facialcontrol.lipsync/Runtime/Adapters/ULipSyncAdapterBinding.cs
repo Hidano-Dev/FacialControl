@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Reflection;
 using Hidano.FacialControl.Adapters.InputSources;
+using Hidano.FacialControl.Adapters.Playable;
 using Hidano.FacialControl.Domain.Adapters;
 using Hidano.FacialControl.Domain.Models;
 using Hidano.FacialControl.LipSync.Adapters.Devices;
@@ -56,6 +57,52 @@ namespace Hidano.FacialControl.LipSync.Adapters
 
         [SerializeField]
         private float _maxWeightScale = 1f;
+
+        // 発話ゲート設定の版。0 はフィールド追加前のアセット（[SerializeReference] の復元でフィールド初期化子に
+        // 頼らず、0 なら既定値を入れ直す）。
+        private const int CurrentVoiceGateSettingsVersion = 1;
+
+        [SerializeField]
+        private int _voiceGateSettingsVersion = CurrentVoiceGateSettingsVersion;
+
+        [SerializeField]
+        private bool _voiceGateEnabled = true;
+
+        [SerializeField]
+        private float _voiceOnThreshold = ULipSyncVoiceGate.DefaultOnThreshold;
+
+        [SerializeField]
+        private float _voiceOffThreshold = ULipSyncVoiceGate.DefaultOffThreshold;
+
+        [SerializeField]
+        private float _voiceHoldTime = ULipSyncVoiceGate.DefaultHoldTime;
+
+        [SerializeField]
+        private float _voiceAttackTime = ULipSyncVoiceGate.DefaultAttackTime;
+
+        [SerializeField]
+        private float _voiceReleaseTime = ULipSyncVoiceGate.DefaultReleaseTime;
+
+        [SerializeField]
+        private float _voiceStaleTimeout = ULipSyncVoiceGate.DefaultStaleTimeout;
+
+        [SerializeField]
+        private List<string> _suppressBlendShapeNames = new List<string>();
+
+        [NonSerialized]
+        private ULipSyncVoiceGate _voiceGate;
+
+        [NonSerialized]
+        private string[] _gateLayerNames;
+
+        [NonSerialized]
+        private FacialController _facialController;
+
+        [NonSerialized]
+        private bool _gateActive;
+
+        [NonSerialized]
+        private bool _analyzerUpdated;
 
         [NonSerialized]
         private DeviceDescriptor _runtimeDescriptor;
@@ -122,6 +169,89 @@ namespace Hidano.FacialControl.LipSync.Adapters
             Slug = DefaultSlug;
         }
 
+        /// <summary>発話ゲートを使うか。OFF なら入力源は常に有効（従来挙動）。</summary>
+        public bool VoiceGateEnabled
+        {
+            get { EnsureVoiceGateSettings(); return _voiceGateEnabled; }
+            set { EnsureVoiceGateSettings(); _voiceGateEnabled = value; }
+        }
+
+        /// <summary>発話開始のしきい値（activity）。</summary>
+        public float VoiceOnThreshold
+        {
+            get { EnsureVoiceGateSettings(); return _voiceOnThreshold; }
+            set { EnsureVoiceGateSettings(); _voiceOnThreshold = value; }
+        }
+
+        /// <summary>発話継続のしきい値（activity）。On より大きい値は On と同じ扱い。</summary>
+        public float VoiceOffThreshold
+        {
+            get { EnsureVoiceGateSettings(); return _voiceOffThreshold; }
+            set { EnsureVoiceGateSettings(); _voiceOffThreshold = value; }
+        }
+
+        /// <summary>Off を下回ってから発話終了とみなすまでの秒数。</summary>
+        public float VoiceHoldTime
+        {
+            get { EnsureVoiceGateSettings(); return _voiceHoldTime; }
+            set { EnsureVoiceGateSettings(); _voiceHoldTime = value; }
+        }
+
+        /// <summary>gate weight が 0 → 1 に上がる秒数。</summary>
+        public float VoiceAttackTime
+        {
+            get { EnsureVoiceGateSettings(); return _voiceAttackTime; }
+            set { EnsureVoiceGateSettings(); _voiceAttackTime = value; }
+        }
+
+        /// <summary>gate weight が 1 → 0 に下がる秒数。</summary>
+        public float VoiceReleaseTime
+        {
+            get { EnsureVoiceGateSettings(); return _voiceReleaseTime; }
+            set { EnsureVoiceGateSettings(); _voiceReleaseTime = value; }
+        }
+
+        /// <summary>uLipSync のコールバックが途絶えてから activity = 0 とみなす秒数（0 以下で無効）。</summary>
+        public float VoiceStaleTimeout
+        {
+            get { EnsureVoiceGateSettings(); return _voiceStaleTimeout; }
+            set { EnsureVoiceGateSettings(); _voiceStaleTimeout = value; }
+        }
+
+        /// <summary>発話中に 0 で押さえ込む BlendShape 名。変更は次回の起動から反映する。</summary>
+        public List<string> SuppressBlendShapeNames
+        {
+            get => _suppressBlendShapeNames ??= new List<string>();
+            set => _suppressBlendShapeNames = value ?? new List<string>();
+        }
+
+        /// <summary>発話ゲートの状態（activity / Speaking / weight）。起動前は null。</summary>
+        public ULipSyncVoiceGate VoiceGate => _voiceGate;
+
+        /// <summary>発話ゲートがレイヤー weight を書くレイヤー名。起動前は空。</summary>
+        public IReadOnlyList<string> GateLayerNames => _gateLayerNames ?? Array.Empty<string>();
+
+        /// <summary>
+        /// 発話ゲート設定が版 0（フィールド追加前のアセット）なら既定値を入れる。
+        /// </summary>
+        public void EnsureVoiceGateSettings()
+        {
+            if (_voiceGateSettingsVersion >= CurrentVoiceGateSettingsVersion)
+            {
+                return;
+            }
+
+            _voiceGateEnabled = true;
+            _voiceOnThreshold = ULipSyncVoiceGate.DefaultOnThreshold;
+            _voiceOffThreshold = ULipSyncVoiceGate.DefaultOffThreshold;
+            _voiceHoldTime = ULipSyncVoiceGate.DefaultHoldTime;
+            _voiceAttackTime = ULipSyncVoiceGate.DefaultAttackTime;
+            _voiceReleaseTime = ULipSyncVoiceGate.DefaultReleaseTime;
+            _voiceStaleTimeout = ULipSyncVoiceGate.DefaultStaleTimeout;
+            _suppressBlendShapeNames ??= new List<string>();
+            _voiceGateSettingsVersion = CurrentVoiceGateSettingsVersion;
+        }
+
         /// <inheritdoc />
         public IEnumerable<(string id, float weight)> GetDefaultLayerInputSources(string layerName)
         {
@@ -144,6 +274,8 @@ namespace Hidano.FacialControl.LipSync.Adapters
         /// </summary>
         public void ApplyInitialDefaults()
         {
+            EnsureVoiceGateSettings();
+
             if (_phonemeEntries == null)
             {
                 _phonemeEntries = new List<PhonemeEntryBase>(DefaultPhonemeIds.Length);
@@ -209,6 +341,8 @@ namespace Hidano.FacialControl.LipSync.Adapters
             {
                 return;
             }
+
+            EnsureVoiceGateSettings();
 
             if (ctx.HostGameObject == null)
             {
@@ -287,14 +421,18 @@ namespace Hidano.FacialControl.LipSync.Adapters
                 _blendShape = _hostGameObject.AddComponent<FacialControlULipSyncBlendShape>();
                 _blendShape.ConfigurePhonemes(BuildPhonemeIdList(snapshots));
                 _analyzer.onLipSyncUpdate.AddListener(_blendShape.OnLipSyncUpdate);
+                _analyzer.onLipSyncUpdate.AddListener(OnAnalyzerLipSyncUpdate);
 
                 _provider = new ULipSyncProvider(
                     _blendShape,
                     snapshots,
                     ctx.BlendShapeNames.Count);
+                _provider.SetSuppressIndices(ResolveSuppressIndices(ctx.BlendShapeNames));
                 _inputSourceRegistry = ctx.InputSourceRegistry;
                 _registeredSlug = PhonemeOverlaySlug;
                 RegisterPhonemeOverlayInputSources(ctx, slug);
+
+                InitializeVoiceGate(ctx);
 
                 _provider.RequestZeroOutputForNextFrame();
                 _started = true;
@@ -304,6 +442,50 @@ namespace Hidano.FacialControl.LipSync.Adapters
                 Debug.LogError($"[ULipSyncAdapterBinding] OnStart failed: {exception}");
                 RollbackStartedResources();
             }
+        }
+
+        /// <inheritdoc />
+        /// <remarks>
+        /// 発話ゲートを 1 フレーム進め、gate weight を対象レイヤーの weight に書く。
+        /// weight が 0 の間は入力源の出力を止めて下位レイヤーをそのまま通す。ヒープ確保なし。
+        /// </remarks>
+        public override void OnLateTick(float deltaTime)
+        {
+            if (!_started || _provider == null || _voiceGate == null)
+            {
+                return;
+            }
+
+            if (!_voiceGateEnabled)
+            {
+                if (_gateActive)
+                {
+                    // 実行中に OFF にした場合はレイヤー weight を一度 1 に戻す。
+                    WriteGateLayerWeights(1f);
+                    _gateActive = false;
+                }
+
+                _analyzerUpdated = false;
+                _provider.OutputEnabled = true;
+                _provider.SuppressActive = true;
+                return;
+            }
+
+            if (!_gateActive)
+            {
+                _voiceGate.Reset();
+                _gateActive = true;
+            }
+
+            ApplyVoiceGateSettings();
+            float activity = _blendShape != null ? _blendShape.CurrentVolume : 0f;
+            float weight = _voiceGate.Tick(deltaTime, activity, _analyzerUpdated);
+            _analyzerUpdated = false;
+
+            WriteGateLayerWeights(weight);
+            bool open = weight > 0f;
+            _provider.OutputEnabled = open;
+            _provider.SuppressActive = open;
         }
 
         public override void OnFixedTick(float fixedDeltaTime)
@@ -356,6 +538,106 @@ namespace Hidano.FacialControl.LipSync.Adapters
         public override void Dispose()
         {
             RollbackStartedResources();
+        }
+
+        private void OnAnalyzerLipSyncUpdate(uLipSync.LipSyncInfo info)
+        {
+            _analyzerUpdated = true;
+        }
+
+        private void InitializeVoiceGate(in AdapterBuildContext ctx)
+        {
+            _voiceGate = new ULipSyncVoiceGate();
+            ApplyVoiceGateSettings();
+            _gateLayerNames = ULipSyncLayerSetup.FindGateLayerNames(
+                ULipSyncLayerSetup.AddTargetLayerInputs(
+                    ULipSyncLayerSetup.FromProfile(ctx.Profile),
+                    ctx.AdapterBindings),
+                Slug);
+            _facialController = ctx.HostGameObject.GetComponent<FacialController>();
+            _gateActive = false;
+            _analyzerUpdated = false;
+
+            if (!_voiceGateEnabled)
+            {
+                return;
+            }
+
+            // ゲートが開くまで入力源を止め、下位レイヤーをそのまま通す。
+            _provider.OutputEnabled = false;
+            _provider.SuppressActive = false;
+
+            if (_gateLayerNames.Length == 0)
+            {
+                Debug.LogWarning(
+                    $"[ULipSyncAdapterBinding] uLipSync の入力源（{LipSyncPhonemeOverlayInputSource.SlugPrefix}:a〜o）だけを "
+                    + "inputSources に宣言したレイヤーがありません（他の入力源と同居するレイヤーの weight は書きません）。"
+                    + $"発話ゲートは入力源の有効 / 無効だけで制御します。Slug='{Slug}'");
+            }
+        }
+
+        private void ApplyVoiceGateSettings()
+        {
+            _voiceGate.OnThreshold = _voiceOnThreshold;
+            _voiceGate.OffThreshold = _voiceOffThreshold;
+            _voiceGate.HoldTime = _voiceHoldTime;
+            _voiceGate.AttackTime = _voiceAttackTime;
+            _voiceGate.ReleaseTime = _voiceReleaseTime;
+            _voiceGate.StaleTimeout = _voiceStaleTimeout;
+        }
+
+        private void WriteGateLayerWeights(float weight)
+        {
+            if (_facialController == null || _gateLayerNames == null)
+            {
+                return;
+            }
+
+            for (int i = 0; i < _gateLayerNames.Length; i++)
+            {
+                _facialController.SetLayerWeight(_gateLayerNames[i], weight);
+            }
+        }
+
+        private List<int> ResolveSuppressIndices(IReadOnlyList<string> blendShapeNames)
+        {
+            var indices = new List<int>();
+            if (_suppressBlendShapeNames == null || _suppressBlendShapeNames.Count == 0)
+            {
+                return indices;
+            }
+
+            Dictionary<string, int> nameToIndex = BuildNameToIndex(blendShapeNames);
+            List<string> missing = null;
+            for (int i = 0; i < _suppressBlendShapeNames.Count; i++)
+            {
+                string name = _suppressBlendShapeNames[i];
+                if (string.IsNullOrEmpty(name))
+                {
+                    continue;
+                }
+
+                if (nameToIndex.TryGetValue(name, out int index))
+                {
+                    if (!indices.Contains(index))
+                    {
+                        indices.Add(index);
+                    }
+                }
+                else
+                {
+                    (missing ??= new List<string>()).Add(name);
+                }
+            }
+
+            if (missing != null)
+            {
+                Debug.LogWarning(
+                    $"[ULipSyncAdapterBinding] Suppress Blend Shape Names のうちメッシュに無い BlendShape があります: "
+                    + $"{string.Join(", ", missing)}. Slug='{Slug}'");
+            }
+
+            return indices;
         }
 
         private DeviceResolution ResolveDevice(DeviceDescriptor descriptor)
@@ -1202,6 +1484,7 @@ namespace Hidano.FacialControl.LipSync.Adapters
 
             if (_analyzer != null)
             {
+                _analyzer.onLipSyncUpdate.RemoveListener(OnAnalyzerLipSyncUpdate);
                 UnityEngine.Object.Destroy(_analyzer);
                 _analyzer = null;
             }
@@ -1215,6 +1498,11 @@ namespace Hidano.FacialControl.LipSync.Adapters
             _hostGameObject = null;
             _addedAudioSource = false;
             _swapPending = false;
+            _voiceGate = null;
+            _gateLayerNames = null;
+            _facialController = null;
+            _gateActive = false;
+            _analyzerUpdated = false;
             _started = false;
         }
     }

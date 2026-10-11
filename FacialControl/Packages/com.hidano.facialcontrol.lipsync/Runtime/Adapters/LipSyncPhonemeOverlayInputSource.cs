@@ -21,6 +21,11 @@ namespace Hidano.FacialControl.LipSync.Adapters
         private readonly string _phonemeId;
         private readonly ULipSyncProvider _provider;
         private readonly BitArray _defaultContributeMask;
+
+        // 押さえ込み（ULipSyncProvider.SuppressActive）中に使う mask。
+        // 発話あり: 音素の mask ∪ SuppressMask、無音: SuppressMask のみ（0 を書く）。
+        private readonly BitArray _defaultContributeMaskWithSuppress;
+        private readonly BitArray _suppressOnlyMask;
         private readonly float[] _scratch;
         private readonly bool _phonemeRegistered;
 
@@ -74,6 +79,8 @@ namespace Hidano.FacialControl.LipSync.Adapters
                 ? ResolveContributeMask(provider, phonemeId, blendShapeCount)
                 : new BitArray(blendShapeCount, false);
             _currentContributeMask = _defaultContributeMask;
+            _suppressOnlyMask = provider.HasSuppressIndices ? provider.SuppressMask : null;
+            _defaultContributeMaskWithSuppress = Union(_defaultContributeMask, _suppressOnlyMask);
             _slot = slot;
             _activeProvider = activeProvider;
             _emotionLayerName = string.IsNullOrEmpty(emotionLayerName) ? "emotion" : emotionLayerName;
@@ -104,7 +111,8 @@ namespace Hidano.FacialControl.LipSync.Adapters
                 {
                     _overridesByExpressionId.Add(
                         expression.Id,
-                        ResolvedOverride.Build(binding.Snapshot.Value, nameToIndex, blendShapeCount));
+                        ResolvedOverride.Build(
+                            binding.Snapshot.Value, nameToIndex, blendShapeCount, _suppressOnlyMask));
                 }
             }
 
@@ -115,7 +123,7 @@ namespace Hidano.FacialControl.LipSync.Adapters
                 {
                     _hasDefaultBinding = true;
                     _defaultOverride = ResolvedOverride.Build(
-                        defaultBinding.Snapshot.Value, nameToIndex, blendShapeCount);
+                        defaultBinding.Snapshot.Value, nameToIndex, blendShapeCount, _suppressOnlyMask);
                 }
                 else if (defaultBinding.Suppress)
                 {
@@ -155,9 +163,19 @@ namespace Hidano.FacialControl.LipSync.Adapters
                 sum += scratch[i];
             }
 
+            bool suppressing = _suppressOnlyMask != null && _provider.SuppressActive;
             if (sum < SilenceThreshold)
             {
-                return false;
+                if (!suppressing)
+                {
+                    return false;
+                }
+
+                // 無音でも押さえ込み対象には 0 を書き、下位レイヤー（キャプチャ）の口を止める。
+                int clearLength = output.Length < scratch.Length ? output.Length : scratch.Length;
+                output.Slice(0, clearLength).Clear();
+                _currentContributeMask = _suppressOnlyMask;
+                return true;
             }
 
             int copyLength = output.Length < scratch.Length ? output.Length : scratch.Length;
@@ -166,9 +184,15 @@ namespace Hidano.FacialControl.LipSync.Adapters
                 output[i] = scratch[i];
             }
 
-            _currentContributeMask = resolution == OverlayResolution.Override
-                ? overrideEntry.Mask
-                : _defaultContributeMask;
+            if (resolution == OverlayResolution.Override)
+            {
+                _currentContributeMask = suppressing ? overrideEntry.MaskWithSuppress : overrideEntry.Mask;
+            }
+            else
+            {
+                _currentContributeMask = suppressing ? _defaultContributeMaskWithSuppress : _defaultContributeMask;
+            }
+
             return true;
         }
 
@@ -246,6 +270,17 @@ namespace Hidano.FacialControl.LipSync.Adapters
             return nameToIndex;
         }
 
+        private static BitArray Union(BitArray mask, BitArray other)
+        {
+            if (other == null)
+            {
+                return mask;
+            }
+
+            var union = new BitArray(mask);
+            return union.Or(other);
+        }
+
         private static BitArray ResolveContributeMask(
             ULipSyncProvider provider,
             string phonemeId,
@@ -282,17 +317,20 @@ namespace Hidano.FacialControl.LipSync.Adapters
         {
             public readonly float[] Weights;
             public readonly BitArray Mask;
+            public readonly BitArray MaskWithSuppress;
 
-            private ResolvedOverride(float[] weights, BitArray mask)
+            private ResolvedOverride(float[] weights, BitArray mask, BitArray maskWithSuppress)
             {
                 Weights = weights;
                 Mask = mask;
+                MaskWithSuppress = maskWithSuppress;
             }
 
             public static ResolvedOverride Build(
                 ExpressionSnapshot snapshot,
                 IReadOnlyDictionary<string, int> nameToIndex,
-                int blendShapeCount)
+                int blendShapeCount,
+                BitArray suppressMask)
             {
                 var weights = new float[blendShapeCount];
                 var mask = new BitArray(blendShapeCount, false);
@@ -314,7 +352,7 @@ namespace Hidano.FacialControl.LipSync.Adapters
                     }
                 }
 
-                return new ResolvedOverride(weights, mask);
+                return new ResolvedOverride(weights, mask, Union(mask, suppressMask));
             }
         }
     }

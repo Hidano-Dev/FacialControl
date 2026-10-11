@@ -188,6 +188,55 @@ namespace Hidano.FacialControl.LipSync.Tests.PlayMode.Lifecycle
                 "zero settle は初回読み出しだけに適用され、受信済みの非ゼロ値は次回以降に読めるべき。");
         }
 
+        [Test]
+        public void OnLateTick_VoiceGateOn_EnablesOutputOnlyWhileSpeakingAndClosesWhenCallbacksStop()
+        {
+            _binding = CreateBinding();
+            _binding.VoiceGateEnabled = true;
+            _binding.VoiceOnThreshold = 0f;
+            _binding.VoiceOffThreshold = 0f;
+            _binding.VoiceHoldTime = 0f;
+            _binding.VoiceAttackTime = 0f;
+            _binding.VoiceReleaseTime = 0f;
+            _binding.VoiceStaleTimeout = 0.05f;
+            AdapterBuildContext ctx = CreateContext();
+
+            _binding.OnStart(in ctx);
+            _bindingStarted = true;
+
+            Assert.That(_binding.VoiceGate, Is.Not.Null);
+            Assert.That(_binding.Provider.OutputEnabled, Is.False,
+                "ゲートが開くまでは入力源を止めて下位レイヤー（キャプチャ）をそのまま通すべき。");
+
+            _binding.Analyzer.onLipSyncUpdate.Invoke(new uLipSync.LipSyncInfo
+            {
+                phoneme = PhonemeId,
+                volume = 1f,
+                rawVolume = 1f,
+                phonemeRatios = new Dictionary<string, float>
+                {
+                    { PhonemeId, 1f },
+                },
+            });
+            _binding.OnLateTick(0.016f);
+
+            Assert.That(_binding.VoiceGate.IsSpeaking, Is.True);
+            Assert.That(_binding.VoiceGate.Weight, Is.EqualTo(1f));
+            Assert.That(_binding.Provider.OutputEnabled, Is.True);
+
+            // コールバックが Stale Timeout 以上届かなければ activity = 0 として閉じる。
+            _binding.OnLateTick(0.1f);
+
+            Assert.That(_binding.VoiceGate.IsSpeaking, Is.False);
+            Assert.That(_binding.Provider.OutputEnabled, Is.False);
+
+            // 実行中に OFF にすると従来どおり入力源は常に有効。
+            _binding.VoiceGateEnabled = false;
+            _binding.OnLateTick(0.016f);
+
+            Assert.That(_binding.Provider.OutputEnabled, Is.True);
+        }
+
         [UnityTest]
         public IEnumerator Dispose_AfterStart_RemovesAllAddedComponentsAndUnregistersInputSource()
         {
@@ -534,7 +583,12 @@ namespace Hidano.FacialControl.LipSync.Tests.PlayMode.Lifecycle
 
         private ULipSyncAdapterBinding CreateBinding(string deviceName, uLipSync.Profile analyzerProfile)
         {
-            var binding = new ULipSyncAdapterBinding { Slug = Slug };
+            var binding = new ULipSyncAdapterBinding
+            {
+                Slug = Slug,
+                // 発話ゲート（HID-189）は ULipSyncVoiceGateTests 等で守る。ここでは従来の出力経路だけを見るため OFF にする。
+                VoiceGateEnabled = false,
+            };
             binding.Configure(
                 new DeviceDescriptor
                 {
@@ -554,7 +608,12 @@ namespace Hidano.FacialControl.LipSync.Tests.PlayMode.Lifecycle
         /// </summary>
         private ULipSyncAdapterBinding CreateStoreBackedBinding(IMicrophoneDeviceEnumerator micEnumerator)
         {
-            var binding = new ULipSyncAdapterBinding { Slug = Slug };
+            var binding = new ULipSyncAdapterBinding
+            {
+                Slug = Slug,
+                // 発話ゲート（HID-189）は ULipSyncVoiceGateTests 等で守る。ここでは従来の出力経路だけを見るため OFF にする。
+                VoiceGateEnabled = false,
+            };
             binding.Configure(
                 _profile,
                 CreateSinglePhonemeEntries(),
@@ -568,7 +627,12 @@ namespace Hidano.FacialControl.LipSync.Tests.PlayMode.Lifecycle
         /// </summary>
         private ULipSyncAdapterBinding CreateAllReservedSlotsBinding()
         {
-            var binding = new ULipSyncAdapterBinding { Slug = Slug };
+            var binding = new ULipSyncAdapterBinding
+            {
+                Slug = Slug,
+                // 発話ゲート（HID-189）は ULipSyncVoiceGateTests 等で守る。ここでは従来の出力経路だけを見るため OFF にする。
+                VoiceGateEnabled = false,
+            };
             binding.Configure(
                 new DeviceDescriptor
                 {

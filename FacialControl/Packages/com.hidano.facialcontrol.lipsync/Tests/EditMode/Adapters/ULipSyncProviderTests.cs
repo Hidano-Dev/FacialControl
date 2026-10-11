@@ -46,6 +46,33 @@ namespace Hidano.FacialControl.LipSync.Tests.EditMode.Adapters
         }
 
         [Test]
+        public void GetLipSyncValues_OutputDisabled_WritesZero()
+        {
+            var source = new FakePhonemeWeightSource();
+            using var provider = CreateProvider(source, 2, Snapshot("A", 1f, 0.5f));
+            var output = new[] { 0.3f, 0.3f };
+
+            source.SetFrame(1f, ("A", 1f));
+            provider.OutputEnabled = false;
+            provider.GetLipSyncValues(output);
+
+            AssertValuesClose(output, 0f, 0f);
+        }
+
+        [Test]
+        public void SetSuppressIndices_OutOfRangeIndex_IsIgnored()
+        {
+            var source = new FakePhonemeWeightSource();
+            using var provider = CreateProvider(source, 2, Snapshot("A", 1f, 0f));
+
+            provider.SetSuppressIndices(new[] { 1, 5, -1 });
+
+            Assert.That(provider.HasSuppressIndices, Is.True);
+            Assert.That(provider.SuppressMask[0], Is.False);
+            Assert.That(provider.SuppressMask[1], Is.True);
+        }
+
+        [Test]
         public void GetLipSyncValues_MultiplePhonemes_AccumulatesWeightedValues()
         {
             var source = new FakePhonemeWeightSource();

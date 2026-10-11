@@ -176,7 +176,12 @@ namespace Hidano.FacialControl.LipSync.Tests.PlayMode.HotSwap
 
         private ULipSyncAdapterBinding CreateBinding()
         {
-            var binding = new ULipSyncAdapterBinding { Slug = Slug };
+            var binding = new ULipSyncAdapterBinding
+            {
+                Slug = Slug,
+                // 発話ゲート（HID-189）は ULipSyncVoiceGateTests 等で守る。ここでは従来の出力経路だけを見るため OFF にする。
+                VoiceGateEnabled = false,
+            };
             binding.Configure(
                 new DeviceDescriptor
                 {
