@@ -118,6 +118,17 @@ Edit モードのスクラブは Play と同じレイヤー合成規則（オフ
 - レイヤー weight トラックの無い Timeline では live のレイヤー weight に触れない
 - レイヤー weight は Bake 済みのレイヤー値に再生時に掛かるため、Bake の対象ではない（カーブを編集しても再ベイクは要らない）。Edit プレビューも同じ規則で合成に掛ける
 
+## AnimationTrack への変換
+
+Timeline ウィンドウで独自 Track（表情 / 連続値 / 値提供型 / レイヤー weight）を右クリックし、**FacialControl → AnimationTrack へ変換** を選ぶと、ダイアログを出さずに直ちに標準の AnimationTrack へ変換する。FacialControl ランタイムを持たない環境や汎用の Animation ワークフローへ渡すときに使う。
+
+- **対象ごとに 1 本**: 独自 Track はレイヤーの priority・weight・overlay の suppress 等で合成されて最終値になるため、トラックごとではなく、同じ対象（Receiver）に紐づく独自 Track をまとめて Edit プレビューと同じ合成で評価し、その最終出力を 1 本の AnimationTrack（キャラクターの Animator にバインド）にする。複数の対象にまたがる選択では対象ごとに 1 本。Animator が無ければ FacialController の GameObject に追加する
+- **中身**: BlendShape（`blendShape.*`）と目ボーンの回転（`m_LocalRotation.*`）のカーブを持つ AnimationClip。TimelineAsset と同じフォルダに `<Timeline名>_<対象名>.anim` で保存する（同名があれば番号付き）
+- **キー**: Timeline のフレームごとに評価し、直線で結んだときのずれが閾値以下の中間キーを消す（一定の区間・一定の速さで変化する区間は両端だけ）。閾値は BlendShape 0.1（0..100 スケール）、目ボーン回転 0.1 度（`FacialAnimationTrackConverter` の定数）。接線は Linear、Expression 切替などの段差は Constant
+- **変換元**: 変換元の独自 Track はミュートして残す。変換は 1 回の Undo で取り消せる（保存した `.anim` は残る）
+- Bake が必要（Edit プレビューと同じ）。Bake を解決できない Timeline は変換せずエラーを出す
+- Humanoid の Avatar にマップされた目ボーンは、Humanoid の Animator では回転カーブが適用されないことがある（変換時に Warning を出す）
+
 ## 検証
 
 `FacialTimelineValidator` が Timeline エディタ上でクリップとトラックを検証し、問題をエラー表示する。
@@ -138,7 +149,7 @@ Runtime/
 ├── Clips/      # FacialExpressionClip / FacialValueClip / FacialLayerWeightClip
 ├── Playables/  # Mixer / ClipBehaviour
 └── Adapters/   # TimelineAdapterBinding / FacialTimelineReceiver / Scanner / BakeLocator / LayerConnector / ChannelTakeover / 診断 Evaluator / 各 sink / FacialTimelineBakeAsset
-Editor/         # TimelineEditorServices / TimelineEditChangeWatcher / TimelineBakeService / RecToTimelineExporter / RecTimelineExportWindow / Receiver Inspector / Validator / Edit プレビュー（Compositor）
+Editor/         # TimelineEditorServices / TimelineEditChangeWatcher / TimelineBakeService / RecToTimelineExporter / RecTimelineExportWindow / Receiver Inspector / Validator / Edit プレビュー（Compositor）/ AnimationTrack 変換
 Tests/          # EditMode 単体 + PlayMode（4 手順の e2e / Edit-Play 一致 / GC ゼロ gate / 劣化動作 / live 等価性）
 ```
 

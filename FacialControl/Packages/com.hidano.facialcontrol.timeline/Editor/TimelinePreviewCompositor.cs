@@ -70,6 +70,7 @@ namespace Hidano.FacialControl.Timeline.Editor
 
         // _gazeTracks と同じ並びの駆動用 source id（値の無いトラックは null にして一致させない）。
         private string[] _gazeSourceIds = Array.Empty<string>();
+        private string[] _blendShapeNames = Array.Empty<string>();
         private bool _disposed;
 
         /// <param name="controller">描画先の FacialController（renderer と BlendShape 名の取得元）。</param>
@@ -170,9 +171,27 @@ namespace Hidano.FacialControl.Timeline.Editor
         /// </summary>
         public void Evaluate(double timeSeconds)
         {
-            if (!CanRender || _disposed || _layerUseCase == null)
+            if (!TryEvaluateOutput(timeSeconds, out ReadOnlySpan<float> output))
             {
                 return;
+            }
+
+            _writer?.Write(output);
+        }
+
+        /// <summary>合成出力の BlendShape 名（<see cref="TryEvaluateOutput"/> の出力と同じ並び。描画できないときは空）。</summary>
+        public IReadOnlyList<string> BlendShapeNames => _blendShapeNames;
+
+        /// <summary>
+        /// 指定時刻を合成し、renderer へは書かずに出力（正規化 weight。<see cref="BlendShapeNames"/> と同じ並び）を返す。
+        /// AnimationTrack への変換のように、シーンを書き換えずに最終値だけを読みたい呼出側が使う。
+        /// </summary>
+        public bool TryEvaluateOutput(double timeSeconds, out ReadOnlySpan<float> output)
+        {
+            output = default;
+            if (!CanRender || _disposed || _layerUseCase == null)
+            {
+                return false;
             }
 
             float time = (float)timeSeconds;
@@ -216,7 +235,8 @@ namespace Hidano.FacialControl.Timeline.Editor
             }
 
             _layerUseCase.UpdateWeights(0f);
-            _writer?.Write(_layerUseCase.BlendedOutputSpan);
+            output = _layerUseCase.BlendedOutputSpan;
+            return true;
         }
 
         /// <summary>
@@ -241,15 +261,45 @@ namespace Hidano.FacialControl.Timeline.Editor
             for (int i = 0; i < buffer.Count; i++)
             {
                 FacialTimelinePreviewEyeTarget target = buffer[i];
-                _gazeTracks[target.SourceIndex].Evaluate(timeSeconds, out float x, out float y);
-                target.Bone.localRotation = FacialTimelinePreviewGazeTargets.ComputeLocalRotation(
-                    target,
-                    gazeChannels[target.ChannelIndex],
-                    x,
-                    y);
+                target.Bone.localRotation = ComputeGazeRotation(timeSeconds, target, gazeChannels);
             }
 
             buffer.Clear();
+        }
+
+        /// <summary>
+        /// <see cref="EvaluateGaze"/> が書き込む目ボーンを <paramref name="targets"/> に解決する（ボーンは書き換えない）。
+        /// 描画できない・Gaze トラックが無いときは何も追加しない。
+        /// </summary>
+        public void ResolveGazeTargets(
+            IReadOnlyList<GazeChannel> gazeChannels,
+            BoneTransformResolver resolver,
+            GazeEyeBoneFallback fallback,
+            List<FacialTimelinePreviewEyeTarget> targets)
+        {
+            if (!CanRender || _disposed || gazeChannels == null || gazeChannels.Count == 0
+                || resolver == null || targets == null || _gazeTracks.Length == 0)
+            {
+                return;
+            }
+
+            FacialTimelinePreviewGazeTargets.Resolve(resolver, gazeChannels, _gazeSourceIds, fallback, targets);
+        }
+
+        /// <summary>
+        /// <see cref="ResolveGazeTargets"/> で解決した目ボーン 1 本の、指定時刻の localRotation（<see cref="EvaluateGaze"/> が書く値）。
+        /// </summary>
+        public Quaternion ComputeGazeRotation(
+            double timeSeconds,
+            FacialTimelinePreviewEyeTarget target,
+            IReadOnlyList<GazeChannel> gazeChannels)
+        {
+            _gazeTracks[target.SourceIndex].Evaluate(timeSeconds, out float x, out float y);
+            return FacialTimelinePreviewGazeTargets.ComputeLocalRotation(
+                target,
+                gazeChannels[target.ChannelIndex],
+                x,
+                y);
         }
 
         public void Dispose()
@@ -275,6 +325,7 @@ namespace Hidano.FacialControl.Timeline.Editor
         {
             SkinnedMeshRenderer[] renderers = ResolveRenderers(_controller);
             string[] blendShapeNames = FacialController.CollectBlendShapeNames(renderers);
+            _blendShapeNames = blendShapeNames;
 
             _expressionUseCase = new ExpressionUseCase(_profile);
             TimelineScanResult scan = TimelineAssetScanner.Scan(_timeline);
