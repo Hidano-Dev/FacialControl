@@ -21,6 +21,7 @@ Timeline 再生の手順を「REC → Export → Director にセット → Recei
 
 ### Added
 
+- 独自 Track を標準の AnimationTrack へ変換するトラックのコンテキストメニュー「FacialControl/AnimationTrack へ変換」を追加した（HID-190）。同じ対象（Receiver）の独自 Track をまとめて Edit プレビューと同じ合成で評価し、BlendShape と目ボーン回転のカーブを持つ AnimationClip（`<Timeline名>_<対象名>.anim`）を 1 本の AnimationTrack に配置する。キーは直線で結んだときのずれが閾値以下の中間キーを消し、段差は Constant にする。変換元の独自 Track はミュートして残し、1 回の Undo で取り消せる
 - REC Export がレイヤー weight（基準 kind 14 と時刻付き kind 12。UDP LipSync の発話ゲートなどが `FacialController.SetLayerWeight` で書く inter-layer weight）を、レイヤーごとの `FacialLayerWeightTrack`（トラック名 `{layer} (weight)`、階段カーブの `FacialLayerWeightClip`）として書き出すようにした（HID-182）。従来は読み捨てていたため、発話ゲートが開いていた区間（リップシンクだけで口を動かした区間）が Export した Timeline では再現されなかった。宣言値 1 のまま変わらないレイヤーはトラックにしない。入力源 weight（kind 13）は従来どおり読み捨て、Warning の件数は入力源 weight だけを数える
 - レイヤー weight トラックの再生: Timeline にレイヤー weight トラックがあると、Receiver は再生中だけ live のレイヤー weight 書き込みを止め（REC 再生と同じ `IWeightInjectionGate`）、トラックの値を毎フレーム注入する。Clip の外とトラックの無いレイヤーは宣言値 1。停止時は再生前の weight に戻して live の書き込みを再開する。レイヤー weight トラックの無い Timeline の挙動は変わらない。Edit プレビューも同じ規則で合成に掛ける。レイヤー weight は Bake 済みのレイヤー値に再生時に掛かるため、Bake と Source ハッシュには含めない
 - REC Export が値提供型（kind 7 / 基準 kind 8。iFacialMocap の BlendShape / UDP LipSync など）を入力源 id ごとの Value トラック（`FacialValueChannelKind.ValueProvider`）として書き出すようにした（HID-178）。基準を t=0 の状態とし、記録の差分を REC 再生と同じ規則で積み上げて、BlendShape ごとの値・寄与 mask・有効状態の階段カーブにする。BlendShape は REC に記録された録画時の BlendShape 名で、名前の記録が無ければ記録時の index で保存する（index 保存時は Export で 1 回 Warning）。Detected Channels に `ValueProvider（N 個の BlendShape）` と保存方法を表示する
@@ -38,6 +39,7 @@ Timeline 再生の手順を「REC → Export → Director にセット → Recei
 
 ### Fixed
 
+- Edit プレビューが GroupTrack 配下の Gaze Value トラックを評価していなかった（Play は駆動する）のを直した（HID-190）
 - REC Export で値提供型（iFacialMocap 等）の BlendShape が 1 つ前にずれて動くことがあった。Profile の参照モデルから BlendShape 名を集め、名前数と記録の mask バイト数（8 個単位）が合えば一致とみなしていたため、録画時と BlendShape が 1 つ違うモデルでも名前が 1 つずつずれて割り当てられていた。Export は REC に記録された録画時の BlendShape 名だけを使い、参照モデルから推測しないようにした（HID-180）
 - Edit プレビューを解除しても BlendShape が変形したまま戻らなかった。プレビュー開始時に登録する復元対象を `FacialController.SkinnedMeshRenderers`（手動オーバーライド欄）からしか集めておらず、Edit 中で空のときは何も登録していなかったため、プレビューが書き込むのと同じ renderer（手動オーバーライド → 子の SkinnedMeshRenderer）を登録するようにした（HID-181）
 - Edit プレビューが非アクティブな子の SkinnedMeshRenderer も集めていたため、Play（アクティブな子だけを集める）と BlendShape の並びがずれ、値提供型を index で再生するトラックが別の BlendShape を動かすことがあった。プレビューもアクティブな子だけを集めるようにした（HID-181）

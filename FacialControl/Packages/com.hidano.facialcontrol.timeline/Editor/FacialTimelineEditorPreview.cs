@@ -377,6 +377,20 @@ namespace Hidano.FacialControl.Timeline.Editor
             GazeTargetBuffer.Clear();
         }
 
+        /// <summary>
+        /// プレビューが目ボーンの解決に使う resolver と fallback（プレビュー開始時の姿勢から取った rest 回転）を返す。
+        /// プレビュー中に呼んでも、書き換え後の姿勢ではなくプレビュー開始時の rest を使える。
+        /// </summary>
+        internal static void GetGazeEyeResolver(
+            FacialController controller,
+            out BoneTransformResolver resolver,
+            out GazeEyeBoneFallback fallback)
+        {
+            CachedGazeEyeFallback cached = GetGazeEyeFallback(controller);
+            resolver = cached.Resolver;
+            fallback = cached.Fallback;
+        }
+
         private static CachedGazeEyeFallback GetGazeEyeFallback(FacialController controller)
         {
             int key = controller.GetInstanceID();
@@ -432,7 +446,7 @@ namespace Hidano.FacialControl.Timeline.Editor
             collector.AddFromName<Transform>(target.gameObject, "m_LocalRotation.w");
         }
 
-        private static FacialTimelineReceiver ResolveBoundReceiver(PlayableDirector director, TrackAsset track)
+        internal static FacialTimelineReceiver ResolveBoundReceiver(PlayableDirector director, TrackAsset track)
         {
             for (TrackAsset current = track; current != null; current = current.parent as TrackAsset)
             {
@@ -450,7 +464,7 @@ namespace Hidano.FacialControl.Timeline.Editor
             return null;
         }
 
-        private static FacialController ResolveController(FacialTimelineReceiver receiver)
+        internal static FacialController ResolveController(FacialTimelineReceiver receiver)
         {
             return receiver.GetComponent<FacialController>()
                    ?? receiver.GetComponentInParent<FacialController>()
