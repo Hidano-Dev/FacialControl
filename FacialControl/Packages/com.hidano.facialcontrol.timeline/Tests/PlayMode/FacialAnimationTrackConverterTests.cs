@@ -183,6 +183,31 @@ namespace Hidano.FacialControl.Timeline.Tests.PlayMode
             Assert.That(CountOutputTracks(_fixture.Timeline), Is.EqualTo(trackCount));
         }
 
+        [Test]
+        public void Convert_TracksBoundToTwoReceivers_LogsErrorAndAddsNoTrack()
+        {
+            TimelineE2ECharacter character = Prepare(new RecFixtureWriter.Recording());
+            TimelineE2ECharacter other = _fixture.Spawn(TimelineE2EPlacement.SameObject);
+            bool first = true;
+            foreach (TrackAsset track in _fixture.Timeline.GetOutputTracks())
+            {
+                if (FacialAnimationTrackConverter.IsFacialTrack(track))
+                {
+                    character.Director.SetGenericBinding(track, first ? other.Receiver : character.Receiver);
+                    first = false;
+                }
+            }
+
+            int trackCount = CountOutputTracks(_fixture.Timeline);
+
+            LogAssert.Expect(LogType.Error, new Regex("複数の対象"));
+            List<AnimationTrackConversionResult> results =
+                FacialAnimationTrackConverter.Convert(character.Director, _fixture.Timeline.GetOutputTracks());
+
+            Assert.That(results, Is.Empty, "対象ごとに分けられない合成を焼き込まない");
+            Assert.That(CountOutputTracks(_fixture.Timeline), Is.EqualTo(trackCount));
+        }
+
         private TimelineE2ECharacter Prepare(RecFixtureWriter.Recording recording)
         {
             _fixture = TimelineE2EFixture.Create(recording);

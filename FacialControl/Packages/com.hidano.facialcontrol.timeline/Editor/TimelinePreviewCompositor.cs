@@ -728,7 +728,7 @@ namespace Hidano.FacialControl.Timeline.Editor
         }
 
         /// <summary>
-        /// root の Gaze Value トラックを走査順に集める。Play の Value Mixer と同じく Clip を倍精度の時刻で判定して評価する
+        /// Gaze Value トラック（Group 配下を含む出力トラック）を走査順に集める。Play の Value Mixer と同じく Clip を倍精度の時刻で判定して評価する
         /// （Bake の値カーブは float 時刻で評価するため、Clip 終端 = Timeline 終端の直前で Play と食い違う）。
         /// </summary>
         private static GazeTrackPlayback[] CollectGazeTracks(TimelineAsset timeline)
@@ -738,8 +738,9 @@ namespace Hidano.FacialControl.Timeline.Editor
                 return Array.Empty<GazeTrackPlayback>();
             }
 
+            // Play の Value Mixer は Group 配下を含む全出力トラックで動くため、root に限らず出力トラックを走査する。
             var tracks = new List<GazeTrackPlayback>();
-            foreach (TrackAsset track in timeline.GetRootTracks())
+            foreach (TrackAsset track in timeline.GetOutputTracks())
             {
                 if (!(track is FacialValueTrack valueTrack) || valueTrack.ChannelKind != FacialValueChannelKind.Gaze)
                 {

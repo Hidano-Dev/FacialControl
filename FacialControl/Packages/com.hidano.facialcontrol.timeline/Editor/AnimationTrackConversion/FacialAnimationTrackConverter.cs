@@ -116,6 +116,14 @@ namespace Hidano.FacialControl.Timeline.Editor.AnimationTrackConversion
                 return results;
             }
 
+            // 合成（Bake・導出・Edit プレビュー）は TimelineAsset 全体を 1 つの対象として評価するため、複数の対象の独自 Track が
+            // 同じ Timeline にあると、各対象の AnimationClip に他の対象のトラックが混ざる。分けられないので変換しない。
+            if (HasMultipleReceivers(timeline, resolver))
+            {
+                Debug.LogError(LogPrefix + $"'{timeline.name}' には複数の対象（FacialTimelineReceiver）の独自 Track があるため変換しません。合成は Timeline 全体を 1 つの対象として評価するので、対象ごとに Timeline を分けてから変換してください。", timeline);
+                return results;
+            }
+
             Undo.IncrementCurrentGroup();
             Undo.SetCurrentGroupName(UndoName);
             int undoGroup = Undo.GetCurrentGroup();
@@ -129,6 +137,37 @@ namespace Hidano.FacialControl.Timeline.Editor.AnimationTrackConversion
 
             Undo.CollapseUndoOperations(undoGroup);
             return results;
+        }
+
+        private static bool HasMultipleReceivers(TimelineAsset timeline, ReceiverResolver resolver)
+        {
+            var tracks = new List<(TrackAsset track, bool mutedInHierarchy)>();
+            CollectAllTracks(timeline, tracks);
+            FacialTimelineReceiver first = null;
+            for (int i = 0; i < tracks.Count; i++)
+            {
+                if (!IsFacialTrack(tracks[i].track))
+                {
+                    continue;
+                }
+
+                FacialTimelineReceiver receiver = resolver.Resolve(tracks[i].track);
+                if (receiver == null)
+                {
+                    continue;
+                }
+
+                if (first == null)
+                {
+                    first = receiver;
+                }
+                else if (first != receiver)
+                {
+                    return true;
+                }
+            }
+
+            return false;
         }
 
         private static List<FacialTimelineReceiver> CollectSelectedReceivers(ReceiverResolver resolver, IEnumerable<TrackAsset> selection)

@@ -122,7 +122,7 @@ Edit モードのスクラブは Play と同じレイヤー合成規則（オフ
 
 Timeline ウィンドウで独自 Track（表情 / 連続値 / 値提供型 / レイヤー weight）を右クリックし、**FacialControl → AnimationTrack へ変換** を選ぶと、ダイアログを出さずに直ちに標準の AnimationTrack へ変換する。FacialControl ランタイムを持たない環境や汎用の Animation ワークフローへ渡すときに使う。
 
-- **対象ごとに 1 本**: 独自 Track はレイヤーの priority・weight・overlay の suppress 等で合成されて最終値になるため、トラックごとではなく、同じ対象（Receiver）に紐づく独自 Track をまとめて Edit プレビューと同じ合成で評価し、その最終出力を 1 本の AnimationTrack（キャラクターの Animator にバインド）にする。複数の対象にまたがる選択では対象ごとに 1 本。Animator が無ければ FacialController の GameObject に追加する
+- **対象ごとに 1 本**: 独自 Track はレイヤーの priority・weight・overlay の suppress 等で合成されて最終値になるため、トラックごとではなく、同じ対象（Receiver）に紐づく独自 Track をまとめて Edit プレビューと同じ合成で評価し、その最終出力を 1 本の AnimationTrack（キャラクターの Animator にバインド）にする。Animator は FacialController の親階層 → 子階層の順に探し、無ければ FacialController の GameObject に追加する。合成は Timeline 全体を 1 つの対象として評価するため、1 つの Timeline に複数の対象の独自 Track がある構成は変換しない（対象ごとに Timeline を分ける）
 - **中身**: BlendShape（`blendShape.*`）と目ボーンの回転（`m_LocalRotation.*`）のカーブを持つ AnimationClip。TimelineAsset と同じフォルダに `<Timeline名>_<対象名>.anim` で保存する（同名があれば番号付き）
 - **キー**: Timeline のフレームごとに評価し、直線で結んだときのずれが閾値以下の中間キーを消す（一定の区間・一定の速さで変化する区間は両端だけ）。閾値は BlendShape 0.1（0..100 スケール）、目ボーン回転 0.1 度（`FacialAnimationTrackConverter` の定数）。接線は Linear、Expression 切替などの段差は Constant
 - **変換元**: 変換元の独自 Track はミュートして残す。変換は 1 回の Undo で取り消せる（保存した `.anim` は残る）
