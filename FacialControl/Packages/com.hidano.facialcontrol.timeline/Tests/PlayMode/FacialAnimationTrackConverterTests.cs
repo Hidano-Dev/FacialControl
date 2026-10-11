@@ -1,6 +1,7 @@
 #if UNITY_EDITOR
 using System;
 using System.Collections.Generic;
+using System.Text.RegularExpressions;
 using Hidano.FacialControl.Adapters.Bone;
 using Hidano.FacialControl.Domain.Models;
 using Hidano.FacialControl.Editor.AutoExport;
@@ -11,6 +12,7 @@ using Hidano.FacialControl.Timeline.Tests.Shared;
 using NUnit.Framework;
 using UnityEditor;
 using UnityEngine;
+using UnityEngine.TestTools;
 using UnityEngine.Timeline;
 
 namespace Hidano.FacialControl.Timeline.Tests.PlayMode
@@ -142,6 +144,21 @@ namespace Hidano.FacialControl.Timeline.Tests.PlayMode
             }
         }
 
+        [Test]
+        public void Convert_AlreadyConverted_LogsErrorAndAddsNoTrack()
+        {
+            TimelineE2ECharacter character = Prepare(new RecFixtureWriter.Recording());
+            Convert(character);
+            int trackCount = CountOutputTracks(_fixture.Timeline);
+
+            LogAssert.Expect(LogType.Error, new Regex("ミュート中の独自 Track"));
+            List<AnimationTrackConversionResult> second =
+                FacialAnimationTrackConverter.Convert(character.Director, _fixture.Timeline.GetOutputTracks());
+
+            Assert.That(second, Is.Empty, "ミュートした変換元を再び焼き込まない");
+            Assert.That(CountOutputTracks(_fixture.Timeline), Is.EqualTo(trackCount));
+        }
+
         private TimelineE2ECharacter Prepare(RecFixtureWriter.Recording recording)
         {
             _fixture = TimelineE2EFixture.Create(recording);
@@ -161,7 +178,7 @@ namespace Hidano.FacialControl.Timeline.Tests.PlayMode
             return results;
         }
 
-        /// <summary>変換元を Edit プレビューと同じ合成でフレームごと（+ フレームの中点）に評価する。</summary>
+        /// <summary>変換元を Edit プレビューと同じ合成で Timeline のフレームごとに評価する。</summary>
         private List<(double time, float[] weights, Quaternion left, Quaternion right)> EvaluateSource(TimelineE2ECharacter character)
         {
             FacialProfile profile = TimelineProfileSource.Resolve(_fixture.ProfileAsset);

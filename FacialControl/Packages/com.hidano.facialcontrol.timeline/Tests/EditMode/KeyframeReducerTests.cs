@@ -164,6 +164,17 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
         }
 
         [Test]
+        public void SampleTimeline_Create_FrameInsideProbeWindow_IsDropped()
+        {
+            // フレーム 0.05 は段差候補 0.0502 の直前の窓 (0.0497, 0.0502) に入るので評価しない。
+            SampleTimeline samples = SampleTimeline.Create(0.1d, 20d, new[] { 0.0502d });
+
+            Assert.That(samples.Times.Count, Is.EqualTo(4));
+            Assert.That(samples.Times[1], Is.EqualTo(0.0502d - FacialAnimationTrackConverter.StepProbeSeconds).Within(1e-9d));
+            Assert.That(samples.Times[2], Is.EqualTo(0.0502d).Within(1e-9d));
+        }
+
+        [Test]
         public void SampleTimeline_DetectSteps_FlagsOnlyJumpsAboveTolerance()
         {
             SampleTimeline samples = SampleTimeline.Create(0.1d, 20d, new[] { 0.025d, 0.075d });

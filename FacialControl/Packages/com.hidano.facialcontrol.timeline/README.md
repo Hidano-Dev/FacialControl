@@ -126,7 +126,8 @@ Timeline ウィンドウで独自 Track（表情 / 連続値 / 値提供型 / �
 - **中身**: BlendShape（`blendShape.*`）と目ボーンの回転（`m_LocalRotation.*`）のカーブを持つ AnimationClip。TimelineAsset と同じフォルダに `<Timeline名>_<対象名>.anim` で保存する（同名があれば番号付き）
 - **キー**: Timeline のフレームごとに評価し、直線で結んだときのずれが閾値以下の中間キーを消す（一定の区間・一定の速さで変化する区間は両端だけ）。閾値は BlendShape 0.1（0..100 スケール）、目ボーン回転 0.1 度（`FacialAnimationTrackConverter` の定数）。接線は Linear、Expression 切替などの段差は Constant
 - **変換元**: 変換元の独自 Track はミュートして残す。変換は 1 回の Undo で取り消せる（保存した `.anim` は残る）
-- Bake が必要（Edit プレビューと同じ）。Bake を解決できない Timeline は変換せずエラーを出す
+- Bake が必要（Edit プレビューと同じ）。Bake を解決できない・Timeline や Profile の変更に追いついていない場合は変換せずエラーを出す（古い Bake なら再ベイクを予約するので、完了後にもう一度変換する）
+- 合成はトラックのミュートを見ないため、その対象にミュート中の独自 Track がある（変換済みを含む）ときは変換しない
 - Humanoid の Avatar にマップされた目ボーンは、Humanoid の Animator では回転カーブが適用されないことがある（変換時に Warning を出す）
 
 ## 検証
