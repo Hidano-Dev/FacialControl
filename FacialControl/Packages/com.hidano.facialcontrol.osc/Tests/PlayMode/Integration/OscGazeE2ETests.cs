@@ -505,12 +505,10 @@ namespace Hidano.FacialControl.Tests.PlayMode.Integration
 
             yield return new WaitForSecondsRealtime(0.2f);
 
-            using (UnityEngine.InputSystem.LowLevel.StateEvent.From(_gamepad, out var eventPtr))
-            {
-                _gamepad.leftStick.WriteValueIntoEvent(inputValue, eventPtr);
-                UnityEngine.InputSystem.InputSystem.QueueEvent(eventPtr);
-            }
-            UnityEngine.InputSystem.InputSystem.Update();
+            // イベントキューを通さず状態を直接書く。InputTestRuntime の時刻が Editor 実時刻で記録された
+            // Edit→Play 遷移の窓（exitEditModeTime〜enterPlayModeTime）に入ると、キュー経由の StateEvent は
+            // InputManager に破棄される（HID-194。Linux CI では窓が 21〜26 秒付近に来て断続的に落ちた）。
+            InputState.Change(_gamepad.leftStick, inputValue);
             inputBinding.OnLateTick(0.016f);
 
             OscIndexedFrameMessages.SendFrame(receiver.HelperHost.Receiver, oscSender, 2000UL, oscValue.x, oscValue.y);
