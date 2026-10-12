@@ -95,6 +95,88 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
         }
 
         [Test]
+        public void TryExportTimelineAsset_RecWithGazeEyeBonePaths_StoresRecordedPathsOnGazeTrack()
+        {
+            ExportFixture fixture = ExportFixture.Create();
+
+            try
+            {
+                bool success = RecToTimelineExporter.TryExportTimelineAsset(
+                    fixture.RecordingAbsolutePath,
+                    fixture.Profile,
+                    fixture.TimelinePath,
+                    out RecToTimelineExporter.ExportResult result);
+
+                Assert.That(success, Is.True);
+                FacialValueTrack gazeTrack = FindValueTrack(result.Timeline, "live:gaze");
+                Assert.That(gazeTrack, Is.Not.Null);
+                Assert.That(gazeTrack.ChannelKind, Is.EqualTo(FacialValueChannelKind.Gaze));
+                Assert.That(gazeTrack.LeftEyeBonePath, Is.EqualTo(LeftEyeBonePath));
+                Assert.That(gazeTrack.RightEyeBonePath, Is.EqualTo(RightEyeBonePath));
+            }
+            finally
+            {
+                fixture.Dispose();
+            }
+        }
+
+        [Test]
+        public void TryExportTimelineAsset_RecWithoutGazeEyeBonePaths_SkipsGazeTrackAndExportsOthers()
+        {
+            // 目線パスの無い REC（旧形式を含む）は、書き出し側のモデルで目線ボーンを推測しないよう Gaze トラックを作らない（HID-192）。
+            ExportFixture fixture = ExportFixture.Create(recordGazeEyeBonePaths: false);
+
+            try
+            {
+                LogAssert.Expect(
+                    LogType.Warning,
+                    new System.Text.RegularExpressions.Regex(@"\[RecToTimelineExporter\].*no gaze eye bone paths.*1 gaze track\(s\): live:gaze"));
+                LogAssert.Expect(
+                    LogType.Warning,
+                    new System.Text.RegularExpressions.Regex(@"\[RecToTimelineExporter\].*expression activate/deactivate record"));
+
+                bool success = RecToTimelineExporter.TryExportTimelineAsset(
+                    fixture.RecordingAbsolutePath,
+                    fixture.Profile,
+                    fixture.TimelinePath,
+                    out RecToTimelineExporter.ExportResult result);
+
+                Assert.That(success, Is.True);
+                Assert.That(FindValueTrack(result.Timeline, "live:gaze"), Is.Null, "目線のキーは作らない");
+
+                var expressionTracks = new List<FacialExpressionTrack>();
+                foreach (TrackAsset track in result.Timeline.GetRootTracks())
+                {
+                    if (track is FacialExpressionTrack expressionTrack)
+                    {
+                        expressionTracks.Add(expressionTrack);
+                    }
+                }
+
+                Assert.That(expressionTracks, Has.Count.EqualTo(1), "目線以外は従来どおり書き出す");
+                Assert.That(ToArray(expressionTracks[0].GetClips()), Has.Length.EqualTo(1));
+                LogAssert.NoUnexpectedReceived();
+            }
+            finally
+            {
+                fixture.Dispose();
+            }
+        }
+
+        private static FacialValueTrack FindValueTrack(TimelineAsset timeline, string channelSubId)
+        {
+            foreach (TrackAsset track in timeline.GetOutputTracks())
+            {
+                if (track is FacialValueTrack valueTrack && valueTrack.ChannelSubId == channelSubId)
+                {
+                    return valueTrack;
+                }
+            }
+
+            return null;
+        }
+
+        [Test]
         public void TryExportTimelineAsset_ExistingAsset_CancelledOverwriteLeavesTimelineUntouched()
         {
             ExportFixture fixture = ExportFixture.Create();
@@ -544,6 +626,9 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
             return list.ToArray();
         }
 
+        private const string LeftEyeBonePath = "Armature/Hips/Spine/Head/LeftEye";
+        private const string RightEyeBonePath = "Armature/Hips/Spine/Head/RightEye";
+
         private sealed class ExportFixture : IDisposable
         {
             private readonly string _folderPath;
@@ -570,7 +655,8 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
                 bool overlappingTriggers = false,
                 bool includeWeightRecords = false,
                 bool valueProvider = false,
-                string[] blendShapeNames = null)
+                string[] blendShapeNames = null,
+                bool recordGazeEyeBonePaths = true)
             {
                 string folderName = "RecToTimelineExportWorkflowTests_" + Guid.NewGuid().ToString("N");
                 string folderPath = "Assets/" + folderName;
@@ -623,10 +709,10 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
                 RecTimeline timeline = valueProvider
                     ? CreateValueProviderRecordingTimeline(blendShapeNames)
                     : includeWeightRecords
-                    ? CreateRecordingTimelineWithWeights()
+                    ? CreateRecordingTimelineWithWeights(recordGazeEyeBonePaths)
                     : overlappingTriggers
-                        ? CreateOverlappingRecordingTimeline()
-                        : CreateRecordingTimeline();
+                        ? CreateOverlappingRecordingTimeline(recordGazeEyeBonePaths)
+                        : CreateRecordingTimeline(recordGazeEyeBonePaths);
                 File.WriteAllBytes(recordingPath, RecBinaryFormat.Serialize(timeline, 123L));
                 AssetDatabase.Refresh();
 
@@ -646,10 +732,10 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
             /// <summary>
             /// 同一レイヤーで smile と wink が重なる（子レーンが生成される）記録と、2 軸のアナログ記録。
             /// </summary>
-            private static RecTimeline CreateOverlappingRecordingTimeline()
+            private static RecTimeline CreateOverlappingRecordingTimeline(bool recordGazeEyeBonePaths)
             {
                 return new RecTimeline(
-                    RecBaselineState.Empty,
+                    WithGazeEyeBonePaths(RecBaselineState.Empty, recordGazeEyeBonePaths),
                     new[]
                     {
                         RecEvent.CreateTriggerOn(0.10d, 0, 0),
@@ -682,7 +768,7 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
             /// <summary>
             /// weight の基準エントリ（レイヤー / 入力源）と時刻付き weight を含む、rec-weight-coverage 以降の形式の記録。
             /// </summary>
-            private static RecTimeline CreateRecordingTimelineWithWeights()
+            private static RecTimeline CreateRecordingTimelineWithWeights(bool recordGazeEyeBonePaths)
             {
                 var baseline = new RecBaselineState(
                     null,
@@ -692,7 +778,7 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
                     new[] { new LayerWeightEntry("emotion", 1f) },
                     new[] { new InputSourceWeightEntry("emotion", "input:trigger", 1f) });
                 return new RecTimeline(
-                    baseline,
+                    WithGazeEyeBonePaths(baseline, recordGazeEyeBonePaths),
                     new[]
                     {
                         RecEvent.CreateTriggerOn(0.10d, 0, 0),
@@ -753,10 +839,18 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
                     new IReadOnlyList<byte>[] { Array.Empty<byte>() });
             }
 
-            private static RecTimeline CreateRecordingTimeline()
+            /// <summary>
+            /// 録画時に解決した目線ボーンのパス（Animator のルート相対）を記録する。記録しない場合は目線パスの無い旧 REC と同じ。
+            /// </summary>
+            private static RecBaselineState WithGazeEyeBonePaths(RecBaselineState baseline, bool record)
+            {
+                return record ? baseline.WithGazeEyeBonePaths(LeftEyeBonePath, RightEyeBonePath) : baseline;
+            }
+
+            private static RecTimeline CreateRecordingTimeline(bool recordGazeEyeBonePaths)
             {
                 return new RecTimeline(
-                    RecBaselineState.Empty,
+                    WithGazeEyeBonePaths(RecBaselineState.Empty, recordGazeEyeBonePaths),
                     new[]
                     {
                         RecEvent.CreateTriggerOn(0.10d, 0, 0),

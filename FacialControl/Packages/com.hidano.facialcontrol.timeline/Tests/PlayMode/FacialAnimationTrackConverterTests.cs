@@ -86,6 +86,59 @@ namespace Hidano.FacialControl.Timeline.Tests.PlayMode
         }
 
         [Test]
+        public void Convert_GenericModelWithoutJointNames_DrivesEyesByRecordedPaths()
+        {
+            // 書き出し側は Generic (Avatar なし) で、目線メニューのジョイント名も未指定。Avatar からも名前からも目線ボーンを
+            // 引けないが、REC に記録された目線ボーンのパスで引いて目線を再現する (HID-192)。
+            TimelineE2ECharacter character = Prepare(new RecFixtureWriter.Recording(), ClearGazeJointNames);
+
+            AnimationClip clip = Convert(character)[0].Clip;
+
+            EditorCurveBinding[] bindings = AnimationUtility.GetCurveBindings(clip);
+            Assert.That(HasRotationCurve(bindings, RecFixtureWriter.DefaultLeftEyeBonePath), Is.True, "左目の回転カーブがある");
+            Assert.That(HasRotationCurve(bindings, RecFixtureWriter.DefaultRightEyeBonePath), Is.True, "右目の回転カーブがある");
+            clip.SampleAnimation(character.Root, (float)(_fixture.Recording.FirstSampleSeconds + 0.5d));
+            Assert.That(Quaternion.Angle(character.LeftEye.localRotation, Quaternion.identity), Is.GreaterThan(1f), "目線が左目に出る");
+        }
+
+        [Test]
+        public void Convert_RecWithoutGazeEyeBonePaths_HasNoEyeRotationCurves()
+        {
+            // 目線パスの無い REC は Export が Gaze トラックを作らないため、変換結果にも目線のキーは無い (HID-192)。
+            LogAssert.Expect(LogType.Warning, new Regex(@"\[RecToTimelineExporter\].*no gaze eye bone paths"));
+            TimelineE2ECharacter character = Prepare(
+                new RecFixtureWriter.Recording { LeftEyeBonePath = null, RightEyeBonePath = null },
+                ClearGazeJointNames);
+
+            AnimationClip clip = Convert(character)[0].Clip;
+
+            EditorCurveBinding[] bindings = AnimationUtility.GetCurveBindings(clip);
+            Assert.That(HasRotationCurve(bindings, RecFixtureWriter.DefaultLeftEyeBonePath), Is.False);
+            Assert.That(HasRotationCurve(bindings, RecFixtureWriter.DefaultRightEyeBonePath), Is.False);
+            Assert.That(bindings.Length, Is.GreaterThan(0), "目線以外 (BlendShape) は従来どおり変換する");
+        }
+
+        private static void ClearGazeJointNames(Hidano.FacialControl.Adapters.ScriptableObject.Serializable.FacialCharacterProfileSO profileAsset)
+        {
+            Hidano.FacialControl.Adapters.ScriptableObject.GazeChannel gaze = profileAsset.GazeChannels[0];
+            gaze.leftEyeBonePath = string.Empty;
+            gaze.rightEyeBonePath = string.Empty;
+        }
+
+        private static bool HasRotationCurve(EditorCurveBinding[] bindings, string path)
+        {
+            for (int i = 0; i < bindings.Length; i++)
+            {
+                if (bindings[i].path == path && bindings[i].type == typeof(Transform) && bindings[i].propertyName == "m_LocalRotation.w")
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        [Test]
         public void Convert_RecExportedTimeline_ThinsKeysOfConstantAndConstantSlopeSections()
         {
             TimelineE2ECharacter character = Prepare(new RecFixtureWriter.Recording());
@@ -247,9 +300,11 @@ namespace Hidano.FacialControl.Timeline.Tests.PlayMode
             }
         }
 
-        private TimelineE2ECharacter Prepare(RecFixtureWriter.Recording recording)
+        private TimelineE2ECharacter Prepare(
+            RecFixtureWriter.Recording recording,
+            Action<Hidano.FacialControl.Adapters.ScriptableObject.Serializable.FacialCharacterProfileSO> configureProfile = null)
         {
-            _fixture = TimelineE2EFixture.Create(recording);
+            _fixture = TimelineE2EFixture.Create(recording, configureProfile);
             _fixture.MarkProfileChanged();
             FacialCharacterProfileAutoExporter.ExportIfEnabled(_fixture.ProfileAsset);
             TimelineProfileSource.InvalidateCache(_fixture.ProfileAsset);

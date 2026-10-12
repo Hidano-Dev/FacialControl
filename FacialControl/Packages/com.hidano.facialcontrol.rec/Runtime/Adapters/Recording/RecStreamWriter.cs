@@ -354,6 +354,29 @@ namespace Hidano.FacialControl.Rec.Adapters.Recording
                     _baseline.BlendShapeNames[i]);
             }
 
+            // 目線ボーンのパス（Export が Generic のモデルでも目線ボーンを引けるように）。録画中は変わらないので開始時に 1 回だけ書く。
+            if (_baseline.LeftEyeBonePath != null)
+            {
+                WriteRecord(
+                    stream,
+                    ref buffer,
+                    RecEvent.CreateIdDefine(RecIdTable.GazeLeftEyeIndex, RecEvent.IdDefinitionKind.GazeEyeBonePath),
+                    ReadOnlySpan<float>.Empty,
+                    ReadOnlySpan<byte>.Empty,
+                    _baseline.LeftEyeBonePath);
+            }
+
+            if (_baseline.RightEyeBonePath != null)
+            {
+                WriteRecord(
+                    stream,
+                    ref buffer,
+                    RecEvent.CreateIdDefine(RecIdTable.GazeRightEyeIndex, RecEvent.IdDefinitionKind.GazeEyeBonePath),
+                    ReadOnlySpan<float>.Empty,
+                    ReadOnlySpan<byte>.Empty,
+                    _baseline.RightEyeBonePath);
+            }
+
             for (int i = 0; i < _baseline.TriggerEntries.Count; i++)
             {
                 RecBaselineState.TriggerEntry entry = _baseline.TriggerEntries[i];
@@ -444,7 +467,9 @@ namespace Hidano.FacialControl.Rec.Adapters.Recording
         {
             RecIdTable idTable = RecIdTable.CreateSeeded(baseline);
             int count = idTable.SourceIds.Count + idTable.ExpressionIds.Count + idTable.LayerIds.Count
-                + baseline.BlendShapeNames.Count;
+                + baseline.BlendShapeNames.Count
+                + (baseline.LeftEyeBonePath != null ? 1 : 0)
+                + (baseline.RightEyeBonePath != null ? 1 : 0);
 
             for (int i = 0; i < baseline.TriggerEntries.Count; i++)
             {

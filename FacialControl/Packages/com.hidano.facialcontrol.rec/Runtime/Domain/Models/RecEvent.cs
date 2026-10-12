@@ -16,6 +16,11 @@ namespace Hidano.FacialControl.Rec.Domain.Models
             /// （mask のビット位置）に対応する。
             /// </summary>
             BlendShape = 4,
+
+            /// <summary>
+            /// 録画時に解決した目線ボーンの、Animator のルートからの相対パス。id index 0 が左目、1 が右目。
+            /// </summary>
+            GazeEyeBonePath = 5,
         }
 
         private RecEvent(RecEventKind kind, double timestampSeconds, ushort sourceIdIndex, ushort expressionIdIndex,
@@ -72,7 +77,7 @@ namespace Hidano.FacialControl.Rec.Domain.Models
         public static RecEvent CreateIdDefine(ushort idIndex, IdDefinitionKind idKind)
         {
             if (idKind != IdDefinitionKind.Source && idKind != IdDefinitionKind.Expression && idKind != IdDefinitionKind.Layer
-                && idKind != IdDefinitionKind.BlendShape)
+                && idKind != IdDefinitionKind.BlendShape && idKind != IdDefinitionKind.GazeEyeBonePath)
             {
                 throw new ArgumentOutOfRangeException(nameof(idKind));
             }

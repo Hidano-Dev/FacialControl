@@ -18,6 +18,7 @@ namespace Hidano.FacialControl.Rec.Domain.Services
         private readonly List<string> _layerIds = new List<string>();
         private readonly Dictionary<string, ushort> _blendShapeIndexes = new Dictionary<string, ushort>(StringComparer.Ordinal);
         private readonly List<string> _blendShapeNames = new List<string>();
+        private readonly string[] _gazeEyeBonePaths = new string[2];
 
         public IReadOnlyList<string> SourceIds => _sourceIds;
 
@@ -28,6 +29,18 @@ namespace Hidano.FacialControl.Rec.Domain.Services
         /// 読み込んだ BlendShape 名（index = 値提供型の BlendShape index）。定義の無い index は null のまま残る。
         /// </summary>
         public IReadOnlyList<string> BlendShapeNames => _blendShapeNames;
+
+        /// <summary>読み込んだ左目の目線ボーンのパス（Animator のルートからの相対）。定義が無ければ null。</summary>
+        public string LeftEyeBonePath => _gazeEyeBonePaths[GazeLeftEyeIndex];
+
+        /// <summary>読み込んだ右目の目線ボーンのパス（Animator のルートからの相対）。定義が無ければ null。</summary>
+        public string RightEyeBonePath => _gazeEyeBonePaths[GazeRightEyeIndex];
+
+        /// <summary>目線ボーンパスの IdDefine の id index（左目）。</summary>
+        public const ushort GazeLeftEyeIndex = 0;
+
+        /// <summary>目線ボーンパスの IdDefine の id index（右目）。</summary>
+        public const ushort GazeRightEyeIndex = 1;
 
         /// <summary>
         /// 録画開始時の baseline から初期 ID テーブルを作る。記録側（<c>RecordingUseCase</c>）とライター側
@@ -129,6 +142,12 @@ namespace Hidano.FacialControl.Rec.Domain.Services
                 return;
             }
 
+            if (idKind == Hidano.FacialControl.Rec.Domain.Models.RecEvent.IdDefinitionKind.GazeEyeBonePath)
+            {
+                AddGazeEyeBonePath(idIndex, value);
+                return;
+            }
+
             throw new ArgumentOutOfRangeException(nameof(idKind), "Unsupported id definition kind.");
         }
 
@@ -219,6 +238,30 @@ namespace Hidano.FacialControl.Rec.Domain.Services
 
             values[idIndex] = value;
             indexes[value] = idIndex;
+        }
+
+        /// <summary>
+        /// 目線ボーンのパスは左右で同じ値になり得るため、値の一意性は検査しない（index で左右を区別する）。
+        /// </summary>
+        private void AddGazeEyeBonePath(ushort idIndex, string value)
+        {
+            if (string.IsNullOrWhiteSpace(value))
+            {
+                throw new ArgumentException("Gaze eye bone path is required.", nameof(value));
+            }
+
+            if (idIndex >= _gazeEyeBonePaths.Length)
+            {
+                throw new InvalidOperationException($"Gaze eye bone path index {idIndex} is out of range (0: left, 1: right).");
+            }
+
+            string existing = _gazeEyeBonePaths[idIndex];
+            if (existing != null && !string.Equals(existing, value, StringComparison.Ordinal))
+            {
+                throw new InvalidOperationException($"Gaze eye bone path index {idIndex} is already assigned to '{existing}'.");
+            }
+
+            _gazeEyeBonePaths[idIndex] = value;
         }
 
         private static bool TryGetId(ushort index, List<string> values, out string value)

@@ -74,6 +74,62 @@ namespace Hidano.FacialControl.Tests.PlayMode.Adapters.Playable
             CollectionAssert.AreEqual(new[] { "gaze", "camera" }, binding.ReceivedIds);
         }
 
+        [Test]
+        public void GetGazeEyeBonePaths_JointNamesOnGenericRig_ReturnsPathsFromAnimatorRoot()
+        {
+            // Generic (Avatar なし) でも、目線メニューのジョイント名で解決したボーンを Animator のルート相対で返す (HID-192)。
+            FacialController controller = CreateController(out Transform root);
+            Transform head = MakeChild("Head", MakeChild("Armature", root));
+            MakeChild("Eye_L", head);
+            MakeChild("Eye_R", head);
+            _profileAsset.WritableGazeChannels.Add(new GazeChannel { id = "camera", leftEyeBonePath = "Eye_L", rightEyeBonePath = "Eye_R" });
+
+            controller.Initialize();
+            controller.GetGazeEyeBonePaths(out string left, out string right);
+
+            Assert.That(left, Is.EqualTo("Armature/Head/Eye_L"));
+            Assert.That(right, Is.EqualTo("Armature/Head/Eye_R"));
+        }
+
+        [Test]
+        public void GetGazeEyeBonePaths_NoJointNameAndNoAvatarEyes_ReturnsNull()
+        {
+            FacialController controller = CreateController(out _);
+
+            controller.Initialize();
+            controller.GetGazeEyeBonePaths(out string left, out string right);
+
+            Assert.That(left, Is.Null);
+            Assert.That(right, Is.Null);
+        }
+
+        private FacialController CreateController(out Transform root)
+        {
+            _gameObject = new GameObject("FacialControllerGazeChannelTests");
+            _gameObject.AddComponent<Animator>();
+            var meshObject = new GameObject("FaceMesh");
+            meshObject.transform.SetParent(_gameObject.transform, false);
+            _mesh = new Mesh();
+            _mesh.vertices = new[] { Vector3.zero, Vector3.right, Vector3.up };
+            _mesh.triangles = new[] { 0, 1, 2 };
+            _mesh.AddBlendShapeFrame("smile", 100f, new Vector3[3], null, null);
+            meshObject.AddComponent<SkinnedMeshRenderer>().sharedMesh = _mesh;
+            var controller = _gameObject.AddComponent<FacialController>();
+
+            _profileAsset = UnityEngine.ScriptableObject.CreateInstance<GazeChannelProfileSO>();
+            _profileAsset.ProfileToLoad = CreateMinimalProfile();
+            controller.CharacterSO = _profileAsset;
+            root = _gameObject.transform;
+            return controller;
+        }
+
+        private static Transform MakeChild(string name, Transform parent)
+        {
+            var child = new GameObject(name).transform;
+            child.SetParent(parent, false);
+            return child;
+        }
+
         private static FacialProfile CreateMinimalProfile()
         {
             var layers = new[]

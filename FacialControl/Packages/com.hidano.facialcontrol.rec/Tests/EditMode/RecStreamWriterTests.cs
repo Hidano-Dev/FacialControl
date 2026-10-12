@@ -122,6 +122,26 @@ namespace Hidano.FacialControl.Rec.Tests.EditMode
         }
 
         [Test]
+        public void Complete_BaselineWithGazeEyeBonePaths_ReadsBackPathsAndFooterCountMatches()
+        {
+            string filePath = Path.Combine(_tempDirectory, "gaze-eye-bone-paths.fcrec");
+            RecBaselineState baseline = RecBaselineState.Empty
+                .WithBlendShapeNames(new[] { "jawOpen" })
+                .WithGazeEyeBonePaths("Armature/Head/LeftEye", "Armature/Head/RightEye");
+
+            using var writer = new RecStreamWriter(filePath, segmentCapacity: 2, initialSegments: 2,
+                axisFloatCapacityPerSegment: 8, byteCapacityPerSegment: 1);
+            writer.Open(baseline);
+            writer.Complete(0.1d, 0);
+
+            Assert.That(RecFileReader.TryRead(filePath, out RecBinaryFormat.ReadResult result), Is.True);
+            Assert.That(result.HasFooter, Is.True, "フッタのレコード数が目線パスの IdDefine を含めて一致する");
+            Assert.That(result.Timeline.Baseline.LeftEyeBonePath, Is.EqualTo("Armature/Head/LeftEye"));
+            Assert.That(result.Timeline.Baseline.RightEyeBonePath, Is.EqualTo("Armature/Head/RightEye"));
+            Assert.That(result.Timeline.Baseline.BlendShapeNames, Is.EqualTo(new[] { "jawOpen" }));
+        }
+
+        [Test]
         public void Complete_ExpressionActivationThenNewSource_ReadsBackWithRecordingUseCaseIdOrder()
         {
             // RecordingUseCase は系1の予約 source "@expression" をシード済みとして IdDefine を出さない。
