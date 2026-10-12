@@ -233,6 +233,11 @@ namespace Hidano.FacialControl.Rec.Adapters.Playable
                 baseline = baseline.WithBlendShapeNames(hostBlendShapeNames);
             }
 
+            // 目線ボーンのパス（Animator のルート相対）を記録する。Export 側は Generic のモデルで Avatar から目線ボーンを
+            // 引けないことがあるため、録画時に解決したボーンをパスで渡す（HID-192）。録画中の変更は想定しない。
+            controller.GetGazeEyeBonePaths(out string leftEyeBonePath, out string rightEyeBonePath);
+            baseline = baseline.WithGazeEyeBonePaths(leftEyeBonePath, rightEyeBonePath);
+
             _requestedRecordingPath = requestedFilePath;
             _recordingStartedUtc = DateTime.UtcNow;
             GetQueueCapacities(controller.BlendShapeCount, out int floatCapacity, out int byteCapacity);

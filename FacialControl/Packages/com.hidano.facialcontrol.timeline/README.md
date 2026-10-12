@@ -101,6 +101,7 @@ Edit モードのスクラブは Play と同じレイヤー合成規則（オフ
 
 - トリガーの on/off は Expression ごとに **Facial Expression Clip** になり、重なりは `{layer} Lane n` の子トラックへ振り分けられる
 - アナログ / Gaze は入力源 id ごとに **Facial Value Track** 1 本になり、サンプルがキーフレームになる。`ChannelSubId` には REC の入力源 id がそのまま入る
+- Gaze の Value Track には、REC に記録された録画時の目線ボーンのパス（Animator のルート相対）が入る。Edit プレビューと AnimationTrack 変換はこのパスで目線ボーンを引くため、Body が Generic で Avatar から目線ボーンを引けない書き出し環境でも目線を再現できる（パスが見つからなければ警告して目線メニューの規則に戻す）。目線パスを記録していない REC（以前の REC を含む）からは Gaze トラックを書き出さない（Warning を 1 回出す。目線以外は従来どおり）。Play 中の目線は、ランタイムの目線メニューの規則（ジョイント名 → Avatar の目線ボーン）で解決する
 - 値提供型（kind 7 の時刻付きレコードと kind 8 の基準）は入力源 id ごとに Channel Kind `ValueProvider` の **Facial Value Track** 1 本になる。基準を t=0 の状態とし、記録の差分（mask の変更・値だけの更新・有効状態だけの更新）を REC 再生と同じ規則で積み上げて、寄与したことのある BlendShape ごとに値・寄与 mask・有効状態の階段カーブを作る（次のレコードまで値を保持するので、サンプルの間でも REC 再生と同じ値になる）。形の合わないレコード（REC 再生でも捨てられるもの）は件数付きの Warning を出して読み飛ばす
 - 値提供型の BlendShape は記録では FacialController の index で入っている。REC は録画開始時にホストの BlendShape 名（index と名前の対応）も記録するので、Export はその名前で保存し、メッシュの並びが変わっても名前で対応付く。名前を記録していない `.fcrec`（BlendShape 名の記録より前の REC で録ったもの）は index で保存し、Export 1 回につき 1 回 Warning を出す。Profile の参照モデル等から名前を推測することはしない（BlendShape 数が録画時と 1 つでも違うと名前がずれるため）
 - Gaze かどうかは自動で判定し、ウィンドウの **Detected Channels** に入力源 id ごとの判定結果と理由を読み取り専用で表示する（判定順: GazeChannel の明示 source id と一致 → 規約 id が GazeChannels にある → binding の gaze 宣言 → 2 軸でなければ Analog → 既定 Analog）。値提供型は `ValueProvider（N 個の BlendShape）` と、BlendShape を名前 / index のどちらで保存するかを表示する。トリガー専用の入力源と、寄与した BlendShape が 1 つも無い値提供型（有効になったことが無いもの）は表示しない

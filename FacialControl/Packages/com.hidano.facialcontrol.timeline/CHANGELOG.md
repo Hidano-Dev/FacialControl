@@ -21,6 +21,7 @@ Timeline 再生の手順を「REC → Export → Director にセット → Recei
 
 ### Added
 
+- REC Export が、REC に記録された目線ボーンのパス（Animator のルート相対）を Gaze の **Facial Value Track**（`LeftEyeBonePath` / `RightEyeBonePath`）に持たせるようにした（HID-192）。Edit プレビューと AnimationTrack 変換はこのパスで目線ボーンを解決するので、Body が Generic の書き出し環境でも目線を再現できる（パスが見つからなければ警告して目線メニューの規則に戻す）。目線パスを記録していない REC（以前の REC を含む）からは Gaze トラックを書き出さず、件数と入力源 id を 1 回 Warning で知らせる（目線以外は従来どおり書き出す）。Play 中の目線は従来どおりランタイムの目線メニューの規則で解決する
 - 独自 Track を標準の AnimationTrack へ変換するトラックのコンテキストメニュー「FacialControl/AnimationTrack へ変換」を追加した（HID-190）。同じ対象（Receiver）の独自 Track をまとめて Edit プレビューと同じ合成で評価し、BlendShape と目ボーン回転のカーブを持つ AnimationClip（`<Timeline名>_<対象名>.anim`）を 1 本の AnimationTrack に配置する。キーは直線で結んだときのずれが閾値以下の中間キーを消し、段差は Constant にする。変換元の独自 Track はミュートして残し、1 回の Undo で取り消せる
 - REC Export がレイヤー weight（基準 kind 14 と時刻付き kind 12。UDP LipSync の発話ゲートなどが `FacialController.SetLayerWeight` で書く inter-layer weight）を、レイヤーごとの `FacialLayerWeightTrack`（トラック名 `{layer} (weight)`、階段カーブの `FacialLayerWeightClip`）として書き出すようにした（HID-182）。従来は読み捨てていたため、発話ゲートが開いていた区間（リップシンクだけで口を動かした区間）が Export した Timeline では再現されなかった。宣言値 1 のまま変わらないレイヤーはトラックにしない。入力源 weight（kind 13）は従来どおり読み捨て、Warning の件数は入力源 weight だけを数える
 - レイヤー weight トラックの再生: Timeline にレイヤー weight トラックがあると、Receiver は再生中だけ live のレイヤー weight 書き込みを止め（REC 再生と同じ `IWeightInjectionGate`）、トラックの値を毎フレーム注入する。Clip の外とトラックの無いレイヤーは宣言値 1。停止時は再生前の weight に戻して live の書き込みを再開する。レイヤー weight トラックの無い Timeline の挙動は変わらない。Edit プレビューも同じ規則で合成に掛ける。レイヤー weight は Bake 済みのレイヤー値に再生時に掛かるため、Bake と Source ハッシュには含めない

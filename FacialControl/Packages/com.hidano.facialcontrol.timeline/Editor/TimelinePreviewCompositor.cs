@@ -70,6 +70,10 @@ namespace Hidano.FacialControl.Timeline.Editor
 
         // _gazeTracks と同じ並びの駆動用 source id（値の無いトラックは null にして一致させない）。
         private string[] _gazeSourceIds = Array.Empty<string>();
+
+        // _gazeTracks と同じ並びの、REC に記録された目線ボーンのパス（HID-192。記録の無いトラックは空文字列）。
+        private string[] _gazeLeftEyeBonePaths = Array.Empty<string>();
+        private string[] _gazeRightEyeBonePaths = Array.Empty<string>();
         private string[] _blendShapeNames = Array.Empty<string>();
         private bool _disposed;
 
@@ -256,7 +260,8 @@ namespace Hidano.FacialControl.Timeline.Editor
             }
 
             buffer.Clear();
-            FacialTimelinePreviewGazeTargets.Resolve(resolver, gazeChannels, _gazeSourceIds, buffer);
+            FacialTimelinePreviewGazeTargets.Resolve(
+                resolver, gazeChannels, _gazeSourceIds, buffer, _gazeLeftEyeBonePaths, _gazeRightEyeBonePaths);
             for (int i = 0; i < buffer.Count; i++)
             {
                 FacialTimelinePreviewEyeTarget target = buffer[i];
@@ -281,7 +286,8 @@ namespace Hidano.FacialControl.Timeline.Editor
                 return;
             }
 
-            FacialTimelinePreviewGazeTargets.Resolve(resolver, gazeChannels, _gazeSourceIds, targets);
+            FacialTimelinePreviewGazeTargets.Resolve(
+                resolver, gazeChannels, _gazeSourceIds, targets, _gazeLeftEyeBonePaths, _gazeRightEyeBonePaths);
         }
 
         /// <summary>
@@ -384,9 +390,13 @@ namespace Hidano.FacialControl.Timeline.Editor
             _layerWeightTracks = CollectLayerWeightTracks(_timeline);
             _gazeTracks = CollectGazeTracks(_timeline);
             _gazeSourceIds = new string[_gazeTracks.Length];
+            _gazeLeftEyeBonePaths = new string[_gazeTracks.Length];
+            _gazeRightEyeBonePaths = new string[_gazeTracks.Length];
             for (int i = 0; i < _gazeTracks.Length; i++)
             {
                 _gazeSourceIds[i] = _gazeTracks[i].HasAnyAxis ? _gazeTracks[i].ChannelSubId : null;
+                _gazeLeftEyeBonePaths[i] = _gazeTracks[i].LeftEyeBonePath;
+                _gazeRightEyeBonePaths[i] = _gazeTracks[i].RightEyeBonePath;
             }
         }
 
@@ -745,7 +755,11 @@ namespace Hidano.FacialControl.Timeline.Editor
                     continue;
                 }
 
-                tracks.Add(new GazeTrackPlayback(valueTrack.ChannelSubId, CollectValueClipSamples(valueTrack)));
+                tracks.Add(new GazeTrackPlayback(
+                    valueTrack.ChannelSubId,
+                    valueTrack.LeftEyeBonePath,
+                    valueTrack.RightEyeBonePath,
+                    CollectValueClipSamples(valueTrack)));
             }
 
             return tracks.ToArray();
@@ -820,9 +834,11 @@ namespace Hidano.FacialControl.Timeline.Editor
         {
             private readonly ValueClipSample[] _clips;
 
-            public GazeTrackPlayback(string channelSubId, ValueClipSample[] clips)
+            public GazeTrackPlayback(string channelSubId, string leftEyeBonePath, string rightEyeBonePath, ValueClipSample[] clips)
             {
                 ChannelSubId = channelSubId ?? string.Empty;
+                LeftEyeBonePath = leftEyeBonePath ?? string.Empty;
+                RightEyeBonePath = rightEyeBonePath ?? string.Empty;
                 _clips = clips ?? Array.Empty<ValueClipSample>();
                 for (int i = 0; i < _clips.Length && !HasAnyAxis; i++)
                 {
@@ -840,6 +856,12 @@ namespace Hidano.FacialControl.Timeline.Editor
 
             /// <summary>Value トラックの ChannelSubId（REC の source id。Bake の <see cref="ValueChannelBake.Sub"/> と同じ値）。</summary>
             public string ChannelSubId { get; }
+
+            /// <summary>REC に記録された左目の目線ボーンのパス（無ければ空文字列）。</summary>
+            public string LeftEyeBonePath { get; }
+
+            /// <summary>REC に記録された右目の目線ボーンのパス（無ければ空文字列）。</summary>
+            public string RightEyeBonePath { get; }
 
             public bool HasAnyAxis { get; }
 

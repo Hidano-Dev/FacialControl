@@ -61,7 +61,22 @@ namespace Hidano.FacialControl.Timeline.Tests.Shared
             /// 発話ゲートが lipsync レイヤーの weight を上下させるのと同じ形の記録。
             /// </summary>
             public bool IncludeLayerWeights { get; set; }
+
+            /// <summary>
+            /// 録画時に解決した左目の目線ボーンのパス（Animator のルート相対。REC が基準と一緒に記録する）。
+            /// 既定は e2e のキャラクター（root 直下の目ボーン）。null なら記録しない（目線パスの無い旧 REC と同じ）。
+            /// </summary>
+            public string LeftEyeBonePath { get; set; } = DefaultLeftEyeBonePath;
+
+            /// <summary>録画時に解決した右目の目線ボーンのパス。<see cref="LeftEyeBonePath"/> を参照。</summary>
+            public string RightEyeBonePath { get; set; } = DefaultRightEyeBonePath;
         }
+
+        /// <summary>既定の左目の目線ボーンのパス（e2e のキャラクターの root 直下）。</summary>
+        public const string DefaultLeftEyeBonePath = "LeftEye";
+
+        /// <summary>既定の右目の目線ボーンのパス。</summary>
+        public const string DefaultRightEyeBonePath = "RightEye";
 
         /// <summary>レイヤー weight を記録するレイヤー（trigger の Expression が乗るレイヤー）。</summary>
         public const string LayerWeightLayer = "emotion";
@@ -213,6 +228,8 @@ namespace Hidano.FacialControl.Timeline.Tests.Shared
                         null));
                 }
             }
+
+            baseline = baseline.WithGazeEyeBonePaths(recording.LeftEyeBonePath, recording.RightEyeBonePath);
 
             // 記録は時刻の非減少順でなければならない（同時刻は追加順を保つ安定ソート）。
             var ordered = new List<(RecEvent Event, IReadOnlyList<float> Axes, IReadOnlyList<byte> Mask)>(events.Count);

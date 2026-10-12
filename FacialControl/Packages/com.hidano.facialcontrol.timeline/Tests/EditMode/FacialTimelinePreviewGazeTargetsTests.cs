@@ -284,6 +284,70 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
             Assert.That(_results[1].IsFallback, Is.True);
         }
 
+        // ================================================================
+        // REC に記録された目線ボーンのパス (HID-192)
+        // ================================================================
+
+        [Test]
+        public void Resolve_RecordedPathsOnGenericRig_ResolvesEyesByPathWithoutAvatar()
+        {
+            // 書き出し側は Generic (Avatar の目線ボーンなし) で、目線メニューのジョイント名も未指定。
+            var channel = new GazeChannel { id = "gaze" };
+
+            FacialTimelinePreviewGazeTargets.Resolve(
+                CreateResolver(withAvatarEyes: false),
+                new[] { channel },
+                new[] { "osc:gaze" },
+                _results,
+                new[] { "Head/LeftEye2" },
+                new[] { "Head/RightEye2" });
+
+            Assert.That(_results.Count, Is.EqualTo(2));
+            Assert.That(_results[0].Bone, Is.SameAs(_leftEye2));
+            Assert.That(_results[0].IsLeftEye, Is.True);
+            Assert.That(_results[0].IsFallback, Is.False);
+            Assert.That(_results[1].Bone, Is.SameAs(_rightEye2));
+            Assert.That(_results[1].IsLeftEye, Is.False);
+            Assert.That(_results[1].IsFallback, Is.False);
+        }
+
+        [Test]
+        public void Resolve_RecordedPathTakesPrecedenceOverJointName()
+        {
+            var channel = PathChannel("gaze", "LeftEye", "RightEye");
+
+            FacialTimelinePreviewGazeTargets.Resolve(
+                CreateResolver(withAvatarEyes: true),
+                new[] { channel },
+                new[] { "osc:gaze" },
+                _results,
+                new[] { "Head/LeftEye2" },
+                new[] { "Head/RightEye2" });
+
+            Assert.That(_results[0].Bone, Is.SameAs(_leftEye2));
+            Assert.That(_results[1].Bone, Is.SameAs(_rightEye2));
+        }
+
+        [Test]
+        public void Resolve_RecordedPathNotFound_WarnsAndFallsBackToJointRules()
+        {
+            var channel = new GazeChannel { id = "gaze" };
+            LogAssert.Expect(LogType.Warning, new Regex("'Armature/Missing/LeftEye'"));
+
+            FacialTimelinePreviewGazeTargets.Resolve(
+                CreateResolver(withAvatarEyes: true),
+                new[] { channel },
+                new[] { "osc:gaze" },
+                _results,
+                new[] { "Armature/Missing/LeftEye" },
+                new string[] { null });
+
+            Assert.That(_results.Count, Is.EqualTo(2));
+            Assert.That(_results[0].Bone, Is.SameAs(_leftEye));
+            Assert.That(_results[0].IsFallback, Is.True);
+            Assert.That(_results[1].Bone, Is.SameAs(_rightEye));
+        }
+
         [Test]
         public void ComputeLocalRotation_FallbackTarget_ComposesOnTopOfFallbackRest()
         {

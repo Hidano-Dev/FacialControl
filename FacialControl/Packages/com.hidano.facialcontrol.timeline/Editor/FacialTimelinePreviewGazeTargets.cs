@@ -48,7 +48,10 @@ namespace Hidano.FacialControl.Timeline.Editor
         public Vector3 YawAxisLocal { get; }
         public Vector3 PitchAxisLocal { get; }
 
-        /// <summary>ジョイント名が未指定で、Avatar の目線ボーン (Humanoid の目ボーン) を使う target か。</summary>
+        /// <summary>
+        /// ジョイント名が未指定で、Avatar の目線ボーン (Humanoid の目ボーン) を使う target か。
+        /// REC に記録されたパスで解決した target は false。
+        /// </summary>
         public bool IsFallback { get; }
     }
 
@@ -66,6 +69,8 @@ namespace Hidano.FacialControl.Timeline.Editor
     /// 一致する値チャネルが無い目は駆動しない（ランタイムは入力源の無い channel を駆動しない）。</item>
     /// <item>目線ボーンはランタイムと同じ <see cref="GazeEyeBoneResolver"/> で解決する (ジョイント名 → 見つからなければ
     /// Avatar の目線ボーン)。どちらも無い側は駆動しない。</item>
+    /// <item>駆動する Gaze 値チャネル (トラック) に REC で記録した目線ボーンのパスがあれば、その目はパス (Animator のルート相対) で
+    /// 解決する (HID-192。Generic のモデルでも Avatar に頼らずに引ける)。パスが見つからなければ上の規則に戻す。</item>
     /// <item>同じボーンに解決された目は、先の channel (channel 順、左目 → 右目) だけが駆動する。</item>
     /// </list>
     /// </remarks>
@@ -85,11 +90,17 @@ namespace Hidano.FacialControl.Timeline.Editor
         /// 目線ボーンの resolver。解決結果・警告は resolver ごとにキャッシュされるので、
         /// 呼出側はスクラブ中に同じ resolver を使い回す。
         /// </param>
+        /// <param name="leftEyeBonePaths">
+        /// <paramref name="sourceIds"/> と同じ並びの、REC に記録された左目の目線ボーンのパス。null / 空要素は記録なし。
+        /// </param>
+        /// <param name="rightEyeBonePaths">同じく右目のパス。</param>
         public static void Resolve(
             GazeEyeBoneResolver resolver,
             IReadOnlyList<GazeChannel> configs,
             IReadOnlyList<string> sourceIds,
-            List<FacialTimelinePreviewEyeTarget> results)
+            List<FacialTimelinePreviewEyeTarget> results,
+            IReadOnlyList<string> leftEyeBonePaths = null,
+            IReadOnlyList<string> rightEyeBonePaths = null)
         {
             if (resolver == null || configs == null || results == null)
             {
@@ -114,12 +125,12 @@ namespace Hidano.FacialControl.Timeline.Editor
 
                 if (leftSource != NotDriven)
                 {
-                    AddEye(resolver, config, i, leftSource, true, start, results);
+                    AddEye(resolver, config, i, leftSource, true, GetPath(leftEyeBonePaths, leftSource), start, results);
                 }
 
                 if (rightSource != NotDriven)
                 {
-                    AddEye(resolver, config, i, rightSource, false, start, results);
+                    AddEye(resolver, config, i, rightSource, false, GetPath(rightEyeBonePaths, rightSource), start, results);
                 }
             }
         }
@@ -209,11 +220,20 @@ namespace Hidano.FacialControl.Timeline.Editor
             int channelIndex,
             int sourceIndex,
             bool isLeftEye,
+            string recordedPath,
             int start,
             List<FacialTimelinePreviewEyeTarget> results)
         {
             string jointName = GazeEyeBoneResolver.ToJointName(isLeftEye ? config.leftEyeBonePath : config.rightEyeBonePath);
-            GazeEyeBoneFallback.FallbackEye eye = resolver.Resolve(jointName, isLeftEye);
+            GazeEyeBoneFallback.FallbackEye eye = string.IsNullOrEmpty(recordedPath)
+                ? default
+                : resolver.ResolveRelativePath(recordedPath);
+            bool usesRecordedPath = eye.Bone != null;
+            if (!usesRecordedPath)
+            {
+                eye = resolver.Resolve(jointName, isLeftEye);
+            }
+
             if (eye.Bone == null)
             {
                 return;
@@ -235,7 +255,12 @@ namespace Hidano.FacialControl.Timeline.Editor
                 eye.RestRotation,
                 eye.YawAxisLocal,
                 eye.PitchAxisLocal,
-                jointName.Length == 0));
+                !usesRecordedPath && jointName.Length == 0));
+        }
+
+        private static string GetPath(IReadOnlyList<string> paths, int sourceIndex)
+        {
+            return paths != null && sourceIndex >= 0 && sourceIndex < paths.Count ? paths[sourceIndex] : null;
         }
 
         private static float ComputeYawDegrees(bool isLeftEye, GazeChannel config, float x)

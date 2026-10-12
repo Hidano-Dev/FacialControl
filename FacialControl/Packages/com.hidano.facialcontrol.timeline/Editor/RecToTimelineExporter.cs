@@ -121,7 +121,7 @@ namespace Hidano.FacialControl.Timeline.Editor
 
             List<AnalogTrackInfo> analogTracks = BuildAnalogTracks(
                 sequence, gazeContext, sourceKindOverrides, out List<ChannelDetection> detections);
-            CreateAnalogTracks(timeline, analogTracks, sequence.DurationSeconds);
+            CreateAnalogTracks(timeline, analogTracks, sequence.DurationSeconds, sequence as RecEventSequenceAdapter);
 
             List<ValueProviderTrackBuilder.SourceTrack> valueProviderTracks =
                 BuildValueProviderTracks(sequence, referenceBlendShapeNames, detections, warn: true);
@@ -793,22 +793,41 @@ namespace Hidano.FacialControl.Timeline.Editor
             return false;
         }
 
+        /// <param name="recSequence">
+        /// REC から読んだ列（それ以外の列なら null）。REC の Gaze トラックには録画時の目線ボーンのパスを持たせ、
+        /// パスを記録していない REC（旧形式を含む）の Gaze トラックは作らない（HID-192。書き出し側のモデルで
+        /// 目線ボーンを推測しない）。
+        /// </param>
         private static void CreateAnalogTracks(
             TimelineAsset timeline,
             List<AnalogTrackInfo> tracks,
-            double durationSeconds)
+            double durationSeconds,
+            RecEventSequenceAdapter recSequence)
         {
             if (tracks == null || tracks.Count == 0)
             {
                 return;
             }
 
+            List<string> skippedGazeSourceIds = null;
             for (int i = 0; i < tracks.Count; i++)
             {
                 AnalogTrackInfo trackInfo = tracks[i];
+                bool isRecGaze = recSequence != null && trackInfo.ChannelKind == FacialValueChannelKind.Gaze;
+                if (isRecGaze && !recSequence.HasGazeEyeBonePaths)
+                {
+                    (skippedGazeSourceIds ??= new List<string>()).Add(trackInfo.SourceId);
+                    continue;
+                }
+
                 var track = timeline.CreateTrack<FacialValueTrack>(null, trackInfo.SourceId);
                 track.ChannelSubId = trackInfo.SourceId;
                 track.ChannelKind = trackInfo.ChannelKind;
+                if (isRecGaze)
+                {
+                    track.LeftEyeBonePath = recSequence.LeftEyeBonePath;
+                    track.RightEyeBonePath = recSequence.RightEyeBonePath;
+                }
 
                 TimelineClip clip = track.CreateClip<FacialValueClip>();
                 double clipStart = trackInfo.Events[0].TimeSeconds;
@@ -830,6 +849,15 @@ namespace Hidano.FacialControl.Timeline.Editor
                 }
 
                 ((FacialValueClip)clip.asset).Axes = axes;
+            }
+
+            if (skippedGazeSourceIds != null)
+            {
+                // ソースごとには出さず 1 行にまとめる（Console を埋めないため）。
+                Debug.LogWarning(
+                    $"[RecToTimelineExporter] This recording has no gaze eye bone paths (recorded before they were supported, " +
+                    $"or the eye bones could not be resolved while recording). Skipped {skippedGazeSourceIds.Count} gaze track(s): " +
+                    $"{string.Join(", ", skippedGazeSourceIds)}. Other tracks are exported as usual.");
             }
         }
 

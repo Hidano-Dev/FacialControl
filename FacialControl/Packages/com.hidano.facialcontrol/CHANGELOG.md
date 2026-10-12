@@ -6,6 +6,7 @@
 
 ### Added
 
+- `FacialController.GetGazeEyeBonePaths` — 目線制御と同じ規則（目線メニューのジョイント名 → Avatar の目線ボーン）で解決した目線ボーンの、Animator のルートからの相対パスを返す。REC が録画開始時に記録する（HID-192）。`GazeEyeBoneResolver.ResolveRelativePath`（相対パスで目線ボーンを引く。見つからなければ警告を 1 回出して null）と `GazeEyeBoneResolver.TryGetRelativePath` を追加した
 - `IAdapterBindingTargetLayerInput` / `TargetLayerInputSourceResolver` — adapter binding が登録する入力源を、起動時に既存レイヤーの入力源宣言へ自動で補う契約。`FacialController` は解決結果だけに補い、Profile アセットは書き換えない。入力源 id がどこかのレイヤーに宣言済みなら何もしない。対象レイヤー名が未指定なら先頭レイヤー、プロファイルに無ければ補わず警告を出す。入力源 id が null / 空白の binding（起動しなかった等）は補わない。起動前の経路（ルーティングエディタの表示）は、起動状態に依存しない `ConfiguredTargetLayerInputSourceId` と `TargetLayerInputSourceResolver.ResolveConfigured` で同じ規則を使う
 - ルーティングエディタの配線モデル（`RoutingGraphModelBuilder`）が、対象レイヤーへ自動で補われる入力源を配線（`WiringEdgeData.IsAutoDeclared` / `LayerInputData.IsAutoDeclared`）として含めるようにした。手動宣言があるときは手動の配線だけを含める（ランタイムと同じ）
 - `IAnalogExpressionBindingDeclaration` — adapter binding が `<slug>:analog-expression` の `AnalogExpressionInputSource` へ渡す binding 構成を、`OnStart` を呼ばずに列挙する契約。Timeline の Edit プレビューが Play と同じ analog 消費者をオフラインに組むために使う

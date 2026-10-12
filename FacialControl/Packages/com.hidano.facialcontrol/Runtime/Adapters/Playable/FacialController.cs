@@ -138,6 +138,58 @@ namespace Hidano.FacialControl.Adapters.Playable
         public int BlendShapeCount => _blendShapeNames?.Length ?? 0;
 
         /// <summary>
+        /// 目線ボーン (目線メニューのジョイント名 → Avatar の目線ボーンの順で、目線制御と同じ規則で解決したもの) の、
+        /// Animator のルートからの相対パスを返す。REC が録画開始時に記録し、Export が Generic のモデルでも
+        /// 目線ボーンを引けるようにする (HID-192)。解決できない目は null。Animator が無いときは両方 null。
+        /// </summary>
+        /// <remarks>
+        /// 目線チャネルが複数ある場合は、各目について先頭から最初に解決できたボーンを使う (目線制御と同じく先の channel が優先)。
+        /// 目線チャネルが無い場合は Avatar の目線ボーンを使う。
+        /// </remarks>
+        public void GetGazeEyeBonePaths(out string leftEyeBonePath, out string rightEyeBonePath)
+        {
+            leftEyeBonePath = null;
+            rightEyeBonePath = null;
+            if (_animator == null)
+            {
+                return;
+            }
+
+            _gazeEyeResolver ??= GazeEyeBoneResolver.FromAnimator(_animator);
+            leftEyeBonePath = ResolveGazeEyeBonePath(isLeftEye: true);
+            rightEyeBonePath = ResolveGazeEyeBonePath(isLeftEye: false);
+        }
+
+        private string ResolveGazeEyeBonePath(bool isLeftEye)
+        {
+            Transform bone = null;
+            bool hasChannel = false;
+            for (int i = 0; _gazeChannels != null && i < _gazeChannels.Count; i++)
+            {
+                GazeChannel channel = _gazeChannels[i];
+                if (channel == null || string.IsNullOrWhiteSpace(channel.id))
+                {
+                    continue;
+                }
+
+                hasChannel = true;
+                bone = _gazeEyeResolver.Resolve(isLeftEye ? channel.leftEyeBonePath : channel.rightEyeBonePath, isLeftEye).Bone;
+                if (bone != null)
+                {
+                    break;
+                }
+            }
+
+            if (!hasChannel)
+            {
+                GazeEyeBoneFallback fallback = _gazeEyeResolver.Fallback;
+                bone = isLeftEye ? fallback.Left.Bone : fallback.Right.Bone;
+            }
+
+            return GazeEyeBoneResolver.TryGetRelativePath(_animator.transform, bone, out string path) ? path : null;
+        }
+
+        /// <summary>
         /// 統合キャラクター SO の参照。
         /// </summary>
         public FacialCharacterProfileSO CharacterSO

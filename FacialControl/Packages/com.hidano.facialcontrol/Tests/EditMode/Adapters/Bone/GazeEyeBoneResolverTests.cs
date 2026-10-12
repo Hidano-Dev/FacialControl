@@ -53,6 +53,57 @@ namespace Hidano.FacialControl.Tests.EditMode.Adapters.Bone
         }
 
         [Test]
+        public void TryGetRelativePath_DescendantBone_ReturnsSlashSeparatedPathFromRoot()
+        {
+            bool found = GazeEyeBoneResolver.TryGetRelativePath(_root.transform, _leftEye, out string path);
+
+            Assert.That(found, Is.True);
+            Assert.That(path, Is.EqualTo("Head/LeftEye"));
+            Assert.That(_root.transform.Find(path), Is.SameAs(_leftEye), "Transform.Find で引き直せる");
+        }
+
+        [Test]
+        public void TryGetRelativePath_RootItselfOrOutsideRootOrNull_ReturnsFalse()
+        {
+            var outside = new GameObject("Outside");
+            try
+            {
+                Assert.That(GazeEyeBoneResolver.TryGetRelativePath(_root.transform, _root.transform, out _), Is.False);
+                Assert.That(GazeEyeBoneResolver.TryGetRelativePath(_root.transform, outside.transform, out _), Is.False);
+                Assert.That(GazeEyeBoneResolver.TryGetRelativePath(_root.transform, null, out _), Is.False);
+                Assert.That(GazeEyeBoneResolver.TryGetRelativePath(null, _leftEye, out _), Is.False);
+            }
+            finally
+            {
+                Object.DestroyImmediate(outside);
+            }
+        }
+
+        [Test]
+        public void ResolveRelativePath_ExistingPathWithoutAvatar_ReturnsBone()
+        {
+            var resolver = new GazeEyeBoneResolver(_root.transform, null, null, null);
+
+            GazeEyeBoneFallback.FallbackEye eye = resolver.ResolveRelativePath("Head/RightEye");
+
+            Assert.That(eye.Bone, Is.SameAs(_rightEye));
+        }
+
+        [Test]
+        public void ResolveRelativePath_MissingPath_WarnsOnceAndReturnsNoBone()
+        {
+            var resolver = new GazeEyeBoneResolver(_root.transform, null, _leftEye, _rightEye);
+            LogAssert.Expect(LogType.Warning, new Regex("'Armature/Head/LeftEye'"));
+
+            GazeEyeBoneFallback.FallbackEye first = resolver.ResolveRelativePath("Armature/Head/LeftEye");
+            GazeEyeBoneFallback.FallbackEye second = resolver.ResolveRelativePath("Armature/Head/LeftEye");
+
+            Assert.That(first.Bone, Is.Null, "Avatar の目線ボーンには戻さない");
+            Assert.That(second.Bone, Is.Null);
+            LogAssert.NoUnexpectedReceived();
+        }
+
+        [Test]
         public void FindJoint_ExactAndPartialMatches_PrefersExactMatchEvenIfPartialComesFirst()
         {
             // 前順で先に現れる "LeftEyeHighlight" は部分一致。後ろの完全一致を優先する。

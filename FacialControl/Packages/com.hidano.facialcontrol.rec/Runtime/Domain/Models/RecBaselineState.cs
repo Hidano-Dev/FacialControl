@@ -25,6 +25,8 @@ namespace Hidano.FacialControl.Rec.Domain.Models
         private readonly LayerWeightEntry[] _layerWeightEntries;
         private readonly InputSourceWeightEntry[] _inputSourceWeightEntries;
         private readonly string[] _blendShapeNames;
+        private readonly string _leftEyeBonePath;
+        private readonly string _rightEyeBonePath;
 
         public RecBaselineState(IEnumerable<TriggerEntry> triggerEntries, IEnumerable<AnalogEntry> analogEntries)
             : this(triggerEntries, analogEntries, null, null, null, null)
@@ -63,6 +65,26 @@ namespace Hidano.FacialControl.Rec.Domain.Models
             IEnumerable<LayerWeightEntry> layerWeightEntries,
             IEnumerable<InputSourceWeightEntry> inputSourceWeightEntries,
             IEnumerable<string> blendShapeNames)
+            : this(triggerEntries, analogEntries, valueProviderEntries, expressionEntries, layerWeightEntries,
+                inputSourceWeightEntries, blendShapeNames, null, null)
+        {
+        }
+
+        /// <param name="blendShapeNames">
+        /// 録画時のホストの BlendShape 名（index = 値提供型の BlendShape index）。null なら記録しない。
+        /// </param>
+        /// <param name="leftEyeBonePath">録画時に解決した左目の目線ボーンの、Animator のルートからの相対パス。null / 空白なら記録しない。</param>
+        /// <param name="rightEyeBonePath">録画時に解決した右目の目線ボーンの、Animator のルートからの相対パス。null / 空白なら記録しない。</param>
+        public RecBaselineState(
+            IEnumerable<TriggerEntry> triggerEntries,
+            IEnumerable<AnalogEntry> analogEntries,
+            IEnumerable<ValueProviderEntry> valueProviderEntries,
+            IEnumerable<string> expressionEntries,
+            IEnumerable<LayerWeightEntry> layerWeightEntries,
+            IEnumerable<InputSourceWeightEntry> inputSourceWeightEntries,
+            IEnumerable<string> blendShapeNames,
+            string leftEyeBonePath,
+            string rightEyeBonePath)
         {
             _triggerEntries = CopyTriggers(triggerEntries);
             _analogEntries = CopyAnalogs(analogEntries);
@@ -71,6 +93,8 @@ namespace Hidano.FacialControl.Rec.Domain.Models
             _layerWeightEntries = CopyLayerWeights(layerWeightEntries);
             _inputSourceWeightEntries = CopyInputSourceWeights(inputSourceWeightEntries);
             _blendShapeNames = CopyBlendShapeNames(blendShapeNames);
+            _leftEyeBonePath = NormalizeEyeBonePath(leftEyeBonePath);
+            _rightEyeBonePath = NormalizeEyeBonePath(rightEyeBonePath);
         }
 
         public IReadOnlyList<TriggerEntry> TriggerEntries => _triggerEntries;
@@ -93,11 +117,29 @@ namespace Hidano.FacialControl.Rec.Domain.Models
         /// </summary>
         public IReadOnlyList<string> BlendShapeNames => _blendShapeNames;
 
+        /// <summary>
+        /// 録画時に解決した左目の目線ボーンの、Animator のルートからの相対パス。記録していない（本項目の導入前のファイル、
+        /// 目線ボーンを解決できなかった等）なら null。
+        /// </summary>
+        public string LeftEyeBonePath => _leftEyeBonePath;
+
+        /// <summary>
+        /// 録画時に解決した右目の目線ボーンの、Animator のルートからの相対パス。記録していないなら null。
+        /// </summary>
+        public string RightEyeBonePath => _rightEyeBonePath;
+
         /// <summary>BlendShape 名だけを差し替えた基準を返す。</summary>
         public RecBaselineState WithBlendShapeNames(IEnumerable<string> blendShapeNames)
         {
             return new RecBaselineState(_triggerEntries, _analogEntries, _valueProviderEntries, _expressionEntries,
-                _layerWeightEntries, _inputSourceWeightEntries, blendShapeNames);
+                _layerWeightEntries, _inputSourceWeightEntries, blendShapeNames, _leftEyeBonePath, _rightEyeBonePath);
+        }
+
+        /// <summary>目線ボーンのパスだけを差し替えた基準を返す。null / 空白の側は記録しない。</summary>
+        public RecBaselineState WithGazeEyeBonePaths(string leftEyeBonePath, string rightEyeBonePath)
+        {
+            return new RecBaselineState(_triggerEntries, _analogEntries, _valueProviderEntries, _expressionEntries,
+                _layerWeightEntries, _inputSourceWeightEntries, _blendShapeNames, leftEyeBonePath, rightEyeBonePath);
         }
 
         /// <summary>
@@ -396,6 +438,11 @@ namespace Hidano.FacialControl.Rec.Domain.Models
             }
 
             return list.Count == 0 ? EmptyInputSourceWeightEntries : list.ToArray();
+        }
+
+        private static string NormalizeEyeBonePath(string path)
+        {
+            return string.IsNullOrWhiteSpace(path) ? null : path;
         }
 
         private static string[] CopyBlendShapeNames(IEnumerable<string> values)

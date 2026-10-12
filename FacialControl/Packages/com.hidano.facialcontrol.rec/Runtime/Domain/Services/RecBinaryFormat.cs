@@ -142,6 +142,16 @@ namespace Hidano.FacialControl.Rec.Domain.Services
                 size += GetIdDefineRecordSize(timeline.Baseline.BlendShapeNames[i]);
             }
 
+            if (timeline.Baseline.LeftEyeBonePath != null)
+            {
+                size += GetIdDefineRecordSize(timeline.Baseline.LeftEyeBonePath);
+            }
+
+            if (timeline.Baseline.RightEyeBonePath != null)
+            {
+                size += GetIdDefineRecordSize(timeline.Baseline.RightEyeBonePath);
+            }
+
             foreach (RecBaselineState.TriggerEntry entry in timeline.Baseline.TriggerEntries)
             {
                 size += 5 * entry.ExpressionIds.Count;
@@ -234,6 +244,23 @@ namespace Hidano.FacialControl.Rec.Domain.Services
 
             uint recordCount = checked((uint)(timeline.SourceIds.Count + timeline.ExpressionIds.Count + timeline.LayerIds.Count
                 + blendShapeNames.Count));
+
+            // 目線ボーンのパス（任意レコード。Export が Generic のモデルでも目線ボーンを引けるように）。
+            if (timeline.Baseline.LeftEyeBonePath != null)
+            {
+                offset += WriteRecord(destination.Slice(offset),
+                    RecEvent.CreateIdDefine(RecIdTable.GazeLeftEyeIndex, RecEvent.IdDefinitionKind.GazeEyeBonePath),
+                    ReadOnlySpan<float>.Empty, timeline.Baseline.LeftEyeBonePath);
+                recordCount++;
+            }
+
+            if (timeline.Baseline.RightEyeBonePath != null)
+            {
+                offset += WriteRecord(destination.Slice(offset),
+                    RecEvent.CreateIdDefine(RecIdTable.GazeRightEyeIndex, RecEvent.IdDefinitionKind.GazeEyeBonePath),
+                    ReadOnlySpan<float>.Empty, timeline.Baseline.RightEyeBonePath);
+                recordCount++;
+            }
 
             for (int i = 0; i < timeline.Baseline.TriggerEntries.Count; i++)
             {
@@ -1267,7 +1294,8 @@ namespace Hidano.FacialControl.Rec.Domain.Services
                 var layerWeightEntries = BuildBaselineLayerWeightEntries(idTable, baselineLayerWeightRecords);
                 var inputSourceWeightEntries = BuildBaselineInputSourceWeightEntries(idTable, baselineInputSourceWeightRecords);
                 var baseline = new RecBaselineState(triggerEntries, analogEntries, valueProviderEntries, expressionEntries,
-                    layerWeightEntries, inputSourceWeightEntries, BuildBlendShapeNames(idTable));
+                    layerWeightEntries, inputSourceWeightEntries, BuildBlendShapeNames(idTable),
+                    idTable.LeftEyeBonePath, idTable.RightEyeBonePath);
                 timeline = new RecTimeline(
                     baseline,
                     events,

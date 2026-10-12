@@ -6,6 +6,8 @@
 
 ### Added
 
+- 録画開始時に、目線ボーン（目線メニューのジョイント名 → Avatar の目線ボーンの順で解決したもの）の Animator のルートからの相対パスを IdDefine（id 種別 `GazeEyeBonePath` = 5、id index 0 = 左目 / 1 = 右目）として記録するようにした。`RecBaselineState.LeftEyeBonePath` / `RightEyeBonePath` で読める（`WithGazeEyeBonePaths` / 9 引数コンストラクタ。`WithBlendShapeNames` はパスを保つ）。timeline の REC Export はこのパスで目線ボーンを解決し、Body が Generic の書き出し環境でも目線を再現できる。formatVersion は 1 のまま。パスを持たない既存の `.fcrec` もそのまま読める（パスは null）。パスを記録した `.fcrec` は、id 種別 5 を知らない以前の REC では読めない（HID-192）
+
 - 録画開始時に、ホスト（FacialController）の BlendShape 名を IdDefine（id 種別 `BlendShape` = 4、id index = 値提供型の BlendShape index）として記録するようにした。`RecBaselineState.BlendShapeNames` で読める（`WithBlendShapeNames` / 7 引数コンストラクタ）。timeline の REC Export はこの名前で値提供型の BlendShape を保存する。名前がコントローラの BlendShape 数と 1 対 1 に対応しない（空白・重複を含む）ときは記録せず 1 回 Warning を出す。formatVersion は 1 のまま。名前を持たない既存の `.fcrec` もそのまま読める（名前は空）。名前を記録した `.fcrec` は、id 種別 4 を知らない以前の REC では読めない（HID-180）
 
 - 入力源分類カタログに `TimelineValueProviderInputSource`（Timeline の値提供型の注入ソース）を InjectionSource として追加した（観測対象 13 / 明示的除外 8）。timeline REC Export は値提供型（kind 7 / 8）を Value トラックとして書き出すようになり、系1（kind 9 / 10）を読み捨てたときは Export 時に 1 回、件数付きの Warning を出す（HID-178）

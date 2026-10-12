@@ -18,7 +18,7 @@
 
 | kind | 名称 | 説明 |
 |---:|---|---|
-| 1 | `IdDefine` | source / Expression / レイヤー id と、録画時のホストの BlendShape 名の定義 |
+| 1 | `IdDefine` | source / Expression / レイヤー id と、録画時のホストの BlendShape 名・目線ボーンのパスの定義 |
 | 2 / 3 | `TriggerOn` / `TriggerOff` | 入力トリガーの on/off |
 | 4 | `AnalogSample` | アナログ・gaze の軸値 |
 | 5 / 6 | `BaselineTrigger` / `BaselineAnalog` | 開始時の trigger / analog 基準 |
@@ -42,8 +42,11 @@
 | 2 | `Expression` | Expression id |
 | 3 | `Layer` | レイヤー名 |
 | 4 | `BlendShape` | 録画時のホスト（FacialController）の BlendShape 名。id index = 値提供型の BlendShape index（mask のビット位置） |
+| 5 | `GazeEyeBonePath` | 録画時に解決した目線ボーンの、Animator のルートからの相対パス（`/` 区切り）。id index 0 = 左目、1 = 右目 |
 
 `BlendShape` は録画開始時に index 0 から欠けなく書きます。reader は欠けのある名前表を読込エラーにします。名前がコントローラの BlendShape 数と 1 対 1 に対応しないとき（空白・重複を含むとき）は書きません。名前の無いファイルでは `RecBaselineState.BlendShapeNames` が空になり、timeline の REC Export は値提供型の BlendShape を index で保存します。
+
+`GazeEyeBonePath` は録画開始時に 1 回だけ書きます（録画中の変更は想定しません）。目線ボーンは目線制御と同じ規則（目線メニューのジョイント名 → Avatar の目線ボーン）で解決したもので、解決できない目は書きません。左右が同じパスでも構いません。id index が 0 / 1 以外なら読込エラーです。パスの無いファイルでは `RecBaselineState.LeftEyeBonePath` / `RightEyeBonePath` が null になり、timeline の REC Export は目線トラックを書き出しません。
 
 ## 記録対象と明示的除外
 

@@ -19,6 +19,8 @@ namespace Hidano.FacialControl.Timeline.Editor
 
             DurationSeconds = timeline.DurationSeconds;
             BlendShapeNames = timeline.Baseline.BlendShapeNames;
+            LeftEyeBonePath = timeline.Baseline.LeftEyeBonePath;
+            RightEyeBonePath = timeline.Baseline.RightEyeBonePath;
             var events = new List<RecordedEvent>(timeline.Events.Count + timeline.Baseline.ValueProviderEntries.Count);
 
             // 値提供型の基準（kind 8）は t=0 の状態として先頭に置く（REC 再生が注入開始時に適用するのと同じ）。
@@ -92,6 +94,15 @@ namespace Hidano.FacialControl.Timeline.Editor
         /// 録画時のホストの BlendShape 名（index = 値提供型の BlendShape index）。記録の無いファイルでは空。
         /// </summary>
         public IReadOnlyList<string> BlendShapeNames { get; }
+
+        /// <summary>録画時に解決した左目の目線ボーンのパス（Animator のルート相対）。記録の無いファイルでは null。</summary>
+        public string LeftEyeBonePath { get; }
+
+        /// <summary>録画時に解決した右目の目線ボーンのパス（Animator のルート相対）。記録の無いファイルでは null。</summary>
+        public string RightEyeBonePath { get; }
+
+        /// <summary>目線ボーンのパスを片目でも記録しているか。</summary>
+        public bool HasGazeEyeBonePaths => LeftEyeBonePath != null || RightEyeBonePath != null;
 
         public int Count => _events.Length;
 

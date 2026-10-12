@@ -54,7 +54,7 @@ REC は次の 5 系統を、入力源の消費点で記録します。
 
 | kind | 名称 | 内容 |
 |---:|---|---|
-| 1 | `IdDefine` | source / Expression / レイヤー id と、録画時のホストの BlendShape 名の定義 |
+| 1 | `IdDefine` | source / Expression / レイヤー id と、録画時のホストの BlendShape 名・目線ボーンのパスの定義 |
 | 2 / 3 | `TriggerOn` / `TriggerOff` | トリガーイベント |
 | 4 | `AnalogSample` | アナログ・gaze の時刻付き値 |
 | 5 / 6 | `BaselineTrigger` / `BaselineAnalog` | 開始時スナップショット |
@@ -71,6 +71,8 @@ REC は次の 5 系統を、入力源の消費点で記録します。
 値提供型の record は、全 BlendShape の dense 配列ではなく、mask の立った index の値だけを保存する。mask は byte 列の LSB-first の疎な表現で、mask 外の非ゼロ値は記録・再現しません。
 
 録画開始時に、ホスト（FacialController）の BlendShape 名を `IdDefine`（id 種別 `BlendShape` = 4）で index 0 から順に書きます。id index が値提供型の BlendShape index（mask のビット位置）に対応し、timeline の REC Export はこの名前で BlendShape を保存します。名前がコントローラの BlendShape 数と 1 対 1 に対応しないとき（空白・重複を含むとき）は記録しません。名前を持たないファイルも読めます（`RecBaselineState.BlendShapeNames` が空）。
+
+同じく録画開始時に、目線ボーン（目線メニューのジョイント名 → Avatar の目線ボーンの順で解決したもの）の Animator のルートからの相対パスを `IdDefine`（id 種別 `GazeEyeBonePath` = 5、id index 0 = 左目 / 1 = 右目）で書きます。Body が Generic になる書き出し環境でも、timeline の REC Export がこのパスで目線ボーンを引けるようにするためです。パスを持たないファイル（以前の REC を含む）も読めます（`RecBaselineState.LeftEyeBonePath` / `RightEyeBonePath` が null）。
 
 ## 再生中の入力遮断
 

@@ -8,6 +8,7 @@ using Hidano.FacialControl.Timeline.Adapters;
 using Hidano.FacialControl.Timeline.Adapters.Assets;
 using Hidano.FacialControl.Timeline.Domain.Diagnostics;
 using Hidano.FacialControl.Timeline.EditorPreview;
+using Hidano.FacialControl.Timeline.Tracks;
 using UnityEditor;
 using UnityEngine;
 using UnityEngine.Playables;
@@ -166,7 +167,7 @@ namespace Hidano.FacialControl.Timeline.Editor
             }
 
             RegisterBlendShapeProperties(controller, collector);
-            RegisterGazeProperties(controller, collector);
+            RegisterGazeProperties(controller, track, collector);
         }
 
         private static CompositorEntry AcquireCompositor(
@@ -345,7 +346,7 @@ namespace Hidano.FacialControl.Timeline.Editor
             }
         }
 
-        private static void RegisterGazeProperties(FacialController controller, IPropertyCollector collector)
+        private static void RegisterGazeProperties(FacialController controller, TrackAsset track, IPropertyCollector collector)
         {
             IReadOnlyList<GazeChannel> gazeConfigs = controller.CharacterSO != null
                 ? controller.CharacterSO.GazeChannels
@@ -374,6 +375,13 @@ namespace Hidano.FacialControl.Timeline.Editor
             }
 
             GazeTargetBuffer.Clear();
+
+            // REC に記録された目線ボーンのパスで駆動する目 (HID-192) は、ジョイント名の規則と別のボーンになり得るので併せて登録する。
+            if (track is FacialValueTrack valueTrack && valueTrack.ChannelKind == FacialValueChannelKind.Gaze)
+            {
+                RegisterRotationProperties(cached.Resolver.ResolveRelativePath(valueTrack.LeftEyeBonePath).Bone, collector);
+                RegisterRotationProperties(cached.Resolver.ResolveRelativePath(valueTrack.RightEyeBonePath).Bone, collector);
+            }
         }
 
         /// <summary>

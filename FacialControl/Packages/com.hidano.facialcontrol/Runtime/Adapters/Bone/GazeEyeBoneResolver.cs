@@ -44,6 +44,7 @@ namespace Hidano.FacialControl.Adapters.Bone
         private readonly Transform _avatarLeftEye;
         private readonly Transform _avatarRightEye;
         private readonly Dictionary<string, Transform> _jointCache = new Dictionary<string, Transform>(StringComparer.Ordinal);
+        private readonly Dictionary<string, Transform> _pathCache = new Dictionary<string, Transform>(StringComparer.Ordinal);
         private readonly Dictionary<Transform, GazeEyeBoneFallback.FallbackEye> _poseCache =
             new Dictionary<Transform, GazeEyeBoneFallback.FallbackEye>();
 
@@ -116,6 +117,65 @@ namespace Hidano.FacialControl.Adapters.Bone
             }
 
             return isLeftEye ? Fallback.Left : Fallback.Right;
+        }
+
+        /// <summary>
+        /// キャラクター root からの相対パス (<see cref="Transform.Find"/> と同じ <c>/</c> 区切り) で目線ボーンを解決する。
+        /// REC に記録した目線ボーンのパス (HID-192) を書き出し側のモデルで引くのに使う。
+        /// 見つからなければ警告を 1 回出し、<see cref="GazeEyeBoneFallback.FallbackEye.Bone"/> が null の値を返す
+        /// (ジョイント名・Avatar の目線ボーンには戻さない。戻すかは呼出側が決める)。
+        /// </summary>
+        public GazeEyeBoneFallback.FallbackEye ResolveRelativePath(string relativePath)
+        {
+            if (string.IsNullOrWhiteSpace(relativePath) || _characterRoot == null)
+            {
+                return default;
+            }
+
+            if (!_pathCache.TryGetValue(relativePath, out Transform bone))
+            {
+                bone = _characterRoot.Find(relativePath);
+                if (bone == null)
+                {
+                    Debug.LogWarning(
+                        $"{LogPrefix}記録された目線ボーンのパス '{relativePath}' が '{_characterRoot.name}' の配下に見つかりません。");
+                }
+
+                _pathCache[relativePath] = bone;
+            }
+
+            return GetPose(bone);
+        }
+
+        /// <summary>
+        /// <paramref name="root"/> から <paramref name="target"/> への相対パス (<see cref="Transform.Find"/> と
+        /// AnimationClip のバインディングと同じ <c>/</c> 区切り) を求める。<paramref name="target"/> が
+        /// <paramref name="root"/> 自身・<paramref name="root"/> の配下に無い・どちらかが null なら false。
+        /// </summary>
+        public static bool TryGetRelativePath(Transform root, Transform target, out string path)
+        {
+            path = null;
+            if (root == null || target == null || target == root)
+            {
+                return false;
+            }
+
+            var segments = new List<string>();
+            Transform current = target;
+            while (current != null && current != root)
+            {
+                segments.Add(current.name);
+                current = current.parent;
+            }
+
+            if (current != root)
+            {
+                return false;
+            }
+
+            segments.Reverse();
+            path = string.Join("/", segments);
+            return true;
         }
 
         /// <summary>
