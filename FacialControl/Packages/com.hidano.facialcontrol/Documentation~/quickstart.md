@@ -44,12 +44,11 @@ BlendShape を持つ `SkinnedMeshRenderer` は子階層から自動探索され�
 
 ## 4. 目線（Gaze）
 
-目線は Expression ではなく、Profile の **目線** タブにある独立したチャネルで扱う。
+目線は Expression ではなく、Profile の **目線** タブで扱う。設定するのは可動範囲と、任意の左右ジョイント名だけ。
 
-1. 既定チャネル `gaze` をそのまま使う（複数チャネルは上級者向け）
-2. **入力ソース** ドロップダウンで、利用する binding が宣言した Gaze 入力源を選ぶ。空欄なら登録済みの入力源から自動解決される
-3. 目ボーン path は任意。空欄のままなら、実行時に Humanoid Avatar の目ボーン（`LeftEye` / `RightEye`）を使い、初期回転と yaw / pitch 軸もその場で導出する。非 Humanoid モデルや Eye 未マップのモデルでは、**参照モデルから目ボーンを自動解決** を押すか path を手入力する（自動解決は Humanoid の Eye ボーン、無ければ名前検索から、左右の目ボーン path・初期回転・yaw / pitch 軸を保存する）
-4. 上下 / 外側 / 内側の可動角は必要に応じて調整する
+1. 上下 / 外側 / 内側の可動角を必要に応じて調整する。どの目線制御（InputSystem / iFacialMocap / OSC 受信など）にも同じく効くので、入力源を選ぶ必要はない
+2. ジョイント名は任意。空欄のままなら、実行時に Avatar の目線ボーン（Humanoid の `LeftEye` / `RightEye`）を使う。非 Humanoid モデルや Eye 未マップのモデルでは、左右の目の GameObject 名を入力する（完全一致を優先し、無ければ名前を含む最初のものを警告付きで使う）
+3. 目の初期回転と yaw / pitch 軸は入力不要。実行時に元のアセットデータ（Avatar の skeleton → バインドポーズ）から求める
 
 目ボーンへの適用は `FacialController` が毎フレーム行う。binding 側は Vector2 入力源を登録するだけでよい。
 
@@ -102,7 +101,7 @@ ARKit 52 / PerfectSync 命名の BlendShape を持つモデルは、キャプチ
 - **表情が変化しない**: `FacialController` の Character SO が空でないか、モデルの BlendShape 名が Expression の Clip と一致しているか、ルートに `Animator` があるかを確認
 - **入力源 id の警告が出る**: レイヤーの `inputSources[].id` と binding の slug（`<slug>` / `<slug>:<sub>`）が一致していない。Adapter Bindings タブの slug か、ルーティングエディタ（`com.hidano.facialcontrol.routing-editor`）で配線を確認
 - **同じモデルに `FacialController` が 2 つ付いている**: 祖先側だけが有効になり、他方は警告付きで無効化される。Inspector にも警告が出る
-- **目線が動かない**: 非 Humanoid モデルなら目線タブで目ボーン path が入っているか（空欄で Humanoid の目ボーンも解決できないときは起動時に警告が 1 回出る）、入力ソースが binding の宣言と一致しているかを確認
+- **目線が動かない**: 非 Humanoid モデルなら目線タブでジョイント名が入っているか（空欄で Humanoid の目ボーンも解決できないときは起動時に警告が 1 回出る。名前が見つからないときも警告が出る）、Gaze を登録する binding が有効かを確認
 
 ## 次のステップ
 

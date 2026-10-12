@@ -45,7 +45,7 @@ binding を Add した時点で、これらの id を持つ既定レイヤーが
 1. `.inputactions` を用意する（同梱サンプルの `MultiSourceBlendDemoActions.inputactions` を複製してもよい。ActionMap `Expression` に `Trigger1`〜`Trigger10`（Button）、`Look`（Vector2）、`LeftTrigger` / `RightTrigger`（Axis）を持つ）
 2. `FacialCharacterProfileSO` の **Adapter Bindings** で **Input System** を Add し、InputActionAsset と ActionMap 名を設定
 3. **キーバインディング** に行を追加し、表情 ID・動作モード・Action 名を設定
-4. `Gaze` 行を使う場合は Profile の目線タブでチャネル `gaze` の入力ソースにこの binding を選ぶ
+4. `Gaze` 行を使う場合、目線の可動範囲は Profile の目線タブで調整する（入力源の選択は不要）
 5. キャラクターに `FacialController` を付けて Play。binding は `OnStart` で InputActionAsset を複製して有効化し、`Dispose` で破棄する（Scene に追加の MonoBehaviour は不要）
 
 ## カスタム InputProcessor

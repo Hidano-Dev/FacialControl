@@ -142,7 +142,7 @@ namespace Hidano.FacialControl.Timeline.Editor
             if (gazeConfigs != null && gazeConfigs.Count > 0)
             {
                 CachedGazeEyeFallback cached = GetGazeEyeFallback(controller);
-                compositor.EvaluateGaze(timeSeconds, gazeConfigs, cached.Resolver, cached.Fallback, GazeTargetBuffer);
+                compositor.EvaluateGaze(timeSeconds, gazeConfigs, cached.Resolver, GazeTargetBuffer);
             }
         }
 
@@ -355,7 +355,7 @@ namespace Hidano.FacialControl.Timeline.Editor
                 return;
             }
 
-            // プレビュー開始時の姿勢から fallback の rest 回転・軸を取り直す。
+            // プレビュー開始ごとに目線ボーンの resolver を作り直す (ジョイント名・モデルの変更を反映する)。
             PruneDestroyedGazeEyeFallbacks();
             CachedGazeEyeFallback cached = CreateCachedGazeEyeFallback(controller);
             GazeEyeFallbacks[controller.GetInstanceID()] = cached;
@@ -366,7 +366,6 @@ namespace Hidano.FacialControl.Timeline.Editor
                 cached.Resolver,
                 gazeConfigs,
                 null,
-                cached.Fallback,
                 GazeTargetBuffer);
 
             for (int i = 0; i < GazeTargetBuffer.Count; i++)
@@ -378,17 +377,12 @@ namespace Hidano.FacialControl.Timeline.Editor
         }
 
         /// <summary>
-        /// プレビューが目ボーンの解決に使う resolver と fallback（プレビュー開始時の姿勢から取った rest 回転）を返す。
-        /// プレビュー中に呼んでも、書き換え後の姿勢ではなくプレビュー開始時の rest を使える。
+        /// プレビューが目ボーンの解決に使う resolver（ジョイント名 → Avatar の目線ボーン。rest 回転・軸はアセットデータから
+        /// 求めてキャッシュする）を返す。プレビュー中に呼んでも、書き換え後の姿勢に左右されない。
         /// </summary>
-        internal static void GetGazeEyeResolver(
-            FacialController controller,
-            out BoneTransformResolver resolver,
-            out GazeEyeBoneFallback fallback)
+        internal static GazeEyeBoneResolver GetGazeEyeResolver(FacialController controller)
         {
-            CachedGazeEyeFallback cached = GetGazeEyeFallback(controller);
-            resolver = cached.Resolver;
-            fallback = cached.Fallback;
+            return GetGazeEyeFallback(controller).Resolver;
         }
 
         private static CachedGazeEyeFallback GetGazeEyeFallback(FacialController controller)
@@ -399,7 +393,7 @@ namespace Hidano.FacialControl.Timeline.Editor
                 return cached;
             }
 
-            // GatherProperties を経ずに呼ばれた場合 (スクリプトからの Evaluate 等) は現在の姿勢から作る。
+            // GatherProperties を経ずに呼ばれた場合 (スクリプトからの Evaluate 等) はここで作る。
             // 目ボーンが無い (非 Humanoid) 場合も結果をキャッシュし、毎フレーム解決し直さない。
             cached = CreateCachedGazeEyeFallback(controller);
             GazeEyeFallbacks[key] = cached;
@@ -429,8 +423,7 @@ namespace Hidano.FacialControl.Timeline.Editor
         {
             return new CachedGazeEyeFallback(
                 controller,
-                new BoneTransformResolver(controller.transform),
-                GazeEyeBoneFallback.FromAnimator(controller.GetComponent<Animator>()));
+                GazeEyeBoneResolver.FromAnimator(controller.GetComponent<Animator>()));
         }
 
         private static void RegisterRotationProperties(Transform target, IPropertyCollector collector)
@@ -475,17 +468,14 @@ namespace Hidano.FacialControl.Timeline.Editor
         {
             public CachedGazeEyeFallback(
                 FacialController controller,
-                BoneTransformResolver resolver,
-                GazeEyeBoneFallback fallback)
+                GazeEyeBoneResolver resolver)
             {
                 Controller = controller;
                 Resolver = resolver;
-                Fallback = fallback;
             }
 
             public FacialController Controller { get; }
-            public BoneTransformResolver Resolver { get; }
-            public GazeEyeBoneFallback Fallback { get; }
+            public GazeEyeBoneResolver Resolver { get; }
         }
 
         private sealed class CompositorEntry

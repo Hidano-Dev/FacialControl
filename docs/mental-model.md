@@ -20,10 +20,10 @@ FacialCharacterProfileSO (1 個)
 
 ### Gaze の設定
 
-1. Profile Inspector の **Gaze** セクションで、先頭の既定チャネル `gaze` を使用する（必要な場合だけ追加チャネルを作る）。
-2. 各チャネルの **入力ソース** ドロップダウンで、InputSystem、OSC 受信、iFacialMocap、Timeline など、利用する binding が宣言した入力源を選ぶ。空欄は自動解決である。
-3. 参照モデルを割り当てると、Animator を起点に左右の目ボーンのフルパスが自動保存される。目ボーン path、初期回転、yaw/pitch 軸、上下左右の可動角は上級設定で確認・調整できる。
-4. 起動時は `FacialController` がチャネル id を各 binding に注入し、入力源を解決して目ボーンへ適用する。複数チャネルや左右独立 source id は上級設定でのみ構成する。
+1. Profile Inspector の **Gaze** セクションで、上下左右の可動範囲を設定する。設定はどの目線制御（InputSystem、OSC 受信、iFacialMocap、Timeline など）にも同じく効き、入力源を選ぶ必要はない。
+2. 左右の目のジョイント名は任意。空欄なら Avatar の目線ボーン（Humanoid の LeftEye / RightEye）を使う。入力すると名前で GameObject を探し、完全一致を優先する（無ければ名前を含む最初のものを警告付きで使う。`/` を含むパスは末尾の名前で探す）。
+3. 目の初期回転と yaw/pitch 軸は保存しない。実行時に元のアセットデータ（Avatar の skeleton → バインドポーズ）から求めるので、起動時の頭の向きや既に掛かっている目線入力に左右されない。
+4. 起動時は `FacialController` が既定チャネル `gaze` の id を各 binding に注入し、入力源を `{slug}:gaze[.left|.right]` の規約で解決して目ボーンへ適用する。
 
 ## 2. 表情合成パイプライン
 
@@ -46,7 +46,7 @@ FacialCharacterProfileSO (1 個)
   - `arkit`: `/ARKit/{name}`、Gaze は eyeLook 系 8 BlendShape に分解
 - 送信対象は **省略時に全自動**（モデルの全 BlendShape + Profile が宣言する全 Gaze チャネル）。subset 配信したいときだけ `BlendShape Names (Optional Filter)` を列挙して絞る。Gaze は FacialController が自動注入し、個別指定はしない。
 - 送信先リスト（endpoint / port / 有効 / プリセット）は binding 本体に置く。対応表の更新間隔 / loopback 抑制は任意の上級設定 `OscSenderRuntimeSettingsSO`（Adapter Runtime Settings Collection の sub-asset）に置き、未割り当てなら既定値で動く。
-- 送信元識別 `/_facialcontrol/sender_id` と値フレーム `/_facialcontrol/values` を送る。対応表（BlendShape 名・gaze チャネルと目ボーン path・可動範囲）は受信側の要求に応じて返す。`layoutRefreshIntervalSeconds` 周期（既定 5 秒）で目線タブの変化を確かめ、変わっていれば対応表を別のバージョンで作り直す。
+- 送信元識別 `/_facialcontrol/sender_id` と値フレーム `/_facialcontrol/values` を送る。対応表（BlendShape 名・gaze チャネル）は受信側の要求に応じて返す。可動範囲・目ボーンは送らない（受信側の目線タブで決める。HID-191）。
 - `suppressLoopback`（既定 ON）: 同一 child scope 内の自分の受信 endpoint と一致する送信先を抑止する。
 - 別スレッド非同期送信で、メインスレッド負荷ゼロ。
 
@@ -54,7 +54,7 @@ FacialCharacterProfileSO (1 個)
 
 - 受信ポートを設定して起動すると（受信は常に全インターフェース）、送信側 FacialControl から値フレームの対応表を受け取り、対応表の gaze チャネルごとに route と input source（左右共通）を自動生成する。受信側で gaze の mapping エントリをあらかじめ手入力したり、OnStart 時に固定したりする必要はない。
 - BlendShape も対応表から、名前が一致する受信側の BlendShape へ自動で割り当てる。手動 mapping は無く、値フレーム以外の名前つきアドレス（VRChat / ARKit 形式）は受けない（外部 OSC 互換は要件外。HID-169）。
-- 自動 route は対応表のチャネル id と受信側 Profile の Gaze チャネル id を照合して生成される。対応表に載った目ボーン path・可動範囲は、受信側 Profile の同じ id の Gaze チャネルより優先される（`IGazeChannelOverrideProvider`）。送信側で path が未指定の目は、受信側の目線タブの path → Humanoid の目ボーンの順で解決する。そのため既定チャネル `gaze` だけを使う FacialControl 同士なら、受信側は目線タブを設定しなくてよい。
+- 自動 route は対応表のチャネル id と受信側 Profile の Gaze チャネル id を照合して生成される。可動範囲は受信側 Profile の目線タブの値を使い（既定値のままでも動く）、目ボーンは受信側の目線タブのジョイント名 → Humanoid の目ボーンの順で解決する。旧送信側が対応表に載せる `range=` / `bone.left=` / `bone.right=` は読み飛ばす。
 - binding に置くのは受信ポートと対象レイヤーだけ。staleness / fail-safe / bundle 解釈などは任意の上級設定 `OscReceiverRuntimeSettingsSO` に置く。
 - `stalenessSeconds` 超過時のフェイルセーフ:
   - `revertToBase`: ベース表情へ戻す

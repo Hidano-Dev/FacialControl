@@ -30,15 +30,25 @@ namespace Hidano.FacialControl.Tests.EditMode.Adapters.ScriptableObjectTests
         }
 
         [Test]
-        public void TryResolve_ProviderSlugOnlySearchesThatSlug()
+        public void TryResolve_LegacyProviderSlugAndDistinctSourceIds_AreIgnored()
         {
+            // 目線メニューの設定はどの目線制御にも効かせるため、旧データの provider / source ID 指定は読まない (HID-191)。
             var registry = new InputSourceRegistry();
-            var source = new Source("wanted:gaze");
-            registry.Register(AdapterSlug.Parse("other"), "gaze", new Source("other:gaze"));
-            registry.Register(AdapterSlug.Parse("wanted"), "gaze", source);
-            Assert.That(GazeChannelResolver.TryResolve(new GazeChannel { id = "gaze", providerSlug = "wanted" }, registry, out var result), Is.True);
-            Assert.That(result.SelectedSlug, Is.EqualTo("wanted"));
+            var source = new Source("ifacialmocap:gaze");
+            registry.Register(AdapterSlug.Parse("ifacialmocap"), "gaze", source);
+            var channel = new GazeChannel
+            {
+                id = "gaze",
+                providerSlug = "inputsystem",
+                useDistinctLeftRight = true,
+                sourceIdLeft = "inputsystem:gaze.left",
+                sourceIdRight = "inputsystem:gaze.right",
+            };
+
+            Assert.That(GazeChannelResolver.TryResolve(channel, registry, out var result), Is.True);
+            Assert.That(result.SelectedSlug, Is.EqualTo("ifacialmocap"));
             Assert.That(result.LeftSource, Is.SameAs(source));
+            Assert.That(result.RightSource, Is.SameAs(source));
         }
 
         [Test]

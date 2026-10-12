@@ -5,6 +5,7 @@ using UnityEditor;
 using UnityEditor.UIElements;
 using UnityEngine;
 using UnityEngine.UIElements;
+using Hidano.FacialControl.Adapters.Bone;
 using Hidano.FacialControl.Adapters.ScriptableObject;
 using Hidano.FacialControl.Adapters.ScriptableObject.Serializable;
 using Hidano.FacialControl.Domain.Adapters;
@@ -105,24 +106,12 @@ namespace Hidano.FacialControl.Editor.Inspector
         public const string ExpressionRowRendererSummaryName = "expression-row-renderer-summary";
         public const string ExpressionRowValidationHelpName = "expression-row-validation-help";
         public const string ExpressionRowTransitionDurationFieldName = "expression-row-transition-duration-field";
-        public const string GazeInputSourceDropdownName = "gaze-input-source-dropdown";
         public const string GazeLegacyHelpName = "facial-character-gaze-legacy-help";
         public const string GazeLegacyClearButtonName = "facial-character-gaze-legacy-clear-button";
-        public const string GazeChannelsListName = "facial-character-gaze-channels-list";
-        public const string GazeChannelRowName = "facial-character-gaze-channel-row";
-        public const string GazeChannelIdFieldName = "facial-character-gaze-channel-id";
-        public const string GazeChannelProviderDropdownName = "facial-character-gaze-channel-provider";
-        public const string GazeChannelAdvancedFoldoutName = "facial-character-gaze-channel-advanced";
-        public const string GazeChannelAddButtonName = "facial-character-gaze-channel-add-button";
-        public const string GazeChannelIdValidationName = "facial-character-gaze-channel-id-validation";
-        public const string GazeChannelDistinctToggleName = "facial-character-gaze-channel-distinct";
-        public const string GazeChannelSourceIdLeftName = "facial-character-gaze-channel-source-left";
-        public const string GazeChannelSourceIdRightName = "facial-character-gaze-channel-source-right";
-        public const string GazeChannelLeftBonePathName = "facial-character-gaze-channel-left-bone";
-        public const string GazeChannelRightBonePathName = "facial-character-gaze-channel-right-bone";
-        public const string GazeChannelAutoAssignButtonName = "facial-character-gaze-channel-auto-assign";
+        public const string GazeChannelSettingsName = "facial-character-gaze-channel-settings";
+        public const string GazeChannelLeftJointNameFieldName = "facial-character-gaze-channel-left-joint";
+        public const string GazeChannelRightJointNameFieldName = "facial-character-gaze-channel-right-joint";
         public const string GazeChannelBoneResolutionHelpName = "facial-character-gaze-channel-bone-resolution";
-        public const string GazeConfigRemoveButtonName = "gaze-config-remove-button";
         public const string GazeConfigLookUpAngleFieldName = "gaze-config-look-up-angle";
         public const string GazeConfigLookDownAngleFieldName = "gaze-config-look-down-angle";
         public const string GazeConfigOuterYawAngleFieldName = "gaze-config-outer-yaw-angle";
@@ -210,7 +199,6 @@ namespace Hidano.FacialControl.Editor.Inspector
             new List<(Foldout foldout, string key)>();
 #if UNITY_EDITOR
         private GameObject _lastReferenceModel;
-        private bool _isAutoAssigningGazeBones;
 #endif
 
         // ====================================================================
@@ -1239,7 +1227,7 @@ namespace Hidano.FacialControl.Editor.Inspector
             var section = MakeSectionFoldout(GazeConfigsFoldoutName, "Gaze", open: true);
             var profile = target as FacialCharacterProfileSO;
             bool legacy = profile != null && profile.HasLegacyGazeConfigs;
-            var help = MakeHelpBox("旧 gaze_configs を検出しました。目線チャネルを確認し、旧データをクリアしてください。", HelpBoxMessageType.Warning);
+            var help = MakeHelpBox("旧 gaze_configs を検出しました。目線の設定を確認し、旧データをクリアしてください。", HelpBoxMessageType.Warning);
             help.name = GazeLegacyHelpName;
             help.style.display = legacy ? DisplayStyle.Flex : DisplayStyle.None;
             section.Add(help);
@@ -1248,181 +1236,65 @@ namespace Hidano.FacialControl.Editor.Inspector
             clear.style.alignSelf = Align.FlexStart;
             section.Add(clear);
 
-            var channels = new VisualElement { name = GazeChannelsListName };
-            channels.style.flexDirection = FlexDirection.Column;
-            section.Add(channels);
-            RebuildGazeChannelsUI(channels);
-            var advanced = new Foldout { name = GazeChannelAdvancedFoldoutName, text = "上級設定", value = false };
-            var add = new Button(() => AddGazeChannel(channels)) { name = GazeChannelAddButtonName, text = "チャネルを追加" };
-            advanced.Add(add);
-            section.Add(advanced);
+            var settings = new VisualElement { name = GazeChannelSettingsName };
+            settings.style.flexDirection = FlexDirection.Column;
+            section.Add(settings);
+            BuildGazeChannelSettings(settings);
             root.Add(section);
         }
 
-        private void BuildGazeProviderDropdowns(VisualElement root)
-        {
-            if (_gazeChannelsProperty == null || !_gazeChannelsProperty.isArray) return;
-
-            var bindings = new List<AdapterBindingBase>();
-            SerializedProperty bindingsProperty = serializedObject.FindProperty("_adapterBindings");
-            if (bindingsProperty != null && bindingsProperty.isArray)
-            {
-                for (int i = 0; i < bindingsProperty.arraySize; i++)
-                {
-                    AdapterBindingBase binding = bindingsProperty.GetArrayElementAtIndex(i).managedReferenceValue as AdapterBindingBase;
-                    if (binding != null) bindings.Add(binding);
-                }
-            }
-
-            var enumerator = new GazeProviderEnumerator();
-            for (int i = 0; i < _gazeChannelsProperty.arraySize; i++)
-            {
-                int channelIndex = i;
-                SerializedProperty channelProperty = _gazeChannelsProperty.GetArrayElementAtIndex(i);
-                SerializedProperty idProperty = channelProperty.FindPropertyRelative("id");
-                SerializedProperty providerProperty = channelProperty.FindPropertyRelative("providerSlug");
-                if (idProperty == null || providerProperty == null) continue;
-
-                IReadOnlyList<GazeProviderOption> options = enumerator.Enumerate(bindings, idProperty.stringValue);
-                var choices = new List<string>(options.Count);
-                int selectedIndex = 0;
-                for (int optionIndex = 0; optionIndex < options.Count; optionIndex++)
-                {
-                    choices.Add(options[optionIndex].DisplayName);
-                    if (string.Equals(options[optionIndex].Slug, providerProperty.stringValue, StringComparison.Ordinal))
-                        selectedIndex = optionIndex;
-                }
-
-                var dropdown = new DropdownField("入力ソース", choices, selectedIndex)
-                {
-                    name = channelIndex == 0
-                        ? GazeInputSourceDropdownName
-                        : GazeInputSourceDropdownName + "-" + channelIndex,
-                };
-                dropdown.RegisterValueChangedCallback(evt =>
-                {
-                    int index = choices.IndexOf(evt.newValue);
-                    if (index < 0 || index >= options.Count || serializedObject == null) return;
-                    serializedObject.Update();
-                    SerializedProperty current = serializedObject.FindProperty("_gazeChannels")
-                        ?.GetArrayElementAtIndex(channelIndex)?.FindPropertyRelative("providerSlug");
-                    if (current == null) return;
-                    Undo.RecordObject(target, "Gaze 入力ソース変更");
-                    current.stringValue = options[index].Slug;
-                    serializedObject.ApplyModifiedProperties();
-                });
-                root.Add(dropdown);
-            }
-        }
-
-        private void RebuildGazeChannelsUI(VisualElement container)
+        /// <summary>
+        /// 目線メニュー: 既定チャネル (gaze) の可動範囲と、任意の左右ジョイント名だけを編集する (HID-191)。
+        /// チャネル ID・入力プロバイダ・チャネルの追加削除・初期回転・軸は出さない
+        /// (初期回転・軸は実行時に元のアセットデータから求め、可動範囲はどの目線制御にも効く)。
+        /// </summary>
+        private void BuildGazeChannelSettings(VisualElement container)
         {
             if (container == null || _gazeChannelsProperty == null || !_gazeChannelsProperty.isArray) return;
             container.Clear();
             serializedObject.Update();
-            for (int i = 0; i < _gazeChannelsProperty.arraySize; i++)
-                container.Add(BuildGazeChannelRow(i, container));
-        }
-
-        private VisualElement BuildGazeChannelRow(int index, VisualElement container)
-        {
-            var row = new VisualElement { name = GazeChannelRowName + "-" + index };
-            row.style.flexDirection = FlexDirection.Column;
-            row.style.marginBottom = 8;
-            var channel = _gazeChannelsProperty.GetArrayElementAtIndex(index);
-            var header = new VisualElement();
-            header.style.flexDirection = FlexDirection.Row;
-            var id = channel.FindPropertyRelative("id");
-            var idField = new TextField(index == 0 ? "既定チャネル (gaze)" : "チャネル ID") { name = GazeChannelIdFieldName + "-" + index };
-            idField.style.flexGrow = 1f;
-            idField.BindProperty(id);
-            if (index == 0) idField.SetEnabled(false);
-            else idField.RegisterValueChangedCallback(_ => UpdateGazeChannelIdValidation(row));
-            header.Add(idField);
-            if (index > 0)
+            if (_gazeChannelsProperty.arraySize == 0)
             {
-                var remove = new Button(() => RemoveGazeChannel(index, container)) { name = GazeConfigRemoveButtonName + "-" + index, text = "削除" };
-                header.Add(remove);
-            }
-            row.Add(header);
-            AddGazeProviderDropdown(row, index, channel);
-            AddGazeChannelBoneResolutionControls(row, index, channel);
-            AddGazeChannelProperty(row, channel, "leftEyeBonePath", "左目ボーン (任意)", GazeChannelLeftBonePathName);
-            AddGazeChannelProperty(row, channel, "rightEyeBonePath", "右目ボーン (任意)", GazeChannelRightBonePathName);
-            AddGazeChannelProperty(row, channel, "lookUpAngle", "上方向角度", GazeConfigLookUpAngleFieldName);
-            AddGazeChannelProperty(row, channel, "lookDownAngle", "下方向角度", GazeConfigLookDownAngleFieldName);
-            AddGazeChannelProperty(row, channel, "outerYawAngle", "外側角度", GazeConfigOuterYawAngleFieldName);
-            AddGazeChannelProperty(row, channel, "innerYawAngle", "内側角度", GazeConfigInnerYawAngleFieldName);
-            var advanced = new Foldout { name = GazeChannelAdvancedFoldoutName + "-" + index, text = "上級設定", value = false };
-            AddGazeChannelProperty(advanced, channel, "useDistinctLeftRight", "左右を個別指定", GazeChannelDistinctToggleName);
-            AddGazeChannelProperty(advanced, channel, "sourceIdLeft", "左入力 source ID", GazeChannelSourceIdLeftName);
-            AddGazeChannelProperty(advanced, channel, "sourceIdRight", "右入力 source ID", GazeChannelSourceIdRightName);
-            AddGazeChannelProperty(advanced, channel, "leftEyeInitialRotation", "左初期回転", null);
-            AddGazeChannelProperty(advanced, channel, "rightEyeInitialRotation", "右初期回転", null);
-            AddGazeChannelProperty(advanced, channel, "leftEyeYawAxisLocal", "左 yaw 軸", null);
-            AddGazeChannelProperty(advanced, channel, "leftEyePitchAxisLocal", "左 pitch 軸", null);
-            AddGazeChannelProperty(advanced, channel, "rightEyeYawAxisLocal", "右 yaw 軸", null);
-            AddGazeChannelProperty(advanced, channel, "rightEyePitchAxisLocal", "右 pitch 軸", null);
-            row.Add(advanced);
-            UpdateGazeChannelIdValidation(row);
-            return row;
-        }
-
-        private void AddGazeChannelBoneResolutionControls(VisualElement row, int index, SerializedProperty channel)
-        {
-            var button = new Button(() => ResolveGazeChannelFromReferenceModel(index))
-            {
-                name = GazeChannelAutoAssignButtonName + "-" + index,
-                text = "参照モデルから目ボーンを自動解決",
-                tooltip = "空欄の目ボーンだけを参照モデルから解決します。"
-            };
-            button.SetEnabled(HasReferenceModel());
-            row.Add(button);
-            var help = MakeHelpBox(string.Empty, HelpBoxMessageType.Info);
-            help.name = GazeChannelBoneResolutionHelpName + "-" + index;
-            UpdateGazeChannelBoneResolutionHelp(help, channel);
-            row.Add(help);
-        }
-
-        private void ResolveGazeChannelFromReferenceModel(int channelIndex)
-        {
-            if (_gazeChannelsProperty == null || channelIndex < 0 || channelIndex >= _gazeChannelsProperty.arraySize)
-                return;
-            serializedObject.Update();
-            if (!EditorUtility.DisplayDialog("目ボーンを再解決", "既存の目ボーン設定を参照モデルで上書きしますか？", "再解決", "キャンセル"))
-                return;
-            Undo.RecordObject(target, "目ボーンを参照モデルから再解決");
-            AutoAssignGazeBonesForChannel(_gazeChannelsProperty.GetArrayElementAtIndex(channelIndex), overwrite: true);
-            serializedObject.ApplyModifiedProperties();
-            RebuildGazeChannelsUI(_rootElement?.Q<VisualElement>(GazeChannelsListName));
-            UpdateValidation();
-        }
-
-        private void AutoAssignGazeBonesForChannels()
-        {
-            if (_isAutoAssigningGazeBones || _gazeChannelsProperty == null || !HasReferenceModel()) return;
-            _isAutoAssigningGazeBones = true;
-            try
-            {
+                // SO の GazeChannels getter が既定チャネルを補う。
+                _ = (target as FacialCharacterProfileSO)?.GazeChannels;
                 serializedObject.Update();
-                Undo.RecordObject(target, "参照モデル変更時の目ボーン自動解決");
-                for (int i = 0; i < _gazeChannelsProperty.arraySize; i++)
-                    AutoAssignGazeBonesForChannel(_gazeChannelsProperty.GetArrayElementAtIndex(i));
-                serializedObject.ApplyModifiedProperties();
-                RebuildGazeChannelsUI(_rootElement?.Q<VisualElement>(GazeChannelsListName));
-                UpdateValidation();
+                if (_gazeChannelsProperty.arraySize == 0) return;
             }
-            finally { _isAutoAssigningGazeBones = false; }
+
+            var channel = _gazeChannelsProperty.GetArrayElementAtIndex(0);
+            MigrateGazeJointName(channel.FindPropertyRelative("leftEyeBonePath"));
+            MigrateGazeJointName(channel.FindPropertyRelative("rightEyeBonePath"));
+
+            AddGazeChannelProperty(container, channel, "lookUpAngle", "上方向角度", GazeConfigLookUpAngleFieldName);
+            AddGazeChannelProperty(container, channel, "lookDownAngle", "下方向角度", GazeConfigLookDownAngleFieldName);
+            AddGazeChannelProperty(container, channel, "outerYawAngle", "外側角度", GazeConfigOuterYawAngleFieldName);
+            AddGazeChannelProperty(container, channel, "innerYawAngle", "内側角度", GazeConfigInnerYawAngleFieldName);
+            var leftJoint = AddGazeChannelProperty(container, channel, "leftEyeBonePath", "左目ジョイント名 (任意)", GazeChannelLeftJointNameFieldName);
+            var rightJoint = AddGazeChannelProperty(container, channel, "rightEyeBonePath", "右目ジョイント名 (任意)", GazeChannelRightJointNameFieldName);
+            const string jointTooltip = "空欄なら Avatar の目線ボーン (Humanoid の LeftEye / RightEye) を使います。"
+                + "名前で GameObject を探し、完全一致を優先します (無ければ名前を含む最初のものを警告付きで使います)。";
+            if (leftJoint != null) leftJoint.tooltip = jointTooltip;
+            if (rightJoint != null) rightJoint.tooltip = jointTooltip;
+
+            var help = MakeHelpBox(string.Empty, HelpBoxMessageType.Info);
+            help.name = GazeChannelBoneResolutionHelpName;
+            container.Add(help);
+            UpdateGazeChannelBoneResolutionHelp(help, channel);
+            help.TrackPropertyValue(channel.FindPropertyRelative("leftEyeBonePath"), _ => UpdateGazeChannelBoneResolutionHelp(help, channel));
+            help.TrackPropertyValue(channel.FindPropertyRelative("rightEyeBonePath"), _ => UpdateGazeChannelBoneResolutionHelp(help, channel));
         }
 
-        private void AutoAssignGazeBonesForChannel(SerializedProperty channel, bool overwrite = false)
+        /// <summary>
+        /// 旧データの目ボーン path (<c>Armature/.../LeftEye</c>) を末尾のセグメントのジョイント名へ移行する
+        /// (実行時も同じ規則で読むため、表示を揃えるだけで挙動は変わらない)。
+        /// </summary>
+        private void MigrateGazeJointName(SerializedProperty property)
         {
-            if (channel == null) return;
-            AutoAssignGazeBonesFromReferenceModel(
-                channel.FindPropertyRelative("leftEyeBonePath"), channel.FindPropertyRelative("leftEyeInitialRotation"),
-                channel.FindPropertyRelative("rightEyeBonePath"), channel.FindPropertyRelative("rightEyeInitialRotation"),
-                channel.FindPropertyRelative("leftEyeYawAxisLocal"), channel.FindPropertyRelative("leftEyePitchAxisLocal"),
-                channel.FindPropertyRelative("rightEyeYawAxisLocal"), channel.FindPropertyRelative("rightEyePitchAxisLocal"), overwrite);
+            if (property == null || property.propertyType != SerializedPropertyType.String) return;
+            string migrated = GazeEyeBoneResolver.ToJointName(property.stringValue);
+            if (string.Equals(migrated, property.stringValue ?? string.Empty, StringComparison.Ordinal)) return;
+            property.stringValue = migrated;
+            serializedObject.ApplyModifiedPropertiesWithoutUndo();
         }
 
         private void UpdateGazeChannelBoneResolutionHelp(HelpBox help, SerializedProperty channel)
@@ -1431,17 +1303,17 @@ namespace Hidano.FacialControl.Editor.Inspector
             bool leftMissing = string.IsNullOrWhiteSpace(channel.FindPropertyRelative("leftEyeBonePath")?.stringValue);
             bool rightMissing = string.IsNullOrWhiteSpace(channel.FindPropertyRelative("rightEyeBonePath")?.stringValue);
             bool missing = leftMissing || rightMissing;
-            // 目ボーン path は任意。空欄の側はランタイムで Humanoid の LeftEye / RightEye を使う。
+            // ジョイント名は任意。空欄の側はランタイムで Avatar の目線ボーン (Humanoid の LeftEye / RightEye) を使う。
             // 参照モデルが Humanoid の目を持たないと分かっている場合だけ警告にする。
             bool referenceLacksHumanoidEyes = missing && ReferenceModelLacksHumanoidEyes(leftMissing, rightMissing);
             help.messageType = referenceLacksHumanoidEyes ? HelpBoxMessageType.Warning : HelpBoxMessageType.Info;
             help.text = !missing
                 ? string.Empty
                 : referenceLacksHumanoidEyes
-                    ? "参照モデルは Humanoid の目ボーン (LeftEye / RightEye) を持たないため、目ボーンが空欄の側は目線が動きません。"
-                        + "ボーン path を指定してください。"
-                    : "目ボーンが空欄の側は、実行時に Humanoid Avatar の目ボーン (LeftEye / RightEye) を使用します。"
-                        + "非 Humanoid モデルや Eye 未マップの場合は、ボーン path を指定しないと目線が動きません。";
+                    ? "参照モデルは Humanoid の目ボーン (LeftEye / RightEye) を持たないため、ジョイント名が空欄の側は目線が動きません。"
+                        + "ジョイント名を指定してください。"
+                    : "ジョイント名が空欄の側は、実行時に Avatar の目線ボーン (Humanoid の LeftEye / RightEye) を使用します。"
+                        + "非 Humanoid モデルや Eye 未マップの場合は、ジョイント名を指定しないと目線が動きません。";
             help.style.display = missing ? DisplayStyle.Flex : DisplayStyle.None;
         }
 
@@ -1459,86 +1331,16 @@ namespace Hidano.FacialControl.Editor.Inspector
                 || (rightMissing && animator.GetBoneTransform(HumanBodyBones.RightEye) == null);
         }
 
-        private void AddGazeProviderDropdown(VisualElement row, int index, SerializedProperty channel)
-        {
-            var bindings = new List<AdapterBindingBase>();
-            var bp = serializedObject.FindProperty("_adapterBindings");
-            if (bp != null && bp.isArray)
-                for (int i = 0; i < bp.arraySize; i++)
-                    if (bp.GetArrayElementAtIndex(i).managedReferenceValue is AdapterBindingBase b) bindings.Add(b);
-            string channelId = channel.FindPropertyRelative("id")?.stringValue ?? string.Empty;
-            var options = new GazeProviderEnumerator().Enumerate(bindings, channelId);
-            var choices = new List<string>();
-            int selected = 0;
-            string current = channel.FindPropertyRelative("providerSlug")?.stringValue ?? string.Empty;
-            for (int i = 0; i < options.Count; i++) { choices.Add(options[i].DisplayName); if (options[i].Slug == current) selected = i; }
-            var dropdown = new DropdownField("入力ソース", choices, selected) { name = GazeChannelProviderDropdownName + "-" + index };
-            dropdown.RegisterValueChangedCallback(e =>
-            {
-                int selectedIndex = choices.IndexOf(e.newValue);
-                if (selectedIndex < 0) return;
-                serializedObject.Update();
-                var p = serializedObject.FindProperty("_gazeChannels").GetArrayElementAtIndex(index).FindPropertyRelative("providerSlug");
-                Undo.RecordObject(target, "Gaze 入力ソース変更");
-                p.stringValue = options[selectedIndex].Slug;
-                serializedObject.ApplyModifiedProperties();
-            });
-            row.Add(dropdown);
-        }
-
-        private static void AddGazeChannelProperty(VisualElement parent, SerializedProperty channel, string propertyName, string label, string elementName)
+        private static VisualElement AddGazeChannelProperty(VisualElement parent, SerializedProperty channel, string propertyName, string label, string elementName)
         {
             var property = channel.FindPropertyRelative(propertyName);
-            if (property == null) return;
-            IBindable bindable = property.propertyType == SerializedPropertyType.Boolean ? (IBindable)new Toggle(label) :
-                property.propertyType == SerializedPropertyType.Float ? new FloatField(label) :
-                property.propertyType == SerializedPropertyType.Vector3 ? new Vector3Field(label) : new TextField(label);
+            if (property == null) return null;
+            IBindable bindable = property.propertyType == SerializedPropertyType.Float ? (IBindable)new FloatField(label) : new TextField(label);
             var field = bindable as VisualElement;
             if (!string.IsNullOrEmpty(elementName)) field.name = elementName;
             bindable.BindProperty(property);
             parent.Add(field);
-        }
-
-        private void UpdateGazeChannelIdValidation(VisualElement row)
-        {
-            if (row == null || _gazeChannelsProperty == null) return;
-            var field = row.Q<TextField>(GazeChannelIdFieldName + "-" + row.name.Substring(row.name.LastIndexOf('-') + 1));
-            if (field == null) return;
-            string id = field.value ?? string.Empty;
-            bool valid = GazeSourceIdConvention.IsValidChannelId(id);
-            int current = _gazeChannelsProperty.arraySize;
-            for (int i = 1; valid && i < current; i++)
-            {
-                var p = _gazeChannelsProperty.GetArrayElementAtIndex(i).FindPropertyRelative("id");
-                if (p != null && p.stringValue == id && p.stringValue != string.Empty && !row.name.EndsWith("-" + i, StringComparison.Ordinal)) valid = false;
-            }
-            var help = row.Q<HelpBox>(GazeChannelIdValidationName);
-            if (help == null) { help = MakeHelpBox(string.Empty, HelpBoxMessageType.Error); help.name = GazeChannelIdValidationName; row.Add(help); }
-            help.text = valid ? string.Empty : "チャネル ID は有効な形式で、重複しない値を指定してください。";
-            help.style.display = valid ? DisplayStyle.None : DisplayStyle.Flex;
-        }
-
-        private void AddGazeChannel(VisualElement container)
-        {
-            serializedObject.Update();
-            int index = _gazeChannelsProperty.arraySize;
-            _gazeChannelsProperty.InsertArrayElementAtIndex(index);
-            var p = _gazeChannelsProperty.GetArrayElementAtIndex(index);
-            p.FindPropertyRelative("id").stringValue = "channel-" + index;
-            p.FindPropertyRelative("providerSlug").stringValue = string.Empty;
-            Undo.RecordObject(target, "Gaze チャネル追加");
-            serializedObject.ApplyModifiedProperties();
-            RebuildGazeChannelsUI(container);
-        }
-
-        private void RemoveGazeChannel(int index, VisualElement container)
-        {
-            if (index <= 0 || _gazeChannelsProperty == null || index >= _gazeChannelsProperty.arraySize) return;
-            serializedObject.Update();
-            Undo.RecordObject(target, "Gaze チャネル削除");
-            _gazeChannelsProperty.DeleteArrayElementAtIndex(index);
-            serializedObject.ApplyModifiedProperties();
-            RebuildGazeChannelsUI(container);
+            return field;
         }
 
         private void ClearLegacyGazeConfigs(HelpBox help)
@@ -1575,13 +1377,10 @@ namespace Hidano.FacialControl.Editor.Inspector
             }
 
 
-            // 参照モデルが切り替わった/設定されたら、目線タブ名にアスタリスクを付けて
-            // 「ボーンパスを確認しろ」というユーザー注意を促す。
-            // 自動入力はしない（前回値が残ると未設定との区別が付かなくなるため。
-            // ユーザーが明示的に GazeConfig 行の「参照モデルから自動設定」ボタンで埋める想定）。
-            if (currentReferenceModel != null && currentReferenceModel != previousReferenceModel)
+            // 目線は参照モデルから自動設定しない (HID-191)。空欄のジョイント名に対する案内だけ更新する。
+            if (currentReferenceModel != previousReferenceModel)
             {
-                AutoAssignGazeBonesForChannels();
+                BuildGazeChannelSettings(_rootElement?.Q<VisualElement>(GazeChannelSettingsName));
             }
         }
         private void MarkGazeTabNeedsAttention()
@@ -1600,19 +1399,6 @@ namespace Hidano.FacialControl.Editor.Inspector
             {
                 _gazeTab.label = GazeTabBaseLabel;
             }
-        }
-
-        /// <summary>
-        /// 参照モデルから目線ボーン名・初期角度・回転軸を <paramref name="cfg"/> に書き込む。
-        /// </summary>
-        /// <param name="resetRangesToDefaults">
-        /// 可動範囲（lookUp / lookDown / outerYaw / innerYaw）を既定値へ戻すか。
-        /// 新規作成した GazeConfig の初期化時のみ true。既存 GazeConfig の再解決では
-        /// ユーザーが数値入力した調整値を失わないよう false を指定する。
-        /// </param>
-        private bool HasReferenceModel()
-        {
-            return GetReferenceModel() != null;
         }
 
         private GameObject GetReferenceModel()
@@ -2678,178 +2464,6 @@ namespace Hidano.FacialControl.Editor.Inspector
             RebuildExpressionLibraryUI();
             RebuildExpressionIdMapping();
             UpdateValidation();
-        }
-
-        // ====================================================================
-        // GazeConfig ヘルパー
-        // ====================================================================
-
-        // ====================================================================
-        // 目線ボーン: 参照モデルからの自動設定
-        // ====================================================================
-
-        /// <summary>
-        /// 参照モデル (<c>_referenceModel</c>) の Animator から左右目ボーンを解決し、
-        /// 対応する SerializedProperty にボーン名と現在の localEulerAngles を書き込む。
-        /// Humanoid Avatar 優先、不在時は名前検索でフォールバック。
-        /// </summary>
-        private void AutoAssignGazeBonesFromReferenceModel(
-            SerializedProperty leftBonePathProp,
-            SerializedProperty leftInitRotProp,
-            SerializedProperty rightBonePathProp,
-            SerializedProperty rightInitRotProp,
-            SerializedProperty leftYawAxisProp,
-            SerializedProperty leftPitchAxisProp,
-            SerializedProperty rightYawAxisProp,
-            SerializedProperty rightPitchAxisProp,
-            bool overwrite = false)
-        {
-            if (_referenceModelProperty == null)
-            {
-                Debug.LogWarning("[FacialCharacterProfileSOInspector] 参照モデル property が解決できません。");
-                return;
-            }
-
-            var referenceModel = _referenceModelProperty.objectReferenceValue as GameObject;
-            if (referenceModel == null)
-            {
-                Debug.LogWarning(
-                    "[FacialCharacterProfileSOInspector] 参照モデルが未割り当てです。"
-                    + " Inspector の「参照モデル」セクションで GameObject を割り当ててから再実行してください。");
-                return;
-            }
-
-            var animator = referenceModel.GetComponentInChildren<Animator>(includeInactive: true);
-            if (animator == null)
-                Debug.LogWarning("[FacialControl] 参照モデルに Animator がないため、参照モデル root 起点で目ボーン path を保存します。");
-
-            Transform leftEye = null;
-            Transform rightEye = null;
-
-            if (animator != null && animator.avatar != null && animator.avatar.isHuman)
-            {
-                leftEye = animator.GetBoneTransform(HumanBodyBones.LeftEye);
-                rightEye = animator.GetBoneTransform(HumanBodyBones.RightEye);
-            }
-
-            if (leftEye == null) leftEye = FindEyeTransformByName(referenceModel.transform, isLeft: true);
-            if (rightEye == null) rightEye = FindEyeTransformByName(referenceModel.transform, isLeft: false);
-
-            serializedObject.Update();
-
-            int assigned = 0;
-            if (leftEye != null)
-            {
-                string path = GetBonePath(animator, referenceModel.transform, leftEye);
-                if ((overwrite || string.IsNullOrWhiteSpace(leftBonePathProp?.stringValue)) && !string.IsNullOrEmpty(path))
-                {
-                    leftBonePathProp.stringValue = path;
-                    if (leftInitRotProp != null) leftInitRotProp.vector3Value = leftEye.localEulerAngles;
-                    AssignParentLocalAxes(leftEye, leftYawAxisProp, leftPitchAxisProp);
-                    assigned++;
-                }
-            }
-            else
-            {
-                Debug.LogWarning("[FacialCharacterProfileSOInspector] 左目ボーンを参照モデルから解決できませんでした。Humanoid マッピング・命名規則を確認してください。");
-            }
-
-            if (rightEye != null)
-            {
-                string path = GetBonePath(animator, referenceModel.transform, rightEye);
-                if ((overwrite || string.IsNullOrWhiteSpace(rightBonePathProp?.stringValue)) && !string.IsNullOrEmpty(path))
-                {
-                    rightBonePathProp.stringValue = path;
-                    if (rightInitRotProp != null) rightInitRotProp.vector3Value = rightEye.localEulerAngles;
-                    AssignParentLocalAxes(rightEye, rightYawAxisProp, rightPitchAxisProp);
-                    assigned++;
-                }
-            }
-            else
-            {
-                Debug.LogWarning("[FacialCharacterProfileSOInspector] 右目ボーンを参照モデルから解決できませんでした。Humanoid マッピング・命名規則を確認してください。");
-            }
-
-            if (assigned > 0)
-            {
-                serializedObject.ApplyModifiedProperties();
-                Debug.Log(
-                    $"[FacialCharacterProfileSOInspector] 参照モデル '{referenceModel.name}' から目ボーンを自動設定しました"
-                    + $" (Left: {(leftEye != null ? leftEye.name : "(skip)")}, Right: {(rightEye != null ? rightEye.name : "(skip)")}).");
-            }
-        }
-
-        private static string GetBonePath(Animator animator, Transform referenceRoot, Transform bone)
-        {
-            if (bone == null) return null;
-            var names = new List<string>();
-            var current = bone;
-            var origin = animator != null ? animator.transform : referenceRoot;
-            while (current != null && current != origin)
-            {
-                names.Add(current.name);
-                current = current.parent;
-            }
-            if (current != origin) return null;
-            names.Reverse();
-            return string.Join("/", names);
-        }
-
-        private static void AssignParentLocalAxes(
-            Transform eyeBone,
-            SerializedProperty yawAxisProp,
-            SerializedProperty pitchAxisProp)
-        {
-            if (eyeBone == null) return;
-
-            Vector3 yawAxisLocal = Vector3.up;
-            Vector3 pitchAxisLocal = Vector3.right;
-
-            var parent = eyeBone.parent;
-            if (parent != null)
-            {
-                yawAxisLocal = parent.InverseTransformDirection(Vector3.up);
-                pitchAxisLocal = parent.InverseTransformDirection(Vector3.right);
-            }
-
-            if (yawAxisLocal.sqrMagnitude > 1e-8f) yawAxisLocal = yawAxisLocal.normalized;
-            if (pitchAxisLocal.sqrMagnitude > 1e-8f) pitchAxisLocal = pitchAxisLocal.normalized;
-
-            if (yawAxisProp != null) yawAxisProp.vector3Value = yawAxisLocal;
-            if (pitchAxisProp != null) pitchAxisProp.vector3Value = pitchAxisLocal;
-        }
-
-        private static Transform FindEyeTransformByName(Transform root, bool isLeft)
-        {
-            if (root == null) return null;
-            var transforms = root.GetComponentsInChildren<Transform>(includeInactive: true);
-
-            string exact = isLeft ? "LeftEye" : "RightEye";
-            string sidePrefix = isLeft ? "l_" : "r_";
-            string sideKeyword = isLeft ? "left" : "right";
-
-            for (int i = 0; i < transforms.Length; i++)
-            {
-                var t = transforms[i];
-                if (t == null || string.IsNullOrEmpty(t.name)) continue;
-                if (string.Equals(t.name, exact, StringComparison.OrdinalIgnoreCase)) return t;
-            }
-            for (int i = 0; i < transforms.Length; i++)
-            {
-                var t = transforms[i];
-                if (t == null || string.IsNullOrEmpty(t.name)) continue;
-                if (t.name.StartsWith(sidePrefix, StringComparison.OrdinalIgnoreCase)
-                    && t.name.IndexOf("eye", StringComparison.OrdinalIgnoreCase) >= 0) return t;
-            }
-            for (int i = 0; i < transforms.Length; i++)
-            {
-                var t = transforms[i];
-                if (t == null || string.IsNullOrEmpty(t.name)) continue;
-                var n = t.name;
-                if (n.IndexOf(sideKeyword, StringComparison.OrdinalIgnoreCase) >= 0
-                    && n.IndexOf("eye", StringComparison.OrdinalIgnoreCase) >= 0) return t;
-            }
-            return null;
         }
 
         // ====================================================================

@@ -32,7 +32,7 @@
 1. **Create → FacialControl → Adapter Runtime Settings Collection** を作成し、**Add → IFacialMocapRuntimeSettingsSO**（Add メニューは型名で表示される）で sub-asset を追加。listen ポートを iFacialMocap アプリの送信先に合わせる
 2. `FacialCharacterProfileSO` の **Adapter Bindings** で **iFacialMocap Receiver** を Add し、Runtime Settings 欄に sub-asset を割り当てる。レイヤーの入力源 id に `<slug>` が自動追加される
 3. モデルの BlendShape 名が ARKit 正準名なら設定不要。異なる場合は **BlendShape Mappings** に対応表を列挙する
-4. 視線を目ボーンに反映する場合は Profile の目線タブでチャネル `gaze` の入力ソースにこの binding を選ぶ。左右別の入力源は自動で結線される
+4. 視線は設定不要で目ボーンに反映される（左右別の入力源は自動で結線される）。可動範囲は Profile の目線タブで調整する
 5. 頭部を頭ボーンに反映する場合は `AnalogBindingEntry`（TargetKind = BonePose）で `<slug>:head` の各軸を頭ボーンへ結線する
 6. Play。**Import Sample** の `IFacialMocapReceiverDemo` で最小構成を確認できる
 

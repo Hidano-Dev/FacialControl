@@ -23,7 +23,7 @@ Gaze の送信対象は Profile の目線タブに宣言されたチャネルが
 
 | フィールド | 型 | 既定値 | 説明 |
 |---|---|---|---|
-| `layoutRefreshIntervalSeconds` | float | `5.0` | 対応表の更新間隔。目線タブの目ボーン path・可動範囲の変更を確かめる周期で、変わっていれば対応表を別のバージョンで作り直す。実行時に 0.5〜60 秒にクランプ |
+| `layoutRefreshIntervalSeconds` | float | `5.0` | 対応表の更新間隔。対応表に gaze の属性（目ボーン path・可動範囲）を載せなくなったため現在は効果が無い（HID-191。互換のため残す）。実行時に 0.5〜60 秒にクランプ |
 | `suppressLoopback` | bool | `true` | 同じ Profile 内の OSC Receiver と同じポートへの送信のうち、宛先が loopback か自機のインターフェースアドレス（LAN IP 等）のものを抑止 |
 
 `ToJson()` / `FromJson()` は `schemaVersion` / `label` / `layoutRefreshIntervalSeconds` / `suppressLoopback` を読み書きする。旧キー `heartbeatIntervalSeconds` も読める（新キーがあれば新キーを優先。書き出しは新キーのみ）。旧フィールド名で保存されたアセットもそのまま読める。
@@ -50,7 +50,7 @@ Gaze の送信対象は Profile の目線タブに宣言されたチャネルが
 | `/_facialcontrol/sender_id` | 送信元識別（UUID + 起動時刻） |
 | `/_facialcontrol/values` | `[対応表のバージョン, offset, 値...]`。slot は BlendShape（対応表の順）→ gaze チャネルごとの X / Y |
 
-対応表（BlendShape 名・gaze チャネルと目ボーン path・可動範囲の属性）は、受信側の要求（`/_facialcontrol/layout_request`）に応じて要求元へ `/_facialcontrol/layout` で返す。BlendShape 名に関係なく（2 バイト文字・独自名を含む）送れる。送信先によってアドレスや送る BlendShape が変わることはない。
+対応表（BlendShape 名・gaze チャネル）は、受信側の要求（`/_facialcontrol/layout_request`）に応じて要求元へ `/_facialcontrol/layout` で返す。BlendShape 名に関係なく（2 バイト文字・独自名を含む）送れる。送信先によってアドレスや送る BlendShape が変わることはない。
 
 ## サンプル JSON
 

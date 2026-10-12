@@ -44,7 +44,7 @@ namespace Hidano.FacialControl.Tests.PlayMode.Performance
             };
 
             using (var provider = new GazeBonePoseProvider(
-                new BoneTransformResolver(_root.transform),
+                new GazeEyeBoneResolver(_root.transform, null, null, null),
                 new[] { new GazeBoneBinding(channel, source, source) }))
             {
                 for (int i = 0; i < WarmupFrames; i++) provider.Apply();

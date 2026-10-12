@@ -491,9 +491,9 @@ namespace Hidano.FacialControl.Timeline.Editor.AnimationTrackConversion
                 return;
             }
 
-            FacialTimelineEditorPreview.GetGazeEyeResolver(controller, out BoneTransformResolver resolver, out GazeEyeBoneFallback fallback);
+            GazeEyeBoneResolver resolver = FacialTimelineEditorPreview.GetGazeEyeResolver(controller);
             var targets = new List<FacialTimelinePreviewEyeTarget>();
-            compositor.ResolveGazeTargets(gazeChannels, resolver, fallback, targets);
+            compositor.ResolveGazeTargets(gazeChannels, resolver, targets);
             if (targets.Count == 0)
             {
                 return;

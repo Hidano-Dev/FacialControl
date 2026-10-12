@@ -20,7 +20,7 @@
 - 対応表（BlendShape 名・gaze チャネル）は受信側の要求に応じて返す。BlendShape 名に 2 バイト文字や独自名があってもそのまま届く
 - BlendShape はモデルの全 BlendShape（binding の **BlendShape Names (Optional Filter)** が空のため）
 - Gaze は Profile の目線タブに宣言された既定チャネル `gaze`
-- 対応表の gaze チャネルには目線タブの可動範囲と、指定されていれば目ボーン path を載せる。受信側はこれを自分の目線タブより優先するので、Humanoid 以外のモデルでも目線タブの設定は送信側だけでよい
+- 可動範囲・目線ボーンは送らない。受信側が自分の目線タブ（可動範囲 + 任意のジョイント名）で決める
 - loopback 抑制 ON
 
 ## 手順

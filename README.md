@@ -55,7 +55,7 @@ Git URL で直接取り込む場合はモノレポのサブディレクトリを
 1. `com.hidano.facialcontrol.inputsystem` の **Multi Source Blend Demo** を Package Manager から Import
 2. `Assets/Samples/FacialControl InputSystem/1.0.0/Multi Source Blend Demo/MultiSourceBlendDemo.unity` を開く
 3. Hierarchy の **Character** の子にお手持ちのモデルをドラッグ
-4. Profile の目線タブで **参照モデルから目ボーンを自動解決** を押し、Play。キーボード `1`〜`5` / ゲームパッドで表情、WASD / 左スティックで目線、LT / RT でアナログと Overlay
+4. Play（Humanoid 以外のモデルは、先に Profile の目線タブで目のジョイント名を入力する）。キーボード `1`〜`5` / ゲームパッドで表情、WASD / 左スティックで目線、LT / RT でアナログと Overlay
 
 ### ゼロから作る
 

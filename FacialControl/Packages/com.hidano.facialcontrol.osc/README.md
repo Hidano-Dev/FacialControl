@@ -25,7 +25,7 @@
 2. Receiver は **受信ポート**（既定 9001。受信は常に全インターフェース）、Sender は **送信先**（既定 `127.0.0.1:9000` の 1 件。複数指定可、宛先ごとに有効 / 無効を選べる）を設定する
    - 上級設定を変えたい場合だけ、**Create → FacialControl → Adapter Runtime Settings Collection** に **Add → OscReceiverRuntimeSettingsSO** / **OscSenderRuntimeSettingsSO** で sub-asset を追加し、binding の **上級設定** に割り当てる
 3. Receiver の **対象レイヤー** で、受信値を足す既存レイヤーを選ぶ（未指定ならプロファイルの先頭レイヤー）。レイヤーの入力源を手で編集する必要はない（起動時の補い方は「受信の動作」）
-4. Gaze を受信する場合は Profile の目線タブでチャネル `gaze` の入力ソースに Receiver を選ぶ。gaze の入力源は対応表の gaze チャネルから自動で作られる
+4. Gaze は設定不要。gaze の入力源は対応表の gaze チャネルから自動で作られ、受信側 Profile の目線タブの可動範囲（とジョイント名）で目ボーンを動かす（既定値のままでも動く）
 5. Play。**Import Sample** から `OscOutputDemo` / `OscReceiverDemo` を取り込むと、送信側・受信側それぞれの最小 Scene を確認できる
 
 ## アドレス形式
@@ -36,26 +36,15 @@ OSC Receiver / OSC Sender は次の制御アドレスだけを使う。BlendShap
 |---|---|
 | `/_facialcontrol/sender_id` | 送信元識別（UUID + 起動時刻）。毎 bundle に同梱。受信側は最新起動の sender だけを採用しゾンビ送信元を排除 |
 | `/_facialcontrol/values` | 値フレーム `[対応表のバージョン, offset, 値...]`。毎フレーム。slot は BlendShape → gaze チャネルごとの X / Y |
-| `/_facialcontrol/layout_request` / `/_facialcontrol/layout` | 受信側が未知のバージョンを見たら送信側へ要求し、送信側が要求元へ対応表（BlendShape 名・gaze チャネルと目ボーン path・可動範囲）を返す |
+| `/_facialcontrol/layout_request` / `/_facialcontrol/layout` | 受信側が未知のバージョンを見たら送信側へ要求し、送信側が要求元へ対応表（BlendShape 名・gaze チャネル）を返す |
 
 旧形式の heartbeat（`/_facialcontrol/blendshape_names`）・プリセット通知（`/_facialcontrol/preset`）・Gaze 広告（`/_facialcontrol/gaze`）は送受信とも廃止した。受信側は未知のアドレスとして読み飛ばす。
 
-対応表の gaze チャネルは、チャネル id ごとに次の属性（`key=value` 形式）を持つ。
-
-| 属性の value | 送るとき | 受信側の扱い |
-|---|---|---|
-| `bone.left=<path>` / `bone.right=<path>` | 送信側の目線タブでその目の path を指定したときだけ | ローカルの目ボーン path より優先する。rest 回転・yaw / pitch 軸は、解決したボーンから実行時に導出する。path が見つからない場合は警告を 1 回出し、ローカルの規則（目線タブの path → Humanoid の目ボーン）で駆動する |
-| `range=<lookUp>,<lookDown>,<outerYaw>,<innerYaw>` | 毎回の対応表で必ず | 可動範囲（度、InvariantCulture、0〜90 にクランプ）をローカル値より優先する |
-
-- 送信側はチャネルごとに path → `range=` の順で並べる。受信側は順序に関係なくそのチャネルの属性をすべて読み、有効な `range=` を持つチャネルだけを上書きにする。知らない属性は警告せず無視する
-- 上書きを使うのは、そのチャネルを実際に駆動している OSC Receiver の分だけ。別の binding（InputSystem 等）が駆動するチャネルには適用しない
-- 上書き path のボーンの rest 回転・軸は、受信側 FacialController の初期化時の姿勢から導出する
-- 属性の解析は対応表を適用したときだけ行い、上書きが変わったときだけ目ボーン provider を作り直す（毎フレームのヒープ確保は増えない）。送信側は対応表の更新間隔（`layoutRefreshIntervalSeconds`）ごとに目線タブの変化を確かめ、変わっていれば対応表を別のバージョンで作り直す
-- 上書きは対応表を適用するたびに置き換わる。適用した対応表に無いチャネル（送信元が替わった場合を含む）の上書きは消え、ローカルの目線設定に戻る
+対応表の gaze チャネルは、チャネル id と属性（`key=value` 形式の文字列。拡張用）を持つ。現在の送信側は属性を載せない。可動範囲と目線ボーンは受信側の目線タブで決める（HID-191）。旧送信側が送る `bone.left=<path>` / `bone.right=<path>` / `range=<lookUp>,<lookDown>,<outerYaw>,<innerYaw>` を含め、受信側は属性を読まず警告も出さない。
 
 ## 受信の動作
 
-- **自動マッピング**: 値フレームの対応表を受け取ると、BlendShape 名が一致する受信側の BlendShape へ slot を割り当てる。Gaze も対応表の gaze チャネルから自動で route を作る。対応表に載った目ボーン path・可動範囲は受信側の目線タブの値より優先するので、FacialControl 同士なら受信側は目線タブを設定しなくてよい
+- **自動マッピング**: 値フレームの対応表を受け取ると、BlendShape 名が一致する受信側の BlendShape へ slot を割り当てる。Gaze も対応表の gaze チャネルから自動で route を作る。可動範囲は受信側の目線タブの値を使い（既定値のままでも動く）、目線ボーンは受信側の規則（目線タブのジョイント名 → Humanoid の目ボーン）で解決する
 - **名前つきアドレスは受けない**: 値フレーム以外のアドレスは読み飛ばす。手動 mapping は無い
 - **bundle 解釈**: 既定 `AtomicSwap`（同一 bundle を 1 フレームで一括反映）。`IndividualMessage` で受信順に個別反映
 - **staleness fail-safe**: `stalenessSeconds` を超えて受信が途絶えると `RevertToBase`（ベース表情へ戻す）または `HoldLastValue`（最後の値を保持）

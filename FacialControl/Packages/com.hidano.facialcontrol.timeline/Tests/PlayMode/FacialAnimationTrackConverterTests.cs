@@ -272,7 +272,7 @@ namespace Hidano.FacialControl.Timeline.Tests.PlayMode
             FacialProfile profile = TimelineProfileSource.Resolve(_fixture.ProfileAsset);
             _compositor = new TimelinePreviewCompositor(character.Controller, _fixture.ProfileAsset, profile, null, _fixture.Timeline);
             Assert.That(_compositor.CanRender, Is.True, "前提: Bake を解決できる");
-            FacialTimelineEditorPreview.GetGazeEyeResolver(character.Controller, out BoneTransformResolver resolver, out GazeEyeBoneFallback fallback);
+            GazeEyeBoneResolver resolver = FacialTimelineEditorPreview.GetGazeEyeResolver(character.Controller);
 
             var expected = new List<(double, float[], Quaternion, Quaternion)>();
             double frameRate = _fixture.Timeline.editorSettings.frameRate;
@@ -282,7 +282,7 @@ namespace Hidano.FacialControl.Timeline.Tests.PlayMode
             {
                 double time = Math.Min(f / frameRate, duration);
                 _compositor.Evaluate(time);
-                _compositor.EvaluateGaze(time, _fixture.ProfileAsset.GazeChannels, resolver, fallback, _gazeBuffer);
+                _compositor.EvaluateGaze(time, _fixture.ProfileAsset.GazeChannels, resolver, _gazeBuffer);
                 string[] names = TimelineE2EFixture.MeshBlendShapes;
                 var weights = new float[names.Length];
                 for (int s = 0; s < names.Length; s++)

@@ -24,6 +24,12 @@
 
 ### Changed
 
+- **（破壊的変更）目線メニューを可動範囲と任意の左右ジョイント名だけにした（HID-191）。** Profile Inspector の目線タブから、チャネル ID・入力ソースのドロップダウン・チャネルの追加削除・上級設定（左右個別指定 / 左右 source ID / 左右初期回転 / yaw・pitch 軸）・参照モデルからの目ボーン自動解決を削除した。`GazeProviderEnumerator` を削除した
+  - 目線メニューの可動範囲は、どの目線制御（InputSystem / iFacialMocap / OSC 受信など）にも効く。`GazeChannelResolver` は入力源を規約 id（`{slug}:{channelId}[.left|.right]`）だけで解決し、旧データの `providerSlug` / `useDistinctLeftRight` / `sourceIdLeft` / `sourceIdRight` を読まない
+  - 目ボーンはジョイント名があれば名前で探す（`/` を含む値は末尾のセグメント。完全一致を優先し、無ければ名前を含む最初のものを警告付きで使う。それも無ければ警告して Avatar の目線ボーンに戻す）。空なら Avatar の LeftEye / RightEye を使う。既存データの `Armature/.../LeftEye` 形式の path は末尾の名前として読み、Inspector で開くとジョイント名に書き換わる
+  - 目の初期回転・yaw / pitch 軸は保存値を読まず、実行時に元のアセットデータ（Avatar の `humanDescription.skeleton` → `SkinnedMeshRenderer` のバインドポーズ。どちらも無ければ初期化時の姿勢）から求める。起動直後に頭部が正面を向いていない場合や、目線の入力が先に掛かっている場合でも正面の向きが変わらない。ジョイント名指定時も Humanoid フォールバックと同じ方法で求める
+  - `GazeEyeBoneResolver` を追加した。`GazeBonePoseProvider` のコンストラクタは `(GazeEyeBoneResolver, IReadOnlyList<GazeBoneBinding>)` だけになった（`BoneTransformResolver` / `GazeEyeBoneFallback` を受け取る旧コンストラクタを削除）。同じボーンに解決された目は先の channel だけが駆動する
+  - 送信側から目ボーン path・可動範囲を上書きする仕組み（`GazeChannelOverride` / `IGazeChannelOverrideProvider` / `IGazeChannelSettingsConsumer`）を削除した。可動範囲は受信側の目線メニューで決める（OSC パッケージの CHANGELOG を参照）
 - `FacialCharacterProfileSO` Inspector の Expression List の行レイアウトを変更した。各行の先頭に背景色付きの名前ヘッダ（Light / Dark 両テーマで読める半透明の背景、Undo を含め名前の変更に追従、空なら「(名前未設定)」、削除ボタンもここへ移動）を置き、パラメータをサムネイルの右に 名前 → Layer → AnimationClip → 遷移時間 の順で並べる。Inspector の幅がサムネイル + パラメータ列の最小幅（300px）に満たないときは、パラメータ列をサムネイルの下へ折り返す。影響する SkinnedMeshRenderer の一覧と Overlays は従来どおり行の全幅で下に置く
 - Gaze チャネルの目ボーン path（`leftEyeBonePath` / `rightEyeBonePath`）を任意にした。空欄の側は実行時に Humanoid Avatar の `LeftEye` / `RightEye` を使い、初期回転は初期化時の目ボーンの姿勢、yaw / pitch 軸はキャラクター root の上方向 / 右方向から導出する。path を指定した側の挙動は従来どおり。非 Humanoid（または Eye 未マップ）で path も空の目は駆動せず、初期化ごとに警告を 1 回だけ出す。Humanoid の目ボーン・rest 回転・軸は初期化時に 1 回だけ取得し、入力源の登録変化で provider を作り直しても取り直さない。path 未指定のチャネルが複数ある場合、Humanoid の目ボーンを駆動するのは目ごとに入力源が解決できた先頭のチャネルだけで、path 指定のチャネルが同じボーンを指していればそちらを優先する
 - 目線タブの目ボーン欄を「(任意)」表記にし、空欄時の案内を情報表示に変更。参照モデルが Humanoid の目ボーンを持たない場合だけ警告を出す

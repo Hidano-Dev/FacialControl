@@ -3,15 +3,13 @@ using UnityEngine;
 namespace Hidano.FacialControl.Adapters.Bone
 {
     /// <summary>
-    /// 目線ボーン path が未指定の <see cref="ScriptableObject.GazeChannel"/> に使う、
-    /// Humanoid Avatar から解決した左右目ボーンと、その rest 回転・yaw / pitch 軸。
+    /// 目線のジョイント名が未指定 (または見つからない) の <see cref="ScriptableObject.GazeChannel"/> に使う、
+    /// Avatar に登録された左右目ボーン (Humanoid の LeftEye / RightEye) と、その rest 回転・yaw / pitch 軸。
     /// </summary>
     /// <remarks>
     /// <para>
-    /// Transform の解決と rest 回転・軸の導出は構築時に 1 回だけ行う。
-    /// <see cref="GazeBonePoseProvider"/> は gaze 入力源の登録変化のたびに再構築されるため、
-    /// 呼出側 (FacialController) は初期化時に作った値を使い回し、頭部が動いている最中の姿勢から
-    /// 軸を取り直さないようにする。
+    /// <see cref="FromAnimator"/> は rest 回転・軸を元のアセットデータ (Avatar の skeleton → バインドポーズ) から
+    /// 求める (<see cref="GazeEyeBoneResolver"/>)。起動直後の頭部の向きや、既に掛かっている目線の入力に左右されない。
     /// </para>
     /// <para>
     /// 非 Humanoid・Avatar 未設定・Eye 未マップの側は <see cref="FallbackEye.Bone"/> が null になる。
@@ -28,6 +26,16 @@ namespace Hidano.FacialControl.Adapters.Bone
             public Vector3 YawAxisLocal { get; }
             public Vector3 PitchAxisLocal { get; }
 
+            /// <summary>rest 回転・軸を指定して作る。軸は正規化する。</summary>
+            public FallbackEye(Transform bone, Quaternion restRotation, Vector3 yawAxisLocal, Vector3 pitchAxisLocal)
+            {
+                Bone = bone;
+                RestRotation = restRotation;
+                YawAxisLocal = yawAxisLocal.sqrMagnitude < 1e-8f ? Vector3.up : yawAxisLocal.normalized;
+                PitchAxisLocal = pitchAxisLocal.sqrMagnitude < 1e-8f ? Vector3.right : pitchAxisLocal.normalized;
+            }
+
+            /// <summary>rest 回転・軸をこの時点の姿勢から求めて作る (<see cref="DeriveRestAndAxes"/>)。</summary>
             public FallbackEye(Transform bone, Transform characterRoot)
             {
                 Bone = bone;
@@ -52,9 +60,16 @@ namespace Hidano.FacialControl.Adapters.Bone
         public Transform LeftEye => Left.Bone;
         public Transform RightEye => Right.Bone;
 
+        /// <summary>左右の目から作る。</summary>
+        public GazeEyeBoneFallback(FallbackEye left, FallbackEye right)
+        {
+            Left = left;
+            Right = right;
+        }
+
         /// <summary>
         /// 左右目ボーンから fallback を作る。rest 回転と軸はこの時点の姿勢から導出する
-        /// (<see cref="DeriveRestAndAxes"/>)。
+        /// (<see cref="DeriveRestAndAxes"/>)。アセットデータから求める場合は <see cref="FromAnimator"/> を使う。
         /// </summary>
         public GazeEyeBoneFallback(Transform leftEye, Transform rightEye, Transform characterRoot)
         {
@@ -63,40 +78,23 @@ namespace Hidano.FacialControl.Adapters.Bone
         }
 
         /// <summary>
-        /// Humanoid Animator から <see cref="HumanBodyBones.LeftEye"/> / <see cref="HumanBodyBones.RightEye"/> を解決する。
-        /// null / 非 Humanoid の場合は目ボーンが両方 null の値を返す (throw しない)。
+        /// Humanoid Animator から <see cref="HumanBodyBones.LeftEye"/> / <see cref="HumanBodyBones.RightEye"/> を解決し、
+        /// rest 回転・軸を元のアセットデータから求める。null / 非 Humanoid の場合は目ボーンが両方 null の値を返す (throw しない)。
         /// </summary>
         public static GazeEyeBoneFallback FromAnimator(Animator animator)
         {
-            if (animator == null)
-            {
-                return default;
-            }
-
-            var avatar = animator.avatar;
-            if (avatar == null || !avatar.isHuman)
-            {
-                return default;
-            }
-
-            return new GazeEyeBoneFallback(
-                animator.GetBoneTransform(HumanBodyBones.LeftEye),
-                animator.GetBoneTransform(HumanBodyBones.RightEye),
-                animator.transform);
+            return GazeEyeBoneResolver.FromAnimator(animator).Fallback;
         }
 
         /// <summary>
-        /// 実行時に解決した目ボーンから、<see cref="ScriptableObject.GazeChannel"/> がエディタで保存する
-        /// InitialRotation / YawAxisLocal / PitchAxisLocal 相当の値を導出する。
+        /// 目ボーンの呼出時点の姿勢から rest 回転と yaw / pitch 軸を導出する。元のアセットデータから求まらない場合の
+        /// 最後の手段 (<see cref="GazeEyeBoneResolver.DeriveRestPose"/>)。
         /// </summary>
         /// <remarks>
         /// <list type="bullet">
-        /// <item>rest 回転: 呼出時点の <see cref="Transform.localRotation"/>
-        /// (エディタは参照モデルの <c>localEulerAngles</c> を保存している)。</item>
+        /// <item>rest 回転: 呼出時点の <see cref="Transform.localRotation"/>。</item>
         /// <item>yaw / pitch 軸: キャラクター root の上方向 / 右方向を目ボーンの親 local 空間へ変換したもの
-        /// (エディタは参照モデル配置時の world 上方向 / 右方向を親 local 空間へ変換している。
-        /// root が無回転ならエディタの値と一致し、root が回転していてもキャラクター基準の軸になる)。
-        /// 結果は正規化済み。</item>
+        /// (root が回転していてもキャラクター基準の軸になる)。結果は正規化済み。</item>
         /// </list>
         /// </remarks>
         public static void DeriveRestAndAxes(

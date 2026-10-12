@@ -78,8 +78,8 @@ namespace Hidano.FacialControl.Tests.PlayMode.Integration
             Assert.That(layout.BlendShapeNames, Is.EqualTo(names));
             Assert.That(layout.GazeChannels.Count, Is.EqualTo(1));
             Assert.That(layout.GazeChannels[0].Id, Is.EqualTo(GazeChannelId));
-            Assert.That(layout.GazeChannels[0].Attributes, Has.Some.StartsWith("bone.left="));
-            Assert.That(layout.GazeChannels[0].Attributes, Has.Some.StartsWith("range="));
+            // 可動範囲・目ボーンは受信側の目線メニューで決めるため、送信側は gaze チャネルに属性を載せない (HID-191)。
+            Assert.That(layout.GazeChannels[0].Attributes, Is.Empty);
             Assert.That(layout.SlotCount, Is.EqualTo(names.Length + 2));
             for (int i = 0; i < names.Length; i++)
             {
@@ -224,10 +224,6 @@ namespace Hidano.FacialControl.Tests.PlayMode.Integration
             if (withGaze)
             {
                 binding.ConfigureGazeChannels(new[] { GazeChannelId });
-                binding.ConfigureGazeChannelSettings(new[]
-                {
-                    new GazeChannel { id = GazeChannelId, leftEyeBonePath = "Armature/頭/左目" }
-                });
             }
 
             binding.OnStart(new AdapterBuildContext(

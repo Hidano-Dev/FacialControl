@@ -163,7 +163,7 @@ namespace Hidano.FacialControl.Tests.PlayMode.Integration
         }
 
         [UnityTest]
-        public IEnumerator GazeChannel_UdpLoopback_ReachesGazeSourceAndAttributes()
+        public IEnumerator GazeChannel_UdpLoopback_ReachesGazeSource()
         {
             string[] names = { "blink" };
             OscReceiverAdapterBinding receiver = StartReceiver(names);
@@ -178,8 +178,8 @@ namespace Hidano.FacialControl.Tests.PlayMode.Integration
                     && Mathf.Abs(value.x - 0.25f) < 1e-4f
                     && Mathf.Abs(value.y + 0.5f) < 1e-4f);
 
-            Assert.That(receiver.TryGetGazeChannelOverride(GazeChannelId, out GazeChannelOverride received), Is.True);
-            Assert.That(received.LeftEyeBonePath, Is.EqualTo("Armature/頭/左目"));
+            Assert.That(TryReadGaze(out Vector2 received), Is.True);
+            Assert.That(received.x, Is.EqualTo(0.25f).Within(1e-4f));
         }
 
         private IEnumerator StepUntil(
@@ -252,10 +252,6 @@ namespace Hidano.FacialControl.Tests.PlayMode.Integration
             if (withGaze)
             {
                 binding.ConfigureGazeChannels(new[] { GazeChannelId });
-                binding.ConfigureGazeChannelSettings(new[]
-                {
-                    new GazeChannel { id = GazeChannelId, leftEyeBonePath = "Armature/頭/左目" }
-                });
             }
 
             binding.OnStart(new AdapterBuildContext(
