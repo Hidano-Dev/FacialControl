@@ -2,6 +2,7 @@ using System;
 using Hidano.FacialControl.Adapters.Bone;
 using Hidano.FacialControl.Adapters.ScriptableObject;
 using Hidano.FacialControl.Domain.Interfaces;
+using Hidano.FacialControl.Domain.Models;
 using NUnit.Framework;
 using UnityEngine;
 using UnityEngine.TestTools;
