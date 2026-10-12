@@ -17,6 +17,5 @@
     "MouthOpen",
     "BrowUp"
   ],
-  "suppressLoopback": true,
-  "layoutRefreshIntervalSeconds": 5.0
+  "suppressLoopback": true
 }

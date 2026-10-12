@@ -6,22 +6,14 @@ namespace Hidano.FacialControl.Adapters.ScriptableObject
     /// <summary>Gaze セクションで定義する 1 系統のチャネル。</summary>
     /// <remarks>
     /// 目線メニューで設定するのは可動範囲と、任意の左右ジョイント名だけ (HID-191)。
-    /// <see cref="providerSlug"/> / <see cref="useDistinctLeftRight"/> / source id / 初期回転 / yaw・pitch 軸は
-    /// 旧データの互換のために残しているだけで、実行時には読まない。初期回転と軸は実行時に元のアセットデータから求める
-    /// (<see cref="Bone.GazeEyeBoneResolver"/>)。
+    /// 初期回転と yaw・pitch 軸は実行時に元のアセットデータから求める (<see cref="Bone.GazeEyeBoneResolver"/>)。
+    /// 旧データの <c>providerSlug</c> / <c>useDistinctLeftRight</c> / <c>sourceIdLeft</c> / <c>sourceIdRight</c> /
+    /// 左右の初期回転 / yaw・pitch 軸は削除した (HID-196)。旧アセット / JSON に残っていても読み飛ばす。
     /// </remarks>
     [Serializable]
     public sealed class GazeChannel
     {
         public string id = string.Empty;
-        /// <summary>旧データの互換用。実行時には読まない (どの binding の目線入力にもこのチャネルを使う)。</summary>
-        public string providerSlug = string.Empty;
-        /// <summary>旧データの互換用。実行時には読まない。</summary>
-        public bool useDistinctLeftRight;
-        /// <summary>旧データの互換用。実行時には読まない。</summary>
-        public string sourceIdLeft = string.Empty;
-        /// <summary>旧データの互換用。実行時には読まない。</summary>
-        public string sourceIdRight = string.Empty;
 
         /// <summary>
         /// 左目のジョイント名 (任意)。空の場合は実行時に Avatar の目線ボーン (Humanoid の <c>LeftEye</c>) を使う。
@@ -29,20 +21,8 @@ namespace Hidano.FacialControl.Adapters.ScriptableObject
         /// 旧データの <c>Armature/.../LeftEye</c> 形式の path は末尾のセグメントを名前として扱う。
         /// </summary>
         public string leftEyeBonePath = string.Empty;
-        /// <summary>旧データの互換用。実行時には読まない。</summary>
-        public Vector3 leftEyeInitialRotation;
-        /// <summary>旧データの互換用。実行時には読まない。</summary>
-        public Vector3 leftEyeYawAxisLocal = Vector3.up;
-        /// <summary>旧データの互換用。実行時には読まない。</summary>
-        public Vector3 leftEyePitchAxisLocal = Vector3.right;
         /// <summary>右目のジョイント名 (任意)。扱いは <see cref="leftEyeBonePath"/> と同じ (空なら Humanoid の <c>RightEye</c>)。</summary>
         public string rightEyeBonePath = string.Empty;
-        /// <summary>旧データの互換用。実行時には読まない。</summary>
-        public Vector3 rightEyeInitialRotation;
-        /// <summary>旧データの互換用。実行時には読まない。</summary>
-        public Vector3 rightEyeYawAxisLocal = Vector3.up;
-        /// <summary>旧データの互換用。実行時には読まない。</summary>
-        public Vector3 rightEyePitchAxisLocal = Vector3.right;
 
         [Range(0f, 90f)] public float lookUpAngle = 15f;
         [Range(0f, 90f)] public float lookDownAngle = 9f;

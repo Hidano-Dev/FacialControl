@@ -29,10 +29,8 @@ namespace Hidano.FacialControl.Adapters.ScriptableObject
     /// <summary>GazeChannel を起点に入力源を解決する旧 resolver 後継。</summary>
     /// <remarks>
     /// 目線メニューの設定はどの目線制御 (InputSystem / iFacialMocap / OSC 受信など) にも同じく効かせるため、
-    /// 入力源は規約 id (<c>{slug}:{channelId}</c>・<c>.left</c> / <c>.right</c>) だけで解決する。
-    /// <see cref="GazeChannel.providerSlug"/> / <see cref="GazeChannel.useDistinctLeftRight"/> /
-    /// <see cref="GazeChannel.sourceIdLeft"/> / <see cref="GazeChannel.sourceIdRight"/> は旧データの互換のために
-    /// 残しているだけで読まない (HID-191)。複数の binding が同じチャネルを提供する場合は slug の Ordinal 順で
+    /// 入力源は規約 id (<c>{slug}:{channelId}</c>・<c>.left</c> / <c>.right</c>) だけで解決する (HID-191)。
+    /// 複数の binding が同じチャネルを提供する場合は slug の Ordinal 順で
     /// 先頭のものを使い、警告を (チャネル id, slug) ごとに 1 回出す。
     /// </remarks>
     public static class GazeChannelResolver

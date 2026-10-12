@@ -439,9 +439,11 @@ namespace Hidano.FacialControl.Timeline.Editor
         /// <paramref name="sourceKindOverrides"/> はプログラム・テスト用途の種別上書き。
         /// </summary>
         /// <remarks>
-        /// Gaze 判定順: (1) GazeChannel の明示 source id と完全一致 → (2) 規約 id のチャネル id が GazeChannels にある →
-        /// (3) Profile の binding の gaze 宣言（slug + チャネル id、またはワイルドカード宣言の slug）→
-        /// (4) Gaze 候補でも 2 軸でないサンプルを含めば Analog（Warning を出して継続）→ (5) それ以外は Analog。
+        /// Gaze 判定順: (1) 規約 id のチャネル id が GazeChannels にある →
+        /// (2) Profile の binding の gaze 宣言（slug + チャネル id、またはワイルドカード宣言の slug）→
+        /// (3) Gaze 候補でも 2 軸でないサンプルを含めば Analog（Warning を出して継続）→ (4) それ以外は Analog。
+        /// 明示 source id による判定は <see cref="FacialProfile"/> 版の <c>gazeSourceIds</c> 引数でのみ行う
+        /// (GazeChannel の旧 source id は HID-196 で削除した)。
         /// </remarks>
         public static IReadOnlyList<ChannelDetection> DetectChannels(
             IRecordedEventSequence sequence,
@@ -889,15 +891,6 @@ namespace Hidano.FacialControl.Timeline.Editor
                     }
 
                     context.ChannelIds.Add(channel.id);
-                    if (!string.IsNullOrWhiteSpace(channel.sourceIdLeft))
-                    {
-                        context.ExplicitSourceIds.Add(channel.sourceIdLeft);
-                    }
-
-                    if (!string.IsNullOrWhiteSpace(channel.sourceIdRight))
-                    {
-                        context.ExplicitSourceIds.Add(channel.sourceIdRight);
-                    }
                 }
             }
 

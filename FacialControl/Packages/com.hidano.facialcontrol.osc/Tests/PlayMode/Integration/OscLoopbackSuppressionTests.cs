@@ -144,8 +144,7 @@ namespace Hidano.FacialControl.Tests.PlayMode.Integration
             var sender = new OscSenderAdapterBinding
             {
                 Slug = SenderSlug,
-                SuppressLoopback = suppressLoopback,
-                LayoutRefreshIntervalSeconds = 60f
+                SuppressLoopback = suppressLoopback
             };
             sender.Configure(Endpoint, port, new[] { BlendShapeName });
             return sender;

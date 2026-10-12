@@ -138,12 +138,12 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
         [Test]
         public void ComputeProfileContentHash_SameInput_ReturnsSameValueAndHex()
         {
-            ulong first = FacialTimelineHashCalculator.ComputeProfileContentHash(CreateProfile(0.10f), CreateGazeChannels("osc:gaze"));
-            ulong second = FacialTimelineHashCalculator.ComputeProfileContentHash(CreateProfile(0.10f), CreateGazeChannels("osc:gaze"));
+            ulong first = FacialTimelineHashCalculator.ComputeProfileContentHash(CreateProfile(0.10f), CreateGazeChannels("gaze"));
+            ulong second = FacialTimelineHashCalculator.ComputeProfileContentHash(CreateProfile(0.10f), CreateGazeChannels("gaze"));
 
             Assert.That(first, Is.EqualTo(second));
             Assert.That(
-                FacialTimelineHashCalculator.ComputeProfileContentHashHex(CreateProfile(0.10f), CreateGazeChannels("osc:gaze")),
+                FacialTimelineHashCalculator.ComputeProfileContentHashHex(CreateProfile(0.10f), CreateGazeChannels("gaze")),
                 Is.EqualTo(first.ToString("x16")));
         }
 
@@ -175,14 +175,14 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
         public void ComputeProfileContentHash_WhenGazeChannelsChange_ReturnsDifferentValue()
         {
             var profile = CreateProfile(0.10f);
-            GazeChannel[] original = CreateGazeChannels("osc:gaze");
-            GazeChannel[] changedSource = CreateGazeChannels("osc:gaze.left");
-            GazeChannel[] changedBone = CreateGazeChannels("osc:gaze");
+            GazeChannel[] original = CreateGazeChannels("gaze");
+            GazeChannel[] changedId = CreateGazeChannels("gaze-other");
+            GazeChannel[] changedBone = CreateGazeChannels("gaze");
             changedBone[0].leftEyeBonePath = "Armature/Head/LeftEye";
 
             ulong originalHash = FacialTimelineHashCalculator.ComputeProfileContentHash(profile, original);
 
-            Assert.That(originalHash, Is.Not.EqualTo(FacialTimelineHashCalculator.ComputeProfileContentHash(profile, changedSource)));
+            Assert.That(originalHash, Is.Not.EqualTo(FacialTimelineHashCalculator.ComputeProfileContentHash(profile, changedId)));
             Assert.That(originalHash, Is.Not.EqualTo(FacialTimelineHashCalculator.ComputeProfileContentHash(profile, changedBone)));
             Assert.That(originalHash, Is.Not.EqualTo(FacialTimelineHashCalculator.ComputeProfileContentHash(profile, NoGaze)));
         }
@@ -236,7 +236,7 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
         public void ComputeProfileContentHash_WhenOnlyTimelineChanges_IsUnchangedWhileSourceHashChanges()
         {
             var profile = CreateProfile(0.10f);
-            GazeChannel[] gaze = CreateGazeChannels("osc:gaze");
+            GazeChannel[] gaze = CreateGazeChannels("gaze");
             var original = CreateTimeline("Expressions", 0.0d, 1.0d, 0.25f);
             var moved = CreateTimeline("Expressions", 0.5d, 1.0d, 0.25f);
 
@@ -265,12 +265,12 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
 
             try
             {
-                ulong withGaze = FacialTimelineHashCalculator.ComputeHash(timeline, profile, CreateGazeChannels("osc:gaze"));
-                ulong withOtherGaze = FacialTimelineHashCalculator.ComputeHash(timeline, profile, CreateGazeChannels("osc:gaze.left"));
+                ulong withGaze = FacialTimelineHashCalculator.ComputeHash(timeline, profile, CreateGazeChannels("gaze"));
+                ulong withOtherGaze = FacialTimelineHashCalculator.ComputeHash(timeline, profile, CreateGazeChannels("gaze-other"));
 
                 Assert.That(withGaze, Is.Not.EqualTo(withOtherGaze));
                 Assert.That(
-                    FacialTimelineHashCalculator.ComputeHashHex(timeline, profile, CreateGazeChannels("osc:gaze")),
+                    FacialTimelineHashCalculator.ComputeHashHex(timeline, profile, CreateGazeChannels("gaze")),
                     Is.EqualTo(withGaze.ToString("x16")));
             }
             finally
@@ -299,15 +299,13 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
 
         private static readonly GazeChannel[] NoGaze = new GazeChannel[0];
 
-        private static GazeChannel[] CreateGazeChannels(string sourceIdLeft)
+        private static GazeChannel[] CreateGazeChannels(string channelId)
         {
             return new[]
             {
                 new GazeChannel
                 {
-                    id = "gaze",
-                    sourceIdLeft = sourceIdLeft,
-                    sourceIdRight = sourceIdLeft,
+                    id = channelId,
                 },
             };
         }

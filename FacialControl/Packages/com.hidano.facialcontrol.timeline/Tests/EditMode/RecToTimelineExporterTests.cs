@@ -610,26 +610,6 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
         // ================================================================
 
         [Test]
-        public void DetectChannels_ExplicitGazeSourceId_IsGazeWithExplicitReason()
-        {
-            DetectionProfileSO profile = CreateDetectionProfile();
-            try
-            {
-                profile.WritableGazeChannels[0].sourceIdLeft = "custom:eyeL";
-
-                ChannelDetection detection = DetectSingle(profile, "custom:eyeL", 2);
-
-                Assert.That(detection.Kind, Is.EqualTo(FacialValueChannelKind.Gaze));
-                Assert.That(detection.Reason, Is.EqualTo(ChannelDetectionReason.ExplicitGazeSourceId));
-                Assert.That(detection.AxisCount, Is.EqualTo(2));
-            }
-            finally
-            {
-                UnityEngine.Object.DestroyImmediate(profile);
-            }
-        }
-
-        [Test]
         public void DetectChannels_ConventionIdOfProfileGazeChannel_IsGazeWithConventionReason()
         {
             DetectionProfileSO profile = CreateDetectionProfile();

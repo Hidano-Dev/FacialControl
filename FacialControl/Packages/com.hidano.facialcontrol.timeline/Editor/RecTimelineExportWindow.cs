@@ -244,7 +244,7 @@ namespace Hidano.FacialControl.Timeline.Editor
                 case ChannelDetectionReason.ValueProviderIndexed:
                     return "値提供型の記録（REC に BlendShape 名が無いため index で保存。録り直すと名前で保存）";
                 case ChannelDetectionReason.ExplicitGazeSourceId:
-                    return "Profile の GazeChannel の source id と一致";
+                    return "明示した Gaze の source id と一致";
                 case ChannelDetectionReason.ConventionGazeChannel:
                     return "Gaze の規約 id（Profile の GazeChannels にあるチャネル）";
                 case ChannelDetectionReason.GazeProviderDeclaration:

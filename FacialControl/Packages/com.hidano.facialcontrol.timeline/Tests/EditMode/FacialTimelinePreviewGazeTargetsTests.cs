@@ -84,22 +84,6 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
         }
 
         [Test]
-        public void Resolve_LegacyExplicitSourceIds_AreIgnoredLikeRuntime()
-        {
-            // ランタイムの GazeChannelResolver と同じく、旧データの明示 source id は読まない (HID-191)。
-            GazeChannel channel = PathChannel("gaze", "Head/LeftEye", "Head/RightEye");
-            channel.useDistinctLeftRight = true;
-            channel.sourceIdLeft = "osc:gaze.right";
-            channel.sourceIdRight = "vmc:eye_r";
-
-            Resolve(new[] { channel }, new[] { "vmc:eye_r", "osc:gaze.right", "osc:gaze.left" }, withAvatarEyes: false);
-
-            Assert.That(_results.Count, Is.EqualTo(2));
-            Assert.That(FindSource(_leftEye), Is.EqualTo(2), "左目は規約 id の osc:gaze.left");
-            Assert.That(FindSource(_rightEye), Is.EqualTo(1), "右目は規約 id の osc:gaze.right");
-        }
-
-        [Test]
         public void Resolve_NoMatchingSourceId_DrivesNothing()
         {
             GazeChannel channel = PathChannel("gaze", "Head/LeftEye", "Head/RightEye");
@@ -179,15 +163,13 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
         }
 
         [Test]
-        public void Resolve_JointName_IgnoresStoredRestAndAxes()
+        public void Resolve_JointName_UsesDerivedRestAndAxes()
         {
-            // 旧データの初期回転・軸は読まず、resolver が求めた値を使う (ここではアセットデータが無いので現在の姿勢)。
+            // 初期回転・軸は resolver が求めた値を使う (ここではアセットデータが無いので現在の姿勢)。
             var channel = new GazeChannel
             {
                 id = "gaze",
                 leftEyeBonePath = "Head/LeftEye",
-                leftEyeInitialRotation = new Vector3(10f, 0f, 0f),
-                leftEyeYawAxisLocal = Vector3.forward,
             };
 
             Resolve(new[] { channel }, new[] { "osc:gaze" }, withAvatarEyes: false);

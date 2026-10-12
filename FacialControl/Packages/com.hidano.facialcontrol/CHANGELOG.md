@@ -47,6 +47,8 @@
 
 破壊的変更（公開 API の削除）を含む。次のリリースでバージョンを上げる際はメジャー更新が必要。
 
+- **（破壊的変更）`GazeChannel` / `GazeChannelDto` から実行時に読まなくなった旧フィールドを削除した（HID-196）。** `providerSlug` / `useDistinctLeftRight` / `sourceIdLeft` / `sourceIdRight` / `leftEyeInitialRotation` / `rightEyeInitialRotation` / `leftEyeYawAxisLocal` / `leftEyePitchAxisLocal` / `rightEyeYawAxisLocal` / `rightEyePitchAxisLocal`（HID-191 以降は読み飛ばしていた）。旧 profile.json のキーと旧アセットに保存された値は読み飛ばし、エラーにならない。JSON の書き出しにも含めない。旧形式 `LegacyGazeConfigEntry` の同名フィールドも削除した。同梱サンプルの profile.json からもキーを外した
+
 - ARKit 検出ツール（Tools → FacialControl → ARKit 検出ツール）と、それが使っていた `ARKitEditorService` / `ARKitUseCase` を削除。ARKit 命名の BlendShape を「グループ内を全部 1.0」にした Expression を自動生成する機能は、Clip ベース + キャプチャ入力の運用では使われていなかった。OSC マッピング生成は `com.hidano.facialcontrol.osc` の heartbeat 自動マッピングと ARKit プリセットで代替できる
 - `ARKitDetector.GroupByLayer` / `ARKitDetector.GenerateExpressions` を削除（上記ツール専用だった）。名前表（`ARKit52Names` / `PerfectSyncNames`）・`GetLayerGroup`・完全一致検出（`DetectARKit` / `DetectPerfectSync` / `DetectAll`）は残す
 

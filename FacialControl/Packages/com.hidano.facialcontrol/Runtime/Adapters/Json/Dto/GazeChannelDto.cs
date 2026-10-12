@@ -1,26 +1,16 @@
-using UnityEngine;
-
 namespace Hidano.FacialControl.Adapters.Json.Dto
 {
     /// <summary>新しい profile.json の gaze.channels[] エントリです。</summary>
+    /// <remarks>
+    /// 旧キー <c>providerSlug</c> / <c>useDistinctLeftRight</c> / <c>sourceIdLeft</c> / <c>sourceIdRight</c> /
+    /// 左右の初期回転 / yaw・pitch 軸は削除した (HID-196)。JSON に残っていても読み飛ばす。
+    /// </remarks>
     [System.Serializable]
     public sealed class GazeChannelDto
     {
         public string id;
-        public string providerSlug;
-        public bool useDistinctLeftRight;
-        public string sourceIdLeft;
-        public string sourceIdRight;
-
         public string leftEyeBonePath;
-        public Vector3 leftEyeInitialRotation;
-        public Vector3 leftEyeYawAxisLocal = Vector3.up;
-        public Vector3 leftEyePitchAxisLocal = Vector3.right;
-
         public string rightEyeBonePath;
-        public Vector3 rightEyeInitialRotation;
-        public Vector3 rightEyeYawAxisLocal = Vector3.up;
-        public Vector3 rightEyePitchAxisLocal = Vector3.right;
 
         public float lookUpAngle = 15f;
         public float lookDownAngle = 9f;

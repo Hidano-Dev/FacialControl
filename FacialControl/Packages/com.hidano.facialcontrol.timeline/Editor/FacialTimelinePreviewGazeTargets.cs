@@ -64,8 +64,6 @@ namespace Hidano.FacialControl.Timeline.Editor
     /// <item>Gaze 値チャネル（Bake / Value トラックの ChannelSubId = REC の source id）と <see cref="GazeChannel"/> の対応は
     /// トラックの index ではなく id で決める（Req 7.4）: <see cref="GazeSourceIdConvention"/> で分解した
     /// チャネル id が <see cref="GazeChannel.id"/> と一致するもの（<c>.left</c> / <c>.right</c> はその目だけ、suffix 無しは両目）。
-    /// ランタイムの GazeChannelResolver と同じく、旧データの明示 source id（<see cref="GazeChannel.sourceIdLeft"/> /
-    /// <see cref="GazeChannel.sourceIdRight"/>）は読まない (HID-191)。
     /// 一致する値チャネルが無い目は駆動しない（ランタイムは入力源の無い channel を駆動しない）。</item>
     /// <item>目線ボーンはランタイムと同じ <see cref="GazeEyeBoneResolver"/> で解決する (ジョイント名 → 見つからなければ
     /// Avatar の目線ボーン)。どちらも無い側は駆動しない。</item>

@@ -32,28 +32,6 @@ namespace Hidano.FacialControl.Tests.EditMode.Adapters.ScriptableObjectTests
         }
 
         [Test]
-        public void TryResolve_LegacyProviderSlugAndDistinctSourceIds_AreIgnored()
-        {
-            // 目線メニューの設定はどの目線制御にも効かせるため、旧データの provider / source ID 指定は読まない (HID-191)。
-            var registry = new InputSourceRegistry();
-            var source = new Source("ifacialmocap:gaze");
-            registry.Register(AdapterSlug.Parse("ifacialmocap"), "gaze", source);
-            var channel = new GazeChannel
-            {
-                id = "gaze",
-                providerSlug = "inputsystem",
-                useDistinctLeftRight = true,
-                sourceIdLeft = "inputsystem:gaze.left",
-                sourceIdRight = "inputsystem:gaze.right",
-            };
-
-            Assert.That(GazeChannelResolver.TryResolve(channel, registry, out var result), Is.True);
-            Assert.That(result.SelectedSlug, Is.EqualTo("ifacialmocap"));
-            Assert.That(result.LeftSource, Is.SameAs(source));
-            Assert.That(result.RightSource, Is.SameAs(source));
-        }
-
-        [Test]
         public void TryResolve_ConflictingSlugsResolvedRepeatedly_WarnsOnlyOnce()
         {
             // 出力 observer がいると TryResolve は毎フレーム呼ばれる。競合の警告を毎回出さない。
@@ -76,7 +54,7 @@ namespace Hidano.FacialControl.Tests.EditMode.Adapters.ScriptableObjectTests
         public void TryResolve_NoMatchingProvider_ReturnsFalse()
         {
             var registry = new InputSourceRegistry();
-            Assert.That(GazeChannelResolver.TryResolve(new GazeChannel { id = "missing", providerSlug = "provider" }, registry, out _), Is.False);
+            Assert.That(GazeChannelResolver.TryResolve(new GazeChannel { id = "missing" }, registry, out _), Is.False);
         }
 
         private sealed class Source : IInputSource, IAnalogInputSource

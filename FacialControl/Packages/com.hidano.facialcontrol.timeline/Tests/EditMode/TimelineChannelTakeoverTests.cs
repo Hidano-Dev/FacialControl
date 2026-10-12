@@ -242,9 +242,6 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
             var config = new GazeChannel
             {
                 id = "gaze",
-                useDistinctLeftRight = true,
-                sourceIdLeft = "live:gaze",
-                sourceIdRight = "live:gaze",
             };
             Assert.That(GazeChannelResolver.TryResolve(config, registry, out ResolvedGazeInputSources before), Is.True);
             Assert.That(before.LeftSource, Is.SameAs(liveSource));

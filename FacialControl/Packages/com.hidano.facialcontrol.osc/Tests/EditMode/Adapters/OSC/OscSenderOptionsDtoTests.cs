@@ -33,8 +33,7 @@ namespace Hidano.FacialControl.Tests.EditMode.Adapters.Json
                     "Joy",
                     "Blink_L"
                 },
-                suppressLoopback = false,
-                layoutRefreshIntervalSeconds = 2.5f
+                suppressLoopback = false
             };
 
             string json = source.ToJson();
@@ -49,7 +48,6 @@ namespace Hidano.FacialControl.Tests.EditMode.Adapters.Json
             Assert.IsFalse(result.endpoints[1].enabled);
             Assert.AreEqual(source.blendShapeMapping, result.blendShapeMapping);
             Assert.IsFalse(result.suppressLoopback);
-            Assert.AreEqual(2.5f, result.layoutRefreshIntervalSeconds);
         }
 
         [Test]
@@ -74,16 +72,19 @@ namespace Hidano.FacialControl.Tests.EditMode.Adapters.Json
             Assert.IsTrue(result.endpoints[0].enabled);
             Assert.AreEqual(new[] { "Smile" }, result.blendShapeMapping);
             Assert.IsTrue(result.suppressLoopback);
-            Assert.AreEqual(4.0f, result.layoutRefreshIntervalSeconds);
         }
 
         [Test]
-        public void FromJson_LegacyHeartbeatIntervalKey_ReadsAsLayoutRefreshInterval()
+        public void FromJson_LegacyIntervalKeys_AreSkippedAndNotWrittenBack()
         {
-            OscSenderOptionsDto result = OscSenderOptionsDto.FromJson("{\"heartbeatIntervalSeconds\":3.5}");
+            // 効果の無い更新間隔は HID-196 で削除した。旧キーが残っていても読み飛ばし、書き出さない。
+            OscSenderOptionsDto result = OscSenderOptionsDto.FromJson(
+                "{\"heartbeatIntervalSeconds\":3.5,\"layoutRefreshIntervalSeconds\":4.0,\"suppressLoopback\":false}");
 
-            Assert.AreEqual(3.5f, result.layoutRefreshIntervalSeconds);
-            StringAssert.DoesNotContain("heartbeatIntervalSeconds", result.ToJson());
+            string json = result.ToJson();
+            Assert.IsFalse(result.suppressLoopback);
+            StringAssert.DoesNotContain("heartbeatIntervalSeconds", json);
+            StringAssert.DoesNotContain("layoutRefreshIntervalSeconds", json);
         }
 
         [Test]
@@ -99,7 +100,6 @@ namespace Hidano.FacialControl.Tests.EditMode.Adapters.Json
             Assert.IsNotNull(result.blendShapeMapping);
             Assert.IsEmpty(result.blendShapeMapping);
             Assert.IsTrue(result.suppressLoopback);
-            Assert.AreEqual(OscSenderOptionsDto.DefaultLayoutRefreshIntervalSeconds, result.layoutRefreshIntervalSeconds);
         }
 
         [Test]

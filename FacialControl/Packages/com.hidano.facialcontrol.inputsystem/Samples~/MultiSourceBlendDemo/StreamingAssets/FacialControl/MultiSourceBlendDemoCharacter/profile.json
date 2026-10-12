@@ -353,42 +353,8 @@
     "gaze": {
       "channels": [{
         "id": "gaze",
-        "providerSlug": "",
-        "useDistinctLeftRight": false,
-        "sourceIdLeft": "",
-        "sourceIdRight": "",
             "leftEyeBonePath": "Left Eye",
-            "leftEyeInitialRotation": {
-                "x": 0.05733204260468483,
-                "y": -4.897652838842248e-10,
-                "z": -4.900752113151663e-13
-            },
-            "leftEyeYawAxisLocal": {
-                "x": 5.684343241333517e-14,
-                "y": 0.9999995231628418,
-                "z": 0.0010005992371588946
-            },
-            "leftEyePitchAxisLocal": {
-                "x": 1.0,
-                "y": -7.105427357601002e-14,
-                "z": -6.213640713070845e-12
-            },
             "rightEyeBonePath": "Right Eye",
-            "rightEyeInitialRotation": {
-                "x": 0.05733204260468483,
-                "y": -5.544852355043872e-10,
-                "z": -5.548363960113101e-13
-            },
-            "rightEyeYawAxisLocal": {
-                "x": 5.684343241333517e-14,
-                "y": 0.9999995231628418,
-                "z": 0.0010005992371588946
-            },
-            "rightEyePitchAxisLocal": {
-                "x": 1.0,
-                "y": -7.105427357601002e-14,
-                "z": -6.213640713070845e-12
-            },
             "lookUpAngle": 15.0,
             "lookDownAngle": 9.0,
             "outerYawAngle": 15.0,

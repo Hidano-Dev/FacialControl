@@ -478,7 +478,7 @@ public interface IBlinkTrigger
 
 - Gaze は `FacialCharacterProfileSO` 直下の `gaze.channels[]` で構成し、先頭チャネルの id は `gaze` に固定する。チャネルは Expression やレイヤー合成に参加しない。
 - 目線メニュー（Inspector）で設定するのは上下左右の可動角と、任意の左右ジョイント名だけ（HID-191）。チャネル ID・入力 source の選択・チャネルの追加削除・初期回転・yaw/pitch 軸は GUI に出さず、参照モデルからの自動設定もしない。
-- 入力 source は `{slug}:{channelId}[.left|.right]` の規約だけで解決し、可動角はどの binding の目線入力にも効く。旧データの `providerSlug` / `useDistinctLeftRight` / `sourceIdLeft` / `sourceIdRight` と、目の初期回転・yaw/pitch 軸は読み飛ばす。
+- 入力 source は `{slug}:{channelId}[.left|.right]` の規約だけで解決し、可動角はどの binding の目線入力にも効く。旧データの `providerSlug` / `useDistinctLeftRight` / `sourceIdLeft` / `sourceIdRight` と、目の初期回転・yaw/pitch 軸のフィールドは削除した（HID-196）。旧アセット / JSON に残っていても読み飛ばす。
 - 目ボーンはジョイント名があれば名前で探し（`/` を含むなら末尾のセグメント、完全一致優先、無ければ部分一致の先頭を警告付きで採用）、無い・見つからなければ Avatar の LeftEye / RightEye を使う。旧データの `Armature/.../LeftEye` 形式の path も同じ規則で末尾の名前として読む。
 - 目の rest 回転と yaw/pitch 軸は実行時に元のアセットデータ（Avatar の `humanDescription.skeleton` → `SkinnedMeshRenderer` のバインドポーズ。どちらも無ければ初期化時の姿勢）から求める（`GazeEyeBoneResolver`）。起動直後に頭部が正面を向いていない場合や、目線の入力が先に掛かっている場合でも正面の向きが変わらない。
 - `GazeBonePoseProvider` は source の Vector2 を読み、Quaternion 合成で左右の目の `Transform.localRotation` を毎フレーム更新する。未入力時は rest 回転へ戻し、破棄時は書込み開始前の回転へ復元する。
