@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using Hidano.FacialControl.Adapters.InputSources;
 using Hidano.FacialControl.Domain.Interfaces;
 using Hidano.FacialControl.Domain.Models;
@@ -32,7 +33,7 @@ namespace Hidano.FacialControl.Adapters.ScriptableObject
     /// <see cref="GazeChannel.providerSlug"/> / <see cref="GazeChannel.useDistinctLeftRight"/> /
     /// <see cref="GazeChannel.sourceIdLeft"/> / <see cref="GazeChannel.sourceIdRight"/> は旧データの互換のために
     /// 残しているだけで読まない (HID-191)。複数の binding が同じチャネルを提供する場合は slug の Ordinal 順で
-    /// 先頭のものを使い、警告を出す。
+    /// 先頭のものを使い、警告を (チャネル id, slug) ごとに 1 回出す。
     /// </remarks>
     public static class GazeChannelResolver
     {
@@ -118,8 +119,18 @@ namespace Hidano.FacialControl.Adapters.ScriptableObject
             return !string.IsNullOrEmpty(id) && registry.TryResolve(id, out IInputSource input) && (source = input as IAnalogInputSource) != null;
         }
 
+        // 競合の警告は (チャネル id, 採用 slug) ごとに 1 回だけ出す。TryResolve は出力 observer がいると毎フレーム
+        // 呼ばれるため (FacialController.BuildGazeSnapshotSpan)、毎回の警告・文字列生成を避ける。値タプルの照合は確保しない。
+        private static readonly HashSet<(string ChannelId, string Slug)> s_warnedConflicts =
+            new HashSet<(string ChannelId, string Slug)>();
+
         private static void LogConflict(string channelId, string slug)
         {
+            if (!s_warnedConflicts.Add((channelId, slug)))
+            {
+                return;
+            }
+
             Debug.LogWarning($"[FacialControl] Gaze channel '{channelId}' is provided by multiple binding slugs; selected '{slug}' by Ordinal lexicographic order.");
         }
     }
