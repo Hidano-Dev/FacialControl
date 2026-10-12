@@ -12,8 +12,8 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
 {
     /// <summary>
     /// Timeline スクラブプレビューの目ボーン解決を検証する。
-    /// Gaze チャネルはトラックの index ではなくチャネル id（REC source id → GazeSourceIdConvention のチャネル id、
-    /// または GazeChannel の明示 source id の完全一致）で解決し（Req 7.4）、目ボーンはランタイム (GazeBonePoseProvider) と同じく
+    /// Gaze チャネルはトラックの index ではなくチャネル id（REC source id → GazeSourceIdConvention のチャネル id）で
+    /// 解決し（Req 7.4）、目ボーンはランタイム (GazeBonePoseProvider) と同じく
     /// <see cref="GazeEyeBoneResolver"/> で解決する (ジョイント名 → 見つからなければ Avatar の目線ボーン)。
     /// </summary>
     [SmallTest]
@@ -84,18 +84,19 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
         }
 
         [Test]
-        public void Resolve_ExplicitSourceIds_DrivesEachEyeBySourceId()
+        public void Resolve_LegacyExplicitSourceIds_AreIgnoredLikeRuntime()
         {
+            // ランタイムの GazeChannelResolver と同じく、旧データの明示 source id は読まない (HID-191)。
             GazeChannel channel = PathChannel("gaze", "Head/LeftEye", "Head/RightEye");
             channel.useDistinctLeftRight = true;
-            channel.sourceIdLeft = "vmc:eye_l";
+            channel.sourceIdLeft = "osc:gaze.right";
             channel.sourceIdRight = "vmc:eye_r";
 
-            Resolve(new[] { channel }, new[] { "vmc:eye_r", "vmc:eye_l" }, withAvatarEyes: false);
+            Resolve(new[] { channel }, new[] { "vmc:eye_r", "osc:gaze.right", "osc:gaze.left" }, withAvatarEyes: false);
 
             Assert.That(_results.Count, Is.EqualTo(2));
-            Assert.That(FindSource(_leftEye), Is.EqualTo(1));
-            Assert.That(FindSource(_rightEye), Is.EqualTo(0));
+            Assert.That(FindSource(_leftEye), Is.EqualTo(2), "左目は規約 id の osc:gaze.left");
+            Assert.That(FindSource(_rightEye), Is.EqualTo(1), "右目は規約 id の osc:gaze.right");
         }
 
         [Test]

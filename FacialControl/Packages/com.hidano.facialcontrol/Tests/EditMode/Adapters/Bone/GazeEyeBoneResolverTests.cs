@@ -104,7 +104,7 @@ namespace Hidano.FacialControl.Tests.EditMode.Adapters.Bone
         public void Resolve_NoMatch_WarnsAndFallsBackToAvatarEye()
         {
             var resolver = new GazeEyeBoneResolver(_root.transform, null, _leftEye, _rightEye);
-            LogAssert.Expect(LogType.Warning, new Regex("'Missing' に一致するボーンが見つからない"));
+            LogAssert.Expect(LogType.Warning, new Regex("'Missing' に一致するボーンが見つかりません"));
 
             var eye = resolver.Resolve("Armature/Missing", isLeftEye: false);
 

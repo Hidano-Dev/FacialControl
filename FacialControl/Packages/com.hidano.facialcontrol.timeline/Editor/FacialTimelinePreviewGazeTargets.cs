@@ -59,9 +59,10 @@ namespace Hidano.FacialControl.Timeline.Editor
     /// <remarks>
     /// <list type="bullet">
     /// <item>Gaze 値チャネル（Bake / Value トラックの ChannelSubId = REC の source id）と <see cref="GazeChannel"/> の対応は
-    /// トラックの index ではなく id で決める（Req 7.4）: GazeChannel の明示 source id（<see cref="GazeChannel.sourceIdLeft"/> /
-    /// <see cref="GazeChannel.sourceIdRight"/>）との完全一致を優先し、無ければ <see cref="GazeSourceIdConvention"/> で分解した
+    /// トラックの index ではなく id で決める（Req 7.4）: <see cref="GazeSourceIdConvention"/> で分解した
     /// チャネル id が <see cref="GazeChannel.id"/> と一致するもの（<c>.left</c> / <c>.right</c> はその目だけ、suffix 無しは両目）。
+    /// ランタイムの GazeChannelResolver と同じく、旧データの明示 source id（<see cref="GazeChannel.sourceIdLeft"/> /
+    /// <see cref="GazeChannel.sourceIdRight"/>）は読まない (HID-191)。
     /// 一致する値チャネルが無い目は駆動しない（ランタイムは入力源の無い channel を駆動しない）。</item>
     /// <item>目線ボーンはランタイムと同じ <see cref="GazeEyeBoneResolver"/> で解決する (ジョイント名 → 見つからなければ
     /// Avatar の目線ボーン)。どちらも無い側は駆動しない。</item>
@@ -145,7 +146,7 @@ namespace Hidano.FacialControl.Timeline.Editor
 
         /// <summary>
         /// <paramref name="config"/> の左右の目を駆動する値チャネルの index を id で求める（見つからなければ <see cref="NotDriven"/>）。
-        /// 明示 source id の完全一致 → 規約 id の目指定（.left / .right）→ 規約 id の両目（suffix 無し）の順に優先する。
+        /// 規約 id の目指定（.left / .right）→ 規約 id の両目（suffix 無し）の順に優先する。
         /// 同じ優先度で複数一致した場合は列の先頭を使う。
         /// </summary>
         private static void ResolveEyeSources(
@@ -154,8 +155,6 @@ namespace Hidano.FacialControl.Timeline.Editor
             out int leftSource,
             out int rightSource)
         {
-            int explicitLeft = NotDriven;
-            int explicitRight = NotDriven;
             int conventionLeft = NotDriven;
             int conventionRight = NotDriven;
             int conventionShared = NotDriven;
@@ -165,16 +164,6 @@ namespace Hidano.FacialControl.Timeline.Editor
                 if (string.IsNullOrEmpty(sourceId))
                 {
                     continue;
-                }
-
-                if (explicitLeft == NotDriven && Matches(config.sourceIdLeft, sourceId))
-                {
-                    explicitLeft = s;
-                }
-
-                if (explicitRight == NotDriven && Matches(config.sourceIdRight, sourceId))
-                {
-                    explicitRight = s;
                 }
 
                 if (string.IsNullOrEmpty(config.id)
@@ -210,23 +199,8 @@ namespace Hidano.FacialControl.Timeline.Editor
                 }
             }
 
-            leftSource = Pick(explicitLeft, conventionLeft, conventionShared);
-            rightSource = Pick(explicitRight, conventionRight, conventionShared);
-        }
-
-        private static int Pick(int explicitSource, int sideSource, int sharedSource)
-        {
-            if (explicitSource != NotDriven)
-            {
-                return explicitSource;
-            }
-
-            return sideSource != NotDriven ? sideSource : sharedSource;
-        }
-
-        private static bool Matches(string declaredSourceId, string sourceId)
-        {
-            return !string.IsNullOrEmpty(declaredSourceId) && string.Equals(declaredSourceId, sourceId, StringComparison.Ordinal);
+            leftSource = conventionLeft != NotDriven ? conventionLeft : conventionShared;
+            rightSource = conventionRight != NotDriven ? conventionRight : conventionShared;
         }
 
         private static void AddEye(

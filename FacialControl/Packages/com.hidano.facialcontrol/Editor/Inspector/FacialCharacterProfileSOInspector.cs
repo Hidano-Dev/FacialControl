@@ -5,7 +5,6 @@ using UnityEditor;
 using UnityEditor.UIElements;
 using UnityEngine;
 using UnityEngine.UIElements;
-using Hidano.FacialControl.Adapters.Bone;
 using Hidano.FacialControl.Adapters.ScriptableObject;
 using Hidano.FacialControl.Adapters.ScriptableObject.Serializable;
 using Hidano.FacialControl.Domain.Adapters;
@@ -1262,8 +1261,6 @@ namespace Hidano.FacialControl.Editor.Inspector
             }
 
             var channel = _gazeChannelsProperty.GetArrayElementAtIndex(0);
-            MigrateGazeJointName(channel.FindPropertyRelative("leftEyeBonePath"));
-            MigrateGazeJointName(channel.FindPropertyRelative("rightEyeBonePath"));
 
             AddGazeChannelProperty(container, channel, "lookUpAngle", "上方向角度", GazeConfigLookUpAngleFieldName);
             AddGazeChannelProperty(container, channel, "lookDownAngle", "下方向角度", GazeConfigLookDownAngleFieldName);
@@ -1272,7 +1269,8 @@ namespace Hidano.FacialControl.Editor.Inspector
             var leftJoint = AddGazeChannelProperty(container, channel, "leftEyeBonePath", "左目ジョイント名 (任意)", GazeChannelLeftJointNameFieldName);
             var rightJoint = AddGazeChannelProperty(container, channel, "rightEyeBonePath", "右目ジョイント名 (任意)", GazeChannelRightJointNameFieldName);
             const string jointTooltip = "空欄なら Avatar の目線ボーン (Humanoid の LeftEye / RightEye) を使います。"
-                + "名前で GameObject を探し、完全一致を優先します (無ければ名前を含む最初のものを警告付きで使います)。";
+                + "名前で GameObject を探し、完全一致を優先します (無ければ名前を含む最初のものを警告付きで使います)。"
+                + "旧形式の path (Armature/.../LeftEye) は末尾の名前として扱います。";
             if (leftJoint != null) leftJoint.tooltip = jointTooltip;
             if (rightJoint != null) rightJoint.tooltip = jointTooltip;
 
@@ -1282,19 +1280,6 @@ namespace Hidano.FacialControl.Editor.Inspector
             UpdateGazeChannelBoneResolutionHelp(help, channel);
             help.TrackPropertyValue(channel.FindPropertyRelative("leftEyeBonePath"), _ => UpdateGazeChannelBoneResolutionHelp(help, channel));
             help.TrackPropertyValue(channel.FindPropertyRelative("rightEyeBonePath"), _ => UpdateGazeChannelBoneResolutionHelp(help, channel));
-        }
-
-        /// <summary>
-        /// 旧データの目ボーン path (<c>Armature/.../LeftEye</c>) を末尾のセグメントのジョイント名へ移行する
-        /// (実行時も同じ規則で読むため、表示を揃えるだけで挙動は変わらない)。
-        /// </summary>
-        private void MigrateGazeJointName(SerializedProperty property)
-        {
-            if (property == null || property.propertyType != SerializedPropertyType.String) return;
-            string migrated = GazeEyeBoneResolver.ToJointName(property.stringValue);
-            if (string.Equals(migrated, property.stringValue ?? string.Empty, StringComparison.Ordinal)) return;
-            property.stringValue = migrated;
-            serializedObject.ApplyModifiedPropertiesWithoutUndo();
         }
 
         private void UpdateGazeChannelBoneResolutionHelp(HelpBox help, SerializedProperty channel)

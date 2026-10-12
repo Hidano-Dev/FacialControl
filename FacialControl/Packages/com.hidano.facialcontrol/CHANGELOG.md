@@ -26,7 +26,7 @@
 
 - **（破壊的変更）目線メニューを可動範囲と任意の左右ジョイント名だけにした（HID-191）。** Profile Inspector の目線タブから、チャネル ID・入力ソースのドロップダウン・チャネルの追加削除・上級設定（左右個別指定 / 左右 source ID / 左右初期回転 / yaw・pitch 軸）・参照モデルからの目ボーン自動解決を削除した。`GazeProviderEnumerator` を削除した
   - 目線メニューの可動範囲は、どの目線制御（InputSystem / iFacialMocap / OSC 受信など）にも効く。`GazeChannelResolver` は入力源を規約 id（`{slug}:{channelId}[.left|.right]`）だけで解決し、旧データの `providerSlug` / `useDistinctLeftRight` / `sourceIdLeft` / `sourceIdRight` を読まない
-  - 目ボーンはジョイント名があれば名前で探す（`/` を含む値は末尾のセグメント。完全一致を優先し、無ければ名前を含む最初のものを警告付きで使う。それも無ければ警告して Avatar の目線ボーンに戻す）。空なら Avatar の LeftEye / RightEye を使う。既存データの `Armature/.../LeftEye` 形式の path は末尾の名前として読み、Inspector で開くとジョイント名に書き換わる
+  - 目ボーンはジョイント名があれば名前で探す（`/` を含む値は末尾のセグメント。完全一致を優先し、無ければ名前を含む最初のものを警告付きで使う。それも無ければ警告して Avatar の目線ボーンに戻す）。空なら Avatar の LeftEye / RightEye を使う。既存データの `Armature/.../LeftEye` 形式の path は末尾の名前として読む（アセットは書き換えない）
   - 目の初期回転・yaw / pitch 軸は保存値を読まず、実行時に元のアセットデータ（Avatar の `humanDescription.skeleton` → `SkinnedMeshRenderer` のバインドポーズ。どちらも無ければ初期化時の姿勢）から求める。起動直後に頭部が正面を向いていない場合や、目線の入力が先に掛かっている場合でも正面の向きが変わらない。ジョイント名指定時も Humanoid フォールバックと同じ方法で求める
   - `GazeEyeBoneResolver` を追加した。`GazeBonePoseProvider` のコンストラクタは `(GazeEyeBoneResolver, IReadOnlyList<GazeBoneBinding>)` だけになった（`BoneTransformResolver` / `GazeEyeBoneFallback` を受け取る旧コンストラクタを削除）。同じボーンに解決された目は先の channel だけが駆動する
   - 送信側から目ボーン path・可動範囲を上書きする仕組み（`GazeChannelOverride` / `IGazeChannelOverrideProvider` / `IGazeChannelSettingsConsumer`）を削除した。可動範囲は受信側の目線メニューで決める（OSC パッケージの CHANGELOG を参照）

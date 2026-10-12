@@ -194,7 +194,7 @@ namespace Hidano.FacialControl.Adapters.Bone
             if (joint == null)
             {
                 Debug.LogWarning(
-                    $"{LogPrefix}目線のジョイント名 '{name}' に一致するボーンが見つからないため、Avatar の目線ボーンを使います。");
+                    $"{LogPrefix}目線のジョイント名 '{name}' に一致するボーンが見つかりません。Avatar の目線ボーン (Humanoid の LeftEye / RightEye) があればそれを使います。");
             }
             else if (!isExactMatch)
             {
