@@ -17,7 +17,7 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
     /// </summary>
     [Serializable]
     [FacialAdapterBinding(displayName: "OSC Sender")]
-    public sealed class OscSenderAdapterBinding : AdapterBindingBase, IFacialOutputObserver, IGazeChannelConsumer, IGazeChannelSettingsConsumer
+    public sealed class OscSenderAdapterBinding : AdapterBindingBase, IFacialOutputObserver, IGazeChannelConsumer
     {
         public const float DefaultLayoutRefreshIntervalSeconds = 5f;
         public const float MinLayoutRefreshIntervalSeconds = 0.5f;
@@ -52,12 +52,6 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
         [SerializeField]
         [NonSerialized]
         private List<string> _gazeChannelIds = new List<string>();
-
-        /// <summary>
-        /// Profile の Gaze セクションの設定。対応表の gaze チャネルに目ボーン path・可動範囲の属性を載せるために使う。
-        /// </summary>
-        [NonSerialized]
-        private IReadOnlyList<GazeChannel> _gazeChannelSettings = Array.Empty<GazeChannel>();
 
         /// <summary>
         /// 上級設定アセットが未割り当てのときに使う既定値の SO。プロパティ setter から値を流し込む
@@ -311,15 +305,6 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
             }
         }
 
-        /// <summary>
-        /// Profile の Gaze セクションの設定を受け取る。対応表の gaze チャネルごとに、
-        /// 目ボーン path (指定がある側のみ) と可動範囲を載せ、受信側の目線設定を上書きさせる。
-        /// </summary>
-        public void ConfigureGazeChannelSettings(IReadOnlyList<GazeChannel> channels)
-        {
-            _gazeChannelSettings = channels ?? (IReadOnlyList<GazeChannel>)Array.Empty<GazeChannel>();
-        }
-
         private OscSenderRuntimeSettingsSO EnsureRuntimeSettings()
         {
             if (_runtimeSettings == null)
@@ -446,7 +431,6 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
                         sourceBlendShapeIndices,
                         layoutBlendShapeNames,
                         gazeExpressionIds);
-                    UpdateGazeSettingsSnapshots(gazeExpressionIds, _gazeChannelSettings, slot.GazeSettingsSnapshots);
                     sendSlots.Add(slot);
                 }
                 catch (Exception ex)
@@ -497,8 +481,8 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
             }
 
             // 送るのは送信元識別と値フレームだけ。対応表は受信側の要求に応じて OscSender が返す。
-            // gaze の設定（目ボーン path・可動範囲）の変更は対応表の更新間隔ごとに確かめ、変わっていれば対応表を作り直す
-            // （バージョンが変わるので、受信側が取り直す）。
+            // 対応表は gaze チャネルの属性を載せない（可動範囲・目線ボーンは受信側の目線メニューで決める）ため、
+            // 起動後に作り直すものは無い。更新間隔のタイマーは互換のために残している。
             bool refreshLayout = ShouldRefreshLayout(deltaTime);
             if (!_hasPublishedFrame)
             {
@@ -512,11 +496,6 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
                 if (slot.Sender == null)
                 {
                     continue;
-                }
-
-                if (refreshLayout)
-                {
-                    RefreshLayoutIfGazeSettingsChanged(slot);
                 }
 
                 slot.Sender.SendIndexedFrame(_identityUuidBytes, _identityStartedAtUnixMs);
@@ -925,23 +904,8 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
         }
 
         /// <summary>
-        /// 目線タブの目ボーン path・可動範囲が起動後に変わっていれば、対応表を別のバージョンで作り直す（受信側が取り直す）。
-        /// 変化は前回の値との比較だけで検出し、作り直す (ヒープ確保する) のは変わったときだけ。
-        /// </summary>
-        private void RefreshLayoutIfGazeSettingsChanged(SendSlot slot)
-        {
-            if (slot.GazeExpressionIds.Length == 0
-                || !UpdateGazeSettingsSnapshots(slot.GazeExpressionIds, _gazeChannelSettings, slot.GazeSettingsSnapshots))
-            {
-                return;
-            }
-
-            ConfigureIndexedFrame(slot, slot.IndexedLayout != null ? slot.IndexedLayout.Version : OscFrameLayoutVersion.Unknown);
-        }
-
-        /// <summary>
-        /// 値フレームの対応表（BlendShape 名 → gaze チャネルと属性）を組み立てて送信側に渡す。
-        /// 対応表が変わるとき（gaze の属性の変更）は <paramref name="previousVersion"/> と別のバージョンにする。
+        /// 値フレームの対応表（BlendShape 名 → gaze チャネル）を組み立てて送信側に渡す。
+        /// 対応表が変わるときは <paramref name="previousVersion"/> と別のバージョンにする。
         /// </summary>
         private void ConfigureIndexedFrame(SendSlot slot, int previousVersion)
         {
@@ -950,8 +914,7 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
                 return;
             }
 
-            OscFrameLayoutGazeChannel[] gazeChannels =
-                BuildIndexedGazeChannels(slot.GazeExpressionIds, _gazeChannelSettings);
+            OscFrameLayoutGazeChannel[] gazeChannels = BuildIndexedGazeChannels(slot.GazeExpressionIds);
             OscFrameLayoutEntry[] entries = OscFrameLayout.ToEntries(slot.LayoutBlendShapeNames, gazeChannels);
             int version = OscFrameLayoutVersion.Compute(_identity, entries, previousVersion);
             var layout = new OscFrameLayout(version, slot.LayoutBlendShapeNames, gazeChannels);
@@ -960,11 +923,10 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
         }
 
         /// <summary>
-        /// 対応表に載せる gaze チャネルを組み立てる。属性は目ボーン path・可動範囲。
+        /// 対応表に載せる gaze チャネルを組み立てる。属性は載せない（HID-191: 可動範囲・目線ボーンは受信側の
+        /// 目線メニューで決め、送信側の <c>range=</c> / <c>bone.left=</c> / <c>bone.right=</c> は廃止した）。
         /// </summary>
-        private static OscFrameLayoutGazeChannel[] BuildIndexedGazeChannels(
-            string[] gazeExpressionIds,
-            IReadOnlyList<GazeChannel> gazeChannelSettings)
+        private static OscFrameLayoutGazeChannel[] BuildIndexedGazeChannels(string[] gazeExpressionIds)
         {
             if (gazeExpressionIds == null || gazeExpressionIds.Length == 0)
             {
@@ -972,109 +934,12 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
             }
 
             var channels = new OscFrameLayoutGazeChannel[gazeExpressionIds.Length];
-            var attributes = new List<string>();
             for (int i = 0; i < gazeExpressionIds.Length; i++)
             {
-                attributes.Clear();
-                GazeChannelAttributes.AppendChannelAttributeValues(
-                    attributes,
-                    FindGazeChannelSettings(gazeChannelSettings, gazeExpressionIds[i]));
-                channels[i] = new OscFrameLayoutGazeChannel(gazeExpressionIds[i], attributes);
+                channels[i] = new OscFrameLayoutGazeChannel(gazeExpressionIds[i]);
             }
 
             return channels;
-        }
-
-        /// <summary>
-        /// <paramref name="gazeExpressionIds"/> の各チャネルの目ボーン path・可動範囲を <paramref name="snapshots"/>
-        /// に写し、前回の値から変わったものがあれば true を返す。ヒープ確保はしない。
-        /// </summary>
-        internal static bool UpdateGazeSettingsSnapshots(
-            string[] gazeExpressionIds,
-            IReadOnlyList<GazeChannel> gazeChannelSettings,
-            GazeSettingsSnapshot[] snapshots)
-        {
-            bool changed = false;
-            int count = Math.Min(
-                gazeExpressionIds != null ? gazeExpressionIds.Length : 0,
-                snapshots != null ? snapshots.Length : 0);
-            for (int i = 0; i < count; i++)
-            {
-                var current = new GazeSettingsSnapshot(
-                    FindGazeChannelSettings(gazeChannelSettings, gazeExpressionIds[i]));
-                if (!current.Equals(snapshots[i]))
-                {
-                    snapshots[i] = current;
-                    changed = true;
-                }
-            }
-
-            return changed;
-        }
-
-        /// <summary>対応表の gaze チャネルの属性に載せる 1 チャネル分の値。変化検出用。</summary>
-        internal readonly struct GazeSettingsSnapshot : IEquatable<GazeSettingsSnapshot>
-        {
-            private readonly bool _found;
-            private readonly string _leftEyeBonePath;
-            private readonly string _rightEyeBonePath;
-            private readonly float _lookUpAngle;
-            private readonly float _lookDownAngle;
-            private readonly float _outerYawAngle;
-            private readonly float _innerYawAngle;
-
-            public GazeSettingsSnapshot(GazeChannel channel)
-            {
-                _found = channel != null;
-                _leftEyeBonePath = channel?.leftEyeBonePath;
-                _rightEyeBonePath = channel?.rightEyeBonePath;
-                _lookUpAngle = channel != null ? channel.lookUpAngle : 0f;
-                _lookDownAngle = channel != null ? channel.lookDownAngle : 0f;
-                _outerYawAngle = channel != null ? channel.outerYawAngle : 0f;
-                _innerYawAngle = channel != null ? channel.innerYawAngle : 0f;
-            }
-
-            public bool Equals(GazeSettingsSnapshot other)
-            {
-                return _found == other._found
-                    && string.Equals(_leftEyeBonePath, other._leftEyeBonePath, StringComparison.Ordinal)
-                    && string.Equals(_rightEyeBonePath, other._rightEyeBonePath, StringComparison.Ordinal)
-                    && _lookUpAngle.Equals(other._lookUpAngle)
-                    && _lookDownAngle.Equals(other._lookDownAngle)
-                    && _outerYawAngle.Equals(other._outerYawAngle)
-                    && _innerYawAngle.Equals(other._innerYawAngle);
-            }
-
-            public override bool Equals(object obj)
-            {
-                return obj is GazeSettingsSnapshot other && Equals(other);
-            }
-
-            public override int GetHashCode()
-            {
-                return _lookUpAngle.GetHashCode();
-            }
-        }
-
-        private static GazeChannel FindGazeChannelSettings(
-            IReadOnlyList<GazeChannel> gazeChannelSettings,
-            string channelId)
-        {
-            if (gazeChannelSettings == null)
-            {
-                return null;
-            }
-
-            for (int i = 0; i < gazeChannelSettings.Count; i++)
-            {
-                GazeChannel channel = gazeChannelSettings[i];
-                if (channel != null && string.Equals(channel.id, channelId, StringComparison.Ordinal))
-                {
-                    return channel;
-                }
-            }
-
-            return null;
         }
 
         private sealed class SendSlot
@@ -1083,7 +948,6 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
             public readonly int[] SourceBlendShapeIndices;
             public readonly string[] LayoutBlendShapeNames;
             public readonly string[] GazeExpressionIds;
-            public readonly GazeSettingsSnapshot[] GazeSettingsSnapshots;
             public OscFrameLayout IndexedLayout;
             public float[] IndexedValues = Array.Empty<float>();
 
@@ -1097,9 +961,6 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
                 SourceBlendShapeIndices = sourceBlendShapeIndices ?? Array.Empty<int>();
                 LayoutBlendShapeNames = layoutBlendShapeNames ?? Array.Empty<string>();
                 GazeExpressionIds = gazeExpressionIds ?? Array.Empty<string>();
-                GazeSettingsSnapshots = GazeExpressionIds.Length == 0
-                    ? Array.Empty<GazeSettingsSnapshot>()
-                    : new GazeSettingsSnapshot[GazeExpressionIds.Length];
             }
 
             /// <summary>対応表を差し替える。slot 数が変わらなければ値の置き場を使い回す（前回の値を残す）。</summary>

@@ -10,7 +10,7 @@ namespace Hidano.FacialControl.Adapters.Bone
     /// <summary>
     /// <see cref="GazeChannel"/> を毎フレーム評価し、左右目ボーンに直接 localRotation を書込む
     /// 目線ボーン専用 provider。アナログ入力 (Vector2) を yaw / pitch 角度に変換し、
-    /// 設定された外側/内側/上下の角度制限と各ボーンの参照モデル時取得 local 軸を用いて
+    /// 設定された外側/内側/上下の角度制限と、各ボーンについてアセットデータから求めた local 軸を用いて
     /// <c>Quaternion.AngleAxis</c> 合成で姿勢を計算する。
     /// </summary>
     /// <remarks>
@@ -39,60 +39,29 @@ namespace Hidano.FacialControl.Adapters.Bone
     /// </remarks>
     public sealed class GazeBonePoseProvider : IDisposable
     {
-        private readonly BoneTransformResolver _resolver;
         private readonly EyeBinding[] _bindings;
         private bool _disposed;
 
         /// <summary>
-        /// <see cref="GazeBonePoseProvider"/> を構築する。目ボーン path が未指定の側は駆動しない。
+        /// <see cref="GazeBonePoseProvider"/> を構築する。目ごとの目線ボーンと rest 回転・軸は
+        /// <paramref name="eyeResolver"/> で構築時に 1 回だけ解決する
+        /// (ジョイント名 → 無ければ Avatar の目線ボーン)。<see cref="GazeChannel"/> に保存された
+        /// InitialRotation / YawAxisLocal / PitchAxisLocal は使わない。
         /// </summary>
-        /// <param name="resolver">ボーン名から Transform を解決するリゾルバー (FacialController と同じものを共有)。</param>
+        /// <param name="eyeResolver">目線ボーンの resolver。FacialController が初期化ごとに 1 つ作って使い回す。</param>
         /// <param name="bindings"><see cref="GazeChannel"/> と入力源のペア配列。</param>
+        /// <remarks>
+        /// 同じボーンに解決された目は、先の binding (channel 順、左目 → 右目) だけが駆動する。
+        /// 複数の channel が同じ目を毎フレーム奪い合わないようにするため。
+        /// </remarks>
         public GazeBonePoseProvider(
-            BoneTransformResolver resolver,
+            GazeEyeBoneResolver eyeResolver,
             IReadOnlyList<GazeBoneBinding> bindings)
-            : this(resolver, bindings, default, useEyeFallback: false)
         {
-        }
-
-        /// <summary>
-        /// <see cref="GazeBonePoseProvider"/> を構築する。目ボーン path が未指定の側は
-        /// <paramref name="eyeFallback"/> の目ボーン (Humanoid の LeftEye / RightEye) を駆動する。
-        /// </summary>
-        /// <param name="resolver">ボーン名から Transform を解決するリゾルバー (FacialController と同じものを共有)。</param>
-        /// <param name="bindings"><see cref="GazeChannel"/> と入力源のペア配列。</param>
-        /// <param name="eyeFallback">
-        /// path 未指定時に使う目ボーン。rest 回転と yaw / pitch 軸は <paramref name="eyeFallback"/> が
-        /// 構築時に導出した値を使い、GazeChannel に保存された InitialRotation / YawAxisLocal / PitchAxisLocal は使わない。
-        /// 目ごとに、path 未指定の最初の channel だけが fallback の目ボーンを駆動する。path 指定の binding が
-        /// 同じボーンを指す場合は path 指定側を優先し、fallback 側は駆動しない。
-        /// </param>
-        public GazeBonePoseProvider(
-            BoneTransformResolver resolver,
-            IReadOnlyList<GazeBoneBinding> bindings,
-            GazeEyeBoneFallback eyeFallback)
-            : this(resolver, bindings, eyeFallback, useEyeFallback: true)
-        {
-        }
-
-        /// <param name="useEyeFallback">
-        /// false のとき path 未指定の目は fallback を探さずに駆動しない。fallback を要求しない旧オーバーロードで
-        /// <see cref="HasUnresolvedFallbackEye"/> を立てないために使う。
-        /// </param>
-        private GazeBonePoseProvider(
-            BoneTransformResolver resolver,
-            IReadOnlyList<GazeBoneBinding> bindings,
-            GazeEyeBoneFallback eyeFallback,
-            bool useEyeFallback)
-        {
-            _resolver = resolver ?? throw new ArgumentNullException(nameof(resolver));
+            if (eyeResolver == null) throw new ArgumentNullException(nameof(eyeResolver));
             if (bindings == null) throw new ArgumentNullException(nameof(bindings));
 
             var list = new List<EyeBinding>(bindings.Count * 2);
-            // fallback の目ボーンは、path 未指定の最初の channel だけが使う。path 未指定の channel が
-            // 複数あっても同じ Humanoid の目を毎フレーム奪い合わないようにするため。
-            bool leftFallbackClaimed = false;
-            bool rightFallbackClaimed = false;
             for (int i = 0; i < bindings.Count; i++)
             {
                 var cfg = bindings[i].Channel;
@@ -102,43 +71,20 @@ namespace Hidano.FacialControl.Adapters.Bone
 
                 if (leftSource != null)
                 {
-                    TryAddEye(
-                        list,
-                        cfg,
-                        leftSource,
-                        cfg.leftEyeBonePath,
-                        cfg.leftEyeInitialRotation,
-                        cfg.leftEyeYawAxisLocal,
-                        cfg.leftEyePitchAxisLocal,
-                        isLeftEye: true,
-                        useEyeFallback,
-                        eyeFallback.Left,
-                        ref leftFallbackClaimed);
+                    TryAddEye(list, cfg, leftSource, eyeResolver.Resolve(cfg.leftEyeBonePath, isLeftEye: true), isLeftEye: true);
                 }
                 if (rightSource != null)
                 {
-                    TryAddEye(
-                        list,
-                        cfg,
-                        rightSource,
-                        cfg.rightEyeBonePath,
-                        cfg.rightEyeInitialRotation,
-                        cfg.rightEyeYawAxisLocal,
-                        cfg.rightEyePitchAxisLocal,
-                        isLeftEye: false,
-                        useEyeFallback,
-                        eyeFallback.Right,
-                        ref rightFallbackClaimed);
+                    TryAddEye(list, cfg, rightSource, eyeResolver.Resolve(cfg.rightEyeBonePath, isLeftEye: false), isLeftEye: false);
                 }
             }
 
-            RemoveFallbackEyesOwnedByPath(list);
             _bindings = list.Count == 0 ? Array.Empty<EyeBinding>() : list.ToArray();
         }
 
         /// <summary>
-        /// 目ボーン path が未指定で、かつ fallback の目ボーン (Humanoid の LeftEye / RightEye) も
-        /// 無かったために駆動できない目が 1 つ以上あるとき true。警告の要否判定に使う。
+        /// ジョイント名でも Avatar の目線ボーン (Humanoid の LeftEye / RightEye) でも目線ボーンを
+        /// 解決できなかったために駆動できない目が 1 つ以上あるとき true。警告の要否判定に使う。
         /// </summary>
         public bool HasUnresolvedFallbackEye { get; private set; }
 
@@ -146,82 +92,34 @@ namespace Hidano.FacialControl.Adapters.Bone
             List<EyeBinding> list,
             GazeChannel cfg,
             IAnalogInputSource source,
-            string bonePath,
-            Vector3 initialRotation,
-            Vector3 yawAxisLocal,
-            Vector3 pitchAxisLocal,
-            bool isLeftEye,
-            bool useEyeFallback,
-            GazeEyeBoneFallback.FallbackEye fallbackEye,
-            ref bool fallbackClaimed)
+            GazeEyeBoneFallback.FallbackEye eye,
+            bool isLeftEye)
         {
-            if (!string.IsNullOrWhiteSpace(bonePath))
-            {
-                list.Add(new EyeBinding(
-                    source,
-                    bonePath,
-                    null,
-                    Quaternion.Euler(initialRotation),
-                    SafeNormalize(yawAxisLocal, Vector3.up),
-                    SafeNormalize(pitchAxisLocal, Vector3.right),
-                    isLeftEye,
-                    cfg.outerYawAngle,
-                    cfg.innerYawAngle,
-                    cfg.lookUpAngle,
-                    cfg.lookDownAngle));
-                return;
-            }
-
-            if (!useEyeFallback || fallbackClaimed)
-            {
-                return;
-            }
-
-            if (fallbackEye.Bone == null)
+            if (eye.Bone == null)
             {
                 HasUnresolvedFallbackEye = true;
                 return;
             }
 
-            fallbackClaimed = true;
+            for (int i = 0; i < list.Count; i++)
+            {
+                if (list[i].Target == eye.Bone)
+                {
+                    return;
+                }
+            }
+
             list.Add(new EyeBinding(
                 source,
-                string.Empty,
-                fallbackEye.Bone,
-                fallbackEye.RestRotation,
-                fallbackEye.YawAxisLocal,
-                fallbackEye.PitchAxisLocal,
+                eye.Bone,
+                eye.RestRotation,
+                eye.YawAxisLocal,
+                eye.PitchAxisLocal,
                 isLeftEye,
                 cfg.outerYawAngle,
                 cfg.innerYawAngle,
                 cfg.lookUpAngle,
                 cfg.lookDownAngle));
-        }
-
-        /// <summary>
-        /// path 指定の binding と同じ Transform を指す fallback binding を取り除く。
-        /// path 指定と fallback が混在するときだけ path を解決する (構築時の 1 回のみ)。
-        /// </summary>
-        private void RemoveFallbackEyesOwnedByPath(List<EyeBinding> list)
-        {
-            for (int i = list.Count - 1; i >= 0; i--)
-            {
-                if (!string.IsNullOrEmpty(list[i].BonePath))
-                {
-                    continue;
-                }
-
-                var fallbackTarget = list[i].CachedTarget;
-                for (int j = 0; j < list.Count; j++)
-                {
-                    if (!string.IsNullOrEmpty(list[j].BonePath)
-                        && _resolver.Resolve(list[j].BonePath) == fallbackTarget)
-                    {
-                        list.RemoveAt(i);
-                        break;
-                    }
-                }
-            }
         }
 
         /// <summary>
@@ -237,7 +135,7 @@ namespace Hidano.FacialControl.Adapters.Bone
             for (int i = 0; i < _bindings.Length; i++)
             {
                 ref var b = ref _bindings[i];
-                var target = ResolveTarget(ref b);
+                var target = b.Target;
                 if (target == null)
                 {
                     continue;
@@ -277,7 +175,7 @@ namespace Hidano.FacialControl.Adapters.Bone
                     : iy * b.LookDownAngle;
 
                 // Unity の Quaternion.AngleAxis は左手系で「軸方向を見て時計回り = 正」。
-                // 参照モデルから自動取得した yawAxisLocal (+Y) / pitchAxisLocal (+X) と組み合わせると、
+                // アセットデータから求めた yawAxisLocal (+Y) / pitchAxisLocal (+X) と組み合わせると、
                 // input.x > 0 で視線が左、input.y > 0 で視線が下に振れる (上下左右とも反転)。
                 // InputActionAsset 側 Invert で毎回吸収するのは手間なのでコード側で符号反転する。
                 yawDeg = -yawDeg;
@@ -304,7 +202,7 @@ namespace Hidano.FacialControl.Adapters.Bone
                 {
                     continue;
                 }
-                var target = ResolveTarget(ref b);
+                var target = b.Target;
                 if (target == null)
                 {
                     continue;
@@ -321,29 +219,10 @@ namespace Hidano.FacialControl.Adapters.Bone
             _disposed = true;
         }
 
-        private Transform ResolveTarget(ref EyeBinding b)
-        {
-            if (b.CachedTarget != null)
-            {
-                return b.CachedTarget;
-            }
-            b.CachedTarget = _resolver.Resolve(b.BonePath);
-            return b.CachedTarget;
-        }
-
-        private static Vector3 SafeNormalize(Vector3 v, Vector3 fallback)
-        {
-            if (v.sqrMagnitude < 1e-8f)
-            {
-                return fallback;
-            }
-            return v.normalized;
-        }
-
         private struct EyeBinding
         {
             public readonly IAnalogInputSource Source;
-            public readonly string BonePath;
+            public readonly Transform Target;
             public readonly Quaternion RestRotation;
             public readonly Vector3 YawAxisLocal;
             public readonly Vector3 PitchAxisLocal;
@@ -353,14 +232,12 @@ namespace Hidano.FacialControl.Adapters.Bone
             public readonly float LookUpAngle;
             public readonly float LookDownAngle;
 
-            public Transform CachedTarget;
             public Quaternion InitialLocalRotation;
             public bool HasInitialSnapshot;
 
             public EyeBinding(
                 IAnalogInputSource source,
-                string bonePath,
-                Transform preResolvedTarget,
+                Transform target,
                 Quaternion restRotation,
                 Vector3 yawAxisLocal,
                 Vector3 pitchAxisLocal,
@@ -371,7 +248,7 @@ namespace Hidano.FacialControl.Adapters.Bone
                 float lookDownAngle)
             {
                 Source = source;
-                BonePath = bonePath;
+                Target = target;
                 RestRotation = restRotation;
                 YawAxisLocal = yawAxisLocal;
                 PitchAxisLocal = pitchAxisLocal;
@@ -381,7 +258,6 @@ namespace Hidano.FacialControl.Adapters.Bone
                 LookUpAngle = Mathf.Max(0f, lookUpAngle);
                 LookDownAngle = Mathf.Max(0f, lookDownAngle);
 
-                CachedTarget = preResolvedTarget;
                 InitialLocalRotation = Quaternion.identity;
                 HasInitialSnapshot = false;
             }

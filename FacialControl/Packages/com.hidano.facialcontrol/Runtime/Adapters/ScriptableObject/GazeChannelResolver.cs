@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using Hidano.FacialControl.Adapters.InputSources;
 using Hidano.FacialControl.Domain.Interfaces;
 using Hidano.FacialControl.Domain.Models;
@@ -26,6 +27,14 @@ namespace Hidano.FacialControl.Adapters.ScriptableObject
     }
 
     /// <summary>GazeChannel を起点に入力源を解決する旧 resolver 後継。</summary>
+    /// <remarks>
+    /// 目線メニューの設定はどの目線制御 (InputSystem / iFacialMocap / OSC 受信など) にも同じく効かせるため、
+    /// 入力源は規約 id (<c>{slug}:{channelId}</c>・<c>.left</c> / <c>.right</c>) だけで解決する。
+    /// <see cref="GazeChannel.providerSlug"/> / <see cref="GazeChannel.useDistinctLeftRight"/> /
+    /// <see cref="GazeChannel.sourceIdLeft"/> / <see cref="GazeChannel.sourceIdRight"/> は旧データの互換のために
+    /// 残しているだけで読まない (HID-191)。複数の binding が同じチャネルを提供する場合は slug の Ordinal 順で
+    /// 先頭のものを使い、警告を (チャネル id, slug) ごとに 1 回出す。
+    /// </remarks>
     public static class GazeChannelResolver
     {
         public static bool TryResolve(
@@ -39,62 +48,8 @@ namespace Hidano.FacialControl.Adapters.ScriptableObject
                 return false;
             }
 
-            if (channel.useDistinctLeftRight)
-            {
-                if (TryResolveExplicit(channel, registry, out resolved))
-                {
-                    return true;
-                }
-
-                return false;
-            }
-
-            if (!string.IsNullOrWhiteSpace(channel.providerSlug))
-            {
-                return TryResolveForSlug(channel.id, channel.providerSlug, registry, out resolved);
-            }
-
             return TryResolveSidePair(channel.id, registry, out resolved)
                 || TryResolveShared(channel.id, registry, out resolved);
-        }
-
-        private static bool TryResolveExplicit(GazeChannel channel, IInputSourceRegistry registry, out ResolvedGazeInputSources resolved)
-        {
-            resolved = default;
-            TryGetAnalog(registry, channel.sourceIdLeft, out IAnalogInputSource left);
-            TryGetAnalog(registry, channel.sourceIdRight, out IAnalogInputSource right);
-            if (left == null && right == null) return false;
-
-            if (left == null || right == null)
-            {
-                Debug.LogWarning($"[FacialControl] Gaze channel '{channel.id}' resolved only one distinct input source; using it for both eyes.");
-                left ??= right;
-                right ??= left;
-            }
-
-            resolved = new ResolvedGazeInputSources(left, right, null, channel.sourceIdLeft, channel.sourceIdRight);
-            return true;
-        }
-
-        private static bool TryResolveForSlug(string channelId, string slug, IInputSourceRegistry registry, out ResolvedGazeInputSources resolved)
-        {
-            resolved = default;
-            string leftId = GazeSourceIdConvention.Compose(slug, channelId, GazeSide.Left);
-            string rightId = GazeSourceIdConvention.Compose(slug, channelId, GazeSide.Right);
-            TryGetAnalog(registry, leftId, out IAnalogInputSource left);
-            TryGetAnalog(registry, rightId, out IAnalogInputSource right);
-            if (left == null && right == null)
-            {
-                string sharedId = GazeSourceIdConvention.Compose(slug, channelId, GazeSide.Shared);
-                if (!TryGetAnalog(registry, sharedId, out IAnalogInputSource shared)) return false;
-                resolved = new ResolvedGazeInputSources(shared, shared, slug, sharedId, sharedId);
-                return true;
-            }
-
-            left ??= right;
-            right ??= left;
-            resolved = new ResolvedGazeInputSources(left, right, slug, leftId, rightId);
-            return true;
         }
 
         private static bool TryResolveSidePair(string channelId, IInputSourceRegistry registry, out ResolvedGazeInputSources resolved)
@@ -164,8 +119,18 @@ namespace Hidano.FacialControl.Adapters.ScriptableObject
             return !string.IsNullOrEmpty(id) && registry.TryResolve(id, out IInputSource input) && (source = input as IAnalogInputSource) != null;
         }
 
+        // 競合の警告は (チャネル id, 採用 slug) ごとに 1 回だけ出す。TryResolve は出力 observer がいると毎フレーム
+        // 呼ばれるため (FacialController.BuildGazeSnapshotSpan)、毎回の警告・文字列生成を避ける。値タプルの照合は確保しない。
+        private static readonly HashSet<(string ChannelId, string Slug)> s_warnedConflicts =
+            new HashSet<(string ChannelId, string Slug)>();
+
         private static void LogConflict(string channelId, string slug)
         {
+            if (!s_warnedConflicts.Add((channelId, slug)))
+            {
+                return;
+            }
+
             Debug.LogWarning($"[FacialControl] Gaze channel '{channelId}' is provided by multiple binding slugs; selected '{slug}' by Ordinal lexicographic order.");
         }
     }

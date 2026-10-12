@@ -8,7 +8,7 @@
 - **マルチレイヤー合成** — レイヤーごとに優先度と排他モード（`lastWins` = クロスフェード / `blend` = 加算）を設定し、複数の入力源を重み付きで合成
 - **表情遷移** — 遷移時間 0〜1 秒（既定 1/15 秒）、カーブは Linear / EaseIn / EaseOut / EaseInOut。遷移中の割り込みは現在値から新遷移を開始
 - **Overlay slot** — まばたきや音素の口形状など「表情の上に重ねる」要素を slot 単位で管理。表情ごとに Default / Suppress / Override の 3 状態を選べる
-- **Gaze チャネル** — Vector2 入力を目ボーンの yaw / pitch に変換。入力源は各 binding が宣言し、Profile の目線タブでドロップダウン選択
+- **Gaze チャネル** — Vector2 入力を目ボーンの yaw / pitch に変換。Profile の目線タブで可動範囲（と任意の目のジョイント名）を設定すると、どの binding の目線入力にも効く
 - **Adapter Binding 拡張点** — `AdapterBindingBase` 派生クラスに `[FacialAdapterBinding]` を付けるだけで Inspector の Add メニューに自動列挙。binding は `ctx.InputSourceRegistry.Register(slug, source)` で入力源を公開する
 - **Editor ツール** — UI Toolkit の Profile Inspector、新規プロファイル作成ダイアログ。BlendShape スライダーで AnimationClip を作る Expression 作成ツールは `com.hidano.facialcontrol.expression-creator`、入力源とレイヤーをノードで配線するルーティングエディタは `com.hidano.facialcontrol.routing-editor` として別パッケージで提供
 - **毎フレーム GC ゼロ** — 定常状態の `LateUpdate` 全経路、10 体同時制御、Gaze 適用を PlayMode の gate テストで GC.Alloc = 0 に固定

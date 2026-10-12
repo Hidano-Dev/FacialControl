@@ -9,8 +9,7 @@ namespace Hidano.FacialControl.Timeline.Editor
 {
     /// <summary>
     /// Timeline のスクラブプレビューで目線を書き込む目ボーン 1 本分。
-    /// rest 回転と yaw / pitch 軸は、path 指定なら <see cref="GazeChannel"/> の保存値、
-    /// path 未指定なら <see cref="GazeEyeBoneFallback"/> の導出値。
+    /// rest 回転と yaw / pitch 軸は <see cref="GazeEyeBoneResolver"/> がアセットデータから求めた値 (ランタイムと同じ)。
     /// </summary>
     internal readonly struct FacialTimelinePreviewEyeTarget
     {
@@ -49,7 +48,7 @@ namespace Hidano.FacialControl.Timeline.Editor
         public Vector3 YawAxisLocal { get; }
         public Vector3 PitchAxisLocal { get; }
 
-        /// <summary>path 未指定で Humanoid の目ボーンへ fallback した target か。</summary>
+        /// <summary>ジョイント名が未指定で、Avatar の目線ボーン (Humanoid の目ボーン) を使う target か。</summary>
         public bool IsFallback { get; }
     }
 
@@ -60,15 +59,14 @@ namespace Hidano.FacialControl.Timeline.Editor
     /// <remarks>
     /// <list type="bullet">
     /// <item>Gaze 値チャネル（Bake / Value トラックの ChannelSubId = REC の source id）と <see cref="GazeChannel"/> の対応は
-    /// トラックの index ではなく id で決める（Req 7.4）: GazeChannel の明示 source id（<see cref="GazeChannel.sourceIdLeft"/> /
-    /// <see cref="GazeChannel.sourceIdRight"/>）との完全一致を優先し、無ければ <see cref="GazeSourceIdConvention"/> で分解した
+    /// トラックの index ではなく id で決める（Req 7.4）: <see cref="GazeSourceIdConvention"/> で分解した
     /// チャネル id が <see cref="GazeChannel.id"/> と一致するもの（<c>.left</c> / <c>.right</c> はその目だけ、suffix 無しは両目）。
+    /// ランタイムの GazeChannelResolver と同じく、旧データの明示 source id（<see cref="GazeChannel.sourceIdLeft"/> /
+    /// <see cref="GazeChannel.sourceIdRight"/>）は読まない (HID-191)。
     /// 一致する値チャネルが無い目は駆動しない（ランタイムは入力源の無い channel を駆動しない）。</item>
-    /// <item>path を指定した側はランタイムと同じ <see cref="BoneTransformResolver"/> で解決する
-    /// (root からの相対 path / ボーン名 / 末尾一致。見つからなければ駆動しない)。</item>
-    /// <item>path が空・空白の側は <see cref="GazeEyeBoneFallback"/> の目ボーンを使う。目ごとに、path 未指定の
-    /// 最初の駆動 channel だけが fallback を使う。fallback の目ボーンが無い側は駆動しない。</item>
-    /// <item>path 指定の target が fallback と同じボーンを指す場合は path 指定側を優先し、fallback 側を外す。</item>
+    /// <item>目線ボーンはランタイムと同じ <see cref="GazeEyeBoneResolver"/> で解決する (ジョイント名 → 見つからなければ
+    /// Avatar の目線ボーン)。どちらも無い側は駆動しない。</item>
+    /// <item>同じボーンに解決された目は、先の channel (channel 順、左目 → 右目) だけが駆動する。</item>
     /// </list>
     /// </remarks>
     internal static class FacialTimelinePreviewGazeTargets
@@ -84,14 +82,13 @@ namespace Hidano.FacialControl.Timeline.Editor
         /// 列そのものが null なら全 channel の全目を対象にする（Timeline のプロパティ登録用）。
         /// </param>
         /// <param name="resolver">
-        /// path 指定の目ボーンを解決する resolver。解決失敗の警告は resolver ごとに 1 回なので、
+        /// 目線ボーンの resolver。解決結果・警告は resolver ごとにキャッシュされるので、
         /// 呼出側はスクラブ中に同じ resolver を使い回す。
         /// </param>
         public static void Resolve(
-            BoneTransformResolver resolver,
+            GazeEyeBoneResolver resolver,
             IReadOnlyList<GazeChannel> configs,
             IReadOnlyList<string> sourceIds,
-            GazeEyeBoneFallback fallback,
             List<FacialTimelinePreviewEyeTarget> results)
         {
             if (resolver == null || configs == null || results == null)
@@ -100,8 +97,6 @@ namespace Hidano.FacialControl.Timeline.Editor
             }
 
             int start = results.Count;
-            bool leftFallbackClaimed = false;
-            bool rightFallbackClaimed = false;
             for (int i = 0; i < configs.Count; i++)
             {
                 GazeChannel config = configs[i];
@@ -119,16 +114,14 @@ namespace Hidano.FacialControl.Timeline.Editor
 
                 if (leftSource != NotDriven)
                 {
-                    AddEye(resolver, config, i, leftSource, true, fallback.Left, ref leftFallbackClaimed, results);
+                    AddEye(resolver, config, i, leftSource, true, start, results);
                 }
 
                 if (rightSource != NotDriven)
                 {
-                    AddEye(resolver, config, i, rightSource, false, fallback.Right, ref rightFallbackClaimed, results);
+                    AddEye(resolver, config, i, rightSource, false, start, results);
                 }
             }
-
-            RemoveFallbackOwnedByPath(results, start);
         }
 
         /// <summary>
@@ -153,7 +146,7 @@ namespace Hidano.FacialControl.Timeline.Editor
 
         /// <summary>
         /// <paramref name="config"/> の左右の目を駆動する値チャネルの index を id で求める（見つからなければ <see cref="NotDriven"/>）。
-        /// 明示 source id の完全一致 → 規約 id の目指定（.left / .right）→ 規約 id の両目（suffix 無し）の順に優先する。
+        /// 規約 id の目指定（.left / .right）→ 規約 id の両目（suffix 無し）の順に優先する。
         /// 同じ優先度で複数一致した場合は列の先頭を使う。
         /// </summary>
         private static void ResolveEyeSources(
@@ -162,8 +155,6 @@ namespace Hidano.FacialControl.Timeline.Editor
             out int leftSource,
             out int rightSource)
         {
-            int explicitLeft = NotDriven;
-            int explicitRight = NotDriven;
             int conventionLeft = NotDriven;
             int conventionRight = NotDriven;
             int conventionShared = NotDriven;
@@ -173,16 +164,6 @@ namespace Hidano.FacialControl.Timeline.Editor
                 if (string.IsNullOrEmpty(sourceId))
                 {
                     continue;
-                }
-
-                if (explicitLeft == NotDriven && Matches(config.sourceIdLeft, sourceId))
-                {
-                    explicitLeft = s;
-                }
-
-                if (explicitRight == NotDriven && Matches(config.sourceIdRight, sourceId))
-                {
-                    explicitRight = s;
                 }
 
                 if (string.IsNullOrEmpty(config.id)
@@ -218,91 +199,43 @@ namespace Hidano.FacialControl.Timeline.Editor
                 }
             }
 
-            leftSource = Pick(explicitLeft, conventionLeft, conventionShared);
-            rightSource = Pick(explicitRight, conventionRight, conventionShared);
-        }
-
-        private static int Pick(int explicitSource, int sideSource, int sharedSource)
-        {
-            if (explicitSource != NotDriven)
-            {
-                return explicitSource;
-            }
-
-            return sideSource != NotDriven ? sideSource : sharedSource;
-        }
-
-        private static bool Matches(string declaredSourceId, string sourceId)
-        {
-            return !string.IsNullOrEmpty(declaredSourceId) && string.Equals(declaredSourceId, sourceId, StringComparison.Ordinal);
+            leftSource = conventionLeft != NotDriven ? conventionLeft : conventionShared;
+            rightSource = conventionRight != NotDriven ? conventionRight : conventionShared;
         }
 
         private static void AddEye(
-            BoneTransformResolver resolver,
+            GazeEyeBoneResolver resolver,
             GazeChannel config,
             int channelIndex,
             int sourceIndex,
             bool isLeftEye,
-            GazeEyeBoneFallback.FallbackEye fallbackEye,
-            ref bool fallbackClaimed,
+            int start,
             List<FacialTimelinePreviewEyeTarget> results)
         {
-            string bonePath = isLeftEye ? config.leftEyeBonePath : config.rightEyeBonePath;
-            if (!string.IsNullOrWhiteSpace(bonePath))
+            string jointName = GazeEyeBoneResolver.ToJointName(isLeftEye ? config.leftEyeBonePath : config.rightEyeBonePath);
+            GazeEyeBoneFallback.FallbackEye eye = resolver.Resolve(jointName, isLeftEye);
+            if (eye.Bone == null)
             {
-                Transform bone = resolver.Resolve(bonePath);
-                if (bone == null)
+                return;
+            }
+
+            for (int i = start; i < results.Count; i++)
+            {
+                if (results[i].Bone == eye.Bone)
                 {
                     return;
                 }
-
-                results.Add(new FacialTimelinePreviewEyeTarget(
-                    channelIndex,
-                    sourceIndex,
-                    isLeftEye,
-                    bone,
-                    Quaternion.Euler(isLeftEye ? config.leftEyeInitialRotation : config.rightEyeInitialRotation),
-                    isLeftEye ? config.leftEyeYawAxisLocal : config.rightEyeYawAxisLocal,
-                    isLeftEye ? config.leftEyePitchAxisLocal : config.rightEyePitchAxisLocal,
-                    false));
-                return;
             }
 
-            if (fallbackClaimed || fallbackEye.Bone == null)
-            {
-                return;
-            }
-
-            fallbackClaimed = true;
             results.Add(new FacialTimelinePreviewEyeTarget(
                 channelIndex,
                 sourceIndex,
                 isLeftEye,
-                fallbackEye.Bone,
-                fallbackEye.RestRotation,
-                fallbackEye.YawAxisLocal,
-                fallbackEye.PitchAxisLocal,
-                true));
-        }
-
-        private static void RemoveFallbackOwnedByPath(List<FacialTimelinePreviewEyeTarget> results, int start)
-        {
-            for (int i = results.Count - 1; i >= start; i--)
-            {
-                if (!results[i].IsFallback)
-                {
-                    continue;
-                }
-
-                for (int j = start; j < results.Count; j++)
-                {
-                    if (!results[j].IsFallback && results[j].Bone == results[i].Bone)
-                    {
-                        results.RemoveAt(i);
-                        break;
-                    }
-                }
-            }
+                eye.Bone,
+                eye.RestRotation,
+                eye.YawAxisLocal,
+                eye.PitchAxisLocal,
+                jointName.Length == 0));
         }
 
         private static float ComputeYawDegrees(bool isLeftEye, GazeChannel config, float x)

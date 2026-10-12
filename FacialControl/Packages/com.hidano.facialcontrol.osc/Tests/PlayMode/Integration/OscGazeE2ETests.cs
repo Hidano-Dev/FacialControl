@@ -193,48 +193,22 @@ namespace Hidano.FacialControl.Tests.PlayMode.Integration
         }
 
         [UnityTest]
-        public IEnumerator FacialController_ReceiverWithoutGazeSetup_UsesSenderBonePathsAndRange()
+        public IEnumerator FacialController_UdpLoopback_UsesReceiverGazeMenuRange()
         {
             int port = AllocatePort();
-            const string receiverName = "OscGazeE2E_UnconfiguredReceiver";
+            const string receiverName = "OscGazeE2E_LocalRangeReceiver";
 
-            var senderBinding = new OscSenderAdapterBinding
-            {
-                Slug = "gaze-override-sender",
-                SuppressLoopback = false,
-                LayoutRefreshIntervalSeconds = 60f,
-            };
-            senderBinding.ConfigureEndpoints(
-                new[] { new OscSenderEndpointConfig(Endpoint, port, true) },
-                Array.Empty<string>());
-            senderBinding.ConfigureGazeChannels(new[] { GazeSourceIdConvention.DefaultChannelId });
-            // 送信側の目線タブ相当: Humanoid 以外の path と可動範囲を指定する。
-            senderBinding.ConfigureGazeChannelSettings(new[]
-            {
-                new GazeChannel
-                {
-                    id = GazeSourceIdConvention.DefaultChannelId,
-                    leftEyeBonePath = "Eyes/LeftEye",
-                    rightEyeBonePath = "Eyes/RightEye",
-                    lookUpAngle = 35f,
-                    lookDownAngle = 20f,
-                    outerYawAngle = 25f,
-                    innerYawAngle = 22f,
-                },
-            });
+            // 送信側は目線メニューを持たない (HID-191: range= / bone.left= / bone.right= を送らない)。
+            var senderBinding = CreateSenderWithIds("gaze-range-sender", port, GazeSourceIdConvention.DefaultChannelId);
+            var receiverBinding = CreateReceiver("gaze-range-receiver", port);
+            StartBinding(senderBinding, CreateContext(CreateGameObject("OscGazeE2E_RangeSender")));
 
-            var receiverBinding = CreateReceiver("gaze-override-receiver", port);
-            StartBinding(senderBinding, CreateContext(CreateGameObject("OscGazeE2E_OverrideSender")));
-
-            // 受信側は目線タブを触らない (既定チャネル gaze のみ・path 未指定)。モデルは非 Humanoid なので、
-            // 送信側の path が届かなければ目は動かない。
-            var receiverProfile = ScriptableObject.CreateInstance<TestGazeProfileSO>();
-            receiverProfile.name = receiverName + "Profile";
-            receiverProfile.WritableAdapterBindings.Add(receiverBinding);
-            _objects.Add(receiverProfile);
-            GazeChannel receiverChannel = receiverProfile.GazeChannels[0];
-            Assert.That(receiverChannel.leftEyeBonePath, Is.Empty);
-            Assert.That(receiverChannel.lookUpAngle, Is.EqualTo(15f));
+            // 受信側の目線メニュー: 可動範囲だけを設定し、ジョイント名で目を指定する (非 Humanoid モデル)。
+            var receiverProfile = CreateGazeProfile(
+                new AdapterBindingBase[] { receiverBinding },
+                providerSlug: string.Empty,
+                name: receiverName,
+                lookUpAngle: 12f);
 
             FacialController receiverController = CreateGazeController(receiverName, receiverProfile, out Transform receiverLeftEye);
             yield return null;
@@ -257,18 +231,56 @@ namespace Hidano.FacialControl.Tests.PlayMode.Integration
                 rotated = Quaternion.Angle(initialRotation, receiverLeftEye.localRotation) > 0.1f;
             }
 
-            Assert.That(rotated, Is.True,
-                "送信側の目ボーン path が広告で届き、目線タブ未設定の受信側でも目ボーンが動くこと。");
-            Assert.That(receiverBinding.TryGetGazeChannelOverride(
-                    GazeSourceIdConvention.DefaultChannelId,
-                    out GazeChannelOverride received),
-                Is.True);
-            Assert.That(received.LeftEyeBonePath, Is.EqualTo("Eyes/LeftEye"));
-            Assert.That(received.LookUpAngle, Is.EqualTo(35f));
-            // input (0, 1) は上方向。受信側ローカルの lookUp 15 ではなく、送信側の 35 で回る。
-            // UDP 経由の値の誤差を見込み、ローカル値 15 と明確に区別できる範囲で確認する。
+            Assert.That(rotated, Is.True, "受信側の目線メニューのジョイント名で目ボーンが動くこと。");
+            // input (0, 1) は上方向。受信側の lookUp 12 で回る (UDP 経由の値の誤差を見込む)。
             float angle = Quaternion.Angle(initialRotation, receiverLeftEye.localRotation);
-            Assert.That(angle, Is.GreaterThan(25f).And.LessThan(35.5f));
+            Assert.That(angle, Is.GreaterThan(10f).And.LessThan(12.5f));
+
+            receiverController.enabled = false;
+        }
+
+        [UnityTest]
+        public IEnumerator FacialController_LegacySenderGazeAttributes_AreIgnored()
+        {
+            const string receiverName = "OscGazeE2E_LegacyAttributesReceiver";
+            OscReceiverAdapterBinding receiverBinding = CreateReceiver("gaze-legacy-receiver", AllocatePort());
+            var oscSender = new SenderIdentity(Guid.NewGuid(), 1_000L);
+            var receiverProfile = CreateGazeProfile(
+                new AdapterBindingBase[] { receiverBinding },
+                providerSlug: string.Empty,
+                name: receiverName,
+                lookUpAngle: 12f);
+
+            FacialController receiverController = CreateGazeController(receiverName, receiverProfile, out Transform receiverLeftEye);
+            yield return null;
+            Assert.That(receiverController.IsInitialized, Is.True);
+            Quaternion initialRotation = receiverLeftEye.localRotation;
+
+            // 旧送信側は可動範囲と目ボーン path を属性で送ってくる。受信側は読み飛ばし、自分の目線メニューを使う。
+            OscIndexedFrameMessages.ApplyLayout(
+                receiverBinding,
+                oscSender,
+                Array.Empty<string>(),
+                new[]
+                {
+                    new OscFrameLayoutGazeChannel(
+                        GazeSourceIdConvention.DefaultChannelId,
+                        new[] { "bone.left=Missing/Bone", "bone.right=Missing/Bone", "range=35,35,35,35" }),
+                });
+            OscIndexedFrameMessages.SendFrame(receiverBinding.HelperHost.Receiver, oscSender, 2000UL, 0f, 1f);
+
+            bool rotated = false;
+            for (int attempt = 0; attempt < 20 && !rotated; attempt++)
+            {
+                yield return new WaitForSecondsRealtime(0.05f);
+                receiverBinding.OnFixedTick(0.02f);
+                yield return null;
+                rotated = Quaternion.Angle(initialRotation, receiverLeftEye.localRotation) > 0.1f;
+            }
+
+            Assert.That(rotated, Is.True, "旧属性の目ボーン path に引きずられず、受信側のジョイント名で目ボーンが動くこと。");
+            float angle = Quaternion.Angle(initialRotation, receiverLeftEye.localRotation);
+            Assert.That(angle, Is.EqualTo(12f).Within(0.5f), "旧属性の range= ではなく受信側の lookUp 12 で回ること。");
 
             receiverController.enabled = false;
         }
@@ -655,7 +667,8 @@ namespace Hidano.FacialControl.Tests.PlayMode.Integration
         private TestGazeProfileSO CreateGazeProfile(
             IReadOnlyList<AdapterBindingBase> bindings,
             string providerSlug,
-            string name)
+            string name,
+            float lookUpAngle = 30f)
         {
             var profile = ScriptableObject.CreateInstance<TestGazeProfileSO>();
             profile.name = name + "Profile";
@@ -663,9 +676,9 @@ namespace Hidano.FacialControl.Tests.PlayMode.Integration
             {
                 id = GazeSourceIdConvention.DefaultChannelId,
                 providerSlug = providerSlug,
-                leftEyeBonePath = "Eyes/LeftEye",
-                rightEyeBonePath = "Eyes/RightEye",
-                lookUpAngle = 30f,
+                leftEyeBonePath = "LeftEye",
+                rightEyeBonePath = "RightEye",
+                lookUpAngle = lookUpAngle,
                 lookDownAngle = 30f,
                 outerYawAngle = 30f,
                 innerYawAngle = 30f,

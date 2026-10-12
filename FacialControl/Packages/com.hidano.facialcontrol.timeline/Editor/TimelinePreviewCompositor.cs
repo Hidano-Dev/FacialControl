@@ -246,8 +246,7 @@ namespace Hidano.FacialControl.Timeline.Editor
         public void EvaluateGaze(
             double timeSeconds,
             IReadOnlyList<GazeChannel> gazeChannels,
-            BoneTransformResolver resolver,
-            GazeEyeBoneFallback fallback,
+            GazeEyeBoneResolver resolver,
             List<FacialTimelinePreviewEyeTarget> buffer)
         {
             if (!CanRender || _disposed || gazeChannels == null || gazeChannels.Count == 0
@@ -257,7 +256,7 @@ namespace Hidano.FacialControl.Timeline.Editor
             }
 
             buffer.Clear();
-            FacialTimelinePreviewGazeTargets.Resolve(resolver, gazeChannels, _gazeSourceIds, fallback, buffer);
+            FacialTimelinePreviewGazeTargets.Resolve(resolver, gazeChannels, _gazeSourceIds, buffer);
             for (int i = 0; i < buffer.Count; i++)
             {
                 FacialTimelinePreviewEyeTarget target = buffer[i];
@@ -273,8 +272,7 @@ namespace Hidano.FacialControl.Timeline.Editor
         /// </summary>
         public void ResolveGazeTargets(
             IReadOnlyList<GazeChannel> gazeChannels,
-            BoneTransformResolver resolver,
-            GazeEyeBoneFallback fallback,
+            GazeEyeBoneResolver resolver,
             List<FacialTimelinePreviewEyeTarget> targets)
         {
             if (!CanRender || _disposed || gazeChannels == null || gazeChannels.Count == 0
@@ -283,7 +281,7 @@ namespace Hidano.FacialControl.Timeline.Editor
                 return;
             }
 
-            FacialTimelinePreviewGazeTargets.Resolve(resolver, gazeChannels, _gazeSourceIds, fallback, targets);
+            FacialTimelinePreviewGazeTargets.Resolve(resolver, gazeChannels, _gazeSourceIds, targets);
         }
 
         /// <summary>

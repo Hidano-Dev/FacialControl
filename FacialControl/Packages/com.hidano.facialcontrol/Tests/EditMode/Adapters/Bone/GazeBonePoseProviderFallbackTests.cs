@@ -11,8 +11,8 @@ using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.Tests.EditMode.Adapters.Bone
 {
     /// <summary>
-    /// 目ボーン path 未指定の <see cref="GazeChannel"/> が <see cref="GazeEyeBoneFallback"/> の目ボーンを
-    /// 駆動すること、path 指定時は従来どおり path を優先することを検証する。
+    /// <see cref="GazeBonePoseProvider"/> が <see cref="GazeEyeBoneResolver"/> で解決した目ボーン
+    /// (ジョイント名 → Avatar の目線ボーン) を、目線メニューの可動範囲で駆動することを検証する。
     /// Humanoid Avatar からの解決自体は PlayMode の GazeEyeBoneFallbackHumanoidTests で検証する。
     /// </summary>
     [SmallTest]
@@ -45,12 +45,12 @@ namespace Hidano.FacialControl.Tests.EditMode.Adapters.Bone
         }
 
         [Test]
-        public void Apply_EmptyBonePathsWithFallbackEyes_DrivesFallbackEyes()
+        public void Apply_EmptyJointNamesWithAvatarEyes_DrivesAvatarEyes()
         {
             var channel = new GazeChannel { id = "gaze" };
             var source = new FixedGazeSource(0.5f, 0f);
 
-            using (var provider = CreateProvider(channel, source, new GazeEyeBoneFallback(_leftEye, _rightEye, _root.transform)))
+            using (var provider = CreateProvider(channel, source, CreateResolver(_leftEye, _rightEye)))
             {
                 provider.Apply();
 
@@ -63,27 +63,82 @@ namespace Hidano.FacialControl.Tests.EditMode.Adapters.Bone
         }
 
         [Test]
-        public void Apply_EmptyBonePathWithRestRotation_ComposesOnTopOfFallbackCreationTimeRest()
+        public void Apply_GazeMenuRange_UsesChannelAngles()
         {
-            var rest = Quaternion.Euler(10f, 20f, 5f);
-            _leftEye.localRotation = rest;
-            var fallback = new GazeEyeBoneFallback(_leftEye, null, _root.transform);
-            // fallback 作成後の姿勢変化 (アニメーション等) は rest に影響しない。
-            _leftEye.localRotation = Quaternion.Euler(0f, 60f, 0f);
-            var channel = new GazeChannel { id = "gaze" };
+            var channel = new GazeChannel { id = "gaze", lookUpAngle = 7f, lookDownAngle = 3f };
             var source = new FixedGazeSource(0f, 1f);
 
-            using (var provider = CreateProvider(channel, source, fallback))
+            using (var provider = CreateProvider(channel, source, CreateResolver(_leftEye, _rightEye)))
             {
                 provider.Apply();
 
-                var expected = Quaternion.AngleAxis(-channel.lookUpAngle, Vector3.right) * rest;
-                AssertRotation(expected, _leftEye.localRotation);
+                AssertRotation(Quaternion.AngleAxis(-7f, Vector3.right), _leftEye.localRotation);
             }
         }
 
         [Test]
-        public void Apply_MultipleChannelsWithEmptyPaths_OnlyFirstChannelDrivesFallbackEyes()
+        public void Apply_JointName_DrivesNamedBoneInsteadOfAvatarEye()
+        {
+            var customEye = MakeChild("CustomEye", _head);
+            var channel = new GazeChannel
+            {
+                id = "gaze",
+                leftEyeBonePath = "CustomEye",
+            };
+            var source = new FixedGazeSource(0.5f, 0f);
+
+            using (var provider = CreateProvider(channel, source, CreateResolver(_leftEye, _rightEye)))
+            {
+                provider.Apply();
+
+                Assert.That(Quaternion.Angle(Quaternion.identity, customEye.localRotation), Is.GreaterThan(0.1f),
+                    "ジョイント名を指定した側は、その名前のボーンを駆動する");
+                AssertRotation(Quaternion.identity, _leftEye.localRotation);
+                Assert.That(Quaternion.Angle(Quaternion.identity, _rightEye.localRotation), Is.GreaterThan(0.1f),
+                    "ジョイント名が空の側は Avatar の目線ボーンを駆動する");
+            }
+        }
+
+        [Test]
+        public void Apply_LegacyBonePath_UsesLastSegmentAsJointName()
+        {
+            var channel = new GazeChannel { id = "gaze", leftEyeBonePath = "Armature/Head/LeftEye" };
+            var source = new FixedGazeSource(0.5f, 0f);
+
+            // Avatar の目線ボーンは無い。旧データの path は末尾の LeftEye で解決される。
+            using (var provider = CreateProvider(channel, source, CreateResolver(null, null)))
+            {
+                provider.Apply();
+
+                Assert.That(Quaternion.Angle(Quaternion.identity, _leftEye.localRotation), Is.GreaterThan(0.1f));
+            }
+        }
+
+        [Test]
+        public void Apply_JointName_IgnoresStoredInitialRotationAndUsesDerivedRest()
+        {
+            // GazeChannel に保存された初期回転は読まない。rest は resolver が求める (ここではアセットデータが
+            // 無いので構築時点の姿勢)。
+            var rest = Quaternion.Euler(0f, 45f, 0f);
+            _leftEye.localRotation = rest;
+            var channel = new GazeChannel
+            {
+                id = "gaze",
+                leftEyeBonePath = "LeftEye",
+                leftEyeInitialRotation = new Vector3(0f, -80f, 0f),
+            };
+            var source = new FixedGazeSource(0f, 0f);
+
+            using (var provider = CreateProvider(channel, source, CreateResolver(null, null)))
+            {
+                provider.Apply();
+
+                AssertRotation(rest, _leftEye.localRotation);
+            }
+        }
+
+        [Test]
+        public void Apply_MultipleChannelsResolvingSameEye_OnlyFirstChannelDrivesIt()
         {
             var first = new GazeChannel { id = "gaze" };
             var second = new GazeChannel { id = "camera" };
@@ -91,13 +146,12 @@ namespace Hidano.FacialControl.Tests.EditMode.Adapters.Bone
             var secondSource = new FixedGazeSource(-1f, -1f);
 
             using (var provider = new GazeBonePoseProvider(
-                new BoneTransformResolver(_root.transform),
+                CreateResolver(_leftEye, _rightEye),
                 new[]
                 {
                     new GazeBoneBinding(first, firstSource, firstSource),
                     new GazeBoneBinding(second, secondSource, secondSource),
-                },
-                new GazeEyeBoneFallback(_leftEye, _rightEye, _root.transform)))
+                }))
             {
                 provider.Apply();
 
@@ -107,99 +161,12 @@ namespace Hidano.FacialControl.Tests.EditMode.Adapters.Bone
         }
 
         [Test]
-        public void Dispose_TwoBindingsWritingSameBone_RestoresValueBeforeFirstWrite()
-        {
-            var original = Quaternion.Euler(0f, 10f, 0f);
-            _leftEye.localRotation = original;
-            var first = new GazeChannel { id = "gaze", leftEyeBonePath = "Head/LeftEye", leftEyeInitialRotation = new Vector3(0f, 10f, 0f) };
-            var second = new GazeChannel { id = "camera", leftEyeBonePath = "Head/LeftEye", leftEyeInitialRotation = new Vector3(0f, 10f, 0f) };
-            var source = new FixedGazeSource(1f, 1f);
-
-            var provider = new GazeBonePoseProvider(
-                new BoneTransformResolver(_root.transform),
-                new[] { new GazeBoneBinding(first, source, null), new GazeBoneBinding(second, source, null) });
-            provider.Apply();
-            provider.Dispose();
-
-            AssertRotation(original, _leftEye.localRotation);
-        }
-
-        [Test]
-        public void Apply_PathBindingTargetsSameBoneAsFallback_PathBindingWins()
-        {
-            // channel "gaze" は左目を path で、channel "camera" は path 未指定 (= 同じ Humanoid LeftEye)。
-            var pathChannel = new GazeChannel { id = "gaze", leftEyeBonePath = "Head/LeftEye", rightEyeBonePath = "Head/RightEye" };
-            var fallbackChannel = new GazeChannel { id = "camera" };
-            var pathSource = new FixedGazeSource(0.5f, 0f);
-            var fallbackSource = new FixedGazeSource(-1f, -1f);
-
-            using (var provider = new GazeBonePoseProvider(
-                new BoneTransformResolver(_root.transform),
-                new[]
-                {
-                    new GazeBoneBinding(pathChannel, pathSource, pathSource),
-                    new GazeBoneBinding(fallbackChannel, fallbackSource, fallbackSource),
-                },
-                new GazeEyeBoneFallback(_leftEye, _rightEye, _root.transform)))
-            {
-                provider.Apply();
-
-                AssertRotation(Quaternion.AngleAxis(-0.5f * pathChannel.outerYawAngle, Vector3.up), _leftEye.localRotation);
-                AssertRotation(Quaternion.AngleAxis(-0.5f * pathChannel.innerYawAngle, Vector3.up), _rightEye.localRotation);
-            }
-        }
-
-        [Test]
-        public void Apply_SpecifiedBonePath_UsesPathAndIgnoresFallback()
-        {
-            var customEye = MakeChild("CustomEye", _head);
-            var channel = new GazeChannel
-            {
-                id = "gaze",
-                leftEyeBonePath = "Head/CustomEye",
-                rightEyeBonePath = "Head/RightEye",
-            };
-            var source = new FixedGazeSource(0.5f, 0f);
-
-            using (var provider = CreateProvider(channel, source, new GazeEyeBoneFallback(_leftEye, _rightEye, _root.transform)))
-            {
-                provider.Apply();
-
-                Assert.That(Quaternion.Angle(Quaternion.identity, customEye.localRotation), Is.GreaterThan(0.1f),
-                    "path 指定側は path のボーンを駆動する");
-                AssertRotation(Quaternion.identity, _leftEye.localRotation);
-                Assert.That(Quaternion.Angle(Quaternion.identity, _rightEye.localRotation), Is.GreaterThan(0.1f));
-            }
-        }
-
-        [Test]
-        public void Apply_SpecifiedBonePath_UsesStoredInitialRotationNotCurrentPose()
-        {
-            // path 指定時の既存挙動: rest は GazeChannel に保存された InitialRotation を使う。
-            _leftEye.localRotation = Quaternion.Euler(0f, 45f, 0f);
-            var channel = new GazeChannel
-            {
-                id = "gaze",
-                leftEyeBonePath = "Head/LeftEye",
-                leftEyeInitialRotation = Vector3.zero,
-            };
-            var source = new FixedGazeSource(0f, 0f);
-
-            using (var provider = CreateProvider(channel, source, default))
-            {
-                provider.Apply();
-
-                AssertRotation(Quaternion.identity, _leftEye.localRotation);
-            }
-        }
-
-        [Test]
-        public void Constructor_EmptyBonePathsWithoutFallback_ReportsUnresolvedWithoutThrowing()
+        public void Constructor_NoJointNameAndNoAvatarEyes_ReportsUnresolvedWithoutThrowing()
         {
             var channel = new GazeChannel { id = "gaze" };
             var source = new FixedGazeSource(0.5f, 0.5f);
 
-            using (var provider = CreateProvider(channel, source, new GazeEyeBoneFallback(null, null, _root.transform)))
+            using (var provider = CreateProvider(channel, source, CreateResolver(null, null)))
             {
                 Assert.DoesNotThrow(() => provider.Apply());
 
@@ -213,32 +180,14 @@ namespace Hidano.FacialControl.Tests.EditMode.Adapters.Bone
         }
 
         [Test]
-        public void Constructor_LegacyOverloadWithEmptyPaths_DrivesNothing()
-        {
-            var channel = new GazeChannel { id = "gaze" };
-            var source = new FixedGazeSource(0.5f, 0.5f);
-
-            using (var provider = new GazeBonePoseProvider(
-                new BoneTransformResolver(_root.transform),
-                new[] { new GazeBoneBinding(channel, source, source) }))
-            {
-                provider.Apply();
-
-                Assert.That(provider.HasUnresolvedFallbackEye, Is.False);
-                AssertRotation(Quaternion.identity, _leftEye.localRotation);
-                AssertRotation(Quaternion.identity, _rightEye.localRotation);
-            }
-        }
-
-        [Test]
-        public void Dispose_FallbackEye_RestoresOriginalRotation()
+        public void Dispose_DrivenEye_RestoresOriginalRotation()
         {
             var original = Quaternion.Euler(3f, 4f, 5f);
             _leftEye.localRotation = original;
             var channel = new GazeChannel { id = "gaze" };
             var source = new FixedGazeSource(1f, 1f);
 
-            var provider = CreateProvider(channel, source, new GazeEyeBoneFallback(_leftEye, null, _root.transform));
+            var provider = CreateProvider(channel, source, CreateResolver(_leftEye, null));
             provider.Apply();
             Assert.That(Quaternion.Angle(original, _leftEye.localRotation), Is.GreaterThan(0.1f));
 
@@ -264,7 +213,6 @@ namespace Hidano.FacialControl.Tests.EditMode.Adapters.Bone
         [Test]
         public void DeriveRestAndAxes_RotatedParent_ReturnsRootAxesInParentLocalSpace()
         {
-            // エディタ自動割当 (参照モデル root が無回転) と同じく、root の up / right を親 local 空間で表す。
             _head.localRotation = Quaternion.Euler(0f, 0f, 90f);
             _leftEye.localRotation = Quaternion.Euler(0f, 30f, 0f);
 
@@ -276,12 +224,16 @@ namespace Hidano.FacialControl.Tests.EditMode.Adapters.Bone
             AssertVector(Quaternion.Inverse(_head.localRotation) * Vector3.right, pitch);
         }
 
-        private GazeBonePoseProvider CreateProvider(GazeChannel channel, IAnalogInputSource source, GazeEyeBoneFallback fallback)
+        private GazeEyeBoneResolver CreateResolver(Transform avatarLeftEye, Transform avatarRightEye)
+        {
+            return new GazeEyeBoneResolver(_root.transform, null, avatarLeftEye, avatarRightEye);
+        }
+
+        private static GazeBonePoseProvider CreateProvider(GazeChannel channel, IAnalogInputSource source, GazeEyeBoneResolver resolver)
         {
             return new GazeBonePoseProvider(
-                new BoneTransformResolver(_root.transform),
-                new[] { new GazeBoneBinding(channel, source, source) },
-                fallback);
+                resolver,
+                new[] { new GazeBoneBinding(channel, source, source) });
         }
 
         private static Transform MakeChild(string name, Transform parent)

@@ -36,7 +36,7 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
     /// </remarks>
     [Serializable]
     [FacialAdapterBinding(displayName: "OSC Receiver")]
-    public sealed class OscReceiverAdapterBinding : AdapterBindingBase, IGazeChannelConsumer, IGazeSourceProvider, IOscResolvedMessageHandler, IGazeChannelOverrideProvider, IAdapterBindingTargetLayerInput, IAdapterBindingDeclaredInputs
+    public sealed class OscReceiverAdapterBinding : AdapterBindingBase, IGazeChannelConsumer, IGazeSourceProvider, IOscResolvedMessageHandler, IAdapterBindingTargetLayerInput, IAdapterBindingDeclaredInputs
     {
         public const string SenderIdentityAddress = SenderIdentity.OscAddress;
 
@@ -183,11 +183,6 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
 
         [NonSerialized]
         private Queue<ulong> _bundleSenderDecisionOrder;
-
-        /// <summary>
-        /// 値フレームの対応表の gaze チャネル属性から得た目ボーン path・可動範囲の上書き。対応表を適用したときだけ更新する。
-        /// </summary>
-        [NonSerialized] private GazeChannelOverrideTable _gazeChannelOverrides;
 
         [NonSerialized]
         private IInputSourceRegistry _runtimeRegistry;
@@ -381,25 +376,6 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
         public uint LastGazeChannelHash => ComputeGazeChannelIdHash(_appliedGazeChannelIds);
 
         public bool HasAutoGazeRoutes => _autoGazeSourcesById != null && _autoGazeSourcesById.Count > 0;
-
-        /// <inheritdoc />
-        public int GazeChannelOverrideVersion =>
-            _gazeChannelOverrides != null ? _gazeChannelOverrides.Version : 0;
-
-        /// <summary>
-        /// 値フレームの対応表から受け取った、チャネル id に対する目ボーン path・可動範囲の上書きを返す。
-        /// FacialController がローカルの GazeChannel より優先して使う。
-        /// </summary>
-        public bool TryGetGazeChannelOverride(string channelId, out GazeChannelOverride value)
-        {
-            if (_gazeChannelOverrides == null)
-            {
-                value = default;
-                return false;
-            }
-
-            return _gazeChannelOverrides.TryGet(channelId, out value);
-        }
 
         /// <summary>
         /// FacialController の GazeConfigs を受け取るリフレクション注入契約。
@@ -639,7 +615,6 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
             _zombiePolicy = null;
             _bundleSenderDecisions = null;
             _bundleSenderDecisionOrder = null;
-            _gazeChannelOverrides?.Clear();
             _runtimeRegistry = null;
             _runtimeSlug = default;
             _runtimeMeshBlendShapeNames = null;
@@ -1218,14 +1193,12 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
         }
 
         /// <summary>
-        /// 対応表の gaze チャネルから、目ボーン path・可動範囲の上書きと gaze route を更新する。route はチャネル id の
-        /// 集合が変わったときだけ作り直す（属性だけの変化では入力源を作り直さない）。
+        /// 対応表の gaze チャネルから gaze route を更新する。route はチャネル id の集合が変わったときだけ作り直す。
+        /// チャネルの属性は読まない（可動範囲・目線ボーンは受信側の目線メニューで決める。旧送信側が送る
+        /// <c>range=</c> / <c>bone.left=</c> / <c>bone.right=</c> も読み飛ばす）。
         /// </summary>
         private void ApplyLayoutGazeChannels(IReadOnlyList<OscFrameLayoutGazeChannel> channels)
         {
-            _gazeChannelOverrides ??= new GazeChannelOverrideTable();
-            _gazeChannelOverrides.Update(channels);
-
             _gazeChannelIdScratch.Clear();
             for (int i = 0; i < channels.Count; i++)
             {

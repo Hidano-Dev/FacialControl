@@ -5,7 +5,9 @@ using Hidano.FacialControl.Domain.Models;
 using NUnit.Framework;
 using System;
 using System.Collections;
+using System.Text.RegularExpressions;
 using UnityEngine;
+using UnityEngine.TestTools;
 
 using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.Tests.EditMode.Adapters.ScriptableObjectTests
@@ -30,15 +32,44 @@ namespace Hidano.FacialControl.Tests.EditMode.Adapters.ScriptableObjectTests
         }
 
         [Test]
-        public void TryResolve_ProviderSlugOnlySearchesThatSlug()
+        public void TryResolve_LegacyProviderSlugAndDistinctSourceIds_AreIgnored()
         {
+            // 目線メニューの設定はどの目線制御にも効かせるため、旧データの provider / source ID 指定は読まない (HID-191)。
             var registry = new InputSourceRegistry();
-            var source = new Source("wanted:gaze");
-            registry.Register(AdapterSlug.Parse("other"), "gaze", new Source("other:gaze"));
-            registry.Register(AdapterSlug.Parse("wanted"), "gaze", source);
-            Assert.That(GazeChannelResolver.TryResolve(new GazeChannel { id = "gaze", providerSlug = "wanted" }, registry, out var result), Is.True);
-            Assert.That(result.SelectedSlug, Is.EqualTo("wanted"));
+            var source = new Source("ifacialmocap:gaze");
+            registry.Register(AdapterSlug.Parse("ifacialmocap"), "gaze", source);
+            var channel = new GazeChannel
+            {
+                id = "gaze",
+                providerSlug = "inputsystem",
+                useDistinctLeftRight = true,
+                sourceIdLeft = "inputsystem:gaze.left",
+                sourceIdRight = "inputsystem:gaze.right",
+            };
+
+            Assert.That(GazeChannelResolver.TryResolve(channel, registry, out var result), Is.True);
+            Assert.That(result.SelectedSlug, Is.EqualTo("ifacialmocap"));
             Assert.That(result.LeftSource, Is.SameAs(source));
+            Assert.That(result.RightSource, Is.SameAs(source));
+        }
+
+        [Test]
+        public void TryResolve_ConflictingSlugsResolvedRepeatedly_WarnsOnlyOnce()
+        {
+            // 出力 observer がいると TryResolve は毎フレーム呼ばれる。競合の警告を毎回出さない。
+            const string channelId = "conflict-warn-once";
+            var registry = new InputSourceRegistry();
+            registry.Register(AdapterSlug.Parse("z"), channelId, new Source("z:" + channelId));
+            registry.Register(AdapterSlug.Parse("a"), channelId, new Source("a:" + channelId));
+            LogAssert.Expect(LogType.Warning, new Regex("multiple binding slugs"));
+
+            for (int i = 0; i < 3; i++)
+            {
+                Assert.That(GazeChannelResolver.TryResolve(new GazeChannel { id = channelId }, registry, out var result), Is.True);
+                Assert.That(result.SelectedSlug, Is.EqualTo("a"));
+            }
+
+            LogAssert.NoUnexpectedReceived();
         }
 
         [Test]

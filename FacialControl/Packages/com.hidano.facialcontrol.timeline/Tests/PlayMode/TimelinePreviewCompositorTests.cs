@@ -291,8 +291,7 @@ namespace Hidano.FacialControl.Timeline.Tests.PlayMode
             TimelinePreviewCompositor compositor,
             ComparisonResult result)
         {
-            var resolver = new BoneTransformResolver(character.Controller.transform);
-            GazeEyeBoneFallback fallback = GazeEyeBoneFallback.FromAnimator(character.Controller.GetComponent<Animator>());
+            GazeEyeBoneResolver resolver = GazeEyeBoneResolver.FromAnimator(character.Controller.GetComponent<Animator>());
             foreach (double time in CollectComparisonTimes(_fixture.Timeline))
             {
                 yield return character.EvaluateAt(time);
@@ -301,7 +300,7 @@ namespace Hidano.FacialControl.Timeline.Tests.PlayMode
                 Quaternion playedRight = character.RightEye.localRotation;
 
                 compositor.Evaluate(time);
-                compositor.EvaluateGaze(time, _fixture.ProfileAsset.GazeChannels, resolver, fallback, _gazeBuffer);
+                compositor.EvaluateGaze(time, _fixture.ProfileAsset.GazeChannels, resolver, _gazeBuffer);
                 float[] composed = ReadWeights(character);
 
                 for (int i = 0; i < ComparedBlendShapes.Length; i++)

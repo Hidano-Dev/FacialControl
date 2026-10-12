@@ -477,9 +477,11 @@ public interface IBlinkTrigger
 ### 12.1 設計方針
 
 - Gaze は `FacialCharacterProfileSO` 直下の `gaze.channels[]` で構成し、先頭チャネルの id は `gaze` に固定する。チャネルは Expression やレイヤー合成に参加しない。
-- 各チャネルは入力 source の選択、左右の目ボーン path、初期回転、ローカル yaw/pitch 軸、上下左右の可動角を保持する。参照モデル割当時に Animator 起点のフル path を自動解決する。
-- 入力 source は `IGazeSourceProvider` の宣言を Inspector が列挙し、ユーザーは Gaze セクションのドロップダウンで切り替える。`providerSlug` が空の場合は binding の宣言と `{slug}:{channelId}[.left|.right]` の規約から自動解決する。
-- `GazeBonePoseProvider` は source の Vector2 を読み、Quaternion 合成で左右の目の `Transform.localRotation` を毎フレーム更新する。未入力時は設定した初期回転へ戻し、破棄時は書込み開始前の回転へ復元する。
+- 目線メニュー（Inspector）で設定するのは上下左右の可動角と、任意の左右ジョイント名だけ（HID-191）。チャネル ID・入力 source の選択・チャネルの追加削除・初期回転・yaw/pitch 軸は GUI に出さず、参照モデルからの自動設定もしない。
+- 入力 source は `{slug}:{channelId}[.left|.right]` の規約だけで解決し、可動角はどの binding の目線入力にも効く。旧データの `providerSlug` / `useDistinctLeftRight` / `sourceIdLeft` / `sourceIdRight` と、目の初期回転・yaw/pitch 軸は読み飛ばす。
+- 目ボーンはジョイント名があれば名前で探し（`/` を含むなら末尾のセグメント、完全一致優先、無ければ部分一致の先頭を警告付きで採用）、無い・見つからなければ Avatar の LeftEye / RightEye を使う。旧データの `Armature/.../LeftEye` 形式の path も同じ規則で末尾の名前として読む。
+- 目の rest 回転と yaw/pitch 軸は実行時に元のアセットデータ（Avatar の `humanDescription.skeleton` → `SkinnedMeshRenderer` のバインドポーズ。どちらも無ければ初期化時の姿勢）から求める（`GazeEyeBoneResolver`）。起動直後に頭部が正面を向いていない場合や、目線の入力が先に掛かっている場合でも正面の向きが変わらない。
+- `GazeBonePoseProvider` は source の Vector2 を読み、Quaternion 合成で左右の目の `Transform.localRotation` を毎フレーム更新する。未入力時は rest 回転へ戻し、破棄時は書込み開始前の回転へ復元する。
 - 「視線追従」「カメラ目線」は Expression テンプレートではなく、将来追加できる procedural gaze 入力 source の候補である。Vector3 ターゲットとカメラ目線 source 自体は本リリースに含めない。
 
 ### 12.2 JSON と source id

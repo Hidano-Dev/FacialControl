@@ -12,9 +12,9 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
 {
     /// <summary>
     /// Timeline スクラブプレビューの目ボーン解決を検証する。
-    /// Gaze チャネルはトラックの index ではなくチャネル id（REC source id → GazeSourceIdConvention のチャネル id、
-    /// または GazeChannel の明示 source id の完全一致）で解決し（Req 7.4）、目ボーンはランタイム (GazeBonePoseProvider) と同じく
-    /// path 未指定の側で Humanoid の目ボーン fallback を使う。
+    /// Gaze チャネルはトラックの index ではなくチャネル id（REC source id → GazeSourceIdConvention のチャネル id）で
+    /// 解決し（Req 7.4）、目ボーンはランタイム (GazeBonePoseProvider) と同じく
+    /// <see cref="GazeEyeBoneResolver"/> で解決する (ジョイント名 → 見つからなければ Avatar の目線ボーン)。
     /// </summary>
     [SmallTest]
     public sealed class FacialTimelinePreviewGazeTargetsTests : SizedTestFixture
@@ -61,7 +61,7 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
             GazeChannel first = PathChannel("gaze-a", "Head/LeftEye", "Head/RightEye");
             GazeChannel second = PathChannel("gaze-b", "Head/LeftEye2", "Head/RightEye2");
 
-            Resolve(new[] { first, second }, new[] { "osc:gaze-b" }, default);
+            Resolve(new[] { first, second }, new[] { "osc:gaze-b" }, withAvatarEyes: false);
 
             Assert.That(_results.Count, Is.EqualTo(2));
             Assert.That(_results[0].Bone, Is.SameAs(_leftEye2));
@@ -76,7 +76,7 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
         {
             GazeChannel channel = PathChannel("gaze", "Head/LeftEye", "Head/RightEye");
 
-            Resolve(new[] { channel }, new[] { "osc:gaze.right", "osc:gaze.left" }, default);
+            Resolve(new[] { channel }, new[] { "osc:gaze.right", "osc:gaze.left" }, withAvatarEyes: false);
 
             Assert.That(_results.Count, Is.EqualTo(2));
             Assert.That(FindSource(_leftEye), Is.EqualTo(1), "左目は osc:gaze.left");
@@ -84,18 +84,19 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
         }
 
         [Test]
-        public void Resolve_ExplicitSourceIds_DrivesEachEyeBySourceId()
+        public void Resolve_LegacyExplicitSourceIds_AreIgnoredLikeRuntime()
         {
+            // ランタイムの GazeChannelResolver と同じく、旧データの明示 source id は読まない (HID-191)。
             GazeChannel channel = PathChannel("gaze", "Head/LeftEye", "Head/RightEye");
             channel.useDistinctLeftRight = true;
-            channel.sourceIdLeft = "vmc:eye_l";
+            channel.sourceIdLeft = "osc:gaze.right";
             channel.sourceIdRight = "vmc:eye_r";
 
-            Resolve(new[] { channel }, new[] { "vmc:eye_r", "vmc:eye_l" }, default);
+            Resolve(new[] { channel }, new[] { "vmc:eye_r", "osc:gaze.right", "osc:gaze.left" }, withAvatarEyes: false);
 
             Assert.That(_results.Count, Is.EqualTo(2));
-            Assert.That(FindSource(_leftEye), Is.EqualTo(1));
-            Assert.That(FindSource(_rightEye), Is.EqualTo(0));
+            Assert.That(FindSource(_leftEye), Is.EqualTo(2), "左目は規約 id の osc:gaze.left");
+            Assert.That(FindSource(_rightEye), Is.EqualTo(1), "右目は規約 id の osc:gaze.right");
         }
 
         [Test]
@@ -103,7 +104,7 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
         {
             GazeChannel channel = PathChannel("gaze", "Head/LeftEye", "Head/RightEye");
 
-            Resolve(new[] { channel }, new[] { "osc:other", "osc:lt" }, CreateFallback());
+            Resolve(new[] { channel }, new[] { "osc:other", "osc:lt" }, withAvatarEyes: true);
 
             Assert.That(_results, Is.Empty);
         }
@@ -116,10 +117,10 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
             string[] ordered = { "osc:gaze-a", "osc:gaze-b" };
             string[] swapped = { "osc:gaze-b", "osc:gaze-a" };
 
-            Resolve(new[] { first, second }, ordered, default);
+            Resolve(new[] { first, second }, ordered, withAvatarEyes: false);
             Dictionary<Transform, string> orderedMap = MapBoneToSource(ordered);
             _results.Clear();
-            Resolve(new[] { first, second }, swapped, default);
+            Resolve(new[] { first, second }, swapped, withAvatarEyes: false);
             Dictionary<Transform, string> swappedMap = MapBoneToSource(swapped);
 
             Assert.That(orderedMap.Count, Is.EqualTo(4));
@@ -133,7 +134,7 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
             GazeChannel first = PathChannel("gaze-a", "Head/LeftEye", "Head/RightEye");
             GazeChannel second = PathChannel("gaze-b", "Head/LeftEye2", "Head/RightEye2");
 
-            Resolve(new[] { first, second }, null, default);
+            Resolve(new[] { first, second }, null, withAvatarEyes: false);
 
             Assert.That(_results.Count, Is.EqualTo(4));
         }
@@ -147,7 +148,7 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
         {
             var channel = new GazeChannel { id = "gaze" };
 
-            Resolve(new[] { channel }, new[] { "osc:gaze" }, CreateFallback());
+            Resolve(new[] { channel }, new[] { "osc:gaze" }, withAvatarEyes: true);
 
             Assert.That(_results.Count, Is.EqualTo(2));
             Assert.That(_results[0].Bone, Is.SameAs(_leftEye));
@@ -162,7 +163,7 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
         {
             var channel = new GazeChannel { id = "gaze" };
 
-            Resolve(new[] { channel }, new[] { "osc:gaze" }, default);
+            Resolve(new[] { channel }, new[] { "osc:gaze" }, withAvatarEyes: false);
 
             Assert.That(_results, Is.Empty);
         }
@@ -172,14 +173,15 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
         {
             var channel = new GazeChannel { id = "gaze", leftEyeBonePath = "  ", rightEyeBonePath = "\t" };
 
-            Resolve(new[] { channel }, new[] { "osc:gaze" }, default);
+            Resolve(new[] { channel }, new[] { "osc:gaze" }, withAvatarEyes: false);
 
             Assert.That(_results, Is.Empty);
         }
 
         [Test]
-        public void Resolve_ExplicitBonePath_UsesPathAndChannelRestAndAxes()
+        public void Resolve_JointName_IgnoresStoredRestAndAxes()
         {
+            // 旧データの初期回転・軸は読まず、resolver が求めた値を使う (ここではアセットデータが無いので現在の姿勢)。
             var channel = new GazeChannel
             {
                 id = "gaze",
@@ -188,39 +190,41 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
                 leftEyeYawAxisLocal = Vector3.forward,
             };
 
-            Resolve(new[] { channel }, new[] { "osc:gaze" }, default);
+            Resolve(new[] { channel }, new[] { "osc:gaze" }, withAvatarEyes: false);
 
             Assert.That(_results.Count, Is.EqualTo(1));
             Assert.That(_results[0].Bone, Is.SameAs(_leftEye));
             Assert.That(_results[0].IsFallback, Is.False);
-            AssertRotation(Quaternion.Euler(10f, 0f, 0f), _results[0].RestRotation);
-            Assert.That(_results[0].YawAxisLocal, Is.EqualTo(Vector3.forward));
+            AssertRotation(Quaternion.identity, _results[0].RestRotation);
+            Assert.That(_results[0].YawAxisLocal, Is.EqualTo(Vector3.up));
         }
 
         [Test]
-        public void Resolve_ExplicitBonePathNotFound_SkipsThatEye()
+        public void Resolve_JointNameNotFound_WarnsAndFallsBackToAvatarEye()
         {
-            var channel = new GazeChannel { id = "gaze", leftEyeBonePath = "Missing/Eye" };
-            LogAssert.Expect(LogType.Warning, new Regex("Missing/Eye"));
+            var channel = new GazeChannel { id = "gaze", leftEyeBonePath = "Missing/Nope" };
+            LogAssert.Expect(LogType.Warning, new Regex("'Nope'"));
 
-            Resolve(new[] { channel }, new[] { "osc:gaze" }, CreateFallback());
+            Resolve(new[] { channel }, new[] { "osc:gaze" }, withAvatarEyes: true);
 
-            // 左目は path 指定なので fallback に落ちない。右目は path 未指定なので fallback を使う。
-            Assert.That(_results.Count, Is.EqualTo(1));
-            Assert.That(_results[0].Bone, Is.SameAs(_rightEye));
+            Assert.That(_results.Count, Is.EqualTo(2));
+            Assert.That(_results[0].Bone, Is.SameAs(_leftEye));
+            Assert.That(_results[1].Bone, Is.SameAs(_rightEye));
         }
 
         [Test]
-        public void Resolve_FallbackRest_UsesRotationAtFallbackCreation()
+        public void Resolve_SameResolver_KeepsRestFromFirstResolution()
         {
             var rest = Quaternion.Euler(10f, 20f, 5f);
             _leftEye.localRotation = rest;
-            GazeEyeBoneFallback fallback = CreateFallback();
-            // fallback 作成後の姿勢変化 (プレビューでの書き込み等) は rest に影響しない。
-            _leftEye.localRotation = Quaternion.Euler(0f, 60f, 0f);
+            var resolver = CreateResolver(withAvatarEyes: true);
             var channel = new GazeChannel { id = "gaze" };
+            FacialTimelinePreviewGazeTargets.Resolve(resolver, new[] { channel }, new[] { "osc:gaze" }, _results);
+            // 解決後の姿勢変化 (プレビューでの書き込み等) は rest に影響しない。
+            _leftEye.localRotation = Quaternion.Euler(0f, 60f, 0f);
+            _results.Clear();
 
-            Resolve(new[] { channel }, new[] { "osc:gaze" }, fallback);
+            FacialTimelinePreviewGazeTargets.Resolve(resolver, new[] { channel }, new[] { "osc:gaze" }, _results);
 
             AssertRotation(rest, _results[0].RestRotation);
         }
@@ -231,7 +235,7 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
             var first = new GazeChannel { id = "gaze" };
             var second = new GazeChannel { id = "gaze-2" };
 
-            Resolve(new[] { first, second }, new[] { "osc:gaze", "osc:gaze-2" }, CreateFallback());
+            Resolve(new[] { first, second }, new[] { "osc:gaze", "osc:gaze-2" }, withAvatarEyes: true);
 
             Assert.That(_results.Count, Is.EqualTo(2));
             Assert.That(_results[0].ChannelIndex, Is.EqualTo(0));
@@ -239,19 +243,18 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
         }
 
         [Test]
-        public void Resolve_ExplicitPathPointsToFallbackBone_PathWins()
+        public void Resolve_TwoChannelsResolvingSameBone_FirstChannelWins()
         {
             var fallbackChannel = new GazeChannel { id = "gaze" };
-            var pathChannel = new GazeChannel { id = "gaze-2", leftEyeBonePath = "Head/LeftEye" };
+            var nameChannel = new GazeChannel { id = "gaze-2", leftEyeBonePath = "Head/LeftEye" };
 
-            Resolve(new[] { fallbackChannel, pathChannel }, new[] { "osc:gaze", "osc:gaze-2" }, CreateFallback());
+            Resolve(new[] { fallbackChannel, nameChannel }, new[] { "osc:gaze", "osc:gaze-2" }, withAvatarEyes: true);
 
             Assert.That(_results.Count, Is.EqualTo(2));
-            Assert.That(_results[0].Bone, Is.SameAs(_rightEye));
-            Assert.That(_results[0].IsFallback, Is.True);
-            Assert.That(_results[1].Bone, Is.SameAs(_leftEye));
-            Assert.That(_results[1].IsFallback, Is.False);
-            Assert.That(_results[1].ChannelIndex, Is.EqualTo(1));
+            Assert.That(_results[0].Bone, Is.SameAs(_leftEye));
+            Assert.That(_results[0].ChannelIndex, Is.EqualTo(0));
+            Assert.That(_results[1].Bone, Is.SameAs(_rightEye));
+            Assert.That(_results[1].ChannelIndex, Is.EqualTo(0));
         }
 
         [Test]
@@ -260,7 +263,7 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
             var undriven = new GazeChannel { id = "gaze" };
             var driven = new GazeChannel { id = "gaze-2" };
 
-            Resolve(new[] { undriven, driven }, new[] { "osc:gaze-2" }, CreateFallback());
+            Resolve(new[] { undriven, driven }, new[] { "osc:gaze-2" }, withAvatarEyes: true);
 
             Assert.That(_results.Count, Is.EqualTo(2));
             Assert.That(_results[0].ChannelIndex, Is.EqualTo(1));
@@ -268,17 +271,17 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
         }
 
         [Test]
-        public void Resolve_BareBoneName_ResolvesLikeRuntimeAndWinsOverFallback()
+        public void Resolve_JointName_ResolvesByNameInsteadOfAvatarEye()
         {
-            var fallbackChannel = new GazeChannel { id = "gaze" };
-            var nameChannel = new GazeChannel { id = "gaze-2", leftEyeBonePath = "LeftEye" };
+            var channel = new GazeChannel { id = "gaze", leftEyeBonePath = "LeftEye2" };
 
-            Resolve(new[] { fallbackChannel, nameChannel }, new[] { "osc:gaze", "osc:gaze-2" }, CreateFallback());
+            Resolve(new[] { channel }, new[] { "osc:gaze" }, withAvatarEyes: true);
 
             Assert.That(_results.Count, Is.EqualTo(2));
-            Assert.That(_results[0].Bone, Is.SameAs(_rightEye));
-            Assert.That(_results[1].Bone, Is.SameAs(_leftEye));
-            Assert.That(_results[1].IsFallback, Is.False);
+            Assert.That(_results[0].Bone, Is.SameAs(_leftEye2));
+            Assert.That(_results[0].IsFallback, Is.False);
+            Assert.That(_results[1].Bone, Is.SameAs(_rightEye));
+            Assert.That(_results[1].IsFallback, Is.True);
         }
 
         [Test]
@@ -287,7 +290,7 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
             var rest = Quaternion.Euler(10f, 20f, 5f);
             _leftEye.localRotation = rest;
             var channel = new GazeChannel { id = "gaze" };
-            Resolve(new[] { channel }, new[] { "osc:gaze" }, CreateFallback());
+            Resolve(new[] { channel }, new[] { "osc:gaze" }, withAvatarEyes: true);
 
             Quaternion rotation = FacialTimelinePreviewGazeTargets.ComputeLocalRotation(_results[0], channel, 0f, 1f);
 
@@ -298,7 +301,7 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
         public void ComputeLocalRotation_LeftEyePositiveX_UsesOuterYaw()
         {
             var channel = new GazeChannel { id = "gaze" };
-            Resolve(new[] { channel }, new[] { "osc:gaze" }, CreateFallback());
+            Resolve(new[] { channel }, new[] { "osc:gaze" }, withAvatarEyes: true);
 
             Quaternion left = FacialTimelinePreviewGazeTargets.ComputeLocalRotation(_results[0], channel, 0.5f, 0f);
             Quaternion right = FacialTimelinePreviewGazeTargets.ComputeLocalRotation(_results[1], channel, 0.5f, 0f);
@@ -307,9 +310,9 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
             AssertRotation(Quaternion.AngleAxis(-0.5f * channel.innerYawAngle, Vector3.up), right);
         }
 
-        private void Resolve(IReadOnlyList<GazeChannel> channels, IReadOnlyList<string> sourceIds, GazeEyeBoneFallback fallback)
+        private void Resolve(IReadOnlyList<GazeChannel> channels, IReadOnlyList<string> sourceIds, bool withAvatarEyes)
         {
-            FacialTimelinePreviewGazeTargets.Resolve(new BoneTransformResolver(_root.transform), channels, sourceIds, fallback, _results);
+            FacialTimelinePreviewGazeTargets.Resolve(CreateResolver(withAvatarEyes), channels, sourceIds, _results);
         }
 
         private int FindSource(Transform bone)
@@ -337,9 +340,11 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
             return map;
         }
 
-        private GazeEyeBoneFallback CreateFallback()
+        private GazeEyeBoneResolver CreateResolver(bool withAvatarEyes)
         {
-            return new GazeEyeBoneFallback(_leftEye, _rightEye, _root.transform);
+            return withAvatarEyes
+                ? new GazeEyeBoneResolver(_root.transform, null, _leftEye, _rightEye)
+                : new GazeEyeBoneResolver(_root.transform, null, null, null);
         }
 
         private static GazeChannel PathChannel(string id, string leftPath, string rightPath)

@@ -16,7 +16,8 @@ using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.Tests.PlayMode.Adapters.Bone
 {
     /// <summary>
-    /// 目ボーン path 未指定の GazeChannel が Humanoid Avatar の LeftEye / RightEye を駆動することを、
+    /// ジョイント名未指定の GazeChannel が Humanoid Avatar の LeftEye / RightEye を駆動すること、rest 回転・軸を
+    /// Avatar の skeleton (実行時の姿勢ではない) から求めることを、
     /// 実 Humanoid Avatar (<see cref="AvatarBuilder.BuildHumanAvatar"/>) と <see cref="FacialController"/> で検証する。
     /// </summary>
     /// <remarks>
@@ -26,7 +27,7 @@ namespace Hidano.FacialControl.Tests.PlayMode.Adapters.Bone
     [MediumTest]
     public class GazeEyeBoneFallbackHumanoidTests : SizedTestFixture
     {
-        private const string UnresolvedWarningFragment = "目線ボーン path が未指定";
+        private const string UnresolvedWarningFragment = "目線ボーンを解決できない";
 
         private GameObject _rootGo;
         private Avatar _avatar;
@@ -72,6 +73,46 @@ namespace Hidano.FacialControl.Tests.PlayMode.Adapters.Bone
         }
 
         [Test]
+        public void FromAnimator_HeadNotFacingForwardAndEyeAlreadyRotated_DerivesRestFromAvatarSkeleton()
+        {
+            BuildHumanoid(includeEyes: true);
+            var animator = _rootGo.GetComponent<Animator>();
+            var head = animator.GetBoneTransform(HumanBodyBones.Head);
+            var leftEye = animator.GetBoneTransform(HumanBodyBones.LeftEye);
+            // 起動直後に頭が正面を向いておらず (首を振っている)、目線の入力 (OSC 等) も既に掛かっている。
+            head.localRotation = Quaternion.Euler(20f, 40f, 10f);
+            leftEye.localRotation = Quaternion.Euler(0f, 25f, 0f);
+
+            var resolver = GazeEyeBoneResolver.FromAnimator(animator);
+            GazeEyeRestPoseSource source = resolver.DeriveRestPose(
+                leftEye, out Quaternion rest, out Vector3 yaw, out Vector3 pitch);
+            var fallback = resolver.Fallback;
+
+            // テスト用 Humanoid の skeleton は全ボーン無回転。実行時の姿勢に関わらず、正面基準の値になる。
+            Assert.That(source, Is.EqualTo(GazeEyeRestPoseSource.AvatarSkeleton));
+            Assert.That(Quaternion.Angle(Quaternion.identity, rest), Is.LessThan(0.01f));
+            Assert.That((yaw - Vector3.up).magnitude, Is.LessThan(1e-4f));
+            Assert.That((pitch - Vector3.right).magnitude, Is.LessThan(1e-4f));
+            Assert.That(Quaternion.Angle(Quaternion.identity, fallback.Left.RestRotation), Is.LessThan(0.01f));
+            Assert.That((fallback.Left.YawAxisLocal - Vector3.up).magnitude, Is.LessThan(1e-4f));
+        }
+
+        [Test]
+        public void Resolve_JointNameOnHumanoid_DerivesRestFromAvatarSkeleton()
+        {
+            BuildHumanoid(includeEyes: true);
+            var animator = _rootGo.GetComponent<Animator>();
+            var rightEye = animator.GetBoneTransform(HumanBodyBones.RightEye);
+            rightEye.localRotation = Quaternion.Euler(0f, -30f, 0f);
+
+            var eye = GazeEyeBoneResolver.FromAnimator(animator).Resolve("Armature/RightEye", isLeftEye: false);
+
+            Assert.That(eye.Bone, Is.SameAs(rightEye));
+            Assert.That(Quaternion.Angle(Quaternion.identity, eye.RestRotation), Is.LessThan(0.01f),
+                "ジョイント名指定時も Humanoid フォールバックと同じく Avatar の skeleton から求める");
+        }
+
+        [Test]
         public void FromAnimator_HumanoidWithoutEyes_ReturnsNullEyes()
         {
             BuildHumanoid(includeEyes: false);
@@ -106,9 +147,8 @@ namespace Hidano.FacialControl.Tests.PlayMode.Adapters.Bone
             var source = new FixedGazeSource(0.5f, 0.5f);
 
             using (var provider = new GazeBonePoseProvider(
-                new BoneTransformResolver(_rootGo.transform),
-                new[] { new GazeBoneBinding(channel, source, source) },
-                GazeEyeBoneFallback.FromAnimator(animator)))
+                GazeEyeBoneResolver.FromAnimator(animator),
+                new[] { new GazeBoneBinding(channel, source, source) }))
             {
                 provider.Apply();
 
