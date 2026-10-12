@@ -143,8 +143,8 @@ namespace Hidano.FacialControl.Adapters.Playable
         /// 目線ボーンを引けるようにする (HID-192)。解決できない目は null。Animator が無いときは両方 null。
         /// </summary>
         /// <remarks>
-        /// 目線チャネルが複数ある場合は、各目について先頭から最初に解決できたボーンを使う (目線制御と同じく先の channel が優先)。
-        /// 目線チャネルが無い場合は Avatar の目線ボーンを使う。
+        /// 目線チャネルが複数ある場合は、各目について入力源があり実際に駆動している先頭の channel のボーンを使う
+        /// (無ければ先頭から最初に解決できた channel のボーン)。目線チャネルが無い場合は Avatar の目線ボーンを使う。
         /// </remarks>
         public void GetGazeEyeBonePaths(out string leftEyeBonePath, out string rightEyeBonePath)
         {
@@ -162,7 +162,10 @@ namespace Hidano.FacialControl.Adapters.Playable
 
         private string ResolveGazeEyeBonePath(bool isLeftEye)
         {
-            Transform bone = null;
+            // 目線制御は入力源のある channel だけを駆動するので、その目を実際に駆動している channel のボーンを優先する。
+            // 駆動中の channel が無い (録画開始時点で入力源が未登録等) ときは、最初に解決できた channel のボーンを使う。
+            Transform drivenBone = null;
+            Transform firstBone = null;
             bool hasChannel = false;
             for (int i = 0; _gazeChannels != null && i < _gazeChannels.Count; i++)
             {
@@ -173,20 +176,39 @@ namespace Hidano.FacialControl.Adapters.Playable
                 }
 
                 hasChannel = true;
-                bone = _gazeEyeResolver.Resolve(isLeftEye ? channel.leftEyeBonePath : channel.rightEyeBonePath, isLeftEye).Bone;
-                if (bone != null)
+                Transform bone = _gazeEyeResolver.Resolve(isLeftEye ? channel.leftEyeBonePath : channel.rightEyeBonePath, isLeftEye).Bone;
+                if (bone == null)
                 {
+                    continue;
+                }
+
+                firstBone ??= bone;
+                if (IsGazeEyeDriven(channel, isLeftEye))
+                {
+                    drivenBone = bone;
                     break;
                 }
             }
 
+            Transform resolved = drivenBone != null ? drivenBone : firstBone;
             if (!hasChannel)
             {
                 GazeEyeBoneFallback fallback = _gazeEyeResolver.Fallback;
-                bone = isLeftEye ? fallback.Left.Bone : fallback.Right.Bone;
+                resolved = isLeftEye ? fallback.Left.Bone : fallback.Right.Bone;
             }
 
-            return GazeEyeBoneResolver.TryGetRelativePath(_animator.transform, bone, out string path) ? path : null;
+            return GazeEyeBoneResolver.TryGetRelativePath(_animator.transform, resolved, out string path) ? path : null;
+        }
+
+        private bool IsGazeEyeDriven(GazeChannel channel, bool isLeftEye)
+        {
+            if (_inputSourceRegistry == null
+                || !GazeChannelResolver.TryResolve(channel, _inputSourceRegistry, out ResolvedGazeInputSources resolved))
+            {
+                return false;
+            }
+
+            return (isLeftEye ? resolved.LeftSource : resolved.RightSource) != null;
         }
 
         /// <summary>
