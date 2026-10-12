@@ -51,7 +51,7 @@ namespace Hidano.FacialControl.Tests.PlayMode.Performance
         {
             string[] blendShapeNames = CreateBlendShapeNames(16);
             var bus = new FacialOutputBus();
-            StartSender(bus, blendShapeNames, Array.Empty<string>(), 60f);
+            StartSender(bus, blendShapeNames, Array.Empty<string>());
 
             float[] values = CreateValues(blendShapeNames.Length);
             WarmUp(bus, values, Array.Empty<GazeSnapshot>(), deltaTime: 1f / 60f);
@@ -75,8 +75,7 @@ namespace Hidano.FacialControl.Tests.PlayMode.Performance
             StartSender(
                 bus,
                 blendShapeNames,
-                new[] { GazeExpressionId },
-                60f);
+                new[] { GazeExpressionId });
 
             float[] values = CreateValues(blendShapeNames.Length);
             WarmUp(bus, values, gazeSnapshots, deltaTime: 1f / 60f);
@@ -92,31 +91,7 @@ namespace Hidano.FacialControl.Tests.PlayMode.Performance
         }
 
         [Test]
-        public void OnLateTick_LayoutRefreshEveryTick100Frames_RecordsBaseline()
-        {
-            string[] blendShapeNames = CreateBlendShapeNames(32);
-            var bus = new FacialOutputBus();
-            StartSender(
-                bus,
-                blendShapeNames,
-                Array.Empty<string>(),
-                OscSenderAdapterBinding.MinLayoutRefreshIntervalSeconds);
-
-            float[] values = CreateValues(blendShapeNames.Length);
-            WarmUp(bus, values, Array.Empty<GazeSnapshot>(), deltaTime: OscSenderAdapterBinding.MinLayoutRefreshIntervalSeconds);
-
-            BaselineResult baseline = MeasureFrames(() =>
-            {
-                bus.Publish(values, Array.Empty<GazeSnapshot>());
-                _binding.OnLateTick(OscSenderAdapterBinding.MinLayoutRefreshIntervalSeconds);
-            });
-
-            Assert.That(_binding.IsStarted, Is.True);
-            LogBaseline(nameof(OscSenderGCAllocationTests), "layoutRefreshEveryTick", baseline);
-        }
-
-        [Test]
-        public void Sender_LayoutRefreshEveryTickWithGaze_NoPerTickAlloc()
+        public void Sender_WithGaze_NoPerTickAlloc()
         {
             string[] blendShapeNames = CreateBlendShapeNames(16);
             var gazeSnapshots = new[] { new GazeSnapshot(GazeExpressionId, -0.25f, 0.5f) };
@@ -124,11 +99,10 @@ namespace Hidano.FacialControl.Tests.PlayMode.Performance
             StartSender(
                 bus,
                 blendShapeNames,
-                new[] { GazeExpressionId },
-                OscSenderAdapterBinding.MinLayoutRefreshIntervalSeconds);
+                new[] { GazeExpressionId });
 
             float[] values = CreateValues(blendShapeNames.Length);
-            WarmUp(bus, values, gazeSnapshots, OscSenderAdapterBinding.MinLayoutRefreshIntervalSeconds);
+            WarmUp(bus, values, gazeSnapshots, deltaTime: 1f / 60f);
             StabilizeManagedHeap();
             using var recorder = ProfilerRecorder.StartNew(
                 ProfilerCategory.Memory,
@@ -140,24 +114,22 @@ namespace Hidano.FacialControl.Tests.PlayMode.Performance
             for (int tick = 0; tick < FrameCount; tick++)
             {
                 bus.Publish(values, gazeSnapshots);
-                _binding.OnLateTick(OscSenderAdapterBinding.MinLayoutRefreshIntervalSeconds);
+                _binding.OnLateTick(1f / 60f);
             }
 
             Assert.That(recorder.LastValue, Is.EqualTo(0L),
-                "gaze layout refresh every tick reported GC.Alloc: " + recorder.LastValue + " bytes.");
+                "sender tick with gaze reported GC.Alloc: " + recorder.LastValue + " bytes.");
         }
 
         private void StartSender(
             FacialOutputBus bus,
             IReadOnlyList<string> blendShapeNames,
-            IReadOnlyList<string> gazeExpressionIds,
-            float layoutRefreshIntervalSeconds)
+            IReadOnlyList<string> gazeExpressionIds)
         {
             _host = new GameObject("OscSenderGCAllocationTests");
             _binding = new OscSenderAdapterBinding
             {
                 Slug = "osc-sender-gc",
-                LayoutRefreshIntervalSeconds = layoutRefreshIntervalSeconds,
                 SuppressLoopback = false,
             };
 

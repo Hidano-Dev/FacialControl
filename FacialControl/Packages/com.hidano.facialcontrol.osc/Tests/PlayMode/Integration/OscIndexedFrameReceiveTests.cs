@@ -242,8 +242,7 @@ namespace Hidano.FacialControl.Tests.PlayMode.Integration
             var binding = new OscSenderAdapterBinding
             {
                 Slug = "osc-indexed-sender",
-                SuppressLoopback = false,
-                LayoutRefreshIntervalSeconds = 60f,
+                SuppressLoopback = false
             };
             _bindings.Add(binding);
             binding.ConfigureEndpoints(

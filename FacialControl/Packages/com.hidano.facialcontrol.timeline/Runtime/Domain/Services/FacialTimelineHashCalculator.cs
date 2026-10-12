@@ -23,7 +23,7 @@ namespace Hidano.FacialControl.Timeline.Domain.Services
         /// <remarks>
         /// 対象: SchemaVersion / Layers（順序込み）/ LayerInputSources（id と weight、レイヤー順）/
         /// Expressions（id 順ソート）/ Slots / DefaultOverlays / BaseExpression /
-        /// GazeChannels（id / sourceIdLeft / sourceIdRight / 目ボーンパス、順序込み）。
+        /// GazeChannels（id / 目ボーンパス、順序込み）。
         /// </remarks>
         public static ulong ComputeProfileContentHash(in FacialProfile profile, ReadOnlySpan<GazeChannel> gazeChannels)
         {
@@ -375,8 +375,6 @@ namespace Hidano.FacialControl.Timeline.Domain.Services
                 }
 
                 writer.WriteString(channel.id);
-                writer.WriteString(channel.sourceIdLeft);
-                writer.WriteString(channel.sourceIdRight);
                 writer.WriteString(channel.leftEyeBonePath);
                 writer.WriteString(channel.rightEyeBonePath);
             }

@@ -19,10 +19,6 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
     [FacialAdapterBinding(displayName: "OSC Sender")]
     public sealed class OscSenderAdapterBinding : AdapterBindingBase, IFacialOutputObserver, IGazeChannelConsumer
     {
-        public const float DefaultLayoutRefreshIntervalSeconds = 5f;
-        public const float MinLayoutRefreshIntervalSeconds = 0.5f;
-        public const float MaxLayoutRefreshIntervalSeconds = 60f;
-
         /// <summary>
         /// 送信先リスト。binding 本体に持たせ、Adapter Bindings から直接確認・変更できるようにする。
         /// 新規 binding は 1 件（<see cref="OscSenderEndpointConfig.DefaultEndpoint"/> と既定ポート）で始まる。
@@ -99,12 +95,6 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
 
         [NonSerialized]
         private string _identityStartedAtUnixMs;
-
-        [NonSerialized]
-        private float _layoutRefreshElapsedSeconds;
-
-        [NonSerialized]
-        private bool _refreshLayoutOnNextTick;
 
         [NonSerialized]
         private bool _hasPublishedFrame;
@@ -200,12 +190,6 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
         {
             get => _blendShapeNames;
             set => _blendShapeNames = value ?? new List<string>();
-        }
-
-        public float LayoutRefreshIntervalSeconds
-        {
-            get => EffectiveSettings.LayoutRefreshIntervalSeconds;
-            set => EnsureRuntimeSettings().SetLayoutRefreshIntervalSeconds(value);
         }
 
         public bool SuppressLoopback
@@ -482,14 +466,12 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
 
             // 送るのは送信元識別と値フレームだけ。対応表は受信側の要求に応じて OscSender が返す。
             // 対応表は gaze チャネルの属性を載せない（可動範囲・目線ボーンは受信側の目線メニューで決める）ため、
-            // 起動後に作り直すものは無い。更新間隔のタイマーは互換のために残している。
-            bool refreshLayout = ShouldRefreshLayout(deltaTime);
+            // 起動後に作り直すものは無い。
             if (!_hasPublishedFrame)
             {
                 return;
             }
 
-            bool sentAny = false;
             for (int i = 0; i < _sendSlots.Count; i++)
             {
                 SendSlot slot = _sendSlots[i];
@@ -499,13 +481,6 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
                 }
 
                 slot.Sender.SendIndexedFrame(_identityUuidBytes, _identityStartedAtUnixMs);
-                sentAny = true;
-            }
-
-            if (refreshLayout && sentAny)
-            {
-                _refreshLayoutOnNextTick = false;
-                _layoutRefreshElapsedSeconds = 0f;
             }
         }
 
@@ -546,8 +521,6 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
             _identityUuidBytes = null;
             _identityStartedAtUnixMs = null;
             _loopbackSuppressionPolicy = null;
-            _layoutRefreshElapsedSeconds = 0f;
-            _refreshLayoutOnNextTick = false;
             _hasPublishedFrame = false;
             _effectiveSettings = null;
             OscRuntimeSettingsInstances.Destroy(ref _runtimeSettings);
@@ -597,17 +570,6 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
         private void CompleteStart(in AdapterBuildContext ctx, List<SendSlot> sendSlots)
         {
             _sendSlots = sendSlots;
-            float clampedInterval = ClampLayoutRefreshInterval(
-                _effectiveSettings != null
-                    ? _effectiveSettings.LayoutRefreshIntervalSeconds
-                    : DefaultLayoutRefreshIntervalSeconds,
-                logWarning: true);
-            if (_effectiveSettings != null)
-            {
-                _effectiveSettings.SetLayoutRefreshIntervalSeconds(clampedInterval);
-            }
-            _layoutRefreshElapsedSeconds = 0f;
-            _refreshLayoutOnNextTick = true;
             _scratchGazeSnapshots = Array.Empty<GazeSnapshot>();
             _scratchGazeCount = 0;
             _hasPublishedFrame = false;
@@ -817,51 +779,6 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings
 
             snapshot = default;
             return false;
-        }
-
-        private bool ShouldRefreshLayout(float deltaTime)
-        {
-            if (_refreshLayoutOnNextTick)
-            {
-                return true;
-            }
-
-            if (deltaTime > 0f)
-            {
-                _layoutRefreshElapsedSeconds += deltaTime;
-            }
-
-            float interval = _effectiveSettings != null
-                ? _effectiveSettings.LayoutRefreshIntervalSeconds
-                : DefaultLayoutRefreshIntervalSeconds;
-            return _layoutRefreshElapsedSeconds >= interval;
-        }
-
-        private static float ClampLayoutRefreshInterval(float intervalSeconds, bool logWarning)
-        {
-            if (float.IsNaN(intervalSeconds) || intervalSeconds < MinLayoutRefreshIntervalSeconds)
-            {
-                if (logWarning)
-                {
-                    Debug.LogWarning(
-                        $"[OscSenderAdapterBinding] layoutRefreshIntervalSeconds {intervalSeconds.ToString(CultureInfo.InvariantCulture)} is below {MinLayoutRefreshIntervalSeconds.ToString(CultureInfo.InvariantCulture)} and was clamped.");
-                }
-
-                return MinLayoutRefreshIntervalSeconds;
-            }
-
-            if (float.IsInfinity(intervalSeconds) || intervalSeconds > MaxLayoutRefreshIntervalSeconds)
-            {
-                if (logWarning)
-                {
-                    Debug.LogWarning(
-                        $"[OscSenderAdapterBinding] layoutRefreshIntervalSeconds {intervalSeconds.ToString(CultureInfo.InvariantCulture)} is above {MaxLayoutRefreshIntervalSeconds.ToString(CultureInfo.InvariantCulture)} and was clamped.");
-                }
-
-                return MaxLayoutRefreshIntervalSeconds;
-            }
-
-            return intervalSeconds;
         }
 
         private static int ResolveSourceIndex(

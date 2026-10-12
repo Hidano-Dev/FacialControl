@@ -1487,8 +1487,9 @@ namespace Hidano.FacialControl.Tests.EditMode.Adapters.Json
         #region Gaze セクション
 
         [Test]
-        public void ParseProfileSnapshotV2_GazeChannelWithDistinctLeftRight_PreservesValues()
+        public void ParseProfileSnapshotV2_GazeChannelWithLegacyKeys_SkipsLegacyKeysAndPreservesValues()
         {
+            // 旧キー (useDistinctLeftRight / source id / 初期回転 / 軸) は HID-196 で削除した。残っていても読み飛ばす。
             var json = @"{
                 ""schemaVersion"": ""1.0"",
                 ""layers"": [],
@@ -1521,13 +1522,8 @@ namespace Hidano.FacialControl.Tests.EditMode.Adapters.Json
             Assert.AreEqual(1, dto.gaze.channels.Count);
             var cfg = dto.gaze.channels[0];
             Assert.AreEqual("eye_look", cfg.id);
-            Assert.AreEqual(true, cfg.useDistinctLeftRight);
-            Assert.AreEqual("input:eye_look.left", cfg.sourceIdLeft);
-            Assert.AreEqual("osc:eye_look.right", cfg.sourceIdRight);
             Assert.AreEqual("Head/LeftEye", cfg.leftEyeBonePath);
             Assert.AreEqual("Head/RightEye", cfg.rightEyeBonePath);
-            Assert.AreEqual(1f, cfg.leftEyeInitialRotation.y);
-            Assert.AreEqual(4f, cfg.rightEyeInitialRotation.y);
             Assert.AreEqual(16f, cfg.lookUpAngle);
             Assert.AreEqual(8f, cfg.lookDownAngle);
             Assert.AreEqual(17f, cfg.outerYawAngle);
@@ -1541,11 +1537,10 @@ namespace Hidano.FacialControl.Tests.EditMode.Adapters.Json
 
             Assert.AreEqual(1, dto.gaze.channels.Count);
             Assert.AreEqual("look_left", dto.gaze.channels[0].id);
-            Assert.AreEqual(false, dto.gaze.channels[0].useDistinctLeftRight);
         }
 
         [Test]
-        public void ParseProfileSnapshotV2_GazeChannelWithProviderSlug_PreservesValues()
+        public void ParseProfileSnapshotV2_GazeChannelWithLegacyProviderSlug_SkipsLegacyKeys()
         {
             var json = @"{
                 ""schemaVersion"": ""1.0"",
@@ -1570,9 +1565,8 @@ namespace Hidano.FacialControl.Tests.EditMode.Adapters.Json
             Assert.That(dto.gaze, Is.Not.Null);
             Assert.That(dto.gaze.channels, Has.Count.EqualTo(1));
             Assert.That(dto.gaze.channels[0].id, Is.EqualTo("gaze"));
-            Assert.That(dto.gaze.channels[0].providerSlug, Is.EqualTo("osc"));
-            Assert.That(dto.gaze.channels[0].sourceIdLeft, Is.EqualTo("osc:gaze.left"));
-            Assert.That(dto.gaze.channels[0].sourceIdRight, Is.EqualTo("osc:gaze.right"));
+            Assert.That(dto.gaze.channels[0].leftEyeBonePath, Is.EqualTo("Head/LeftEye"));
+            Assert.That(dto.gaze.channels[0].rightEyeBonePath, Is.EqualTo("Head/RightEye"));
             Assert.That(dto.gaze.channels[0].lookUpAngle, Is.EqualTo(21f));
             Assert.That(dto.gaze.channels[0].lookDownAngle, Is.EqualTo(11f));
         }

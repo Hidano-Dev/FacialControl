@@ -115,17 +115,15 @@ namespace Hidano.FacialControl.Tests.EditMode.Adapters.Bone
         }
 
         [Test]
-        public void Apply_JointName_IgnoresStoredInitialRotationAndUsesDerivedRest()
+        public void Apply_JointName_UsesDerivedRest()
         {
-            // GazeChannel に保存された初期回転は読まない。rest は resolver が求める (ここではアセットデータが
-            // 無いので構築時点の姿勢)。
+            // rest は resolver が求める (ここではアセットデータが無いので構築時点の姿勢)。
             var rest = Quaternion.Euler(0f, 45f, 0f);
             _leftEye.localRotation = rest;
             var channel = new GazeChannel
             {
                 id = "gaze",
                 leftEyeBonePath = "LeftEye",
-                leftEyeInitialRotation = new Vector3(0f, -80f, 0f),
             };
             var source = new FixedGazeSource(0f, 0f);
 

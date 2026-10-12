@@ -141,8 +141,7 @@ namespace Hidano.FacialControl.Tests.PlayMode.Integration
             var binding = new OscSenderAdapterBinding
             {
                 Slug = "osc-multi-endpoint-sender",
-                SuppressLoopback = false,
-                LayoutRefreshIntervalSeconds = 60f
+                SuppressLoopback = false
             };
             binding.ConfigureEndpoints(
                 new[]

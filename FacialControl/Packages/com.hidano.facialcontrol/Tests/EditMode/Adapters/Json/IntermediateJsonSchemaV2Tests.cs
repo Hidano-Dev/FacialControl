@@ -118,9 +118,6 @@ namespace Hidano.FacialControl.Tests.EditMode.Adapters.Json
 
             Assert.AreEqual(src.gaze.channels.Count, dst.gaze.channels.Count, "gaze channel count mismatch");
             Assert.AreEqual(src.gaze.channels[0].id, dst.gaze.channels[0].id);
-            Assert.AreEqual(src.gaze.channels[0].useDistinctLeftRight, dst.gaze.channels[0].useDistinctLeftRight);
-            Assert.AreEqual(src.gaze.channels[0].sourceIdLeft, dst.gaze.channels[0].sourceIdLeft);
-            Assert.AreEqual(src.gaze.channels[0].sourceIdRight, dst.gaze.channels[0].sourceIdRight);
             Assert.AreEqual(src.gaze.channels[0].leftEyeBonePath, dst.gaze.channels[0].leftEyeBonePath);
             Assert.AreEqual(src.gaze.channels[0].rightEyeBonePath, dst.gaze.channels[0].rightEyeBonePath);
 
@@ -349,17 +346,8 @@ namespace Hidano.FacialControl.Tests.EditMode.Adapters.Json
                     new GazeChannelDto
                     {
                         id = "gaze",
-                        useDistinctLeftRight = true,
-                        sourceIdLeft = "input:550e8400-e29b-41d4-a716-446655440000.left",
-                        sourceIdRight = "osc:550e8400-e29b-41d4-a716-446655440000.right",
                         leftEyeBonePath = "Armature/Head/LeftEye",
-                        leftEyeInitialRotation = Vector3.zero,
-                        leftEyeYawAxisLocal = Vector3.up,
-                        leftEyePitchAxisLocal = Vector3.right,
                         rightEyeBonePath = "Armature/Head/RightEye",
-                        rightEyeInitialRotation = Vector3.zero,
-                        rightEyeYawAxisLocal = Vector3.up,
-                        rightEyePitchAxisLocal = Vector3.right,
                         lookUpAngle = 15f,
                         lookDownAngle = 9f,
                         outerYawAngle = 15f,

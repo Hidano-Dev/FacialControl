@@ -6,7 +6,7 @@ using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.Osc.Tests.EditMode.Adapters.RuntimeSettings
 {
     /// <summary>
-    /// <see cref="OscSenderRuntimeSettingsSO"/>（OSC 送信の上級設定）の既定値・JSON 往復・不正値補正・
+    /// <see cref="OscSenderRuntimeSettingsSO"/>（OSC 送信の上級設定）の既定値・JSON 往復・旧キーの読み飛ばし・
     /// 旧 <see cref="OscRuntimeSettingsSO"/> からの値の写しを検証する。
     /// </summary>
     [TestFixture]
@@ -34,9 +34,6 @@ namespace Hidano.FacialControl.Osc.Tests.EditMode.Adapters.RuntimeSettings
         [Test]
         public void Defaults_OnFreshInstance_ReturnsExpectedValuesAndIsDefault()
         {
-            Assert.AreEqual(
-                OscSenderRuntimeSettingsSO.DefaultLayoutRefreshIntervalSeconds,
-                _instance.LayoutRefreshIntervalSeconds);
             Assert.IsTrue(_instance.SuppressLoopback);
             Assert.IsTrue(_instance.IsDefault);
         }
@@ -44,7 +41,7 @@ namespace Hidano.FacialControl.Osc.Tests.EditMode.Adapters.RuntimeSettings
         [Test]
         public void ToJson_ThenFromJson_RoundTripsAllFields()
         {
-            _instance.FromJson("{\"label\":\"studio\",\"layoutRefreshIntervalSeconds\":2.5,\"suppressLoopback\":false}");
+            _instance.FromJson("{\"label\":\"studio\",\"suppressLoopback\":false}");
 
             string json = _instance.ToJson();
             var restored = ScriptableObject.CreateInstance<OscSenderRuntimeSettingsSO>();
@@ -53,7 +50,6 @@ namespace Hidano.FacialControl.Osc.Tests.EditMode.Adapters.RuntimeSettings
                 restored.FromJson(json);
 
                 Assert.AreEqual("studio", restored.Label);
-                Assert.AreEqual(2.5f, restored.LayoutRefreshIntervalSeconds);
                 Assert.IsFalse(restored.SuppressLoopback);
                 Assert.IsFalse(restored.IsDefault);
             }
@@ -73,30 +69,16 @@ namespace Hidano.FacialControl.Osc.Tests.EditMode.Adapters.RuntimeSettings
         }
 
         [Test]
-        public void FromJson_NonPositiveLayoutRefreshInterval_NormalizesToDefault()
+        public void FromJson_LegacyIntervalKeys_AreSkippedAndNotWrittenBack()
         {
-            _instance.FromJson("{\"layoutRefreshIntervalSeconds\":0.0}");
+            // 効果の無い更新間隔は HID-196 で削除した。旧キーが残っていても読み飛ばし、書き出さない。
+            _instance.FromJson("{\"label\":\"studio\",\"heartbeatIntervalSeconds\":2.5,\"layoutRefreshIntervalSeconds\":7.0}");
 
-            Assert.AreEqual(
-                OscSenderRuntimeSettingsSO.DefaultLayoutRefreshIntervalSeconds,
-                _instance.LayoutRefreshIntervalSeconds);
-        }
-
-        [Test]
-        public void FromJson_LegacyHeartbeatIntervalKey_ReadsAsLayoutRefreshInterval()
-        {
-            _instance.FromJson("{\"heartbeatIntervalSeconds\":2.5}");
-
-            Assert.AreEqual(2.5f, _instance.LayoutRefreshIntervalSeconds);
-            StringAssert.DoesNotContain("heartbeatIntervalSeconds", _instance.ToJson());
-        }
-
-        [Test]
-        public void FromJson_BothKeys_PrefersLayoutRefreshInterval()
-        {
-            _instance.FromJson("{\"heartbeatIntervalSeconds\":2.5,\"layoutRefreshIntervalSeconds\":7.0}");
-
-            Assert.AreEqual(7f, _instance.LayoutRefreshIntervalSeconds);
+            string json = _instance.ToJson();
+            Assert.AreEqual("studio", _instance.Label);
+            Assert.IsTrue(_instance.IsDefault);
+            StringAssert.DoesNotContain("heartbeatIntervalSeconds", json);
+            StringAssert.DoesNotContain("layoutRefreshIntervalSeconds", json);
         }
 
         [Test]
@@ -104,7 +86,7 @@ namespace Hidano.FacialControl.Osc.Tests.EditMode.Adapters.RuntimeSettings
         {
             _instance.FromJson("{\"suppressLoopback\":false}");
 
-            _instance.FromJson("{\"layoutRefreshIntervalSeconds\":2.0}");
+            _instance.FromJson("{\"label\":\"studio\"}");
 
             Assert.IsTrue(_instance.SuppressLoopback);
         }
@@ -121,7 +103,6 @@ namespace Hidano.FacialControl.Osc.Tests.EditMode.Adapters.RuntimeSettings
                 created = OscSenderRuntimeSettingsSO.CreateFromLegacy(legacy);
 
                 Assert.AreEqual("old", created.Label);
-                Assert.AreEqual(3f, created.LayoutRefreshIntervalSeconds);
                 Assert.IsFalse(created.SuppressLoopback);
             }
             finally

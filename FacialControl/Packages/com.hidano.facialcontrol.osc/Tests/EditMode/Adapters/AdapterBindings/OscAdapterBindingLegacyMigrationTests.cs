@@ -104,7 +104,7 @@ namespace Hidano.FacialControl.Osc.Tests.EditMode.Adapters.AdapterBindings
         public void MigrateSender_LegacyInCollection_MovesEndpointsAndCreatesAdvancedSubAsset()
         {
             CreateCollectionWithLegacy(
-                "{\"heartbeatIntervalSeconds\":2.0,\"endpoints\":["
+                "{\"suppressLoopback\":false,\"endpoints\":["
                 + "{\"endpoint\":\"192.168.1.20\",\"port\":9000,\"enabled\":true,\"preset\":0},"
                 + "{\"endpoint\":\"127.0.0.1\",\"port\":9001,\"enabled\":false,\"preset\":1}]}",
                 out OscRuntimeSettingsSO legacy);
@@ -122,7 +122,27 @@ namespace Hidano.FacialControl.Osc.Tests.EditMode.Adapters.AdapterBindings
             Assert.That(sender.Endpoints[0].enabled, Is.True);
             Assert.That(sender.Endpoints[1].enabled, Is.False);
             Assert.That(sender.AdvancedSettings, Is.Not.Null);
-            Assert.That(sender.AdvancedSettings.LayoutRefreshIntervalSeconds, Is.EqualTo(2f));
+            Assert.That(sender.AdvancedSettings.SuppressLoopback, Is.False);
+        }
+
+        [Test]
+        public void MigrateSender_LegacyWithOnlyHeartbeatInterval_LeavesAdvancedUnassigned()
+        {
+            // 更新間隔は HID-196 で削除したので、旧設定の値が既定値と違っても上級設定アセットを作らない。
+            CreateCollectionWithLegacy(
+                "{\"heartbeatIntervalSeconds\":2.0,\"endpoints\":["
+                + "{\"endpoint\":\"127.0.0.1\",\"port\":9000,\"enabled\":true,\"preset\":0}]}",
+                out OscRuntimeSettingsSO legacy);
+            OscArKitRoundTripTestProfileSO profile = CreateProfile(
+                new OscSenderAdapterBinding { Slug = "osc-sender", LegacySettings = legacy });
+
+            bool migrated = OscAdapterBindingSettingsSection.MigrateSender(FindBindingProperty(profile, 0));
+
+            Assert.That(migrated, Is.True);
+            var sender = (OscSenderAdapterBinding)profile.AdapterBindings[0];
+            Assert.That(sender.LegacySettings, Is.Null);
+            Assert.That(sender.Endpoints.Count, Is.EqualTo(1));
+            Assert.That(sender.AdvancedSettings, Is.Null, "上級設定が既定値のままならアセットを作らない。");
         }
 
         [Test]

@@ -311,7 +311,7 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
                     Is.EqualTo(FacialTimelineHashCalculator.ComputeHashHex(timeline, profile, gazeChannels, bake.SampleRate)));
                 Assert.That(Editor.TimelineBakeService.IsStale(timeline, profileAsset, bake), Is.EqualTo(Editor.BakeStaleReason.None));
 
-                profileAsset.GazeChannels[0].sourceIdLeft = "osc:gaze.changed";
+                profileAsset.GazeChannels[0].leftEyeBonePath = "Head/LeftEye.changed";
 
                 Assert.That(Editor.TimelineBakeService.IsStale(timeline, profileAsset, bake), Is.EqualTo(Editor.BakeStaleReason.ProfileChanged));
             }
@@ -538,8 +538,6 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
                     },
                 },
             });
-            profileAsset.GazeChannels[0].sourceIdLeft = "osc:gaze";
-            profileAsset.GazeChannels[0].sourceIdRight = "osc:gaze";
             return profileAsset;
         }
 

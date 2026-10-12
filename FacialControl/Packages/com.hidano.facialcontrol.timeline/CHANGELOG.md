@@ -47,6 +47,7 @@ Timeline 再生の手順を「REC → Export → Director にセット → Recei
 
 ### Removed
 
+- `GazeChannel` の旧 source id（`sourceIdLeft` / `sourceIdRight`）の削除（コアの HID-196）に合わせ、REC Export の Gaze 判定（`DetectChannels(..., FacialCharacterProfileSO)`）は Profile の GazeChannel の明示 source id を手がかりにしなくなった。Gaze は規約 id のチャネル id・binding の gaze 宣言で判定する（`FacialProfile` 版 API の `gazeSourceIds` 引数による明示指定は従来どおり）。Profile の内容ハッシュ（`FacialTimelineHashCalculator.ComputeProfileContentHash`）も source id を含めなくなったため、既存の Bake は一度だけ Profile 変更として再ベイク対象になる
 - REC Export ウィンドウの Director / Receiver 指定欄と Source Overrides（Auto / Analog / Gaze）
 - Play 終了時の再ベイク確認ダイアログ。Play 中に検出した不一致は Edit 復帰時に無言で修復し、Console に Info を 1 行出す
 

@@ -139,8 +139,7 @@ namespace Hidano.FacialControl.Tests.PlayMode.Integration
             var senderBinding = new OscSenderAdapterBinding
             {
                 Slug = "gaze-e2e-sender",
-                SuppressLoopback = false,
-                LayoutRefreshIntervalSeconds = 60f,
+                SuppressLoopback = false
             };
             senderBinding.ConfigureEndpoints(
                 new[] { new OscSenderEndpointConfig(Endpoint, port, true) },
@@ -152,7 +151,6 @@ namespace Hidano.FacialControl.Tests.PlayMode.Integration
 
             var senderProfile = CreateGazeProfile(
                 new AdapterBindingBase[] { receiverBinding },
-                providerSlug: string.Empty,
                 name: receiverName);
 
             FacialController receiverController = CreateGazeController(receiverName, senderProfile, out Transform receiverLeftEye);
@@ -206,7 +204,6 @@ namespace Hidano.FacialControl.Tests.PlayMode.Integration
             // 受信側の目線メニュー: 可動範囲だけを設定し、ジョイント名で目を指定する (非 Humanoid モデル)。
             var receiverProfile = CreateGazeProfile(
                 new AdapterBindingBase[] { receiverBinding },
-                providerSlug: string.Empty,
                 name: receiverName,
                 lookUpAngle: 12f);
 
@@ -247,7 +244,6 @@ namespace Hidano.FacialControl.Tests.PlayMode.Integration
             var oscSender = new SenderIdentity(Guid.NewGuid(), 1_000L);
             var receiverProfile = CreateGazeProfile(
                 new AdapterBindingBase[] { receiverBinding },
-                providerSlug: string.Empty,
                 name: receiverName,
                 lookUpAngle: 12f);
 
@@ -622,8 +618,7 @@ namespace Hidano.FacialControl.Tests.PlayMode.Integration
             var binding = new OscSenderAdapterBinding
             {
                 Slug = slug,
-                SuppressLoopback = false,
-                LayoutRefreshIntervalSeconds = 60f,
+                SuppressLoopback = false
             };
             binding.ConfigureEndpoints(
                 new[]
@@ -666,7 +661,6 @@ namespace Hidano.FacialControl.Tests.PlayMode.Integration
 
         private TestGazeProfileSO CreateGazeProfile(
             IReadOnlyList<AdapterBindingBase> bindings,
-            string providerSlug,
             string name,
             float lookUpAngle = 30f)
         {
@@ -675,7 +669,6 @@ namespace Hidano.FacialControl.Tests.PlayMode.Integration
             profile.AddGazeChannel(new GazeChannel
             {
                 id = GazeSourceIdConvention.DefaultChannelId,
-                providerSlug = providerSlug,
                 leftEyeBonePath = "LeftEye",
                 rightEyeBonePath = "RightEye",
                 lookUpAngle = lookUpAngle,

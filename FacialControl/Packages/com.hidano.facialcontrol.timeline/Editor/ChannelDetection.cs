@@ -7,7 +7,7 @@ namespace Hidano.FacialControl.Timeline.Editor
     /// </summary>
     public enum ChannelDetectionReason
     {
-        /// <summary>Profile の GazeChannel の明示 source id（左 / 右）と完全一致した。</summary>
+        /// <summary>呼び出し側が明示した gaze source id（<c>gazeSourceIds</c> 引数）と完全一致した。</summary>
         ExplicitGazeSourceId = 0,
 
         /// <summary>source id が Gaze の規約形で、そのチャネル id が Profile の GazeChannels にある。</summary>

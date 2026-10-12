@@ -76,15 +76,12 @@
 | フィールド | 型 | 説明 |
 |---|---|---|
 | `id` | string | チャネル id。先頭は常に `gaze` |
-| `providerSlug` | string | 読み飛ばす（旧データの互換用）。入力源は規約 id で解決し、どの binding の目線入力にも可動角が効く |
-| `useDistinctLeftRight` | bool | 読み飛ばす（旧データの互換用） |
-| `sourceIdLeft` / `sourceIdRight` | string | 読み飛ばす（旧データの互換用） |
 | `leftEyeBonePath` / `rightEyeBonePath` | string | 目のジョイント名（任意）。名前で GameObject を探し、完全一致を優先する（無ければ名前を含む最初のものを警告付きで使う）。`/` を含む値（旧データの path）は末尾のセグメントを名前として扱う。省略・空文字なら実行時に Humanoid の `LeftEye` / `RightEye` を使う |
-| `leftEyeInitialRotation` / `rightEyeInitialRotation` | Euler | 読み飛ばす（旧データの互換用）。初期回転は実行時に元のアセットデータ（Avatar の skeleton → バインドポーズ）から求める |
-| `leftEyeYawAxisLocal` / `leftEyePitchAxisLocal` など | Vector3 | 読み飛ばす（旧データの互換用）。軸は初期回転と同じく実行時に求める |
 | `lookUpAngle` / `lookDownAngle` / `outerYawAngle` / `innerYawAngle` | float | 可動角（度）。既定 15 / 9 / 15 / 18 |
 
-入力源 id の規約は `{slug}:{channelId}` または `{slug}:{channelId}.left` / `.right`。
+入力源 id の規約は `{slug}:{channelId}` または `{slug}:{channelId}.left` / `.right`。入力源は規約 id だけで解決し、どの binding の目線入力にも可動角が効く。目の初期回転・yaw / pitch 軸は実行時に元のアセットデータ（Avatar の skeleton → バインドポーズ）から求める。
+
+旧キー `providerSlug` / `useDistinctLeftRight` / `sourceIdLeft` / `sourceIdRight` / `leftEyeInitialRotation` / `rightEyeInitialRotation` / `leftEyeYawAxisLocal` などの軸は削除した（HID-196）。残っていても読み飛ばす。
 
 ## 例
 
@@ -143,8 +140,6 @@
         "channels": [
             {
                 "id": "gaze",
-                "providerSlug": "",
-                "useDistinctLeftRight": false,
                 "leftEyeBonePath": "Armature/Hips/Spine/Chest/Neck/Head/LeftEye",
                 "rightEyeBonePath": "Armature/Hips/Spine/Chest/Neck/Head/RightEye",
                 "lookUpAngle": 15, "lookDownAngle": 9, "outerYawAngle": 15, "innerYawAngle": 18
