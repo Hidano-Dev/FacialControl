@@ -145,12 +145,13 @@ namespace Hidano.FacialControl.Timeline.Tests.Shared
 
             double a = expected.GetValue(frame, channel);
             double b = actual.GetValue(frame, channel);
-            if (double.IsNaN(a) != double.IsNaN(b))
+            // NaN / 無限大は両側で同じでも不正な出力なので、許容差との比較で必ず不一致になる無限大にする。
+            if (double.IsNaN(a) || double.IsInfinity(a) || double.IsNaN(b) || double.IsInfinity(b))
             {
                 return double.PositiveInfinity;
             }
 
-            return double.IsNaN(a) ? 0d : Math.Abs(a - b);
+            return Math.Abs(a - b);
         }
     }
 

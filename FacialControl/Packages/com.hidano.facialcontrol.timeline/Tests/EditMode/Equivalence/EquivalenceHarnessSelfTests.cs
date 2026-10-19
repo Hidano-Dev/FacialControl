@@ -89,6 +89,22 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
             Assert.That(double.IsPositiveInfinity(result.FirstMismatch.Value.Difference), Is.True);
         }
 
+        [TestCase(float.NaN)]
+        [TestCase(float.PositiveInfinity)]
+        public void Compare_SameNonFiniteBlendShapeOnBothSides_ReportsMismatch(float value)
+        {
+            var channels = new[] { new EquivalenceChannel("Smile", EquivalenceChannelKind.BlendShape) };
+            var expected = new EquivalenceFrameTrace(channels);
+            var actual = new EquivalenceFrameTrace(channels);
+            expected.AddFrame(0d, new[] { value });
+            actual.AddFrame(0d, new[] { value });
+
+            EquivalenceResult result = EquivalenceComparer.Compare(expected, actual);
+
+            Assert.That(result.IsMatch, Is.False);
+            Assert.That(double.IsPositiveInfinity(result.FirstMismatch.Value.Difference), Is.True);
+        }
+
         [Test]
         public void Compare_DifferentFrameCounts_ReportsStructureError()
         {
