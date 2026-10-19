@@ -56,13 +56,10 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
                 blendShapeNames,
                 profile);
             RecTimeline timeline = scenario.Timeline;
-            IReadOnlyList<RecBaselineState.TriggerEntry> baseline = timeline.Baseline.TriggerEntries;
-            for (int i = 0; i < baseline.Count; i++)
+            // REC 再生の開始（RecTriggerInjector.TryBeginInjection）と同じく、基準のスタックを遷移なしで即座に反映する。
+            if (timeline.Baseline.TryGetTriggerStack(RecEquivalenceSpec.TriggerSourceId, out IReadOnlyList<string> baselineStack))
             {
-                for (int j = 0; j < baseline[i].ExpressionIds.Count; j++)
-                {
-                    source.TriggerOn(baseline[i].ExpressionIds[j]);
-                }
+                source.ResetToExpressionStack(baselineStack);
             }
 
             var trace = new EquivalenceFrameTrace(channels);
