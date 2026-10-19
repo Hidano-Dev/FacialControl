@@ -103,6 +103,7 @@ namespace Hidano.FacialControl.Timeline.Tests.Shared
         private readonly List<RecBaselineState.ValueProviderEntry> _baselineValueProviders = new List<RecBaselineState.ValueProviderEntry>();
         private readonly List<LayerWeightEntry> _baselineLayerWeights = new List<LayerWeightEntry>();
         private readonly List<RecEquivalenceEventInfo> _baselineInfos = new List<RecEquivalenceEventInfo>();
+        private bool _hasAnalogExpressionBaseline;
 
         public RecEquivalenceScenarioBuilder(string name, int seed, double durationSeconds)
         {
@@ -175,6 +176,16 @@ namespace Hidano.FacialControl.Timeline.Tests.Shared
             return this;
         }
 
+        /// <summary>
+        /// 1 軸の Analog 入力（<c>osc:lt</c>）。実際の記録と同じく、その値を読む消費者（<c>osc:analog-expression</c>。値提供型）の
+        /// 出力も値提供型のレコードとして同時刻に載せる。
+        /// </summary>
+        /// <remarks>
+        /// 記録は登録済みの値提供型をすべて観測する（<c>RecBaselineCapture</c> / <c>RecordingUseCase.OnValueProviderSample</c>）ため、
+        /// 実際の記録には消費者の出力が必ず入っており、REC 再生は消費者をそのレコードの再生源に差し替える
+        /// （<c>RecValueProviderInjector</c>）。消費者のレコードを欠いた記録は REC 再生で Squint が常に 0 になり、実際には起きない
+        /// 状態の比較になる。
+        /// </remarks>
         public RecEquivalenceScenarioBuilder Analog(double timeSeconds, float value)
         {
             Tag(RecEquivalenceTags.Analog);
@@ -183,6 +194,23 @@ namespace Hidano.FacialControl.Timeline.Tests.Shared
                 new[] { value },
                 null,
                 "Analog " + Format(value));
+
+            byte[] squintMask = RecEquivalenceSpec.AnalogExpressionMaskBytes();
+            if (!_hasAnalogExpressionBaseline)
+            {
+                // 記録開始時は lt = 0 で消費者は無効（mask は Expression の BlendShape）。
+                _hasAnalogExpressionBaseline = true;
+                AddValueProviderBaseline(RecEquivalenceSpec.AnalogExpressionSourceId, false, squintMask, new[] { 0f });
+            }
+
+            // AnalogExpressionInputSource の出力: lt が正なら Expression の値 × lt、0 以下なら無効。
+            bool isValid = value > 0f;
+            AddValueProviderSample(
+                RecEquivalenceSpec.AnalogExpressionSourceId,
+                timeSeconds,
+                isValid,
+                null,
+                isValid ? new[] { RecEquivalenceSpec.AnalogExpressionValue * value } : null);
             return this;
         }
 
@@ -190,10 +218,7 @@ namespace Hidano.FacialControl.Timeline.Tests.Shared
         public RecEquivalenceScenarioBuilder ValueProviderBaseline(bool isValid, byte[] maskBytes, float[] values)
         {
             Tag(RecEquivalenceTags.ValueProvider);
-            SourceIndex(RecEquivalenceSpec.ValueProviderSourceId);
-            _baselineValueProviders.Add(new RecBaselineState.ValueProviderEntry(
-                RecEquivalenceSpec.ValueProviderSourceId, isValid, maskBytes, values));
-            _baselineInfos.Add(new RecEquivalenceEventInfo(0d, "Baseline value provider valid=" + isValid + " " + FormatValues(maskBytes, values)));
+            AddValueProviderBaseline(RecEquivalenceSpec.ValueProviderSourceId, isValid, maskBytes, values);
             return this;
         }
 
@@ -201,29 +226,7 @@ namespace Hidano.FacialControl.Timeline.Tests.Shared
         public RecEquivalenceScenarioBuilder ValueProvider(double timeSeconds, bool isValid, byte[] maskBytes, float[] values)
         {
             Tag(RecEquivalenceTags.ValueProvider);
-            maskBytes = maskBytes ?? Array.Empty<byte>();
-            values = values ?? Array.Empty<float>();
-            RecValueProviderFlags flags = isValid ? RecValueProviderFlags.IsValid : RecValueProviderFlags.None;
-            if (maskBytes.Length > 0)
-            {
-                flags |= RecValueProviderFlags.HasMask;
-            }
-
-            if (values.Length > 0)
-            {
-                flags |= RecValueProviderFlags.HasValues;
-            }
-
-            AddEvent(
-                RecEvent.CreateValueProviderSample(
-                    timeSeconds,
-                    SourceIndex(RecEquivalenceSpec.ValueProviderSourceId),
-                    flags,
-                    checked((ushort)values.Length),
-                    checked((ushort)maskBytes.Length)),
-                values,
-                maskBytes,
-                "ValueProvider valid=" + isValid + " " + FormatValues(maskBytes, values));
+            AddValueProviderSample(RecEquivalenceSpec.ValueProviderSourceId, timeSeconds, isValid, maskBytes, values);
             return this;
         }
 
@@ -305,6 +308,41 @@ namespace Hidano.FacialControl.Timeline.Tests.Shared
         public static double OffGrid(double timeSeconds)
         {
             return Math.Round(timeSeconds * 1000d) / 1000d + 0.00041d;
+        }
+
+        private void AddValueProviderBaseline(string sourceId, bool isValid, byte[] maskBytes, float[] values)
+        {
+            SourceIndex(sourceId);
+            _baselineValueProviders.Add(new RecBaselineState.ValueProviderEntry(sourceId, isValid, maskBytes, values));
+            _baselineInfos.Add(new RecEquivalenceEventInfo(
+                0d, "Baseline value provider " + sourceId + " valid=" + isValid + " " + FormatValues(maskBytes, values)));
+        }
+
+        private void AddValueProviderSample(string sourceId, double timeSeconds, bool isValid, byte[] maskBytes, float[] values)
+        {
+            maskBytes = maskBytes ?? Array.Empty<byte>();
+            values = values ?? Array.Empty<float>();
+            RecValueProviderFlags flags = isValid ? RecValueProviderFlags.IsValid : RecValueProviderFlags.None;
+            if (maskBytes.Length > 0)
+            {
+                flags |= RecValueProviderFlags.HasMask;
+            }
+
+            if (values.Length > 0)
+            {
+                flags |= RecValueProviderFlags.HasValues;
+            }
+
+            AddEvent(
+                RecEvent.CreateValueProviderSample(
+                    timeSeconds,
+                    SourceIndex(sourceId),
+                    flags,
+                    checked((ushort)values.Length),
+                    checked((ushort)maskBytes.Length)),
+                values,
+                maskBytes,
+                "ValueProvider " + sourceId + " valid=" + isValid + " " + FormatValues(maskBytes, values));
         }
 
         private void AddEvent(RecEvent recEvent, IReadOnlyList<float> axes, IReadOnlyList<byte> mask, string description)

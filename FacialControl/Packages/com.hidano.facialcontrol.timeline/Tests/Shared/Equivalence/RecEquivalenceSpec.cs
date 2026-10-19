@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using Hidano.FacialControl.Domain.Models;
 
@@ -54,6 +55,18 @@ namespace Hidano.FacialControl.Timeline.Tests.Shared
             "EyeWide",
         };
 
+        /// <summary>Analog で駆動する Expression（<see cref="SquintExpressionId"/>）の BlendShape 値（lt = 1 のときの消費者の出力）。</summary>
+        public const float AnalogExpressionValue = 0.8f;
+
+        /// <summary>Analog の消費者（<see cref="AnalogExpressionSourceId"/>）の ContributeMask（Squint のビットだけ）。</summary>
+        public static byte[] AnalogExpressionMaskBytes()
+        {
+            int index = Array.IndexOf(MeshBlendShapes, "Squint");
+            var mask = new byte[(MeshBlendShapes.Length + 7) / 8];
+            mask[index >> 3] |= (byte)(1 << (index & 7));
+            return mask;
+        }
+
         /// <summary>値提供型が書く BlendShape の index（Blink / JawOpen / EyeWide）。</summary>
         public static readonly int[] ValueProviderBlendShapeIndices = { 5, 6, 7 };
 
@@ -73,7 +86,7 @@ namespace Hidano.FacialControl.Timeline.Tests.Shared
             new ExpressionSpec(AngryExpressionId, EmotionLayer, "Angry", 1f, 0.2f, TransitionCurveType.EaseOut),
             new ExpressionSpec(SurpriseExpressionId, EmotionLayer, "Surprise", 1f, 0.12f, TransitionCurveType.EaseIn),
             new ExpressionSpec(CalmExpressionId, EmotionLayer, "Calm", 0.7f, 0f, TransitionCurveType.Linear),
-            new ExpressionSpec(SquintExpressionId, OverlayLayer, "Squint", 0.8f, 0.1f, TransitionCurveType.Linear),
+            new ExpressionSpec(SquintExpressionId, OverlayLayer, "Squint", AnalogExpressionValue, 0.1f, TransitionCurveType.Linear),
         };
 
         /// <summary>Small 層（シーンを使わない遷移計算）で使う Domain の Profile。PlayMode の Profile SO と同じ内容。</summary>
