@@ -131,10 +131,17 @@ namespace Hidano.FacialControl.Timeline.Tests.Shared
     public static class EquivalenceMath
     {
         /// <summary>2 つの回転の角度差（度）。<c>Quaternion.Angle</c> と同じ式。</summary>
+        /// <remarks>どちらかに NaN / 無限大が含まれる場合は無限大を返す（許容差との比較で必ず不一致になるように）。</remarks>
         public static double AngleDegrees(
             float ax, float ay, float az, float aw,
             float bx, float by, float bz, float bw)
         {
+            if (!IsFinite(ax) || !IsFinite(ay) || !IsFinite(az) || !IsFinite(aw)
+                || !IsFinite(bx) || !IsFinite(by) || !IsFinite(bz) || !IsFinite(bw))
+            {
+                return double.PositiveInfinity;
+            }
+
             double lengthA = Math.Sqrt((double)ax * ax + (double)ay * ay + (double)az * az + (double)aw * aw);
             double lengthB = Math.Sqrt((double)bx * bx + (double)by * by + (double)bz * bz + (double)bw * bw);
             if (lengthA <= 0d || lengthB <= 0d)
@@ -145,6 +152,11 @@ namespace Hidano.FacialControl.Timeline.Tests.Shared
             double dot = ((double)ax * bx + (double)ay * by + (double)az * bz + (double)aw * bw) / (lengthA * lengthB);
             dot = Math.Min(1d, Math.Abs(dot));
             return 2d * Math.Acos(dot) * (180d / Math.PI);
+        }
+
+        private static bool IsFinite(float value)
+        {
+            return !float.IsNaN(value) && !float.IsInfinity(value);
         }
 
         /// <summary>回転をオイラー角（度、Unity と同じ ZXY 順）で表した文字列。</summary>

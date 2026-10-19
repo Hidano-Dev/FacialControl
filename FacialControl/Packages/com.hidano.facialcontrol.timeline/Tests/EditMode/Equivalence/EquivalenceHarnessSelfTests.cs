@@ -75,6 +75,21 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
         }
 
         [Test]
+        public void Compare_BoneRotationWithNaN_ReportsMismatch()
+        {
+            var channels = new[] { new EquivalenceChannel("LeftEye", EquivalenceChannelKind.BoneRotation) };
+            var expected = new EquivalenceFrameTrace(channels);
+            var actual = new EquivalenceFrameTrace(channels);
+            expected.AddFrame(0d, new[] { 0f, 0f, 0f, 1f });
+            actual.AddFrame(0d, new[] { float.NaN, 0f, 0f, 1f });
+
+            EquivalenceResult result = EquivalenceComparer.Compare(expected, actual);
+
+            Assert.That(result.IsMatch, Is.False);
+            Assert.That(double.IsPositiveInfinity(result.FirstMismatch.Value.Difference), Is.True);
+        }
+
+        [Test]
         public void Compare_DifferentFrameCounts_ReportsStructureError()
         {
             EquivalenceResult result = EquivalenceComparer.Compare(CreateRampTrace(10), CreateRampTrace(9));
