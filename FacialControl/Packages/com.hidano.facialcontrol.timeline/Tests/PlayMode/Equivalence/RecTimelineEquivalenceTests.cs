@@ -87,7 +87,7 @@ namespace Hidano.FacialControl.Timeline.Tests.PlayMode
                 Assert.Fail(failures.Count + " / " + compared + " 件が REC 再生と一致しない:\n\n" + string.Join("\n\n", failures));
             }
 
-            // 有効なシナリオが 0 件なら比較せずに成功する（Medium の必須シナリオはまだない）。
+            // 有効なシナリオが 0 件なら比較せずに成功する。
             TestContext.WriteLine("compared " + compared + " case(s)");
         }
 

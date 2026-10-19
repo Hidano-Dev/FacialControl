@@ -22,6 +22,7 @@ namespace Hidano.FacialControl.Timeline.Tests.Shared
         /// <summary>Medium（REC 再生 ⇔ Timeline 再生の全経路）の必須テストで回すシナリオ。</summary>
         public static readonly HashSet<string> EnabledInMedium = new HashSet<string>(StringComparer.Ordinal)
         {
+            "analog-ramp",
         };
 
         private static readonly Func<RecEquivalenceScenario>[] Factories =
