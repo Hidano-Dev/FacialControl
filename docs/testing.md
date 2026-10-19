@@ -83,9 +83,11 @@ Windows 固有の挙動（パス区切り等）はこの CI では検出でき�
 | `test-size-check` | `scripts/check-test-sizes.ps1`（Unity 不要）。サイズ未宣言 fixture、Small ファイルの禁止 API、Small asmdef の参照逸脱を検出 | すべての push / PR |
 | `small-tests` / `lipsync-small-tests` | EditMode `-testCategory Small` | すべての push / PR |
 | `medium-tests` / `lipsync-medium-tests` | EditMode + PlayMode `-testCategory Medium` | PR（マージ前ゲート）と main への push |
-| `ci-large.yml` | EditMode + PlayMode `-testCategory Large` | 手動（workflow_dispatch）と夜間 03:00 JST |
+| `ci-large.yml` | EditMode + PlayMode `-testCategory Large`（REC → Timeline 往復検証の全シナリオ調査を含む） | 手動（workflow_dispatch）と夜間 03:00 JST |
 
 サイズ未宣言のテストは、`test-size-check` に加えて Small ジョブ内の `TestSizeDeclarationTests`（全テストアセンブリを reflection で走査）でも失敗する。`-testCategory` で絞ったジョブは未宣言テストを実行しないため、この二重の検査が必要。
+
+テストが失敗したジョブは、ログの「失敗したテスト:」に fullname を、「失敗の内容(先頭):」に各テストの失敗メッセージの先頭 15 行を出す（最大 20 テスト）。全文は成果物 `*-test-results` の結果 XML で読む。
 
 ローカルでの実行例（Unity Editor は `AGENTS.md` のバージョン固定に従う）:
 
@@ -101,6 +103,38 @@ pwsh ./scripts/check-test-sizes.ps1
 & "D:/UnityEditors/6000.3.19f1/Editor/Unity.exe" -batchmode -nographics -projectPath ./FacialControl `
     -runTests -testPlatform PlayMode -testCategory Medium -testResults ./test-results/medium-playmode.xml
 ```
+
+## REC → Timeline 往復検証
+
+REC（`.fcrec`）を Timeline に書き出して再生したとき、収録時と同じ顔の動きになるかを人の目視なしで確かめる仕組み（HID-316。目的と進め方は HID-290）。コードは `com.hidano.facialcontrol.timeline/Tests/*/Equivalence/` にある。
+
+- **正解**: 同じ `.fcrec` を REC 再生（`RecCharacterBinding`）で実ランタイムに流したときの、毎フレームの出力
+- **比べるもの**: SkinnedMeshRenderer の全 BlendShape と左右の目ボーンの localRotation を、全フレームで比べる。許容誤差は BlendShape 0.01（0〜100）、目線 0.01°（`EquivalenceComparer`）
+- **フレームの刻み**: 1/60 秒、1/120 秒、1/144〜1/40 秒でフレームごとに揺らす（シード付き）の 3 通り
+
+| 層 | テスト | サイズ | 内容 |
+|---|---|---|---|
+| 全経路 | `RecTimelineEquivalenceTests` | Medium（PlayMode） | REC 再生のキャラクターと Timeline 再生のキャラクターを同じ Profile・メッシュ・目ボーンで作り、毎フレームの出力を比べる |
+| 遷移計算 | `ExpressionTransitionEquivalenceTests` | Small（EditMode） | シーンを使わず、REC 再生と同じ順序で回した trigger 入力源と、Export → Bake したカーブを比べる（全経路の近似。食い違ったら Medium が正しい） |
+| 仕組み自体 | `EquivalenceHarnessSelfTests`（Small）、`RecTimelineEquivalenceTests.Harness_*`（Medium） | | 1 フレームずらした入力を不一致と判定できること、REC 再生・Timeline 再生が決定的であること |
+| 現状調査 | `RecTimelineEquivalenceSurveyTests`（PlayMode）、`ExpressionTransitionEquivalenceSurveyTests`（EditMode） | Large | 全シナリオを回して差分レポートと一覧（`survey-medium.md` / `survey-small.md`）を書く。不一致では失敗しない |
+
+**シナリオ**は `RecEquivalenceScenarios` に並べる。`RecEquivalenceScenarioBuilder` で表情の on/off・目線・Analog・値提供型・レイヤー weight・録画開始時の表情を時刻付きで積み、時刻は `OffGrid` で 1/60・1/120 秒の格子から外す（どのフレームでイベントが効くかが浮動小数点の誤差で揺れないように）。乱数を使うものはシードを固定する。キャラクターの構成（BlendShape・Expression・遷移時間・入力源 id）は `RecEquivalenceSpec` にあり、Small と Medium が同じ定義を使う。
+
+**必須にするシナリオ**は `RecEquivalenceScenarios.EnabledInSmall` / `EnabledInMedium` に名前を載せる。載せたシナリオだけを Small / Medium のジョブが回し、1 件でも食い違えば失敗する。既知の差を直す Issue は、自分の差に当たるシナリオ（タグで探す）をここに足して一致させるところまでを完了条件にする。
+
+**レポートの読み方**: 不一致のテストは、失敗メッセージの先頭に次の要約を出す（CI のジョブログの「失敗の内容(先頭):」に出る）。
+
+```
+[REC⇔Timeline Medium] scenario=expr-switch-basic seed=0 step=Fixed60 tags=expression-transition
+最初の不一致: frame 13 t=0.21667 channel=Smile expected(REC)=5.556 actual(Timeline)=0 diff=5.556 (許容 0.01)
+不一致フレーム数: 40 / 193
+差の大きいチャンネル: Smile 5.556@t=0.217, ...
+```
+
+続けて、Markdown の差分レポート（チャンネルごとの最大差、最初の不一致の前後 0.15 秒の REC イベント、Timeline のトラックと Clip）を出す。同じ内容を `test-results/rec-timeline-equivalence/{層}_{シナリオ}_{刻み}.md` / `.json` にも書き、CI は Medium と Large の成果物に含める。出力先は環境変数 `FACIALCONTROL_EQUIVALENCE_REPORT_DIR` で変えられる。
+
+**全シナリオを回す**: GitHub Actions の `CI (Large)` を手動実行する（夜間にも回る）。成果物 `large-test-results` の `rec-timeline-equivalence/survey-medium.md` が全シナリオの一覧になる。同じ一覧（`survey-*.md`）はジョブログにも出す（成果物をダウンロードできないクラウドセッションのエージェントでも読めるように）。ローカルでは `-testCategory Large` で同じテストを回せる。
 
 ## Small で書けないとき（Humble Object パターン）
 
