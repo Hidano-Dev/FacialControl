@@ -21,7 +21,7 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
         [Test]
         public void Survey_AllScenarios_WritesReports()
         {
-            string directory = EquivalenceReportWriter.ResolveDirectory(Application.dataPath);
+            string directory = EquivalenceReportWriter.ResolveDirectory(UnityEngine.Application.dataPath);
             var summary = new StringBuilder();
             summary.Append("# REC ⇔ Timeline 往復検証 現状調査（Small 層: 遷移計算のみ）\n\n");
             summary.Append("| scenario | step | tags | 結果 | 最初の不一致 |\n|---|---|---|---|---|\n");

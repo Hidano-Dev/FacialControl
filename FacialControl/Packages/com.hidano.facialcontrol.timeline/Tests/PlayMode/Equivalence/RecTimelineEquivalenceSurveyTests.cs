@@ -48,7 +48,7 @@ namespace Hidano.FacialControl.Timeline.Tests.PlayMode
         [UnityTest]
         public IEnumerator Survey_AllScenarios_WritesReports()
         {
-            string directory = EquivalenceReportWriter.ResolveDirectory(Application.dataPath);
+            string directory = EquivalenceReportWriter.ResolveDirectory(UnityEngine.Application.dataPath);
             var summary = new StringBuilder();
             summary.Append("# REC ⇔ Timeline 往復検証 現状調査（Medium: REC 再生 ⇔ Timeline 再生）\n\n");
             summary.Append("| scenario | step | tags | 必須 | 結果 | 最初の不一致 | 差の大きいチャンネル |\n|---|---|---|---|---|---|---|\n");

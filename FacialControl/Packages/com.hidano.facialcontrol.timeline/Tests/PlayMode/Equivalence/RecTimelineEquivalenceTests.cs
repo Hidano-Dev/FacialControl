@@ -85,7 +85,7 @@ namespace Hidano.FacialControl.Timeline.Tests.PlayMode
             EquivalenceReport report = result.Report;
             if (!report.Result.IsMatch)
             {
-                string path = EquivalenceReportWriter.Write(EquivalenceReportWriter.ResolveDirectory(Application.dataPath), report);
+                string path = EquivalenceReportWriter.Write(EquivalenceReportWriter.ResolveDirectory(UnityEngine.Application.dataPath), report);
                 Assert.Fail(report.ToSummary() + "差分レポート: " + path + "\n\n" + report.ToMarkdown());
             }
         }
