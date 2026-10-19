@@ -147,6 +147,13 @@ runs:
             grep -E "error CS|Scripts have compiler errors|Failed to|Exception" "$results.log" | head -20 || true
           fi
         fi
+        # REC → Timeline 往復検証の現状調査の一覧をジョブログにも出す
+        # (成果物をダウンロードできない環境のエージェントでも読めるように。docs/testing.md)
+        for survey in "$GITHUB_WORKSPACE"/test-results/rec-timeline-equivalence/survey-*.md; do
+          [ -f "$survey" ] || continue
+          echo "=== $(basename "$survey")"
+          head -120 "$survey"
+        done
         # Unity が 0 で終わっても、結果 XML が無い・テストが 0 件なら失敗にする
         # (asmdef の変更等でテストが発見されなくなった回帰を、緑のまま見逃さないため)
         if [ ! -f "$results.xml" ]; then

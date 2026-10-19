@@ -134,7 +134,7 @@ REC（`.fcrec`）を Timeline に書き出して再生したとき、収録時�
 
 続けて、Markdown の差分レポート（チャンネルごとの最大差、最初の不一致の前後 0.15 秒の REC イベント、Timeline のトラックと Clip）を出す。同じ内容を `test-results/rec-timeline-equivalence/{層}_{シナリオ}_{刻み}.md` / `.json` にも書き、CI は Medium と Large の成果物に含める。出力先は環境変数 `FACIALCONTROL_EQUIVALENCE_REPORT_DIR` で変えられる。
 
-**全シナリオを回す**: GitHub Actions の `CI (Large)` を手動実行する（夜間にも回る）。成果物 `large-test-results` の `rec-timeline-equivalence/survey-medium.md` が全シナリオの一覧になる。ローカルでは `-testCategory Large` で同じテストを回せる。
+**全シナリオを回す**: GitHub Actions の `CI (Large)` を手動実行する（夜間にも回る）。成果物 `large-test-results` の `rec-timeline-equivalence/survey-medium.md` が全シナリオの一覧になる。同じ一覧（`survey-*.md`）はジョブログにも出す（成果物をダウンロードできないクラウドセッションのエージェントでも読めるように）。ローカルでは `-testCategory Large` で同じテストを回せる。
 
 ## Small で書けないとき（Humble Object パターン）
 
