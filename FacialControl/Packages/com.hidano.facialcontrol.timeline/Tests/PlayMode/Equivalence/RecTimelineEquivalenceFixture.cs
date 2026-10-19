@@ -279,7 +279,7 @@ namespace Hidano.FacialControl.Timeline.Tests.PlayMode
 
         private EquivalenceCharacter Spawn(bool withRecBinding, bool withTimeline)
         {
-            var character = EquivalenceCharacter.Create(ProfileAsset, withRecBinding ? null : Timeline, withRecBinding);
+            var character = EquivalenceCharacter.Create(ProfileAsset, Timeline, withRecBinding, withTimeline);
             _characters.Add(character);
             return character;
         }
@@ -421,7 +421,15 @@ namespace Hidano.FacialControl.Timeline.Tests.PlayMode
 
         public PlayableDirector Director { get; }
 
-        public static EquivalenceCharacter Create(FacialCharacterProfileSO profileAsset, TimelineAsset timeline, bool withRecBinding)
+        /// <remarks>
+        /// Profile の Timeline binding は Receiver の無いキャラクターにも Receiver を自動で付け、Director が無いと
+        /// <c>DirectorMissing</c> の Error を出す。REC 再生のキャラクターにも Director を置き、再生はしない。
+        /// </remarks>
+        public static EquivalenceCharacter Create(
+            FacialCharacterProfileSO profileAsset,
+            TimelineAsset timeline,
+            bool withRecBinding,
+            bool withTimelineReceiver)
         {
             var root = new GameObject("RecEquivalenceCharacter");
             root.SetActive(false);
@@ -446,14 +454,13 @@ namespace Hidano.FacialControl.Timeline.Tests.PlayMode
                 recBinding.FacialController = controller;
             }
 
-            PlayableDirector director = null;
-            if (timeline != null)
+            var director = root.AddComponent<PlayableDirector>();
+            director.playOnAwake = false;
+            director.timeUpdateMode = DirectorUpdateMode.Manual;
+            director.extrapolationMode = DirectorWrapMode.Hold;
+            director.playableAsset = timeline;
+            if (withTimelineReceiver)
             {
-                director = root.AddComponent<PlayableDirector>();
-                director.playOnAwake = false;
-                director.timeUpdateMode = DirectorUpdateMode.Manual;
-                director.extrapolationMode = DirectorWrapMode.Hold;
-                director.playableAsset = timeline;
                 root.AddComponent<FacialTimelineReceiver>();
             }
 
