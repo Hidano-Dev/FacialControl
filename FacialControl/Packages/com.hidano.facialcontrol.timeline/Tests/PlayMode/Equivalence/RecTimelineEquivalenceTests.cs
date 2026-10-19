@@ -22,8 +22,6 @@ namespace Hidano.FacialControl.Timeline.Tests.PlayMode
     [MediumTest]
     public sealed class RecTimelineEquivalenceTests : SizedTestFixture
     {
-        private const string NoneEnabled = "(none-enabled)";
-
         /// <summary>仕組み自体の検査に使うシナリオ（表情・目線・Analog・レイヤー weight を含む）。</summary>
         private const string HarnessScenario = "random-mix-1";
 
@@ -44,9 +42,19 @@ namespace Hidano.FacialControl.Timeline.Tests.PlayMode
             _fixture = null;
         }
 
-        public static IEnumerable<TestCaseData> EnabledCases()
+        /// <summary>
+        /// <see cref="RecEquivalenceScenarios.EnabledInMedium"/> の全シナリオ × 全フレームの刻みで、Timeline の出力が REC 再生と全フレーム一致する。
+        /// </summary>
+        /// <remarks>
+        /// Unity Test Framework は <c>[UnityTest]</c> と <c>[TestCaseSource]</c> の併用に対応しない（IEnumerator を返す通常のテストとして
+        /// 組まれて失敗する）ため、1 テストの中でシナリオを順に回し、不一致をまとめて報告する。
+        /// </remarks>
+        [UnityTest]
+        public IEnumerator EnabledScenarios_TimelineMatchesRecPlaybackEveryFrame()
         {
-            bool any = false;
+            string directory = EquivalenceReportWriter.ResolveDirectory(UnityEngine.Application.dataPath);
+            var failures = new List<string>();
+            int compared = 0;
             IReadOnlyList<string> names = RecEquivalenceScenarios.AllNames();
             for (int i = 0; i < names.Count; i++)
             {
@@ -55,39 +63,32 @@ namespace Hidano.FacialControl.Timeline.Tests.PlayMode
                     continue;
                 }
 
-                any = true;
                 foreach (RecEquivalenceFrameStepMode mode in StepModes())
                 {
-                    yield return new TestCaseData(names[i], mode).SetName($"Medium_{names[i]}_{mode}");
+                    var run = new RecTimelineEquivalenceRun();
+                    yield return run.Execute(RecEquivalenceScenarios.Get(names[i]), mode, f => _fixture = f);
+                    compared++;
+
+                    EquivalenceReport report = run.Report;
+                    if (!report.Result.IsMatch)
+                    {
+                        string path = EquivalenceReportWriter.Write(directory, report);
+                        failures.Add(report.ToSummary() + "差分レポート: " + path);
+                    }
+
+                    // シナリオごとに生成物を消す（Assets と StreamingAssets を溜めない）。
+                    _fixture?.Dispose();
+                    _fixture = null;
                 }
             }
 
-            if (!any)
+            if (failures.Count > 0)
             {
-                // 有効なシナリオが 0 件でもテストケースを 1 件出す（空の TestCaseSource をランナーに失敗扱いされないため）。
-                yield return new TestCaseData(NoneEnabled, RecEquivalenceFrameStepMode.Fixed60).SetName("Medium_NoScenarioEnabled");
-            }
-        }
-
-        [UnityTest]
-        [TestCaseSource(nameof(EnabledCases))]
-        public IEnumerator Timeline_MatchesRecPlaybackEveryFrame(string scenarioName, RecEquivalenceFrameStepMode mode)
-        {
-            if (scenarioName == NoneEnabled)
-            {
-                // Medium の必須シナリオはまだない（RecEquivalenceScenarios.EnabledInMedium）。
-                yield break;
+                Assert.Fail(failures.Count + " / " + compared + " 件が REC 再生と一致しない:\n\n" + string.Join("\n\n", failures));
             }
 
-            var result = new RecTimelineEquivalenceRun();
-            yield return result.Execute(RecEquivalenceScenarios.Get(scenarioName), mode, f => _fixture = f);
-
-            EquivalenceReport report = result.Report;
-            if (!report.Result.IsMatch)
-            {
-                string path = EquivalenceReportWriter.Write(EquivalenceReportWriter.ResolveDirectory(UnityEngine.Application.dataPath), report);
-                Assert.Fail(report.ToSummary() + "差分レポート: " + path + "\n\n" + report.ToMarkdown());
-            }
+            // 有効なシナリオが 0 件なら比較せずに成功する（Medium の必須シナリオはまだない）。
+            TestContext.WriteLine("compared " + compared + " case(s)");
         }
 
         /// <summary>同じシナリオの REC 再生を 2 回記録すると、全フレームが一致する（正解側が決定的であること）。</summary>
