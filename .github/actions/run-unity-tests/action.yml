@@ -121,6 +121,28 @@ runs:
             echo "失敗したテスト:"
             grep -oE '<test-case [^>]*result="Failed"' "$results.xml" \
               | grep -oE 'fullname="[^"]*"' | sed -E 's/^fullname="(.*)"$/  \1/' | head -50 || true
+            # 失敗メッセージの先頭もジョブログに出す(artifact の結果 XML を開かなくても原因が読めるように)。
+            # 1 テストあたり 15 行・最大 20 テストまで
+            echo "失敗の内容(先頭):"
+            awk '
+              /<test-case / && /result="Failed"/ {
+                if (++shown > 20) { exit }
+                name = $0
+                sub(/.*fullname="/, "", name); sub(/".*/, "", name)
+                print "--- " name
+                infail = 1; inmsg = 0; lines = 0
+              }
+              infail && /<message>/ { inmsg = 1 }
+              inmsg {
+                line = $0
+                sub(/.*<message><!\[CDATA\[/, "", line)
+                done = sub(/\]\]><\/message>.*/, "", line)
+                if (lines < 15) { print "    " line }
+                lines++
+                if (done) { inmsg = 0; infail = 0 }
+              }
+              /<\/test-case>/ { infail = 0; inmsg = 0 }
+            ' "$results.xml" || true
           else
             grep -E "error CS|Scripts have compiler errors|Failed to|Exception" "$results.log" | head -20 || true
           fi

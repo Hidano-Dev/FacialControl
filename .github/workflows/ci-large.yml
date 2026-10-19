@@ -2,9 +2,8 @@
 #
 # Large は実機ビルドや外部システム接続を含むテスト（docs/testing.md）。PR ごとには回さず、
 # workflow_dispatch と夜間スケジュールで EditMode / PlayMode の -testCategory Large を実行する。
-# 現時点で Large に分類されたテストは 0 件（docs/test-size-migration.md）。フィルタに一致する
-# テストがない場合の Unity Test Runner の終了コードは環境依存のため、ジョブは continue-on-error とし
-# 結果 XML の有無で判断する。Large テストを追加したら continue-on-error を外す。
+# REC → Timeline 往復検証の全シナリオの現状調査（HID-316）がここで回り、差分レポートを
+# test-results/rec-timeline-equivalence/ に書く（成果物 large-test-results に含める）。
 #
 # 実行環境は ci.yml と同じ Linux セルフホストランナー（ラベル linux-unity）。
 name: CI (Large)
@@ -31,7 +30,6 @@ jobs:
     name: Large テスト（EditMode + PlayMode）
     runs-on: [self-hosted, linux-unity]
     timeout-minutes: 90
-    continue-on-error: true
     steps:
       - name: チェックアウト
         uses: actions/checkout@v4
@@ -48,7 +46,6 @@ jobs:
           test-platform: EditMode
           test-category: ${{ env.LARGE_CATEGORY }}
           results-name: large-editmode
-          allow-empty: "true"   # Large はまだ 0 件(冒頭のコメント)。追加したら外す
 
       - name: Large テスト実行（PlayMode, -testCategory Large）
         if: always()
@@ -59,7 +56,6 @@ jobs:
           test-platform: PlayMode
           test-category: ${{ env.LARGE_CATEGORY }}
           results-name: large-playmode
-          allow-empty: "true"
 
       - name: テスト結果アップロード
         if: always()
@@ -71,4 +67,5 @@ jobs:
             ${{ env.TEST_RESULTS_DIR }}/large-editmode.log
             ${{ env.TEST_RESULTS_DIR }}/large-playmode.xml
             ${{ env.TEST_RESULTS_DIR }}/large-playmode.log
+            ${{ env.TEST_RESULTS_DIR }}/rec-timeline-equivalence/
           if-no-files-found: warn

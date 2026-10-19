@@ -154,6 +154,7 @@ jobs:
             ${{ env.TEST_RESULTS_DIR }}/medium-editmode.log
             ${{ env.TEST_RESULTS_DIR }}/medium-playmode.xml
             ${{ env.TEST_RESULTS_DIR }}/medium-playmode.log
+            ${{ env.TEST_RESULTS_DIR }}/rec-timeline-equivalence/
 
   lipsync-small-tests:
     needs: [package-validation, test-size-check]
