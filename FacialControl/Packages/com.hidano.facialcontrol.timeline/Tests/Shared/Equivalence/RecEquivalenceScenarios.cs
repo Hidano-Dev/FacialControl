@@ -23,6 +23,8 @@ namespace Hidano.FacialControl.Timeline.Tests.Shared
         public static readonly HashSet<string> EnabledInMedium = new HashSet<string>(StringComparer.Ordinal)
         {
             "analog-ramp",
+            "gaze-dense",
+            "gaze-sparse",
         };
 
         private static readonly Func<RecEquivalenceScenario>[] Factories =

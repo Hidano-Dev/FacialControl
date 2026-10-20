@@ -464,6 +464,25 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
             Assert.That(FacialLayerWeightMixerBehaviour.Evaluate(null, 0d), Is.EqualTo(1f));
         }
 
+        [Test]
+        public void ValueMixer_TryGetClipTime_ClipReachingHoldEnd_IncludesEndAndHoldsLastValue()
+        {
+            // HID-317: REC 再生は記録の終わりでも最後の値を保持する。Hold の Timeline の終端まで届く Clip は終端ちょうども含める。
+            Assert.That(FacialValueMixerBehaviour.TryGetClipTime(0.5d, 2.0d, 2.0d, 2.0d, out float atEnd), Is.True);
+            Assert.That(atEnd, Is.EqualTo(1.5f).Within(1e-6f));
+            Assert.That(
+                FacialValueMixerBehaviour.TryGetClipTime(0.5d, 2.0d - 1e-9d, 2.0d, 2.0d, out float nearEnd),
+                Is.True,
+                "start + duration の誤差で終端がわずかに手前でも終端まで届く Clip とみなす");
+            Assert.That(nearEnd, Is.EqualTo(1.5f).Within(1e-6f), "Clip 内時刻は Clip の終端で止める");
+
+            Assert.That(FacialValueMixerBehaviour.TryGetClipTime(0.5d, 1.5d, 1.5d, 2.0d, out _), Is.False, "終端まで届かない Clip は終端を含まない");
+            Assert.That(FacialValueMixerBehaviour.TryGetClipTime(0.5d, 2.0d, 2.0d, double.PositiveInfinity, out _), Is.False, "終端で留まらない Timeline は終端を含まない");
+            Assert.That(FacialValueMixerBehaviour.TryGetClipTime(0.5d, 2.0d, 0.4d, 2.0d, out _), Is.False, "開始より前は含まない");
+            Assert.That(FacialValueMixerBehaviour.TryGetClipTime(0.5d, 2.0d, 0.5d, 2.0d, out float atStart), Is.True);
+            Assert.That(atStart, Is.EqualTo(0f));
+        }
+
         private static FacialLayerWeightTrack[] FindLayerWeightTracks(TimelineAsset timeline)
         {
             var tracks = new List<FacialLayerWeightTrack>();
@@ -581,20 +600,97 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
                 var analogClip = (FacialValueClip)ToArray(analogTrack.GetClips())[0].asset;
                 Assert.That(analogClip.Axes, Has.Length.EqualTo(3));
                 Assert.That(analogClip.Axes[0].keys[0].time, Is.EqualTo(0f).Within(1e-6f));
-                Assert.That(analogClip.Axes[2].keys[1].value, Is.EqualTo(0f).Within(1e-6f));
+                Assert.That(analogClip.Axes[2].keys[2].value, Is.EqualTo(0f).Within(1e-6f));
 
                 var gazeTrack = FindTrack<FacialValueTrack>(timeline, "live:gaze");
                 Assert.That(gazeTrack, Is.Not.Null);
                 Assert.That(gazeTrack.ChannelKind, Is.EqualTo(FacialValueChannelKind.Gaze));
                 var gazeClip = (FacialValueClip)ToArray(gazeTrack.GetClips())[0].asset;
                 Assert.That(gazeClip.Axes, Has.Length.EqualTo(2));
-                Assert.That(gazeClip.Axes[0].keys[1].value, Is.EqualTo(0.5f).Within(1e-6f));
+                Assert.That(gazeClip.Axes[0].keys[2].value, Is.EqualTo(0.5f).Within(1e-6f));
 
                 var badGazeTrack = FindTrack<FacialValueTrack>(timeline, "live:gaze-bad");
                 Assert.That(badGazeTrack, Is.Not.Null);
                 Assert.That(badGazeTrack.ChannelKind, Is.EqualTo(FacialValueChannelKind.Analog));
                 var badGazeClip = (FacialValueClip)ToArray(badGazeTrack.GetClips())[0].asset;
                 Assert.That(badGazeClip.Axes, Has.Length.EqualTo(3));
+            }
+            finally
+            {
+                if (timeline != null)
+                {
+                    UnityEngine.Object.DestroyImmediate(timeline);
+                }
+            }
+        }
+
+        [Test]
+        public void CreateTimelineAsset_AnalogAndGazeSamples_HoldEachSampleUntilNextAndZeroBeforeFirst()
+        {
+            // HID-317: REC 再生は再生開始時に 0 を入れ、各サンプルを次のサンプルまで保持する（階段）。
+            var sequence = new FakeRecordedEventSequence(
+                2.0d,
+                new[]
+                {
+                    new RecordedEvent(0.25d, RecordedEventKind.AnalogValue, sourceId: "analog:lt", axes: new[] { 0.2f }),
+                    new RecordedEvent(0.30d, RecordedEventKind.AnalogValue, sourceId: "live:gaze", axes: new[] { -1f, 1f }),
+                    new RecordedEvent(0.75d, RecordedEventKind.AnalogValue, sourceId: "analog:lt", axes: new[] { 0.8f }),
+                    new RecordedEvent(0.90d, RecordedEventKind.AnalogValue, sourceId: "live:gaze", axes: new[] { 0.5f, -0.5f }),
+                });
+
+            TimelineAsset timeline = null;
+            try
+            {
+                timeline = Editor.RecToTimelineExporter.CreateTimelineAsset(
+                    sequence,
+                    CreateProfile(),
+                    new HashSet<string>(StringComparer.Ordinal) { "live:gaze" });
+
+                TimelineClip analogTimelineClip = ToArray(FindTrack<FacialValueTrack>(timeline, "analog:lt").GetClips())[0];
+                Assert.That(analogTimelineClip.start, Is.EqualTo(0d), "最初のサンプルより前も REC 再生と同じ 0 を出す");
+                Assert.That(analogTimelineClip.end, Is.EqualTo(2.0d).Within(1e-9d));
+                var analogClip = (FacialValueClip)analogTimelineClip.asset;
+                AssertCurve(analogClip.Axes[0], (0f, 0f), (0.24f, 0f), (0.25f, 0.2f), (0.5f, 0.2f), (0.74f, 0.2f), (0.75f, 0.8f), (2.0f, 0.8f));
+
+                TimelineClip gazeTimelineClip = ToArray(FindTrack<FacialValueTrack>(timeline, "live:gaze").GetClips())[0];
+                Assert.That(gazeTimelineClip.start, Is.EqualTo(0d));
+                var gazeClip = (FacialValueClip)gazeTimelineClip.asset;
+                AssertCurve(gazeClip.Axes[0], (0.29f, 0f), (0.3f, -1f), (0.6f, -1f), (0.89f, -1f), (0.9f, 0.5f), (2.0f, 0.5f));
+                AssertCurve(gazeClip.Axes[1], (0.29f, 0f), (0.3f, 1f), (0.6f, 1f), (0.9f, -0.5f));
+            }
+            finally
+            {
+                if (timeline != null)
+                {
+                    UnityEngine.Object.DestroyImmediate(timeline);
+                }
+            }
+        }
+
+        [Test]
+        public void CreateTimelineAsset_AnalogSampleAtTimeZero_ReplacesInitialZeroKey()
+        {
+            var sequence = new FakeRecordedEventSequence(
+                1.0d,
+                new[]
+                {
+                    new RecordedEvent(0d, RecordedEventKind.AnalogValue, sourceId: "analog:lt", axes: new[] { 0.6f }),
+                    new RecordedEvent(0.5d, RecordedEventKind.AnalogValue, sourceId: "analog:lt", axes: new[] { 0.6f }),
+                    new RecordedEvent(0.7d, RecordedEventKind.AnalogValue, sourceId: "analog:lt", axes: new[] { 0.1f }),
+                });
+
+            TimelineAsset timeline = null;
+            try
+            {
+                timeline = Editor.RecToTimelineExporter.CreateTimelineAsset(sequence, CreateProfile());
+
+                var clip = (FacialValueClip)ToArray(FindTrack<FacialValueTrack>(timeline, "analog:lt").GetClips())[0].asset;
+                Keyframe[] keys = clip.Axes[0].keys;
+                Assert.That(keys, Has.Length.EqualTo(2), "t=0 のサンプルは初期値のキーを置き換え、値の変わらないキーは省く");
+                Assert.That(keys[0].time, Is.EqualTo(0f));
+                Assert.That(keys[0].value, Is.EqualTo(0.6f).Within(1e-6f));
+                Assert.That(keys[1].time, Is.EqualTo(0.7f).Within(1e-6f));
+                Assert.That(float.IsPositiveInfinity(keys[0].outTangent), Is.True, "REC 再生と同じく次のサンプルまで値を保持する（階段）");
             }
             finally
             {

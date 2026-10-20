@@ -23,6 +23,7 @@ namespace Hidano.FacialControl.Timeline.Editor
     {
         private const string DefaultFallbackLayerName = "Expressions";
         private const double MinimumClipDuration = 1d / 60d;
+        private const float AnalogStepTangent = float.PositiveInfinity;
         private const string DefaultBakeAssetName = "FacialTimelineBake";
         private const string OverwriteDialogTitle = "Overwrite Timeline Export";
 
@@ -831,26 +832,12 @@ namespace Hidano.FacialControl.Timeline.Editor
                     track.RightEyeBonePath = recSequence.RightEyeBonePath;
                 }
 
+                // REC 再生は再生開始時に全軸 0 の有効な値を入れ、最初のサンプルまで保持する（RecAnalogInjector）。
+                // Clip を t=0 から始めて 0 のキーを置き、最初のサンプルより前も同じ値にする。
                 TimelineClip clip = track.CreateClip<FacialValueClip>();
-                double clipStart = trackInfo.Events[0].TimeSeconds;
-                clip.start = clipStart;
-                clip.duration = Math.Max(MinimumClipDuration, durationSeconds - clipStart);
-
-                var axes = new AnimationCurve[trackInfo.AxisCount];
-                for (int axisIndex = 0; axisIndex < trackInfo.AxisCount; axisIndex++)
-                {
-                    var keys = new Keyframe[trackInfo.Events.Count];
-                    for (int eventIndex = 0; eventIndex < trackInfo.Events.Count; eventIndex++)
-                    {
-                        AnalogEventInfo evt = trackInfo.Events[eventIndex];
-                        float value = axisIndex < evt.Axes.Length ? evt.Axes[axisIndex] : 0f;
-                        keys[eventIndex] = new Keyframe((float)(evt.TimeSeconds - clipStart), value);
-                    }
-
-                    axes[axisIndex] = new AnimationCurve(keys);
-                }
-
-                ((FacialValueClip)clip.asset).Axes = axes;
+                clip.start = 0d;
+                clip.duration = Math.Max(MinimumClipDuration, durationSeconds);
+                ((FacialValueClip)clip.asset).Axes = BuildAnalogAxisCurves(trackInfo);
             }
 
             if (skippedGazeSourceIds != null)
@@ -861,6 +848,54 @@ namespace Hidano.FacialControl.Timeline.Editor
                     $"or the eye bones could not be resolved while recording). Skipped {skippedGazeSourceIds.Count} gaze track(s): " +
                     $"{string.Join(", ", skippedGazeSourceIds)}. Other tracks are exported as usual.");
             }
+        }
+
+        /// <summary>
+        /// Analog / 目線の軸ごとの階段カーブ（Clip の開始 = t=0 基準）。REC 再生は次のサンプルまで直前の値を保持するため、
+        /// 全キーの接線を無限大にする（滑らかな補間ではサンプル間の値が REC 再生と食い違う。HID-317）。
+        /// </summary>
+        private static AnimationCurve[] BuildAnalogAxisCurves(AnalogTrackInfo trackInfo)
+        {
+            var axes = new AnimationCurve[trackInfo.AxisCount];
+            var keys = new List<Keyframe>(trackInfo.Events.Count + 1);
+            for (int axisIndex = 0; axisIndex < trackInfo.AxisCount; axisIndex++)
+            {
+                keys.Clear();
+                AddAnalogStepKey(keys, 0f, 0f);
+                for (int eventIndex = 0; eventIndex < trackInfo.Events.Count; eventIndex++)
+                {
+                    AnalogEventInfo evt = trackInfo.Events[eventIndex];
+                    float value = axisIndex < evt.Axes.Length ? evt.Axes[axisIndex] : 0f;
+                    AddAnalogStepKey(keys, (float)evt.TimeSeconds, value);
+                }
+
+                axes[axisIndex] = new AnimationCurve(keys.ToArray());
+            }
+
+            return axes;
+        }
+
+        private static void AddAnalogStepKey(List<Keyframe> keys, float time, float value)
+        {
+            if (keys.Count > 0)
+            {
+                Keyframe last = keys[keys.Count - 1];
+                if (last.time == time)
+                {
+                    // 同時刻は後勝ち（REC 再生も同じフレームで順に上書きする）。
+                    keys.RemoveAt(keys.Count - 1);
+                    if (keys.Count > 0 && keys[keys.Count - 1].value == value)
+                    {
+                        return;
+                    }
+                }
+                else if (last.value == value)
+                {
+                    return;
+                }
+            }
+
+            keys.Add(new Keyframe(time, value, AnalogStepTangent, AnalogStepTangent));
         }
 
         private static string ResolveFallbackLayerName(FacialProfile profile)

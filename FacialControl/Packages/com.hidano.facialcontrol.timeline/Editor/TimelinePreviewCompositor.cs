@@ -596,7 +596,8 @@ namespace Hidano.FacialControl.Timeline.Editor
                     channel.ChannelSubId,
                     new TimelineValueProviderInputSource(sinkId, blendShapeNames),
                     clips.ToArray(),
-                    ranges.ToArray()));
+                    ranges.ToArray(),
+                    ResolveHoldEndTime(valueTrack)));
             }
 
             return tracks.ToArray();
@@ -604,12 +605,13 @@ namespace Hidano.FacialControl.Timeline.Editor
 
         private static ValueClipSample[] CollectValueClipSamples(FacialValueTrack valueTrack)
         {
+            double holdEndTime = ResolveHoldEndTime(valueTrack);
             var clips = new List<ValueClipSample>();
             foreach (TimelineClip clip in valueTrack.GetClips())
             {
                 if (clip.asset is FacialValueClip valueClip)
                 {
-                    clips.Add(new ValueClipSample(clip.start, clip.end, valueClip.Axes));
+                    clips.Add(new ValueClipSample(clip.start, clip.end, holdEndTime, valueClip.Axes));
                 }
             }
 
@@ -617,20 +619,29 @@ namespace Hidano.FacialControl.Timeline.Editor
         }
 
         /// <summary>
-        /// Play の Value Mixer と同じ規則（後勝ちで <c>start &lt;= t &lt; end</c> の Clip）で有効な Clip と Clip 内時刻を返す。
+        /// Edit プレビューは Timeline の終端で留まる（Play の Hold と同じ）ものとして、Timeline の長さを終端にする。
+        /// </summary>
+        private static double ResolveHoldEndTime(TrackAsset track)
+        {
+            TimelineAsset timeline = track != null ? track.timelineAsset : null;
+            return timeline != null ? timeline.duration : double.PositiveInfinity;
+        }
+
+        /// <summary>
+        /// Play の Value Mixer と同じ規則（後勝ちで <c>start &lt;= t &lt; end</c> の Clip。Timeline の終端まで届く Clip は終端も含む。
+        /// <see cref="FacialValueMixerBehaviour.TryGetClipTime"/>）で有効な Clip と Clip 内時刻を返す。
         /// </summary>
         private static bool TryFindActiveClip(ValueClipSample[] clips, double timeSeconds, out ValueClipSample active, out float clipTime)
         {
             for (int i = clips.Length - 1; i >= 0; i--)
             {
                 ValueClipSample clip = clips[i];
-                if (timeSeconds < clip.StartTime || timeSeconds >= clip.EndTime)
+                if (!FacialValueMixerBehaviour.TryGetClipTime(clip.StartTime, clip.EndTime, timeSeconds, clip.HoldEndTime, out clipTime))
                 {
                     continue;
                 }
 
                 active = clip;
-                clipTime = (float)(timeSeconds - clip.StartTime);
                 return true;
             }
 
@@ -816,16 +827,20 @@ namespace Hidano.FacialControl.Timeline.Editor
 
         private readonly struct ValueClipSample
         {
-            public ValueClipSample(double startTime, double endTime, AnimationCurve[] axes)
+            public ValueClipSample(double startTime, double endTime, double holdEndTime, AnimationCurve[] axes)
             {
                 StartTime = startTime;
                 EndTime = endTime;
+                HoldEndTime = holdEndTime;
                 Axes = axes ?? Array.Empty<AnimationCurve>();
             }
 
             public double StartTime { get; }
 
             public double EndTime { get; }
+
+            /// <summary>Timeline の終端（<see cref="ResolveHoldEndTime"/>）。</summary>
+            public double HoldEndTime { get; }
 
             public AnimationCurve[] Axes { get; }
         }
@@ -866,7 +881,7 @@ namespace Hidano.FacialControl.Timeline.Editor
             public bool HasAnyAxis { get; }
 
             /// <summary>
-            /// Play の Value Mixer と同じ規則（後勝ちで <c>start &lt;= t &lt; end</c> の Clip を Clip 内時刻で評価。無ければ 0）で
+            /// Play の Value Mixer と同じ規則（<see cref="TryFindActiveClip"/>。無ければ 0）で
             /// x / y を求める。Play では Clip 外は入力無効 = rest 姿勢、Edit では (0, 0) = rest 姿勢で一致する。
             /// </summary>
             public void Evaluate(double timeSeconds, out float x, out float y)
@@ -904,8 +919,8 @@ namespace Hidano.FacialControl.Timeline.Editor
             public TimelineAnalogInputSource Sink { get; }
 
             /// <summary>
-            /// Play の Value Mixer と同じ規則（後勝ちで <c>start &lt;= t &lt; end</c> の Clip を Clip 内時刻で評価し、軸ごとにカーブ値。
-            /// 無ければ無効化）で sink を更新する。
+            /// Play の Value Mixer と同じ規則（<see cref="TryFindActiveClip"/>）で Clip を選び、軸ごとのカーブ値で sink を更新する
+            /// （Clip が無ければ無効化）。
             /// </summary>
             public void Evaluate(double timeSeconds)
             {
@@ -933,16 +948,19 @@ namespace Hidano.FacialControl.Timeline.Editor
         {
             private readonly FacialValueClip[] _clips;
             private readonly (double start, double end)[] _ranges;
+            private readonly double _holdEndTime;
             private readonly int[][] _hostIndexMaps;
 
             public ValueProviderTrackPlayback(
                 string channelSubId,
                 TimelineValueProviderInputSource sink,
                 FacialValueClip[] clips,
-                (double start, double end)[] ranges)
+                (double start, double end)[] ranges,
+                double holdEndTime)
             {
                 ChannelSubId = channelSubId;
                 Sink = sink;
+                _holdEndTime = holdEndTime;
                 _clips = clips ?? Array.Empty<FacialValueClip>();
                 _ranges = ranges ?? Array.Empty<(double, double)>();
                 _hostIndexMaps = new int[_clips.Length][];
@@ -961,13 +979,13 @@ namespace Hidano.FacialControl.Timeline.Editor
             public TimelineValueProviderInputSource Sink { get; }
 
             /// <summary>
-            /// Play の Value Mixer と同じ規則（後勝ちで <c>start &lt;= t &lt; end</c> の Clip を Clip 内時刻で評価。無ければ無効化）で sink を更新する。
+            /// Play の Value Mixer と同じ規則（<see cref="TryFindActiveClip"/>。無ければ無効化）で sink を更新する。
             /// </summary>
             public void Evaluate(double timeSeconds)
             {
                 for (int i = _clips.Length - 1; i >= 0; i--)
                 {
-                    if (timeSeconds < _ranges[i].start || timeSeconds >= _ranges[i].end)
+                    if (!FacialValueMixerBehaviour.TryGetClipTime(_ranges[i].start, _ranges[i].end, timeSeconds, _holdEndTime, out float clipTime))
                     {
                         continue;
                     }
@@ -978,7 +996,7 @@ namespace Hidano.FacialControl.Timeline.Editor
                         clip.Contributes,
                         clip.Validity,
                         _hostIndexMaps[i],
-                        (float)(timeSeconds - _ranges[i].start));
+                        clipTime);
                     return;
                 }
 
