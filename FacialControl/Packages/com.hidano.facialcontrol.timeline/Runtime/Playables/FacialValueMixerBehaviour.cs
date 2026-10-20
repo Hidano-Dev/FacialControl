@@ -160,7 +160,7 @@ namespace Hidano.FacialControl.Timeline.Playables
         /// <summary>
         /// Director が終端で止まって評価を続ける（<see cref="DirectorWrapMode.Hold"/>）なら Timeline の長さ、それ以外は無限大。
         /// </summary>
-        private static double ResolveHoldEndTime(PlayableDirector director)
+        internal static double ResolveHoldEndTime(PlayableDirector director)
         {
             return director != null && director.extrapolationMode == DirectorWrapMode.Hold
                 ? director.duration

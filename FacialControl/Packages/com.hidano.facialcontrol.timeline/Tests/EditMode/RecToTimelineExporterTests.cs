@@ -461,6 +461,8 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
             Assert.That(FacialLayerWeightMixerBehaviour.Evaluate(clips, 0.7d), Is.EqualTo(0.25f));
             Assert.That(FacialLayerWeightMixerBehaviour.Evaluate(clips, 1.2d), Is.EqualTo(0.75f), "重なりは後ろの Clip");
             Assert.That(FacialLayerWeightMixerBehaviour.Evaluate(clips, 2.0d), Is.EqualTo(1f), "終端は含まない");
+            Assert.That(FacialLayerWeightMixerBehaviour.Evaluate(clips, 2.0d, 2.0d), Is.EqualTo(0.75f), "Hold の終端まで届く Clip は終端も最後の値");
+            Assert.That(FacialLayerWeightMixerBehaviour.Evaluate(clips, 1.5d, 2.0d), Is.EqualTo(0.75f));
             Assert.That(FacialLayerWeightMixerBehaviour.Evaluate(null, 0d), Is.EqualTo(1f));
         }
 
@@ -599,7 +601,7 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
 
                 var analogClip = (FacialValueClip)ToArray(analogTrack.GetClips())[0].asset;
                 Assert.That(analogClip.Axes, Has.Length.EqualTo(3));
-                Assert.That(analogClip.Axes[0].keys[0].time, Is.EqualTo(0f).Within(1e-6f));
+                Assert.That(analogClip.Axes[0].keys[1].time, Is.EqualTo(0.10f).Within(1e-6f), "サンプルは記録時刻（Clip は t=0 から）");
                 Assert.That(analogClip.Axes[2].keys[2].value, Is.EqualTo(0f).Within(1e-6f));
 
                 var gazeTrack = FindTrack<FacialValueTrack>(timeline, "live:gaze");

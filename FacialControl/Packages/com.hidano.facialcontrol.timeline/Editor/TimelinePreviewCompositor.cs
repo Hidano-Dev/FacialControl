@@ -235,7 +235,9 @@ namespace Hidano.FacialControl.Timeline.Editor
             for (int i = 0; i < _layerWeightTracks.Length; i++)
             {
                 LayerWeightTrackPlayback track = _layerWeightTracks[i];
-                _layerUseCase.TryInjectLayerWeight(track.LayerName, FacialLayerWeightMixerBehaviour.Evaluate(track.Clips, timeSeconds));
+                _layerUseCase.TryInjectLayerWeight(
+                    track.LayerName,
+                    FacialLayerWeightMixerBehaviour.Evaluate(track.Clips, timeSeconds, track.HoldEndTime));
             }
 
             _layerUseCase.UpdateWeights(0f);
@@ -620,6 +622,8 @@ namespace Hidano.FacialControl.Timeline.Editor
 
         /// <summary>
         /// Edit プレビューは Timeline の終端で留まる（Play の Hold と同じ）ものとして、Timeline の長さを終端にする。
+        /// プレビューには Director の Wrap Mode が渡らないため、Loop / None の Director でも終端では最後の値を見せる
+        /// （Play では Loop / None の終端で Clip が外れる）。
         /// </summary>
         private static double ResolveHoldEndTime(TrackAsset track)
         {
@@ -785,7 +789,8 @@ namespace Hidano.FacialControl.Timeline.Editor
             {
                 tracks[i] = new LayerWeightTrackPlayback(
                     weightTracks[i].LayerName,
-                    FacialLayerWeightTrack.CollectClipSamples(weightTracks[i]));
+                    FacialLayerWeightTrack.CollectClipSamples(weightTracks[i]),
+                    ResolveHoldEndTime(weightTracks[i]));
             }
 
             return tracks;
@@ -814,15 +819,19 @@ namespace Hidano.FacialControl.Timeline.Editor
 
         private readonly struct LayerWeightTrackPlayback
         {
-            public LayerWeightTrackPlayback(string layerName, FacialLayerWeightMixerBehaviour.ClipSample[] clips)
+            public LayerWeightTrackPlayback(string layerName, FacialLayerWeightMixerBehaviour.ClipSample[] clips, double holdEndTime)
             {
                 LayerName = layerName ?? string.Empty;
                 Clips = clips ?? Array.Empty<FacialLayerWeightMixerBehaviour.ClipSample>();
+                HoldEndTime = holdEndTime;
             }
 
             public string LayerName { get; }
 
             public FacialLayerWeightMixerBehaviour.ClipSample[] Clips { get; }
+
+            /// <summary>Timeline の終端（<see cref="ResolveHoldEndTime"/>）。</summary>
+            public double HoldEndTime { get; }
         }
 
         private readonly struct ValueClipSample

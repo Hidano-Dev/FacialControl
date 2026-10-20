@@ -61,7 +61,9 @@ namespace Hidano.FacialControl.Timeline.Playables
                 evaluatedTrackTime += info.deltaTime;
             }
 
-            receiver.ApplyLayerWeight(_layerName, Evaluate(_clips, evaluatedTrackTime));
+            // Hold の Director は終端に留まる。先読みで終端の外を見ず、終端まで届く Clip は最後の値を保持する（Value Mixer と同じ）。
+            double holdEndTime = FacialValueMixerBehaviour.ResolveHoldEndTime(director);
+            receiver.ApplyLayerWeight(_layerName, Evaluate(_clips, Math.Min(evaluatedTrackTime, holdEndTime), holdEndTime));
         }
 
         public override void OnGraphStop(Playable playable)
@@ -84,18 +86,27 @@ namespace Hidano.FacialControl.Timeline.Playables
         /// </summary>
         public static float Evaluate(ClipSample[] clips, double trackTime)
         {
+            return Evaluate(clips, trackTime, double.PositiveInfinity);
+        }
+
+        /// <param name="holdEndTime">
+        /// 終端で留まる Timeline の長さ（終端まで届く Clip は終端ちょうども含む。<see cref="FacialValueMixerBehaviour.TryGetClipTime"/>）。
+        /// 終端で留まらないなら <see cref="double.PositiveInfinity"/>。
+        /// </param>
+        public static float Evaluate(ClipSample[] clips, double trackTime, double holdEndTime)
+        {
             if (clips != null)
             {
                 for (int i = clips.Length - 1; i >= 0; i--)
                 {
                     ClipSample clip = clips[i];
-                    if (trackTime < clip.StartTime || trackTime >= clip.EndTime)
+                    if (!FacialValueMixerBehaviour.TryGetClipTime(clip.StartTime, clip.EndTime, trackTime, holdEndTime, out float clipTime))
                     {
                         continue;
                     }
 
                     return clip.Curve != null && clip.Curve.length > 0
-                        ? clip.Curve.Evaluate((float)(trackTime - clip.StartTime))
+                        ? clip.Curve.Evaluate(clipTime)
                         : TimelineLayerWeightOverride.DeclaredLayerWeight;
                 }
             }

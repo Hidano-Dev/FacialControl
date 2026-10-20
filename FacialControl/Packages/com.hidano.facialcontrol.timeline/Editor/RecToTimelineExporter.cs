@@ -832,8 +832,9 @@ namespace Hidano.FacialControl.Timeline.Editor
                     track.RightEyeBonePath = recSequence.RightEyeBonePath;
                 }
 
-                // REC 再生は再生開始時に全軸 0 の有効な値を入れ、最初のサンプルまで保持する（RecAnalogInjector）。
-                // Clip を t=0 から始めて 0 のキーを置き、最初のサンプルより前も同じ値にする。
+                // REC 再生は再生開始時に録画開始時の値（基準 kind 6。無ければ全軸 0）を入れ、最初のサンプルまで保持する
+                // （RecAnalogInjector）。Clip を t=0 から始めて 0 のキーを置き、基準の無い記録では最初のサンプルより前も揃える。
+                // 基準の値の書き出しは HID-298。
                 TimelineClip clip = track.CreateClip<FacialValueClip>();
                 clip.start = 0d;
                 clip.duration = Math.Max(MinimumClipDuration, durationSeconds);
