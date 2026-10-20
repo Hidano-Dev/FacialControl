@@ -11,6 +11,9 @@ namespace Hidano.FacialControl.Timeline.Playables
 {
     public sealed class FacialValueMixerBehaviour : PlayableBehaviour
     {
+        // Clip の終端は start + duration の和なので、Timeline の長さと浮動小数点の誤差だけずれ得る。
+        private const double HoldEndTolerance = 1e-6d;
+
         private ClipSample[] _clips = Array.Empty<ClipSample>();
         private string _channelSubId = string.Empty;
         private FacialValueChannelKind _channelKind;
@@ -85,7 +88,14 @@ namespace Hidano.FacialControl.Timeline.Playables
                 evaluatedTrackTime += info.deltaTime;
             }
 
-            if (!TryGetActiveClip(evaluatedTrackTime, out int clipIndex, out float clipTime))
+            double holdEndTime = ResolveHoldEndTime(director);
+            if (evaluatedTrackTime > holdEndTime)
+            {
+                // Hold の Director は終端に留まる。先読みで終端の外を見ない。
+                evaluatedTrackTime = holdEndTime;
+            }
+
+            if (!TryGetActiveClip(evaluatedTrackTime, holdEndTime, out int clipIndex, out float clipTime))
             {
                 InvalidateResolvedSink();
                 return;
@@ -147,24 +157,51 @@ namespace Hidano.FacialControl.Timeline.Playables
             }
         }
 
-        private bool TryGetActiveClip(double evaluatedTrackTime, out int clipIndex, out float clipTime)
+        /// <summary>
+        /// Director が終端で止まって評価を続ける（<see cref="DirectorWrapMode.Hold"/>）なら Timeline の長さ、それ以外は無限大。
+        /// </summary>
+        internal static double ResolveHoldEndTime(PlayableDirector director)
+        {
+            return director != null && director.extrapolationMode == DirectorWrapMode.Hold
+                ? director.duration
+                : double.PositiveInfinity;
+        }
+
+        private bool TryGetActiveClip(double evaluatedTrackTime, double holdEndTime, out int clipIndex, out float clipTime)
         {
             for (int i = _clips.Length - 1; i >= 0; i--)
             {
-                ClipSample candidate = _clips[i];
-                if (evaluatedTrackTime < candidate.StartTime || evaluatedTrackTime >= candidate.EndTime)
+                if (!TryGetClipTime(_clips[i].StartTime, _clips[i].EndTime, evaluatedTrackTime, holdEndTime, out clipTime))
                 {
                     continue;
                 }
 
                 clipIndex = i;
-                clipTime = (float)(evaluatedTrackTime - candidate.StartTime);
                 return true;
             }
 
             clipIndex = -1;
             clipTime = 0f;
             return false;
+        }
+
+        /// <summary>
+        /// Clip が時刻 <paramref name="timeSeconds"/> を含むなら Clip 内時刻を返す。範囲は <c>start &lt;= t &lt; end</c>。
+        /// ただし Timeline の終端まで届く Clip は、終端 <paramref name="holdEndTime"/> ちょうども含め、Clip の最後の値を保持する
+        /// （REC 再生は記録の終わりでも最後の値を保持する。HID-317）。Edit プレビュー（TimelinePreviewCompositor）も同じ規則で評価する。
+        /// </summary>
+        /// <param name="holdEndTime">終端で留まる Timeline の長さ。終端で留まらないなら <see cref="double.PositiveInfinity"/>。</param>
+        internal static bool TryGetClipTime(double startTime, double endTime, double timeSeconds, double holdEndTime, out float clipTime)
+        {
+            bool reachesHoldEnd = !double.IsPositiveInfinity(holdEndTime) && endTime >= holdEndTime - HoldEndTolerance;
+            if (timeSeconds < startTime || (timeSeconds >= endTime && !(reachesHoldEnd && timeSeconds <= holdEndTime)))
+            {
+                clipTime = 0f;
+                return false;
+            }
+
+            clipTime = (float)(Math.Min(timeSeconds, endTime) - startTime);
+            return true;
         }
 
         private void PublishAnalog(AnimationCurve[] axes, float clipTime)
