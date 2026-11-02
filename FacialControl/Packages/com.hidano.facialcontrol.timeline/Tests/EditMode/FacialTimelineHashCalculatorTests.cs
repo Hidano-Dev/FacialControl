@@ -81,6 +81,29 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
         }
 
         [Test]
+        public void ComputeHash_WhenEndsActiveChanges_ReturnsDifferentValue()
+        {
+            var profile = CreateProfile(0.10f);
+            var original = CreateTimeline("Expressions", 0.0d, 1.0d, 0.25f);
+            var endsActive = CreateTimeline("Expressions", 0.0d, 1.0d, 0.25f);
+
+            try
+            {
+                SetEndsActive(endsActive, true);
+
+                Assert.That(
+                    FacialTimelineHashCalculator.ComputeHash(original, profile),
+                    Is.Not.EqualTo(FacialTimelineHashCalculator.ComputeHash(endsActive, profile)),
+                    "終わりで離すかどうかは Bake に保存する状態イベントを変えるので、ハッシュも変わる");
+            }
+            finally
+            {
+                Object.DestroyImmediate(original);
+                Object.DestroyImmediate(endsActive);
+            }
+        }
+
+        [Test]
         public void ComputeHash_WhenKeyframeChanges_ReturnsDifferentValue()
         {
             var profile = CreateProfile(0.10f);
@@ -374,6 +397,20 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
                     if (clip.asset is FacialExpressionClip expressionClip)
                     {
                         expressionClip.StartsActive = startsActive;
+                    }
+                }
+            }
+        }
+
+        private static void SetEndsActive(TimelineAsset timeline, bool endsActive)
+        {
+            foreach (TrackAsset track in timeline.GetOutputTracks())
+            {
+                foreach (TimelineClip clip in track.GetClips())
+                {
+                    if (clip.asset is FacialExpressionClip expressionClip)
+                    {
+                        expressionClip.EndsActive = endsActive;
                     }
                 }
             }

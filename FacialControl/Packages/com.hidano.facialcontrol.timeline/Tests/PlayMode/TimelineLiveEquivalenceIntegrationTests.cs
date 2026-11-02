@@ -286,6 +286,10 @@ namespace Hidano.FacialControl.Timeline.Tests.PlayMode
 
             public ReadOnlySpan<float> Output => _finalOutput;
 
+            /// <summary>
+            /// 1 フレームぶん進める。ライブ入力（と REC 再生）と同じく、このフレームまでに来たイベントを Update で発火してから、
+            /// LateUpdate の合成でフレームの dt をまるごと進める（HID-318）。
+            /// </summary>
             public void AdvanceTo(float targetTime)
             {
                 if (targetTime + 1e-9f < _currentTime)
@@ -295,17 +299,12 @@ namespace Hidano.FacialControl.Timeline.Tests.PlayMode
 
                 while (_nextEventIndex < _events.Length && _events[_nextEventIndex].TimeSeconds <= targetTime + 1e-9d)
                 {
-                    double eventTime = _events[_nextEventIndex].TimeSeconds;
-                    float deltaToEvent = (float)Math.Max(0d, eventTime - _currentTime);
-                    _aggregator.AggregateAndBlend(deltaToEvent, _priorities, _layerWeights, _finalOutput);
-                    _currentTime = eventTime;
-
                     Dispatch(_source, _events[_nextEventIndex]);
                     _nextEventIndex++;
                 }
 
-                float remainingDelta = (float)Math.Max(0d, targetTime - _currentTime);
-                _aggregator.AggregateAndBlend(remainingDelta, _priorities, _layerWeights, _finalOutput);
+                float frameDelta = (float)Math.Max(0d, targetTime - _currentTime);
+                _aggregator.AggregateAndBlend(frameDelta, _priorities, _layerWeights, _finalOutput);
                 _currentTime = targetTime;
             }
 

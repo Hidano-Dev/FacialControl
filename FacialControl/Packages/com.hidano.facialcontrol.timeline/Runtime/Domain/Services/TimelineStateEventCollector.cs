@@ -59,7 +59,8 @@ public static class TimelineStateEventCollector
                     new TimelineStateEvent(clip.start, TimelineStateEvent.KindOn, expressionClip.ExpressionId, layerName, startsActive),
                     sequence++));
                 events.Add(new OrderedTimelineStateEvent(
-                    new TimelineStateEvent(clip.end, TimelineStateEvent.KindOff, expressionClip.ExpressionId, layerName),
+                    new TimelineStateEvent(
+                        clip.end, TimelineStateEvent.KindOff, expressionClip.ExpressionId, layerName, startsActive: false, endsActive: expressionClip.EndsActive),
                     sequence++));
             }
 

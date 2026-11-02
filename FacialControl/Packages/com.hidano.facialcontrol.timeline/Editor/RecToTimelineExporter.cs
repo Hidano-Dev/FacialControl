@@ -665,7 +665,8 @@ namespace Hidano.FacialControl.Timeline.Editor
                         openClip.StartTime,
                         sequence.DurationSeconds,
                         openClip.Sequence,
-                        openClip.IsBaseline));
+                        openClip.IsBaseline,
+                        isHeldToEnd: true));
                 }
             }
 
@@ -772,6 +773,8 @@ namespace Hidano.FacialControl.Timeline.Editor
                     expressionClipAsset.ExpressionId = clip.ExpressionId;
                     // 録画開始時に押されていた表情は、REC 再生と同じく先頭から遷移なしで有効にする（HID-298）。
                     expressionClipAsset.StartsActive = clip.IsBaseline;
+                    // 録画の終わりまで押していた表情は、REC 再生と同じく終わりで離さない（HID-318）。
+                    expressionClipAsset.EndsActive = clip.IsHeldToEnd;
                     lanes[laneIndex].LastEndTime = clip.EndTime;
                 }
             }
@@ -1193,7 +1196,8 @@ namespace Hidano.FacialControl.Timeline.Editor
                 double startTime,
                 double endTime,
                 int sequence,
-                bool isBaseline)
+                bool isBaseline,
+                bool isHeldToEnd = false)
             {
                 ExpressionId = expressionId;
                 LayerName = layerName;
@@ -1201,10 +1205,14 @@ namespace Hidano.FacialControl.Timeline.Editor
                 EndTime = Math.Max(startTime, endTime);
                 Sequence = sequence;
                 IsBaseline = isBaseline;
+                IsHeldToEnd = isHeldToEnd;
             }
 
             /// <summary>録画開始時の基準（REC の kind 5）から作った Clip か。</summary>
             public bool IsBaseline { get; }
+
+            /// <summary>録画の終わりまで押していた（記録に Off が無く、記録の終わりで閉じた）Clip か。</summary>
+            public bool IsHeldToEnd { get; }
 
             public string ExpressionId { get; }
 

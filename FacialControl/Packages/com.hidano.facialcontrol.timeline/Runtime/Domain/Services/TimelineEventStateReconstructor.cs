@@ -131,7 +131,7 @@ namespace Hidano.FacialControl.Timeline.Domain.Services
         private void ApplyToScratch(TimelineStateEvent stateEvent)
         {
             string expressionId = stateEvent.ExpressionId;
-            if (string.IsNullOrEmpty(expressionId))
+            if (string.IsNullOrEmpty(expressionId) || stateEvent.IsHeldToEnd)
             {
                 return;
             }
@@ -167,7 +167,8 @@ namespace Hidano.FacialControl.Timeline.Domain.Services
         private static void Dispatch(TimelineStateEvent stateEvent, ITimelineTriggerSink sink)
         {
             string expressionId = stateEvent.ExpressionId;
-            if (string.IsNullOrEmpty(expressionId))
+            // 録画の終わりまで押していた表情の Clip の終わりは、離した操作ではないので発火しない（HID-318）。
+            if (string.IsNullOrEmpty(expressionId) || stateEvent.IsHeldToEnd)
             {
                 return;
             }

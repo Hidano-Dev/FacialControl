@@ -41,6 +41,13 @@ namespace Hidano.FacialControl.Timeline.Adapters.InputSources
                 ? Array.Empty<int>()
                 : new int[bakedBlendShapeNames.Count];
             _bakedNameToBufferIndex = new Dictionary<string, int>(bakedBlendShapeNames.Count, StringComparer.Ordinal);
+            var bakedNames = new string[bakedBlendShapeNames.Count];
+            for (int i = 0; i < bakedNames.Length; i++)
+            {
+                bakedNames[i] = bakedBlendShapeNames[i] ?? string.Empty;
+            }
+
+            BakedBlendShapeNames = bakedNames;
 
             var blendShapeIndexByName = new Dictionary<string, int>(blendShapeNames.Count, StringComparer.Ordinal);
             for (int i = 0; i < blendShapeNames.Count; i++)
@@ -77,6 +84,9 @@ namespace Hidano.FacialControl.Timeline.Adapters.InputSources
         public override BitArray ContributeMask => _contributeMask;
 
         public int BakedValueCount => _values.Length;
+
+        /// <summary>値バッファの並び（buffer index 順）の BlendShape 名。</summary>
+        public IReadOnlyList<string> BakedBlendShapeNames { get; }
 
         public bool IsValid => _isValid;
 

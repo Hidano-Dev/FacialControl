@@ -9,6 +9,7 @@ using Hidano.FacialControl.Timeline.Adapters.Assets;
 using Hidano.FacialControl.Timeline.Adapters.InputSources;
 using Hidano.FacialControl.Timeline.Clips;
 using Hidano.FacialControl.Timeline.Domain.Diagnostics;
+using Hidano.FacialControl.Timeline.Domain.Services;
 using Hidano.FacialControl.Timeline.Tracks;
 using NUnit.Framework;
 using UnityEngine;
@@ -90,16 +91,59 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
         }
 
         [Test]
-        public void SampleExpressionValues_ActiveSession_WritesBakeCurveIntoValueSink()
+        public void ApplyExpressionValues_ActiveSession_WritesProfileTransitionValueIntoValueSink()
         {
             Scenario s = CreateScenario();
             s.Host.Attach();
             s.Begin();
             Assert.That(s.Receiver.TryGetExpressionValueSink(EmotionLayer, out TimelineBakedValueSink valueSink), Is.True);
 
-            s.Receiver.SampleExpressionValues(EmotionLayer, 0.5d);
+            PlayAt(s, 0.5d);
 
-            AssertSinkValue(valueSink, 0, 0.6f);
+            // Bake のカーブ（0.6）ではなく、Profile の Expression の値（1.0）を遷移計算した値を書く（HID-318）。
+            AssertSinkValue(valueSink, 0, 1f);
+        }
+
+        [Test]
+        public void ApplyExpressionValues_MidTransition_WritesInterpolatedValue()
+        {
+            Scenario s = CreateScenario();
+            s.Host.Attach();
+            s.Begin();
+            s.Receiver.TryGetExpressionValueSink(EmotionLayer, out TimelineBakedValueSink valueSink);
+
+            // smile は 0 秒から、遷移時間 0.05 秒の Linear。
+            PlayAt(s, 0.025d);
+
+            AssertSinkValue(valueSink, 0, 0.5f);
+        }
+
+        [Test]
+        public void ApplyExpressionValues_NoActiveExpression_InvalidatesValueSink()
+        {
+            Scenario s = CreateScenario();
+            s.Host.Attach();
+            s.Begin();
+            s.Receiver.TryGetExpressionValueSink(EmotionLayer, out TimelineBakedValueSink valueSink);
+            PlayAt(s, 0.5d);
+
+            // Clip（0〜1 秒）が終わって遷移も終わった後は、REC 再生の trigger 入力源と同じくレイヤーに寄与しない。
+            PlayAt(s, 1.5d);
+
+            Assert.That(valueSink.IsValid, Is.False);
+        }
+
+        [Test]
+        public void TryCreateExpressionTransitionPlayer_BeforeSession_ReturnsFalse()
+        {
+            Scenario s = CreateScenario();
+            s.Host.Attach();
+
+            bool created = s.Receiver.TryCreateExpressionTransitionPlayer(
+                EmotionLayer, TimelineStateEventCollector.Collect(s.Track), out TimelineExpressionTransitionPlayer player);
+
+            Assert.That(created, Is.False);
+            Assert.That(player, Is.Null);
         }
 
         // ================================================================
@@ -284,7 +328,7 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
         // ================================================================
 
         [Test]
-        public void BeginPlaybackSession_ProfileMismatch_StaysActiveAndPlaysBakeValues()
+        public void BeginPlaybackSession_ProfileMismatch_StaysActiveAndPlaysValues()
         {
             Scenario s = CreateScenario();
             s.Bake.ProfileContentHashHex = "deadbeefdeadbeef";
@@ -297,8 +341,8 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
             Assert.That(SeverityOf(s.Receiver.Diagnostics, TimelineDiagnosticCode.ProfileMismatch),
                 Is.EqualTo(TimelineDiagnosticSeverity.Warning));
             Assert.That(s.Receiver.TryGetExpressionValueSink(EmotionLayer, out TimelineBakedValueSink valueSink), Is.True);
-            s.Receiver.SampleExpressionValues(EmotionLayer, 0.5d);
-            AssertSinkValue(valueSink, 0, 0.6f);
+            PlayAt(s, 0.5d);
+            AssertSinkValue(valueSink, 0, 1f);
         }
 
         [Test]
@@ -318,7 +362,7 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
         }
 
         [Test]
-        public void BeginPlaybackSession_OverrideBake_UsesOverrideForValues()
+        public void BeginPlaybackSession_OverrideBake_UsesOverrideAndPlaysProfileValues()
         {
             Scenario s = CreateScenario();
             FacialTimelineBakeAsset overrideBake = s.Host.CreateBake(s.Timeline, (EmotionLayer, "smile", 0.25f));
@@ -331,8 +375,8 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
             Assert.That(s.Receiver.LastBakeLocate.Status, Is.EqualTo(BakeLocateStatus.OverrideUsed));
             Assert.That(s.Receiver.Diagnostics.Contains(TimelineDiagnosticCode.BakeOverrideDiffers), Is.True);
             s.Receiver.TryGetExpressionValueSink(EmotionLayer, out TimelineBakedValueSink valueSink);
-            s.Receiver.SampleExpressionValues(EmotionLayer, 0.5d);
-            AssertSinkValue(valueSink, 0, 0.25f);
+            PlayAt(s, 0.5d);
+            AssertSinkValue(valueSink, 0, 1f);
         }
 
         // ================================================================
@@ -378,7 +422,7 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
             s.Receiver.TryGetExpressionSink(EmotionLayer, out TimelineExpressionStateSink stateSink);
             s.Receiver.TryGetExpressionValueSink(EmotionLayer, out TimelineBakedValueSink valueSink);
             stateSink.TriggerOn("smile");
-            s.Receiver.SampleExpressionValues(EmotionLayer, 0.5d);
+            PlayAt(s, 0.5d);
 
             s.Receiver.ReleaseAll();
 
@@ -407,8 +451,8 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
             Assert.That(s.Receiver.SessionState, Is.EqualTo(TimelineSessionState.Active));
             Assert.That(s.Receiver.TryGetExpressionValueSink(EmotionLayer, out TimelineBakedValueSink second), Is.True);
             Assert.That(second, Is.SameAs(first), "(Timeline, Bake, Profile) が同じ間はセッション資源を再利用する");
-            s.Receiver.SampleExpressionValues(EmotionLayer, 0.5d);
-            AssertSinkValue(second, 0, 0.6f);
+            PlayAt(s, 0.5d);
+            AssertSinkValue(second, 0, 1f);
         }
 
         [Test]
@@ -656,6 +700,18 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
             };
             InputSourceDeclaration[][] layerInputSources = declarations == null ? null : new[] { declarations };
             return new FacialProfile("1.0", layers, expressions, layerInputSources: layerInputSources);
+        }
+
+        /// <summary>Mixer の Play 経路と同じく、トラックの状態イベントから再生器を作って指定時刻へ JumpTo し、値 sink に書く。</summary>
+        private static void PlayAt(Scenario s, double time)
+        {
+            Assert.That(
+                s.Receiver.TryCreateExpressionTransitionPlayer(
+                    EmotionLayer, TimelineStateEventCollector.Collect(s.Track), out TimelineExpressionTransitionPlayer player),
+                Is.True,
+                "Active なセッションでは再生器を作れる");
+            player.JumpTo(time);
+            s.Receiver.ApplyExpressionValues(EmotionLayer, player);
         }
 
         private static void AssertSinkValue(TimelineBakedValueSink sink, int index, float expected)

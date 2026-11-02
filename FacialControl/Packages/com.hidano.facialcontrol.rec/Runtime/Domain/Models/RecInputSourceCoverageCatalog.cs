@@ -173,6 +173,7 @@ namespace Hidano.FacialControl.Rec.Domain
                 Observed("Hidano.FacialControl.Adapters.InputSources.AnalogAxesInputSource", "Hidano.FacialControl.IFacialMocap", RecObservationCategory.Analog, "頭部N軸。"),
                 Observed("Hidano.FacialControl.Timeline.Adapters.InputSources.TimelineBakedValueSink", "Hidano.FacialControl.Timeline", RecObservationCategory.ValueProvider, "Timelineベイク値。"),
                 Observed("Hidano.FacialControl.Timeline.Adapters.InputSources.TimelineExpressionStateSink", "Hidano.FacialControl.Timeline", RecObservationCategory.Trigger, "Timeline expression state。"),
+                Observed("Hidano.FacialControl.Timeline.Domain.Services.TimelineExpressionTransitionPlayer+TransitionSource", "Hidano.FacialControl.Timeline", RecObservationCategory.Trigger, "Timeline Play の表情の遷移計算（registry に登録せず、値は Timeline ベイク値 sink 経由で出る。HID-318）。"),
                 Observed("Hidano.FacialControl.Timeline.Adapters.InputSources.TimelineAnalogInputSource", "Hidano.FacialControl.Timeline", RecObservationCategory.Analog, "Timeline analog。"),
                 Excluded("Hidano.FacialControl.Timeline.Adapters.InputSources.TimelineGazeInputSource", "Hidano.FacialControl.Timeline", RecExclusionReason.InjectionSource, "Timeline注入ソース。", null, null),
                 Excluded("Hidano.FacialControl.Timeline.Adapters.InputSources.TimelineValueProviderInputSource", "Hidano.FacialControl.Timeline", RecExclusionReason.InjectionSource, "Timeline注入ソース（値提供型）。", null, null),

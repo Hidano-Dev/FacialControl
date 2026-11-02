@@ -230,7 +230,9 @@ namespace Hidano.FacialControl.Timeline.Tests.PlayMode
             FacialExpressionTrack track = timeline.CreateTrack<FacialExpressionTrack>(null, ExpressionLayerName);
             TimelineClip clip = track.CreateClip<FacialExpressionClip>();
             clip.start = 0d;
-            clip.duration = 2d;
+            // ウォームアップと計測のフレーム（計 2 秒強）を Clip の中に収める。Clip が終わると表情が無くなり、値 sink が無効になって
+            // （REC 再生の trigger 入力源と同じ。HID-318）、集約器の「有効な入力源なし」警告が 1 回出る（ログが確保する）。
+            clip.duration = 10d;
             ((FacialExpressionClip)clip.asset).ExpressionId = ExpressionId;
             return timeline;
         }

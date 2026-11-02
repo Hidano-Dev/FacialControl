@@ -172,7 +172,7 @@ namespace Hidano.FacialControl.Timeline.Tests.PlayMode
         }
 
         [UnityTest]
-        public IEnumerator Evaluate_ProfileJsonDiffersFromBake_ReportsMismatchRendersBakeAndMatchesPlayThenRebakeRestoresOk()
+        public IEnumerator Evaluate_ProfileJsonDiffersFromBake_EditRendersBakePlayUsesProfileThenRebakeMatches()
         {
             _fixture = TimelineE2EFixture.Create(new RecFixtureWriter.Recording { AnalogValue = 0f });
             PrepareSameSnapshot(_fixture);
@@ -184,9 +184,14 @@ namespace Hidano.FacialControl.Timeline.Tests.PlayMode
             Assert.That(_compositor.ProfileCheck, Is.EqualTo(TimelineDiagnosticCode.ProfileMismatch));
             Assert.That(_compositor.CanRender, Is.True, "ProfileMismatch でも描画は続ける");
 
-            var mismatched = new ComparisonResult();
-            yield return AssertEditMatchesPlay(character, _compositor, mismatched);
-            Assert.That(mismatched.MaxSmile, Is.EqualTo(100f).Within(RendererTolerance), "不一致中は Edit / Play とも Bake の値（smile 1.0）を出す");
+            _compositor.Evaluate(MidTriggerSeconds);
+            Assert.That(character.GetBlendShapeWeight(TimelineE2EFixture.SmileBlendShape), Is.EqualTo(100f).Within(RendererTolerance),
+                "Edit は不一致中も Bake の値（smile 1.0）を出す");
+
+            // Play: 表情の値は Bake ではなく、セッションの Profile（smile 0.6）で REC 再生と同じ遷移計算をする（HID-318）。
+            yield return character.EvaluateAt(MidTriggerSeconds);
+            Assert.That(character.GetBlendShapeWeight(TimelineE2EFixture.SmileBlendShape), Is.EqualTo(ChangedSmileValue * 100f).Within(RendererTolerance),
+                "Play は Profile の値（smile 0.6）を出す");
 
             // Play: 同じ fixture のセッションは ProfileMismatch（Warning）で Active のまま。
             Assert.That(character.Receiver.SessionState, Is.EqualTo(TimelineSessionState.Active), DescribeDiagnostics(character));

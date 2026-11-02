@@ -22,7 +22,7 @@
 | `Active` | 再生中 |
 | `Failed` | 再生できない原因が確定した（`ReleaseAll` まで再試行しない）。原因は診断の Error として残る |
 
-`Failed` の判定順: (1) binding 未接続・無効、Receiver が FacialController と別の GameObject、別 Director との競合 → (2) Bake 参照が Conflict / LegacyExport → (3) 旧 `:state` 宣言（`LegacyStateDeclaration`）。Bake の Profile 内容ハッシュ不一致は `ProfileMismatch`、Profile は一致して Timeline 構造だけ違えば `BakeStale` で、どちらも Warning のまま `Active` を維持し Bake の値を出す。
+`Failed` の判定順: (1) binding 未接続・無効、Receiver が FacialController と別の GameObject、別 Director との競合 → (2) Bake 参照が Conflict / LegacyExport → (3) 旧 `:state` 宣言（`LegacyStateDeclaration`）。Bake の Profile 内容ハッシュ不一致は `ProfileMismatch`、Profile は一致して Timeline 構造だけ違えば `BakeStale` で、どちらも Warning のまま `Active` を維持する。Play の表情の値は Bake ではなくセッションの Profile から遷移計算するので（下記）、Bake が古くても Play の値は Profile のとおりになる（Edit プレビューは Bake の値を描く）。
 
 セッション開始時の処理:
 
@@ -47,7 +47,11 @@ Layer.inputSources に `timeline:{layer}` が宣言済みなら宣言の weight 
 
 ## Mixer の動作
 
-- `FacialTrackMixerBehaviour`: Play では順再生のフレーム差分で on/off イベントを発火し、シーク時はスタックを再構成して差分を発火する。同時にそのレイヤーのベイク値をサンプルする。Graph 停止 / Pause / Destroy で `ReleaseAll()`。Edit ではプレビュー bridge だけを呼ぶ
+- `FacialTrackMixerBehaviour`: Play では順再生のフレーム差分で on/off イベントを発火し、シーク時はスタックを再構成して差分を発火する。表情の値は `TimelineExpressionTransitionPlayer` が、ランタイムの trigger 入力源と同じ遷移計算で作る（HID-318）
+  - 1 フレームの前進: 前回の評価時刻より後で今回の評価時刻以下のイベントを発火してから、そのフレームの dt で進める（REC 再生と同じ位相。遷移はイベントを拾ったフレームの dt をまるごと進める）。Director の時刻の進みがフレームの dt（GameTime なら Director の dt、Manual の `Evaluate` なら `Time.deltaTime`）と合うときだけ 1 フレームの前進とみなし、それ以外はシーク
+  - シーク: 先頭から記録時刻ちょうどの位相で計算し直す
+  - Hold の終端: 時刻が止まっても途中の遷移はフレームの dt で進め切る。REC Export が記録の終わりまで押していた表情に付ける `EndsActive` の Clip は、終わりの Off を発火しない
+  - Graph 停止 / Pause / Destroy で `ReleaseAll()`。Edit ではプレビュー bridge だけを呼ぶ
 - `FacialValueMixerBehaviour`: アクティブなクリップ（重なりは後ろ優先）のカーブを評価し、乗っ取った Analog sink の `SetAxes` または Gaze sink の `Publish(x, y)` に渡す。クリップ外では sink を無効化
 
 Analog の乗っ取りが消費者に届くのは、registry の差し替えを購読する消費者（core の `IRegistryAttachableAnalogConsumer` を実装した `AnalogExpressionInputSource` / `AnalogBlendShapeInputSource`）。InputSystem の analog expression 経路は binding 構築時に registry へ接続済みで、設定変更は要らない。

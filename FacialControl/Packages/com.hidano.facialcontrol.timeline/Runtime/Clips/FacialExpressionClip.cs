@@ -29,6 +29,19 @@ namespace Hidano.FacialControl.Timeline.Clips
             set => startsActive = value;
         }
 
+        [Tooltip("Clip の終わりで表情を離さない（Play では終わりの Off を発火しない）。REC Export が、録画の終わりまで押していた表情に付ける。")]
+        [SerializeField] private bool endsActive;
+
+        /// <summary>
+        /// Clip の終わりで表情を離さないか。REC Export が、録画の終わりまで押していた表情（記録に Off が無く、Clip が記録の終わりで
+        /// 閉じたもの）に付ける。Play ではこの Clip の終わりの Off を発火しない（REC 再生は記録の終わりでも表情を保持する。HID-318）。
+        /// </summary>
+        public bool EndsActive
+        {
+            get => endsActive;
+            set => endsActive = value;
+        }
+
         public ClipCaps clipCaps => ClipCaps.None;
 
         public override Playable CreatePlayable(PlayableGraph graph, GameObject owner)

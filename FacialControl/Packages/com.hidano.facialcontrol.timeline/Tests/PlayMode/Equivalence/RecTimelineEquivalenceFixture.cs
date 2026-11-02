@@ -186,17 +186,14 @@ namespace Hidano.FacialControl.Timeline.Tests.PlayMode
             EquivalenceCharacter character = Spawn(withRecBinding: false, withTimeline: true);
             Time.captureDeltaTime = 1f / 60f;
             yield return null;
+            Time.captureDeltaTime = FrameDelta(times, 0);
             yield return null;
 
             var values = new float[trace.Stride];
-            double previous = 0d;
             for (int frame = 0; frame < times.Count; frame++)
             {
                 double time = times[frame];
                 double evaluated = times[Math.Min(times.Count - 1, frame + frameShift)];
-                float delta = (float)(time - previous);
-                Time.captureDeltaTime = delta > 0f ? delta : 1f / 60f;
-                previous = time;
 
                 PlayableDirector director = character.Director;
                 if (!director.playableGraph.IsValid() || director.state != PlayState.Playing)
@@ -206,6 +203,10 @@ namespace Hidano.FacialControl.Timeline.Tests.PlayMode
 
                 director.time = evaluated;
                 director.Evaluate();
+
+                // 次のフレーム（次の時刻を評価するフレーム）の dt を、そのフレームが始まる前に決める。Manual の Evaluate は、Director の
+                // 時刻の進みがそのフレームの dt と合うときだけ 1 フレームの前進として遷移を進める（FacialTrackMixerBehaviour.IsLinearAdvance）。
+                Time.captureDeltaTime = FrameDelta(times, frame + 1);
 
                 // Evaluate で入った値を、このフレームの LateUpdate が書く。再開時点で読む。
                 yield return null;
@@ -270,6 +271,18 @@ namespace Hidano.FacialControl.Timeline.Tests.PlayMode
             }
 
             AssetDatabase.Refresh();
+        }
+
+        /// <summary><paramref name="times"/> の <paramref name="frame"/> 番目を評価するフレームの dt（範囲外や 0 以下は 1/60 秒）。</summary>
+        private static float FrameDelta(IReadOnlyList<double> times, int frame)
+        {
+            if (frame <= 0 || frame >= times.Count)
+            {
+                return frame == 0 && times.Count > 0 && times[0] > 0d ? (float)times[0] : 1f / 60f;
+            }
+
+            float delta = (float)(times[frame] - times[frame - 1]);
+            return delta > 0f ? delta : 1f / 60f;
         }
 
         private int MaxFrames()
