@@ -167,6 +167,22 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
         }
 
         [Test]
+        public void Mixers_MutedCharacterTrack_DoNotPlayChildren()
+        {
+            // Timeline の mutedInHierarchy は Group の親しか見ず、ミュートした親トラックの子もコンパイルされる。Mixer 側で止める。
+            FacialTimelinePlayMode.OverrideIsPlaying = false;
+            FacialTimelineEditorPreviewBridge.ApplyPreview = (receiver, timeline, time) => _previewCalls++;
+            using TimelineReceiverTestHost host = CreateHost(CreateTimeline);
+            TimelineReceiverTestHost.Character((TimelineAsset)host.Director.playableAsset).muted = true;
+
+            host.Director.RebuildGraph();
+            host.Director.time = 0.25d;
+            host.Director.Evaluate();
+
+            Assert.That(_previewCalls, Is.EqualTo(0), "ミュートした親トラックの子は再生しない");
+        }
+
+        [Test]
         public void Graph_CharacterTrack_DoesNotDuplicateDescendantClipPlayables()
         {
             // Timeline は親トラックの Mixer にも子孫の Clip をまとめて渡す。親で Clip の Playable を作ると 2 倍になる（HID-408 指摘 7）。

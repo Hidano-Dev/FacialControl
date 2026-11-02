@@ -118,6 +118,23 @@ namespace Hidano.FacialControl.Timeline.Tracks
             return false;
         }
 
+        /// <summary>
+        /// トラック自身か祖先のどれかがミュートされているか。Timeline の <c>TrackAsset.mutedInHierarchy</c> は Group の親しか見ないため、
+        /// ミュートした Facial Character トラックの子も「ミュート中」と判定できるよう祖先をすべて辿る。確保しない。
+        /// </summary>
+        public static bool IsMutedInHierarchy(TrackAsset track)
+        {
+            for (TrackAsset current = track; current != null; current = current.parent as TrackAsset)
+            {
+                if (current.muted)
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
         /// <summary>表情 / 値 / レイヤー weight トラック（親トラックの子になるトラック）か。</summary>
         public static bool IsFacialChildTrack(TrackAsset track)
         {
@@ -134,7 +151,7 @@ namespace Hidano.FacialControl.Timeline.Tracks
 
         private static void CollectCharacterTracks(TrackAsset track, bool includeMuted, List<FacialCharacterTrack> results)
         {
-            if (!includeMuted && track.mutedInHierarchy)
+            if (!includeMuted && IsMutedInHierarchy(track))
             {
                 return;
             }
@@ -152,7 +169,7 @@ namespace Hidano.FacialControl.Timeline.Tracks
 
         private static void CollectOutside(TrackAsset track, List<TrackAsset> results)
         {
-            if (track is FacialCharacterTrack || track.mutedInHierarchy)
+            if (track is FacialCharacterTrack || IsMutedInHierarchy(track))
             {
                 return;
             }

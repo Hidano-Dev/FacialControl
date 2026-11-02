@@ -430,6 +430,28 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
             Assert.That(s.Receiver.TakeoverEntries, Is.Empty);
         }
 
+        [Test]
+        public void BeginPlaybackSession_MutedLegacyAnalogTrack_DoesNotTakeOverLiveSource()
+        {
+            // ミュートした旧構造の Analog トラックは再生されない。チャネル導出に入れると、値を供給しないのにライブの入力源を
+            // 乗っ取って無効化してしまう（HID-408 レビュー指摘）。
+            Scenario s = CreateScenario();
+            FacialValueTrack legacy = s.Timeline.CreateTrack<FacialValueTrack>(null, "lt");
+            legacy.ChannelSubId = "osc:lt";
+            legacy.ChannelKind = FacialValueChannelKind.Analog;
+            legacy.muted = true;
+            var original = new TestAnalogSource("osc:lt", 1, 0.2f);
+            s.Host.Registry.Register(AdapterSlug.Parse("osc"), "lt", original);
+            s.Host.Attach();
+
+            s.Begin();
+
+            Assert.That(s.Receiver.SessionState, Is.EqualTo(TimelineSessionState.Active), Describe(s.Receiver));
+            Assert.That(s.Host.Registry.TryResolve("osc:lt", out IInputSource current), Is.True);
+            Assert.That(current, Is.SameAs(original), "ミュート中のトラックのチャネルは乗っ取らない");
+            Assert.That(s.Receiver.TryGetAnalogSink("osc:lt", out _), Is.False);
+        }
+
         // ================================================================
         // ReleaseAll
         // ================================================================

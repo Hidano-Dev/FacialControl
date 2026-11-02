@@ -51,6 +51,33 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
         }
 
         [Test]
+        public void Scan_MutedTracksIncludingParentMuted_AreExcluded()
+        {
+            // ミュート中のトラックは再生されない。走査（= チャネル導出）に入れると、値を供給しないのにライブの入力源を乗っ取る（HID-408）。
+            TimelineAsset timeline = CreateTimeline();
+            var character = timeline.CreateTrack<FacialCharacterTrack>(null, "Facial Character");
+            var emotion = character.CreateChildTrack<FacialExpressionTrack>("emotion");
+            var mutedLane = timeline.CreateTrack<FacialExpressionTrack>(emotion, "emotion Lane 1");
+            mutedLane.muted = true;
+            var mutedLegacy = timeline.CreateTrack<FacialValueTrack>(null, "osc:lt");
+            mutedLegacy.muted = true;
+            var mutedCharacter = timeline.CreateTrack<FacialCharacterTrack>(null, "Muted Character");
+            mutedCharacter.muted = true;
+            mutedCharacter.CreateChildTrack<FacialValueTrack>("osc:rt");
+            var group = timeline.CreateTrack<GroupTrack>(null, "Muted Group");
+            group.muted = true;
+            timeline.CreateTrack<FacialValueTrack>(group, "osc:gaze");
+            var mutedWeight = character.CreateChildTrack<FacialLayerWeightTrack>("emotion (weight)");
+            mutedWeight.muted = true;
+
+            TimelineScanResult result = TimelineAssetScanner.Scan(timeline);
+
+            CollectionAssert.AreEqual(new TrackAsset[] { emotion }, result.TrackAssets,
+                "ミュート中の Lane・旧構造トラック・ミュート中の親の子・ミュート中 Group 配下を除く");
+            Assert.That(TimelineAssetScanner.CollectLayerWeightTracks(timeline), Is.Empty, "ミュート中のレイヤー weight トラックも除く");
+        }
+
+        [Test]
         public void Scan_RootsAndChildren_ListsEachRootFollowedByItsChildrenWithParentIndex()
         {
             TimelineAsset timeline = CreateTimeline();

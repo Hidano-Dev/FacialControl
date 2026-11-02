@@ -99,6 +99,15 @@ namespace Hidano.FacialControl.Timeline.Playables
         /// <summary>再生対象の Receiver。解決できなければ null（理由はトラックごとに 1 回ログに出す）。</summary>
         public FacialTimelineReceiver Resolve(PlayableDirector director)
         {
+            // Timeline はミュートした Facial Character トラックの子も（Group の子ではないため）コンパイルして再生する。
+            // 親をミュートしたら子も鳴らさない（チャネル導出・構造診断と同じ規則）。確保しない。
+            if (FacialCharacterTrackBinding.IsMutedInHierarchy(_track))
+            {
+                _controller = null;
+                _receiver = null;
+                return null;
+            }
+
             FacialController controller = FacialCharacterTrackBinding.ResolveController(director, _track);
             if (controller == null)
             {

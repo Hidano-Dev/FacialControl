@@ -40,7 +40,8 @@ namespace Hidano.FacialControl.Timeline.Adapters.Scanning
     /// </summary>
     /// <remarks>
     /// <para><c>GetOutputTracks()</c> の順に root の Facial トラックを並べ、各 root の直後にその子孫の Facial トラックを
-    /// <c>IsChild = true</c> / <c>ParentIndex = 直接の親の index</c> で並べる。Facial 以外のトラック（と、その配下）は含めない。</para>
+    /// <c>IsChild = true</c> / <c>ParentIndex = 直接の親の index</c> で並べる。Facial 以外のトラック（と、その配下）は含めない。
+    /// ミュート中（親階層のミュートを含む）のトラックは再生されないので含めない。</para>
     /// <para>アセットは変更しない。確保は呼び出し時に閉じる（セッション開始 / 診断評価でのみ呼ぶ）。</para>
     /// </remarks>
     public static class TimelineAssetScanner
@@ -58,7 +59,9 @@ namespace Hidano.FacialControl.Timeline.Adapters.Scanning
             var trackAssets = new List<TrackAsset>();
             foreach (TrackAsset rootTrack in timeline.GetOutputTracks())
             {
-                if (!IsFacialTrack(rootTrack))
+                // ミュート中（親階層のミュートを含む）のトラックは再生されない。チャネル導出に入れると、値を供給しないのに
+                // ライブの入力源を乗っ取って無効化してしまうため除く（HID-408）。
+                if (!IsFacialTrack(rootTrack) || FacialCharacterTrackBinding.IsMutedInHierarchy(rootTrack))
                 {
                     continue;
                 }
@@ -88,7 +91,7 @@ namespace Hidano.FacialControl.Timeline.Adapters.Scanning
             List<FacialLayerWeightTrack> tracks = null;
             foreach (TrackAsset track in timeline.GetOutputTracks())
             {
-                if (track is FacialLayerWeightTrack weightTrack)
+                if (track is FacialLayerWeightTrack weightTrack && !FacialCharacterTrackBinding.IsMutedInHierarchy(weightTrack))
                 {
                     tracks ??= new List<FacialLayerWeightTrack>();
                     tracks.Add(weightTrack);
@@ -111,7 +114,7 @@ namespace Hidano.FacialControl.Timeline.Adapters.Scanning
 
             foreach (TrackAsset childTrack in track.GetChildTracks())
             {
-                if (!IsFacialTrack(childTrack))
+                if (!IsFacialTrack(childTrack) || FacialCharacterTrackBinding.IsMutedInHierarchy(childTrack))
                 {
                     continue;
                 }
