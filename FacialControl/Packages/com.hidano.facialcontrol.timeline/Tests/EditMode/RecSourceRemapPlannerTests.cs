@@ -14,7 +14,7 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
         {
             new RecRecordedSource("ifm", RecRecordedSourceUsage.ValueProvider),
             new RecRecordedSource("ifm:head", RecRecordedSourceUsage.Analog),
-            new RecRecordedSource("keyboard", RecRecordedSourceUsage.Trigger),
+            new RecRecordedSource("keyboard", RecRecordedSourceUsage.Trigger, 2, new[] { "smile", "angry" }),
             new RecRecordedSource("udp-lipsync", RecRecordedSourceUsage.ValueProvider),
         };
 
@@ -79,7 +79,8 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
         {
             RecRemapReport report = Analyze(RecSourceRemap.Identity);
 
-            Assert.That(Ids(report), Is.EqualTo(new[] { "ifm", "ifm:head", "udp-lipsync" }), "トリガー専用の入力源は含めない");
+            Assert.That(Ids(report), Is.EqualTo(new[] { "ifm", "ifm:head", "keyboard", "udp-lipsync" }), "表情トリガーだけの入力源も除外できるよう含める");
+            Assert.That(StatusOf(report, "keyboard"), Is.EqualTo(RecRemapStatus.Mapped), "表情トリガーだけの入力源は入力源 id を再生に使わない");
             Assert.That(StatusOf(report, "ifm"), Is.EqualTo(RecRemapStatus.NotInTarget));
             Assert.That(StatusOf(report, "udp-lipsync"), Is.EqualTo(RecRemapStatus.NotInTarget));
             Assert.That(StatusOf(report, "ifm:head"), Is.EqualTo(RecRemapStatus.Unchecked), "Analog だけの入力源はレイヤーの宣言では確かめられない");
@@ -135,27 +136,85 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
         [Test]
         public void Analyze_TriggeredExpressionMissingInTarget_ListsExpressionId()
         {
-            RecRemapReport report = RecSourceRemapPlanner.Analyze(
-                SenderSources,
-                SenderLayers,
-                new[] { "smile", "angry", "smile" },
-                ReceiverSources,
-                ReceiverLayers,
-                new HashSet<string> { "smile" },
-                RecSourceRemap.Identity);
+            RecRemapReport report = Analyze(RecSourceRemap.Identity, new HashSet<string> { "smile" });
 
             Assert.That(report.MissingExpressionIds, Is.EqualTo(new[] { "angry" }));
         }
 
-        private static RecRemapReport Analyze(RecSourceRemap remap)
+        [Test]
+        public void Analyze_ExcludedTriggerSource_DoesNotReportItsExpressionsAndKeepsTriggerCount()
+        {
+            var remap = new RecSourceRemap(new[] { Pair("keyboard", null) }, null);
+
+            RecRemapReport report = Analyze(remap, new HashSet<string>());
+
+            Assert.That(report.MissingExpressionIds, Is.Empty, "書き出さないトリガーの表情は「無い」と報告しない");
+            Assert.That(StatusOf(report, "keyboard"), Is.EqualTo(RecRemapStatus.Excluded));
+            Assert.That(Find(report, "keyboard").TriggerCount, Is.EqualTo(2), "除外で消える表情 Clip の件数を示す");
+        }
+
+        [Test]
+        public void Analyze_TwoTriggerSourcesToSameTarget_ReportsMergedTriggersAsWarningNotError()
+        {
+            // Timeline の表情トラックはレイヤーごとに 1 つのスタックなので、トリガーだけの入力源がまとまっても出力は変わらない。
+            var sources = new[]
+            {
+                new RecRecordedSource("keyboard", RecRecordedSourceUsage.Trigger, 1, new[] { "smile" }),
+                new RecRecordedSource("pad", RecRecordedSourceUsage.Trigger, 1, new[] { "smile" }),
+            };
+            var remap = new RecSourceRemap(new[] { Pair("pad", "keyboard") }, null);
+
+            RecRemapReport report = RecSourceRemapPlanner.Analyze(sources, null, ReceiverSources, ReceiverLayers, null, remap);
+
+            Assert.That(StatusOf(report, "keyboard"), Is.EqualTo(RecRemapStatus.MergedTriggers));
+            Assert.That(StatusOf(report, "pad"), Is.EqualTo(RecRemapStatus.MergedTriggers));
+            Assert.That(report.HasErrors, Is.False);
+        }
+
+        [Test]
+        public void Analyze_TriggerSourceOntoValueSourceId_WarnsOnlyTriggerSource()
+        {
+            var remap = new RecSourceRemap(new[] { Pair("keyboard", "ifm") }, null);
+
+            RecRemapReport report = Analyze(remap);
+
+            Assert.That(StatusOf(report, "keyboard"), Is.EqualTo(RecRemapStatus.MergedTriggers));
+            Assert.That(StatusOf(report, "ifm"), Is.EqualTo(RecRemapStatus.NotInTarget), "値チャネル側の判定は変わらない");
+            Assert.That(report.HasErrors, Is.False);
+        }
+
+        [Test]
+        public void Analyze_UnchangedRecordedIdOutsideIdFormat_IsNotReportedAsInvalid()
+        {
+            // 形式の検査は対応先を変えた行だけ。REC の元の id はそのまま通す。
+            var sources = new[] { new RecRecordedSource("legacy source", RecRecordedSourceUsage.Analog) };
+
+            RecRemapReport report = RecSourceRemapPlanner.Analyze(sources, null, ReceiverSources, ReceiverLayers, null, RecSourceRemap.Identity);
+
+            Assert.That(StatusOf(report, "legacy source"), Is.EqualTo(RecRemapStatus.Unchecked));
+            Assert.That(report.HasErrors, Is.False);
+        }
+
+        [Test]
+        public void Analyze_TargetIdWithInvalidCharacters_ReportsInvalidIdAsError()
+        {
+            var remap = new RecSourceRemap(new[] { Pair("ifm", "osc receiver!") }, null);
+
+            RecRemapReport report = Analyze(remap);
+
+            Assert.That(StatusOf(report, "ifm"), Is.EqualTo(RecRemapStatus.InvalidId));
+            Assert.That(report.HasErrors, Is.True);
+            Assert.That(report.HasCollisions, Is.False);
+        }
+
+        private static RecRemapReport Analyze(RecSourceRemap remap, ICollection<string> targetExpressionIds = null)
         {
             return RecSourceRemapPlanner.Analyze(
                 SenderSources,
                 SenderLayers,
-                null,
                 ReceiverSources,
                 ReceiverLayers,
-                null,
+                targetExpressionIds ?? new HashSet<string> { "smile", "angry" },
                 remap);
         }
 
