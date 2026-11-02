@@ -42,6 +42,12 @@ namespace Hidano.FacialControl.Timeline.Editor.Inspector
 
         private readonly AutoRebakeRequestGate _autoRebakeGate = new AutoRebakeRequestGate();
 
+        /// <summary>
+        /// 評価に使う Director を返す口（埋め込み元の Facial Character トラック Inspector が Timeline ウィンドウの Director を渡す）。
+        /// null ならシーン走査で解決する。共有の Receiver には保存しない（HID-408）。
+        /// </summary>
+        internal System.Func<PlayableDirector> DirectorProvider { get; set; }
+
         private VisualElement _root;
         private VisualElement _diagnosticsContainer;
         private VisualElement _sessionContainer;
@@ -172,7 +178,8 @@ namespace Hidano.FacialControl.Timeline.Editor.Inspector
                         receiver,
                         TimelineEditorServices.ChangeWatcher,
                         requestAutoRebake: true,
-                        _autoRebakeGate);
+                        _autoRebakeGate,
+                        DirectorProvider?.Invoke());
                 }
                 finally
                 {
@@ -195,7 +202,9 @@ namespace Hidano.FacialControl.Timeline.Editor.Inspector
             note.style.whiteSpace = WhiteSpace.Normal;
             note.style.opacity = 0.8f;
             section.Add(note);
-            _overrideDiffersLabel = new Label("この Bake はトラックの Bake 参照と異なります（BakeOverrideDiffers）。意図しない場合は空にしてください。");
+            _overrideDiffersLabel = new Label(
+                "スクリプトから BakeAsset に指定した Bake がトラックの Bake 参照と異なります（BakeOverrideDiffers）。"
+                + "意図しない場合は FacialTimelineReceiver.BakeAsset を null に戻してください。");
             _overrideDiffersLabel.style.whiteSpace = WhiteSpace.Normal;
             _overrideDiffersLabel.style.color = new Color(0.95f, 0.75f, 0.2f);
             _overrideDiffersLabel.style.display = DisplayStyle.None;
@@ -600,12 +609,21 @@ namespace Hidano.FacialControl.Timeline.Editor.Inspector
                 case TrackAsset track:
                     return track is IFacialTimelineBakeHolder;
                 case GameObject gameObject:
-                    return gameObject == receiver.gameObject;
+                    return gameObject == TargetObject(receiver);
                 case Component component:
-                    return component.gameObject == receiver.gameObject;
+                    return component.gameObject == TargetObject(receiver);
                 default:
                     return ReferenceEquals(changed, _lastEvaluation.ProfileAsset);
             }
+        }
+
+        /// <summary>
+        /// 変更を拾う対象の GameObject。Edit の一時 Receiver は controller と別の非表示 GameObject にあるので、controller の GameObject を見る。
+        /// </summary>
+        private static GameObject TargetObject(FacialTimelineReceiver receiver)
+        {
+            FacialController controller = receiver.Controller;
+            return controller != null ? controller.gameObject : receiver.gameObject;
         }
     }
 }

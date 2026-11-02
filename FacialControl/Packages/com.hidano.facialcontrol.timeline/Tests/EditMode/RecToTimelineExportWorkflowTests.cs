@@ -89,23 +89,101 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
         }
 
         [Test]
-        public void TryExportTimelineAsset_ReexportIntoSameAsset_KeepsSingleCharacterTrack()
+        public void TryExportTimelineAsset_ReexportIntoSameAsset_KeepsCharacterTrackAndDirectorBinding()
         {
+            // 上書き Export は親トラックを作り直さず子だけ入れ替える。作り直すと Director の FacialController の Bind が外れ、
+            // 自動 Bind は無いので再生されなくなる（HID-408 レビュー指摘 1）。
+            ExportFixture fixture = ExportFixture.Create();
+            Func<string, string, string, string, bool> originalDialog = RecToTimelineExporter.ConfirmOverwriteDialog;
+            var host = new GameObject("RecTimelineReexportHost");
+            try
+            {
+                host.AddComponent<Animator>();
+                var controller = host.AddComponent<Hidano.FacialControl.Adapters.Playable.FacialController>();
+                var director = host.AddComponent<PlayableDirector>();
+                Assert.That(RecToTimelineExporter.TryExportTimelineAsset(
+                    fixture.RecordingAbsolutePath, fixture.Profile, fixture.TimelinePath, out RecToTimelineExporter.ExportResult first), Is.True);
+                FacialCharacterTrack firstCharacter = FacialCharacterTrackBinding.CollectCharacterTracks(first.Timeline)[0];
+                int firstChildCount = ToArray(firstCharacter.GetChildTracks()).Length;
+                director.playableAsset = first.Timeline;
+                director.SetGenericBinding(firstCharacter, controller);
+
+                RecToTimelineExporter.ConfirmOverwriteDialog = (title, message, ok, cancel) => true;
+                Assert.That(RecToTimelineExporter.TryExportTimelineAsset(
+                    fixture.RecordingAbsolutePath, fixture.Profile, fixture.TimelinePath, out RecToTimelineExporter.ExportResult second, first.Timeline), Is.True);
+
+                var characters = FacialCharacterTrackBinding.CollectCharacterTracks(second.Timeline);
+                Assert.That(characters, Has.Count.EqualTo(1), "上書き Export で親トラックが増えない");
+                Assert.That(characters[0], Is.SameAs(firstCharacter), "親トラックは作り直さない");
+                Assert.That(director.GetGenericBinding(characters[0]), Is.SameAs(controller), "Director の Bind が残る");
+                Assert.That(ToArray(characters[0].GetChildTracks()), Has.Length.EqualTo(firstChildCount), "子トラックは入れ替わり、重複しない");
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(host);
+                RecToTimelineExporter.ConfirmOverwriteDialog = originalDialog;
+                fixture.Dispose();
+            }
+        }
+
+        [Test]
+        public void TryExportTimelineAsset_ReexportWithMutedCharacterTrack_CreatesUnmutedParent()
+        {
+            // ミュート中の親（Group 配下でミュートされた親を含む）を再利用すると子トラックが鳴らない。再利用せず作り直す。
             ExportFixture fixture = ExportFixture.Create();
             Func<string, string, string, string, bool> originalDialog = RecToTimelineExporter.ConfirmOverwriteDialog;
             try
             {
                 Assert.That(RecToTimelineExporter.TryExportTimelineAsset(
                     fixture.RecordingAbsolutePath, fixture.Profile, fixture.TimelinePath, out RecToTimelineExporter.ExportResult first), Is.True);
+                FacialCharacterTrackBinding.CollectCharacterTracks(first.Timeline)[0].muted = true;
+
                 RecToTimelineExporter.ConfirmOverwriteDialog = (title, message, ok, cancel) => true;
                 Assert.That(RecToTimelineExporter.TryExportTimelineAsset(
                     fixture.RecordingAbsolutePath, fixture.Profile, fixture.TimelinePath, out RecToTimelineExporter.ExportResult second, first.Timeline), Is.True);
 
-                Assert.That(FacialCharacterTrackBinding.CollectCharacterTracks(second.Timeline), Has.Count.EqualTo(1),
-                    "上書き Export で親トラックが増えない");
+                var characters = FacialCharacterTrackBinding.CollectCharacterTracks(second.Timeline);
+                Assert.That(characters, Has.Count.EqualTo(1), "ミュート中の親は消して 1 本にする");
+                Assert.That(characters[0].mutedInHierarchy, Is.False, "書き出し先の親はミュートされていない");
+                Assert.That(ToArray(characters[0].GetChildTracks()), Is.Not.Empty);
             }
             finally
             {
+                RecToTimelineExporter.ConfirmOverwriteDialog = originalDialog;
+                fixture.Dispose();
+            }
+        }
+
+        [Test]
+        public void TryExportTimelineAsset_ReexportWithTwoCharacterTracks_KeepsFirstWithBindingAndRemovesOthers()
+        {
+            ExportFixture fixture = ExportFixture.Create();
+            Func<string, string, string, string, bool> originalDialog = RecToTimelineExporter.ConfirmOverwriteDialog;
+            var host = new GameObject("RecTimelineReexportHost");
+            try
+            {
+                host.AddComponent<Animator>();
+                var controller = host.AddComponent<Hidano.FacialControl.Adapters.Playable.FacialController>();
+                var director = host.AddComponent<PlayableDirector>();
+                Assert.That(RecToTimelineExporter.TryExportTimelineAsset(
+                    fixture.RecordingAbsolutePath, fixture.Profile, fixture.TimelinePath, out RecToTimelineExporter.ExportResult first), Is.True);
+                FacialCharacterTrack firstCharacter = FacialCharacterTrackBinding.CollectCharacterTracks(first.Timeline)[0];
+                first.Timeline.CreateTrack<FacialCharacterTrack>(null, "Second Character");
+                director.playableAsset = first.Timeline;
+                director.SetGenericBinding(firstCharacter, controller);
+
+                RecToTimelineExporter.ConfirmOverwriteDialog = (title, message, ok, cancel) => true;
+                Assert.That(RecToTimelineExporter.TryExportTimelineAsset(
+                    fixture.RecordingAbsolutePath, fixture.Profile, fixture.TimelinePath, out RecToTimelineExporter.ExportResult second, first.Timeline), Is.True);
+
+                var characters = FacialCharacterTrackBinding.CollectCharacterTracks(second.Timeline);
+                Assert.That(characters, Has.Count.EqualTo(1), "2 本目の親は消す（MultipleCharacterTracks を残さない）");
+                Assert.That(characters[0], Is.SameAs(firstCharacter));
+                Assert.That(director.GetGenericBinding(characters[0]), Is.SameAs(controller), "再利用した親の Bind は残る");
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(host);
                 RecToTimelineExporter.ConfirmOverwriteDialog = originalDialog;
                 fixture.Dispose();
             }

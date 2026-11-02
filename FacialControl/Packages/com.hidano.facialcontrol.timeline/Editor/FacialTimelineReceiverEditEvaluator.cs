@@ -114,16 +114,22 @@ namespace Hidano.FacialControl.Timeline.Editor
             FacialTimelineReceiver receiver,
             TimelineEditChangeWatcher watcher,
             bool requestAutoRebake,
-            AutoRebakeRequestGate gate = null)
+            AutoRebakeRequestGate gate = null,
+            PlayableDirector director = null)
         {
             if (receiver == null)
             {
                 throw new ArgumentNullException(nameof(receiver));
             }
 
-            PlayableDirector director = TimelineTrackBindingResolver.ResolveDirector(receiver, receiver.DirectorOverride, out _);
+            // 呼び出し側が評価中の Director を渡せば（Facial Character トラック Inspector）それを使い、Receiver には保存しない。
+            if (director == null)
+            {
+                director = TimelineTrackBindingResolver.ResolveDirector(receiver, receiver.DirectorOverride, out _);
+            }
+
             TimelineAsset timeline = director != null ? director.playableAsset as TimelineAsset : null;
-            FacialController controller = receiver.GetComponent<FacialController>();
+            FacialController controller = receiver.Controller;
             FacialCharacterProfileSO profileAsset = controller != null ? controller.CharacterSO : null;
             if (profileAsset == null && timeline != null)
             {
@@ -131,7 +137,7 @@ namespace Hidano.FacialControl.Timeline.Editor
             }
 
             bool hasProfile = TryResolveProfile(profileAsset, out FacialProfile profile);
-            receiver.EvaluateStaticDiagnostics(profile, hasProfile);
+            receiver.EvaluateStaticDiagnostics(profile, hasProfile, director);
 
             FacialTimelineDiagnostics diagnostics = receiver.Diagnostics;
             bool hasLegacy = WriteDeclarationArea(diagnostics, profileAsset);

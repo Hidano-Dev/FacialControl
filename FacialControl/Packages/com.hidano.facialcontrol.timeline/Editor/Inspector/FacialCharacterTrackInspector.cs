@@ -13,7 +13,11 @@ namespace Hidano.FacialControl.Timeline.Editor.Inspector
     /// <see cref="FacialCharacterTrack"/> の Inspector（UI Toolkit。HID-408）。Timeline ウィンドウで開いている Director の binding を表示し、
     /// Bind された FacialController の再生診断（<see cref="FacialTimelineReceiverInspector"/>）を埋め込む。
     /// </summary>
-    /// <remarks>binding の変更は 500 ms ごとに確認し、対象が変わったときだけ作り直す。</remarks>
+    /// <remarks>
+    /// <para>binding の変更と Receiver の破棄は 500 ms ごとに確認し、変わったときだけ作り直す。</para>
+    /// <para>埋め込む Receiver Inspector には、評価のたびに Timeline ウィンドウの Director を渡す（共有の Receiver には保存しない）。
+    /// 同じ controller を複数の Director が Bind していても、開いている Director で診断する。</para>
+    /// </remarks>
     [CustomEditor(typeof(FacialCharacterTrack))]
     public sealed class FacialCharacterTrackInspector : UnityEditor.Editor
     {
@@ -25,6 +29,8 @@ namespace Hidano.FacialControl.Timeline.Editor.Inspector
         private VisualElement _body;
         private PlayableDirector _shownDirector;
         private FacialController _shownController;
+        private FacialTimelineReceiver _shownReceiver;
+        private FacialTimelineReceiverInspector _embeddedEditor;
         private bool _hasShown;
 
         public override VisualElement CreateInspectorGUI()
@@ -40,9 +46,15 @@ namespace Hidano.FacialControl.Timeline.Editor.Inspector
             _body = new VisualElement();
             _root.Add(_body);
 
+            _hasShown = false;
             Refresh();
             _root.schedule.Execute(Refresh).Every(PollIntervalMs);
             return _root;
+        }
+
+        private void OnDisable()
+        {
+            DestroyEmbeddedEditor();
         }
 
         private void Refresh()
@@ -54,7 +66,10 @@ namespace Hidano.FacialControl.Timeline.Editor.Inspector
 
             PlayableDirector director = TimelineEditor.inspectedDirector;
             FacialController controller = director != null ? FacialCharacterTrackBinding.ToController(director.GetGenericBinding(track)) : null;
-            if (_hasShown && director == _shownDirector && controller == _shownController)
+
+            // 非表示の Receiver（Edit の一時 Receiver）は Play 突入・再読込で破棄される。破棄済みの target を掴んだままにしない。
+            bool receiverLost = controller != null && (_shownReceiver == null || _embeddedEditor == null || _embeddedEditor.target == null);
+            if (_hasShown && director == _shownDirector && controller == _shownController && !receiverLost)
             {
                 return;
             }
@@ -62,6 +77,8 @@ namespace Hidano.FacialControl.Timeline.Editor.Inspector
             _hasShown = true;
             _shownDirector = director;
             _shownController = controller;
+            _shownReceiver = null;
+            DestroyEmbeddedEditor();
             _body.Clear();
 
             if (director == null)
@@ -85,8 +102,20 @@ namespace Hidano.FacialControl.Timeline.Editor.Inspector
                 return;
             }
 
-            receiver.DirectorOverride = director;
-            _body.Add(new InspectorElement(receiver));
+            _shownReceiver = receiver;
+            _embeddedEditor = (FacialTimelineReceiverInspector)CreateEditor(receiver, typeof(FacialTimelineReceiverInspector));
+            _embeddedEditor.DirectorProvider = () => TimelineEditor.inspectedDirector;
+            _body.Add(new InspectorElement(_embeddedEditor));
+        }
+
+        private void DestroyEmbeddedEditor()
+        {
+            if (_embeddedEditor != null)
+            {
+                _embeddedEditor.Unsubscribe();
+                DestroyImmediate(_embeddedEditor);
+                _embeddedEditor = null;
+            }
         }
     }
 }

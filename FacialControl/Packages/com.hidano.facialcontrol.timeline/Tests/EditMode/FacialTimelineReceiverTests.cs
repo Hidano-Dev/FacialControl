@@ -10,6 +10,7 @@ using Hidano.FacialControl.Timeline.Adapters.InputSources;
 using Hidano.FacialControl.Timeline.Clips;
 using Hidano.FacialControl.Timeline.Domain.Diagnostics;
 using Hidano.FacialControl.Timeline.Domain.Services;
+using Hidano.FacialControl.Timeline.Playables;
 using Hidano.FacialControl.Timeline.Tracks;
 using NUnit.Framework;
 using UnityEngine;
@@ -429,6 +430,87 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
             Assert.That(s.Receiver.TakeoverEntries, Is.Empty);
         }
 
+        [Test]
+        public void BeginPlaybackSession_MutedLegacyAnalogTrack_DoesNotTakeOverLiveSource()
+        {
+            // ミュートした旧構造の Analog トラックは再生されない。チャネル導出に入れると、値を供給しないのにライブの入力源を
+            // 乗っ取って無効化してしまう（HID-408 レビュー指摘）。
+            Scenario s = CreateScenario();
+            FacialValueTrack legacy = s.Timeline.CreateTrack<FacialValueTrack>(null, "lt");
+            legacy.ChannelSubId = "osc:lt";
+            legacy.ChannelKind = FacialValueChannelKind.Analog;
+            legacy.muted = true;
+            var original = new TestAnalogSource("osc:lt", 1, 0.2f);
+            s.Host.Registry.Register(AdapterSlug.Parse("osc"), "lt", original);
+            s.Host.Attach();
+
+            s.Begin();
+
+            Assert.That(s.Receiver.SessionState, Is.EqualTo(TimelineSessionState.Active), Describe(s.Receiver));
+            Assert.That(s.Host.Registry.TryResolve("osc:lt", out IInputSource current), Is.True);
+            Assert.That(current, Is.SameAs(original), "ミュート中のトラックのチャネルは乗っ取らない");
+            Assert.That(s.Receiver.TryGetAnalogSink("osc:lt", out _), Is.False);
+        }
+
+        [Test]
+        public void BeginPlaybackSession_TrackUnmutedBetweenSessions_RederivesChannelsAndTakesOver()
+        {
+            // セッションの間にミュートを解除したら、チャネル導出を作り直す（導出キャッシュにミュート状態を含める。HID-408 レビュー指摘）。
+            Scenario s = CreateScenario(withAnalogChannel: true);
+            FacialValueTrack valueTrack = FindValueTrack(s.Timeline, "osc:lt");
+            valueTrack.muted = true;
+            var original = new TestAnalogSource("osc:lt", 1, 0.2f);
+            s.Host.Registry.Register(AdapterSlug.Parse("osc"), "lt", original);
+            s.Host.Attach();
+            s.Begin();
+            Assert.That(s.Receiver.SessionState, Is.EqualTo(TimelineSessionState.Active), Describe(s.Receiver));
+            Assert.That(s.Receiver.TryGetAnalogSink("osc:lt", out _), Is.False, "fixture: ミュート中は乗っ取らない");
+            s.Receiver.ReleaseAll();
+
+            valueTrack.muted = false;
+            s.Begin();
+
+            Assert.That(s.Receiver.SessionState, Is.EqualTo(TimelineSessionState.Active), Describe(s.Receiver));
+            Assert.That(s.Receiver.TryGetAnalogSink("osc:lt", out TimelineAnalogInputSource sink), Is.True,
+                "ミュート解除後のセッションでは値トラックのチャネルを導出し直す");
+            Assert.That(s.Host.Registry.TryResolve("osc:lt", out IInputSource current), Is.True);
+            Assert.That(current, Is.SameAs(sink));
+        }
+
+        [Test]
+        public void BeginPlaybackSession_TrackMutedBetweenSessions_StopsTakingOver()
+        {
+            Scenario s = CreateScenario(withAnalogChannel: true);
+            FacialValueTrack valueTrack = FindValueTrack(s.Timeline, "osc:lt");
+            var original = new TestAnalogSource("osc:lt", 1, 0.2f);
+            s.Host.Registry.Register(AdapterSlug.Parse("osc"), "lt", original);
+            s.Host.Attach();
+            s.Begin();
+            Assert.That(s.Receiver.TryGetAnalogSink("osc:lt", out _), Is.True, "fixture: ミュート前は乗っ取る");
+            s.Receiver.ReleaseAll();
+
+            valueTrack.muted = true;
+            s.Begin();
+
+            Assert.That(s.Receiver.TryGetAnalogSink("osc:lt", out _), Is.False, "ミュートしたトラックのチャネルは導出し直して外す");
+            Assert.That(s.Host.Registry.TryResolve("osc:lt", out IInputSource current), Is.True);
+            Assert.That(current, Is.SameAs(original));
+        }
+
+        private static FacialValueTrack FindValueTrack(TimelineAsset timeline, string channelSubId)
+        {
+            foreach (TrackAsset track in timeline.GetOutputTracks())
+            {
+                if (track is FacialValueTrack value && value.ChannelSubId == channelSubId)
+                {
+                    return value;
+                }
+            }
+
+            Assert.Fail($"fixture: 値トラック {channelSubId} が無い");
+            return null;
+        }
+
         // ================================================================
         // ReleaseAll
         // ================================================================
@@ -514,17 +596,66 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
         // ================================================================
 
         [Test]
-        public void GetOrCreate_ControllerWithoutReceiver_AddsReceiverThatIsNotSaved()
+        public void GetOrCreate_EditControllerWithoutReceiver_UsesHiddenHolderAndLeavesUserObjectUnchanged()
+        {
+            // Edit ではユーザーのシーン / Prefab インスタンスに AddComponent しない（HID-408 レビュー指摘 6）。
+            Scenario s = CreateScenario();
+            UnityEngine.Object.DestroyImmediate(s.Host.Receiver);
+            try
+            {
+                FacialTimelineReceiver created = FacialTimelineReceiver.GetOrCreate(s.Host.Controller);
+
+                Assert.That(created, Is.Not.Null);
+                Assert.That(s.Host.Controller.GetComponent<FacialTimelineReceiver>(), Is.Null, "controller の GameObject は書き換えない");
+                Assert.That(created.gameObject, Is.Not.SameAs(s.Host.Controller.gameObject));
+                Assert.That(created.gameObject.hideFlags, Is.EqualTo(HideFlags.DontSave | HideFlags.HideInHierarchy), "非表示・非保存の一時 GameObject に持つ");
+                Assert.That((created.hideFlags & HideFlags.NotEditable) == 0, Is.True, "埋め込み Inspector のボタンが押せるよう NotEditable にしない");
+                Assert.That(created.Controller, Is.SameAs(s.Host.Controller), "対象の controller を保持する");
+                Assert.That(FacialTimelineReceiver.GetOrCreate(s.Host.Controller), Is.SameAs(created), "2 回目は同じ Receiver を返す");
+                CollectionAssert.Contains(FacialTimelineReceiver.CollectAll(), created, "非保存の Receiver も一覧に含める");
+            }
+            finally
+            {
+                FacialTimelineReceiver.DestroyEditReceivers();
+            }
+
+            Assert.That(FacialTimelineReceiver.EditReceiverCount, Is.EqualTo(0));
+        }
+
+        [Test]
+        public void GetOrCreate_EditControllerDestroyed_PrunesHiddenHolder()
         {
             Scenario s = CreateScenario();
             UnityEngine.Object.DestroyImmediate(s.Host.Receiver);
-
             FacialTimelineReceiver created = FacialTimelineReceiver.GetOrCreate(s.Host.Controller);
+            GameObject holder = created.gameObject;
 
-            Assert.That(created, Is.Not.Null);
-            Assert.That(created.gameObject, Is.SameAs(s.Host.Controller.gameObject), "controller と同じ GameObject に置く");
-            Assert.That((created.hideFlags & HideFlags.DontSave) == HideFlags.DontSave, Is.True, "内部実装なのでシーンに保存しない");
-            Assert.That(FacialTimelineReceiver.GetOrCreate(s.Host.Controller), Is.SameAs(created), "2 回目は同じ Receiver を返す");
+            UnityEngine.Object.DestroyImmediate(s.Host.Controller);
+
+            CollectionAssert.DoesNotContain(FacialTimelineReceiver.CollectAll(), created, "一覧を作る前に破棄済みの一時 Receiver を片付ける");
+            Assert.That(FacialTimelineReceiver.EditReceiverCount, Is.EqualTo(0), "controller が消えたら一時 Receiver も片付ける");
+            Assert.That(holder == null, Is.True);
+        }
+
+        [Test]
+        public void GetOrCreate_PlayEquivalent_AddsReceiverToControllerObject()
+        {
+            // Edit / Play の判定は Mixer と同じ FacialTimelinePlayMode を使う（HID-408 レビュー指摘 4）。
+            Scenario s = CreateScenario();
+            UnityEngine.Object.DestroyImmediate(s.Host.Receiver);
+            FacialTimelinePlayMode.OverrideIsPlaying = true;
+            try
+            {
+                FacialTimelineReceiver created = FacialTimelineReceiver.GetOrCreate(s.Host.Controller);
+
+                Assert.That(created.gameObject, Is.SameAs(s.Host.Controller.gameObject), "Play では controller の GameObject に置く");
+                Assert.That(created.Controller, Is.SameAs(s.Host.Controller));
+                Assert.That(FacialTimelineReceiver.EditReceiverCount, Is.EqualTo(0));
+            }
+            finally
+            {
+                FacialTimelinePlayMode.OverrideIsPlaying = null;
+            }
         }
 
         [Test]

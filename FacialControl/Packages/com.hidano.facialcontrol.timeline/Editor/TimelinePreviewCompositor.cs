@@ -18,6 +18,7 @@ using Hidano.FacialControl.Timeline.Adapters.Session;
 using Hidano.FacialControl.Timeline.Domain.Diagnostics;
 using Hidano.FacialControl.Timeline.Domain.Models;
 using Hidano.FacialControl.Timeline.Domain.Services;
+using Hidano.FacialControl.Timeline.Tracks;
 using UnityEngine;
 using UnityEngine.Timeline;
 using GazeChannel = Hidano.FacialControl.Adapters.ScriptableObject.GazeChannel;
@@ -52,6 +53,7 @@ namespace Hidano.FacialControl.Timeline.Editor
         private readonly FacialProfile _profile;
         private readonly FacialTimelineBakeAsset _overrideBake;
         private readonly TimelineAsset _timeline;
+        private readonly int _muteFingerprint;
         private readonly BakeLocateResult _located;
         private readonly FacialTimelineBakeAsset _bake;
         private readonly ExpressionSourceBake[] _bakeExpressionBakes;
@@ -95,6 +97,10 @@ namespace Hidano.FacialControl.Timeline.Editor
             _overrideBake = overrideBake;
             _timeline = timeline;
 
+            // 走査はミュート中のトラックを除くので、ミュートを切り替えたら作り直す（Source ハッシュにはミュートが入らず、
+            // 再ベイクでも破棄されないため）。HID-408。
+            _muteFingerprint = FacialCharacterTrackBinding.ComputeMuteFingerprint(timeline);
+
             _located = FacialTimelineBakeLocator.Locate(timeline, overrideBake);
             _bake = _located.Bake;
             CanRender = _bake != null
@@ -137,7 +143,7 @@ namespace Hidano.FacialControl.Timeline.Editor
         public BakeLocateResult BakeLocate => _located;
 
         /// <summary>
-        /// 同じ入力（controller / Profile SO / Profile スナップショット / 上書き Bake / Timeline / Bake の中身）で
+        /// 同じ入力（controller / Profile SO / Profile スナップショット / 上書き Bake / Timeline / トラックのミュート状態 / Bake の中身）で
         /// 構築したインスタンスかを返す（キャッシュ再利用判定）。
         /// </summary>
         public bool Matches(
@@ -152,7 +158,8 @@ namespace Hidano.FacialControl.Timeline.Editor
                 || !ReferenceEquals(_profileAsset, profileAsset)
                 || !ReferenceEquals(_overrideBake, overrideBake)
                 || !ReferenceEquals(_timeline, timeline)
-                || !SameProfileSnapshot(_profile, profile))
+                || !SameProfileSnapshot(_profile, profile)
+                || _muteFingerprint != FacialCharacterTrackBinding.ComputeMuteFingerprint(timeline))
             {
                 return false;
             }

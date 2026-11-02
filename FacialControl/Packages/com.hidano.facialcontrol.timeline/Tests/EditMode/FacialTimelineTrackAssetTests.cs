@@ -240,6 +240,52 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
         }
 
         [Test]
+        public void CreateChildTrack_SameNameTwice_MakesSiblingNamesUnique()
+        {
+            var timeline = ScriptableObject.CreateInstance<TimelineAsset>();
+            try
+            {
+                var character = timeline.CreateTrack<FacialCharacterTrack>(null, "Facial Character");
+
+                FacialValueTrack first = character.CreateChildTrack<FacialValueTrack>("osc:lt");
+                FacialValueTrack second = character.CreateChildTrack<FacialValueTrack>("osc:lt");
+                FacialValueTrack third = character.CreateChildTrack<FacialValueTrack>("osc:lt");
+
+                Assert.That(first.name, Is.EqualTo("osc:lt"));
+                Assert.That(second.name, Is.EqualTo("osc:lt (1)"), "兄弟と重なる名前は一意にする（Timeline の CreateTrack と同じ）");
+                Assert.That(third.name, Is.EqualTo("osc:lt (2)"));
+            }
+            finally
+            {
+                Object.DestroyImmediate(timeline);
+            }
+        }
+
+        [Test]
+        public void CreateChildTrack_InternalApiUnavailable_FallsBackToRootAndLogsError()
+        {
+            // Timeline の更新で内部 API（AllocateTrack）が無くなった場合: 例外で止めず root に作り、Error で知らせる（HID-408 指摘 8）。
+            var timeline = ScriptableObject.CreateInstance<TimelineAsset>();
+            FacialCharacterTrack.AllocateTrackResolverOverride = () => null;
+            try
+            {
+                var character = timeline.CreateTrack<FacialCharacterTrack>(null, "Facial Character");
+                UnityEngine.TestTools.LogAssert.Expect(LogType.Error, new System.Text.RegularExpressions.Regex("AllocateTrack"));
+
+                FacialExpressionTrack created = character.CreateChildTrack<FacialExpressionTrack>("emotion");
+
+                Assert.That(created, Is.Not.Null);
+                Assert.That(created.parent, Is.SameAs(timeline), "フォールバックは root に作る（親トラックの外なので診断で知らせる）");
+                CollectionAssert.Contains(FacialCharacterTrackBinding.CollectTracksOutsideCharacter(timeline), created);
+            }
+            finally
+            {
+                FacialCharacterTrack.AllocateTrackResolverOverride = null;
+                Object.DestroyImmediate(timeline);
+            }
+        }
+
+        [Test]
         public void CreateChildTrack_FacialTrackTypes_AreCreatedUnderCharacterTrack()
         {
             var timeline = ScriptableObject.CreateInstance<TimelineAsset>();

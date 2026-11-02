@@ -148,22 +148,22 @@ namespace Hidano.FacialControl.Timeline.Editor
             ValidateSequence(sequence);
 
             // すべての Facial トラックはキャラ 1 体ぶんの親トラックの子にする（親に FacialController を Bind して再生する。HID-408）。
-            ResolveCharacterTrack(timeline);
+            FacialCharacterTrack character = ResolveCharacterTrack(timeline);
 
             List<ExpressionClipInfo> expressionClips = BuildExpressionClips(sequence, profile);
-            CreateExpressionTracks(timeline, expressionClips);
+            CreateExpressionTracks(timeline, character, expressionClips);
 
             List<AnalogTrackInfo> analogTracks = BuildAnalogTracks(
                 sequence, gazeContext, sourceKindOverrides, out List<ChannelDetection> detections);
-            CreateAnalogTracks(timeline, analogTracks, sequence.DurationSeconds, sequence as RecEventSequenceAdapter);
+            CreateAnalogTracks(character, analogTracks, sequence.DurationSeconds, sequence as RecEventSequenceAdapter);
 
             List<ValueProviderTrackBuilder.SourceTrack> valueProviderTracks =
                 BuildValueProviderTracks(sequence, referenceBlendShapeNames, detections, warn: true);
-            CreateValueProviderTracks(timeline, valueProviderTracks, sequence.DurationSeconds);
+            CreateValueProviderTracks(character, valueProviderTracks, sequence.DurationSeconds);
 
             // レイヤー weight（発話ゲート等が書く inter-layer weight）は REC 再生と同じ結果にするためトラックにする（HID-182）。
             IReadOnlyList<RecordedLayerWeightSample> layerWeights = (sequence as RecEventSequenceAdapter)?.LayerWeightSamples;
-            CreateLayerWeightTracks(timeline, LayerWeightTrackBuilder.Build(layerWeights), sequence.DurationSeconds);
+            CreateLayerWeightTracks(character, LayerWeightTrackBuilder.Build(layerWeights), sequence.DurationSeconds);
 
             detections.Sort((left, right) => string.CompareOrdinal(left.SourceId, right.SourceId));
             return detections;
@@ -468,10 +468,20 @@ namespace Hidano.FacialControl.Timeline.Editor
         /// </summary>
         private static FacialCharacterTrack ResolveCharacterTrack(TimelineAsset timeline)
         {
-            List<FacialCharacterTrack> existing = FacialCharacterTrackBinding.CollectCharacterTracks(timeline);
-            return existing.Count > 0
-                ? existing[0]
+            FacialCharacterTrack reusable = FindReusableCharacterTrack(timeline);
+            return reusable != null
+                ? reusable
                 : timeline.CreateTrack<FacialCharacterTrack>(null, CharacterTrackName);
+        }
+
+        /// <summary>
+        /// 再利用する親トラック: ミュートされていない（親階層のミュートも無い）最初の Facial Character トラック。
+        /// ミュート中の親を使うと子トラックが鳴らないため使わない（HID-408 レビュー指摘）。
+        /// </summary>
+        private static FacialCharacterTrack FindReusableCharacterTrack(TimelineAsset timeline)
+        {
+            List<FacialCharacterTrack> active = FacialCharacterTrackBinding.CollectCharacterTracks(timeline, includeMuted: false);
+            return active.Count > 0 ? active[0] : null;
         }
 
         private static bool ContainsSource(List<ChannelDetection> detections, string sourceId)
@@ -488,14 +498,14 @@ namespace Hidano.FacialControl.Timeline.Editor
         }
 
         private static void CreateLayerWeightTracks(
-            TimelineAsset timeline,
+            FacialCharacterTrack character,
             List<LayerWeightTrackBuilder.LayerTrack> tracks,
             double durationSeconds)
         {
             for (int i = 0; i < tracks.Count; i++)
             {
                 LayerWeightTrackBuilder.LayerTrack trackInfo = tracks[i];
-                var track = ResolveCharacterTrack(timeline).CreateChildTrack<FacialLayerWeightTrack>(trackInfo.LayerName + LayerWeightTrackNameSuffix);
+                var track = character.CreateChildTrack<FacialLayerWeightTrack>(trackInfo.LayerName + LayerWeightTrackNameSuffix);
                 track.LayerName = trackInfo.LayerName;
 
                 TimelineClip clip = track.CreateClip<FacialLayerWeightClip>();
@@ -506,14 +516,14 @@ namespace Hidano.FacialControl.Timeline.Editor
         }
 
         private static void CreateValueProviderTracks(
-            TimelineAsset timeline,
+            FacialCharacterTrack character,
             List<ValueProviderTrackBuilder.SourceTrack> tracks,
             double durationSeconds)
         {
             for (int i = 0; i < tracks.Count; i++)
             {
                 ValueProviderTrackBuilder.SourceTrack trackInfo = tracks[i];
-                var track = ResolveCharacterTrack(timeline).CreateChildTrack<FacialValueTrack>(trackInfo.SourceId);
+                var track = character.CreateChildTrack<FacialValueTrack>(trackInfo.SourceId);
                 track.ChannelSubId = trackInfo.SourceId;
                 track.ChannelKind = FacialValueChannelKind.ValueProvider;
 
@@ -849,7 +859,7 @@ namespace Hidano.FacialControl.Timeline.Editor
                 "where the stacks overlap.");
         }
 
-        private static void CreateExpressionTracks(TimelineAsset timeline, List<ExpressionClipInfo> clips)
+        private static void CreateExpressionTracks(TimelineAsset timeline, FacialCharacterTrack character, List<ExpressionClipInfo> clips)
         {
             if (clips == null || clips.Count == 0)
             {
@@ -873,7 +883,7 @@ namespace Hidano.FacialControl.Timeline.Editor
             {
                 pair.Value.Sort(ExpressionClipInfoComparer.Instance);
 
-                FacialExpressionTrack rootTrack = ResolveCharacterTrack(timeline).CreateChildTrack<FacialExpressionTrack>(pair.Key);
+                FacialExpressionTrack rootTrack = character.CreateChildTrack<FacialExpressionTrack>(pair.Key);
                 var lanes = new List<ExpressionLane>
                 {
                     new ExpressionLane(rootTrack),
@@ -987,7 +997,7 @@ namespace Hidano.FacialControl.Timeline.Editor
         /// 目線ボーンを推測しない）。
         /// </param>
         private static void CreateAnalogTracks(
-            TimelineAsset timeline,
+            FacialCharacterTrack character,
             List<AnalogTrackInfo> tracks,
             double durationSeconds,
             RecEventSequenceAdapter recSequence)
@@ -1008,7 +1018,7 @@ namespace Hidano.FacialControl.Timeline.Editor
                     continue;
                 }
 
-                var track = ResolveCharacterTrack(timeline).CreateChildTrack<FacialValueTrack>(trackInfo.SourceId);
+                var track = character.CreateChildTrack<FacialValueTrack>(trackInfo.SourceId);
                 track.ChannelSubId = trackInfo.SourceId;
                 track.ChannelKind = trackInfo.ChannelKind;
                 if (isRecGaze)
@@ -1245,19 +1255,35 @@ namespace Hidano.FacialControl.Timeline.Editor
             return ScriptableObject.CreateInstance<TimelineAsset>();
         }
 
+        /// <summary>
+        /// 上書き Export の前にトラックを消す。再利用する Facial Character トラック（ミュートされていない最初の 1 本）は残して子だけ消す
+        /// （シーンの Director がこのトラックに Bind した FacialController を失わないため。自動 Bind は無いので、親を作り直すと Bind が
+        /// 外れたままになる。HID-408）。ほかの親トラック（ミュート中・2 本目以降）は子ごと消し、1 Timeline 1 体に戻す。
+        /// </summary>
         private static void ClearTimeline(TimelineAsset timeline)
         {
+            FacialCharacterTrack keep = FindReusableCharacterTrack(timeline);
             TrackAsset[] outputTracks = ToArray(timeline.GetOutputTracks());
-            var scheduled = new HashSet<TrackAsset>(outputTracks);
+            var scheduled = new HashSet<TrackAsset>();
             for (int i = 0; i < outputTracks.Length; i++)
             {
-                // 親トラック（Facial Character）の子も出力トラックに含まれるが、親を消すと一緒に消えるので二重に消さない。
-                if (HasScheduledAncestor(outputTracks[i], scheduled))
+                if (!ReferenceEquals(outputTracks[i], keep))
+                {
+                    scheduled.Add(outputTracks[i]);
+                }
+            }
+
+            for (int i = 0; i < outputTracks.Length; i++)
+            {
+                TrackAsset track = outputTracks[i];
+
+                // 親トラックそのものは残す。消す対象の祖先を持つトラックは祖先と一緒に消えるので二重に消さない。
+                if (!scheduled.Contains(track) || HasScheduledAncestor(track, scheduled))
                 {
                     continue;
                 }
 
-                timeline.DeleteTrack(outputTracks[i]);
+                timeline.DeleteTrack(track);
             }
         }
 

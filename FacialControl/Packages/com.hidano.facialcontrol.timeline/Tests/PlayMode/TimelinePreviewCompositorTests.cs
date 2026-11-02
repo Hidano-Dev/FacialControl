@@ -171,6 +171,32 @@ namespace Hidano.FacialControl.Timeline.Tests.PlayMode
             yield return AssertEditMatchesPlay(character, _compositor, result);
         }
 
+        [Test]
+        public void Matches_TrackMuteToggled_ReturnsFalseSoPreviewIsRebuilt()
+        {
+            // 走査はミュート中のトラックを除くので、ミュートを切り替えたらプレビューの Compositor を作り直す
+            // （Source ハッシュにはミュートが入らず、再ベイクでは破棄されない。HID-408 レビュー指摘）。
+            _fixture = TimelineE2EFixture.Create();
+            TimelineE2ECharacter character = _fixture.Spawn(TimelineE2EPlacement.SameObject);
+            _compositor = CreateCompositor(character);
+            FacialProfile profile = TimelineProfileSource.Resolve(_fixture.ProfileAsset);
+            FacialValueTrack valueTrack = null;
+            foreach (TrackAsset track in _fixture.Timeline.GetOutputTracks())
+            {
+                valueTrack ??= track as FacialValueTrack;
+            }
+
+            Assert.That(valueTrack, Is.Not.Null, "fixture: 値トラックがある");
+            Assert.That(_compositor.Matches(character.Controller, _fixture.ProfileAsset, profile, null, _fixture.Timeline), Is.True,
+                "fixture: 入力が同じ間は再利用する");
+
+            valueTrack.muted = true;
+
+            Assert.That(_compositor.Matches(character.Controller, _fixture.ProfileAsset, profile, null, _fixture.Timeline), Is.False,
+                "ミュートを切り替えたら作り直す");
+            valueTrack.muted = false;
+        }
+
         [UnityTest]
         public IEnumerator Evaluate_ProfileJsonDiffersFromBake_EditRendersBakePlayUsesProfileThenRebakeMatches()
         {

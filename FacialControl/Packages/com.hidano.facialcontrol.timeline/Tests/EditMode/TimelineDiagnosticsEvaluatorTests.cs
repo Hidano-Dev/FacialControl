@@ -141,6 +141,24 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
         }
 
         [Test]
+        public void EvaluateStatic_MutedLegacyTrackAndMutedSecondCharacterTrack_AreNotCounted()
+        {
+            // ミュート中（親階層のミュートを含む）のトラックは再生されないので、構造の Error でセッションを止めない（HID-408 レビュー指摘 2）。
+            Scenario s = CreateScenario();
+            s.Timeline.CreateTrack<FacialValueTrack>(null, "muted-legacy").muted = true;
+            var group = s.Timeline.CreateTrack<GroupTrack>(null, "muted-group");
+            group.muted = true;
+            s.Timeline.CreateTrack<FacialValueTrack>(group, "legacy-in-muted-group");
+            s.Timeline.CreateTrack<FacialCharacterTrack>(null, "muted-character").muted = true;
+            var diagnostics = new FacialTimelineDiagnostics();
+
+            TimelineDiagnosticsEvaluator.EvaluateStatic(s.Receiver, diagnostics, s.BuildContext());
+
+            Assert.That(diagnostics.Contains(TimelineDiagnosticCode.LegacyTrackStructure), Is.False, Describe(diagnostics));
+            Assert.That(diagnostics.Contains(TimelineDiagnosticCode.MultipleCharacterTracks), Is.False, Describe(diagnostics));
+        }
+
+        [Test]
         public void EvaluateTrackStructureArea_AllUnderOneCharacterTrack_ReturnsFalseAndClearsArea()
         {
             Scenario s = CreateScenario();
@@ -503,6 +521,32 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
             Assert.That(diagnostics.Contains(TimelineDiagnosticCode.LayerConnectionSkippedDeclared, EmotionLayer), Is.True);
             Assert.That(SeverityOf(diagnostics, TimelineDiagnosticCode.LayerConnectionSkippedDeclared), Is.EqualTo(TimelineDiagnosticSeverity.Info));
             Assert.That(result.HasLegacyStateDeclarations, Is.True);
+        }
+
+        [Test]
+        public void EditEvaluate_GivenDirectorWhileTwoDirectorsBindController_UsesGivenDirectorWithoutStoringIt()
+        {
+            // 同じ controller を 2 つの Director が Bind しているとシーン走査では Ambiguous。Inspector が開いている Director を
+            // 評価のたびに渡し、共有の Receiver には保存しない（HID-408 レビュー指摘 3）。
+            Scenario s = CreateScenario();
+            var otherHost = new GameObject("OtherDirectorHost");
+            _created.Add(otherHost);
+            var otherDirector = otherHost.AddComponent<PlayableDirector>();
+            otherDirector.playableAsset = s.Timeline;
+            otherDirector.SetGenericBinding(s.Character, s.Controller);
+            TimelineEditChangeWatcher watcher = CreateWatcher();
+
+            ReceiverEditEvaluation result = FacialTimelineReceiverEditEvaluator.Evaluate(
+                s.Receiver, watcher, requestAutoRebake: false, gate: null, director: s.Director);
+
+            Assert.That(result.Director, Is.SameAs(s.Director));
+            Assert.That(s.Receiver.Diagnostics.Contains(TimelineDiagnosticCode.DirectorAmbiguous), Is.False, Describe(s.Receiver.Diagnostics));
+            Assert.That(s.Receiver.DirectorOverride, Is.Null, "共有の Receiver に保存しない");
+
+            FacialTimelineReceiverEditEvaluator.Evaluate(s.Receiver, watcher, requestAutoRebake: false);
+
+            Assert.That(s.Receiver.Diagnostics.Contains(TimelineDiagnosticCode.DirectorAmbiguous), Is.True,
+                "Director を渡さない評価はシーン走査（2 つあるので Ambiguous）");
         }
 
         [Test]

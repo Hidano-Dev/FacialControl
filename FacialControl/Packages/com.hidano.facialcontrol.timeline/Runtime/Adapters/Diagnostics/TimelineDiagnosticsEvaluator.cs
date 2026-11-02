@@ -42,9 +42,11 @@ namespace Hidano.FacialControl.Timeline.Adapters.Diagnostics
             "Bake 参照の無い旧形式の TimelineAsset です。Editor で Timeline を開いて保存するか再 Export してください。Receiver Inspector の『今再ベイク』でも修復できます。";
         private const string BakeConflictDetail =
             "Facial トラックの Bake 参照が一致していません。Editor で Timeline を開いて保存するか再 Export してください。Receiver Inspector の『今再ベイク』でも修復できます。";
-        private const string BakeOverrideUsedDetail = "Receiver の Bake 欄で指定した Bake を使います。";
+        private const string BakeOverrideUsedDetail =
+            "スクリプトから FacialTimelineReceiver.BakeAsset に指定した Bake を使います（トラックの Bake 参照より優先）。";
         private const string BakeOverrideDiffersDetail =
-            "Receiver の Bake 欄で指定した Bake がトラックの Bake 参照と異なります。意図しない場合は Bake 欄を空にしてください。";
+            "スクリプトから FacialTimelineReceiver.BakeAsset に指定した Bake がトラックの Bake 参照と異なります。"
+            + "意図しない場合は BakeAsset を null に戻してください（Inspector には上書き欄がありません）。";
         private const string BakeFreshDetail = "Bake は最新です。";
         private const string BakeStaleDetail =
             "Timeline の内容が Bake 作成時から変わっています。Bake の値で再生を続けます。Edit に戻ると自動で再ベイクされます（今すぐ直す場合は Receiver Inspector の『今再ベイク』）。";
@@ -178,7 +180,8 @@ namespace Hidano.FacialControl.Timeline.Adapters.Diagnostics
                 items.Add(Error(TimelineDiagnosticArea.TrackBinding, TimelineDiagnosticCode.LegacyTrackStructure, subject, LegacyTrackStructureDetail));
             }
 
-            List<FacialCharacterTrack> characters = FacialCharacterTrackBinding.CollectCharacterTracks(timeline);
+            // ミュート中の親トラックは再生されないので数えない（変換後にミュートして残した親トラック等）。
+            List<FacialCharacterTrack> characters = FacialCharacterTrackBinding.CollectCharacterTracks(timeline, includeMuted: false);
             if (characters.Count > 1)
             {
                 items.Add(Error(TimelineDiagnosticArea.TrackBinding, TimelineDiagnosticCode.MultipleCharacterTracks, timeline.name, MultipleCharacterTracksDetail));

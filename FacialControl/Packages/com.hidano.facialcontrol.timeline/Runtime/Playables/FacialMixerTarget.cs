@@ -20,9 +20,25 @@ namespace Hidano.FacialControl.Timeline.Playables
     {
         private const string LogPrefix = "[FacialTimeline] ";
 
+        // 出力側を辿る深さの上限（Mixer → 親トラック → Timeline の 2 段 + 通知 Playable 等の余裕）。
+        private const int MaxOutputDepth = 8;
+
         // 旧構造 / 未 Bind を知らせたトラック（instanceID）。ドメインリロードまで 1 トラック 1 回。
         private static readonly HashSet<int> WarnedLegacyTracks = new HashSet<int>();
         private static readonly HashSet<int> WarnedUnboundTracks = new HashSet<int>();
+
+        /// <summary>
+        /// 警告済みの記録を消す。PlayMode 突入時（Domain Reload を無効にした設定でも）に呼ばれ、Play ごとに 1 回ずつ知らせ直す。
+        /// </summary>
+        [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
+        internal static void ResetWarnings()
+        {
+            WarnedLegacyTracks.Clear();
+            WarnedUnboundTracks.Clear();
+        }
+
+        /// <summary>テスト用: 旧構造 / 未 Bind の警告を記録したトラック数。</summary>
+        internal static int WarnedTrackCount => WarnedLegacyTracks.Count + WarnedUnboundTracks.Count;
 
         private TrackAsset _track;
         private FacialController _controller;
@@ -38,13 +54,35 @@ namespace Hidano.FacialControl.Timeline.Playables
         /// </remarks>
         public static double TrackTime(Playable playable)
         {
-            PlayableGraph graph = playable.GetGraph();
-            if (graph.IsValid() && graph.GetRootPlayableCount() > 0)
+            // まず自分の出力側を辿り、自分が属する TimelinePlayable を探す（1 つのグラフに Timeline が複数あっても取り違えない）。
+            Playable current = playable;
+            for (int depth = 0; depth < MaxOutputDepth && current.IsValid(); depth++)
             {
-                Playable root = graph.GetRootPlayable(0);
-                if (root.IsValid() && root.GetPlayableType() == typeof(TimelinePlayable))
+                if (current.GetPlayableType() == typeof(TimelinePlayable))
                 {
-                    return root.GetTime();
+                    return current.GetTime();
+                }
+
+                if (current.GetOutputCount() == 0)
+                {
+                    break;
+                }
+
+                current = current.GetOutput(0);
+            }
+
+            // 出力側で見つからない（Timeline の外のグラフ）ときは root を探す。
+            PlayableGraph graph = playable.GetGraph();
+            if (graph.IsValid())
+            {
+                int rootCount = graph.GetRootPlayableCount();
+                for (int i = 0; i < rootCount; i++)
+                {
+                    Playable root = graph.GetRootPlayable(i);
+                    if (root.IsValid() && root.GetPlayableType() == typeof(TimelinePlayable))
+                    {
+                        return root.GetTime();
+                    }
                 }
             }
 
@@ -61,6 +99,15 @@ namespace Hidano.FacialControl.Timeline.Playables
         /// <summary>再生対象の Receiver。解決できなければ null（理由はトラックごとに 1 回ログに出す）。</summary>
         public FacialTimelineReceiver Resolve(PlayableDirector director)
         {
+            // Timeline はミュートした Facial Character トラックの子も（Group の子ではないため）コンパイルして再生する。
+            // 親をミュートしたら子も鳴らさない（チャネル導出・構造診断と同じ規則）。確保しない。
+            if (FacialCharacterTrackBinding.IsMutedInHierarchy(_track))
+            {
+                _controller = null;
+                _receiver = null;
+                return null;
+            }
+
             FacialController controller = FacialCharacterTrackBinding.ResolveController(director, _track);
             if (controller == null)
             {

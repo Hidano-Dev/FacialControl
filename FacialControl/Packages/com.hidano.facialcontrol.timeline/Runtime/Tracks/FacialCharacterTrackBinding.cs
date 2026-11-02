@@ -60,7 +60,8 @@ namespace Hidano.FacialControl.Timeline.Tracks
         }
 
         /// <summary>Timeline の全階層から親トラックを集める（出現順）。</summary>
-        public static List<FacialCharacterTrack> CollectCharacterTracks(TimelineAsset timeline)
+        /// <param name="includeMuted">false ならミュート中（親階層のミュートを含む）の親トラックを除く（再生されないため）。</param>
+        public static List<FacialCharacterTrack> CollectCharacterTracks(TimelineAsset timeline, bool includeMuted = true)
         {
             var results = new List<FacialCharacterTrack>();
             if (timeline == null)
@@ -70,7 +71,7 @@ namespace Hidano.FacialControl.Timeline.Tracks
 
             foreach (TrackAsset root in timeline.GetRootTracks())
             {
-                CollectCharacterTracks(root, results);
+                CollectCharacterTracks(root, includeMuted, results);
             }
 
             return results;
@@ -78,7 +79,7 @@ namespace Hidano.FacialControl.Timeline.Tracks
 
         /// <summary>
         /// 親トラックの外にある Facial トラック（表情 / 値 / レイヤー weight。親トラック導入前に書き出した旧構造）を集める。
-        /// 旧構造のトラックは再生されない（REC から出し直す）。
+        /// 旧構造のトラックは再生されない（REC から出し直す）。ミュート中（親階層のミュートを含む）のトラックは再生されないので数えない。
         /// </summary>
         public static List<TrackAsset> CollectTracksOutsideCharacter(TimelineAsset timeline)
         {
@@ -104,7 +105,8 @@ namespace Hidano.FacialControl.Timeline.Tracks
                 return false;
             }
 
-            List<FacialCharacterTrack> characters = CollectCharacterTracks(timeline);
+            // ミュート中（親階層のミュートを含む）の親トラックは再生されないので、この controller の Director として数えない。
+            List<FacialCharacterTrack> characters = CollectCharacterTracks(timeline, includeMuted: false);
             for (int i = 0; i < characters.Count; i++)
             {
                 if (ToController(director.GetGenericBinding(characters[i])) == controller)
@@ -114,6 +116,82 @@ namespace Hidano.FacialControl.Timeline.Tracks
             }
 
             return false;
+        }
+
+        /// <summary>
+        /// トラック自身か祖先のどれかがミュートされているか。Timeline の <c>TrackAsset.mutedInHierarchy</c> は Group の親しか見ないため、
+        /// ミュートした Facial Character トラックの子も「ミュート中」と判定できるよう祖先をすべて辿る。確保しない。
+        /// </summary>
+        public static bool IsMutedInHierarchy(TrackAsset track)
+        {
+            for (TrackAsset current = track; current != null; current = current.parent as TrackAsset)
+            {
+                if (current.muted)
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        /// <summary>
+        /// 全トラック（Group・子・Lane を含む）のミュート状態の指紋。走査はミュート中のトラックを除くので、導出結果・プレビューの
+        /// キャッシュはこの値もキーにする（ミュートの切り替えで作り直す）。確保しない。
+        /// </summary>
+        public static int ComputeMuteFingerprint(TimelineAsset timeline)
+        {
+            if (timeline == null)
+            {
+                return 0;
+            }
+
+            unchecked
+            {
+                return AppendMuteFingerprint(17, timeline.GetRootTracks());
+            }
+        }
+
+        private static int AppendMuteFingerprint(int hash, IEnumerable<TrackAsset> tracks)
+        {
+            unchecked
+            {
+                // Timeline はトラック一覧を List で返すので、添字で辿って列挙子の確保を避ける（再生の再開時・プレビューの毎フレームに通るため）。
+                if (tracks is IList<TrackAsset> list)
+                {
+                    for (int i = 0; i < list.Count; i++)
+                    {
+                        hash = AppendMuteFingerprint(hash, list[i]);
+                    }
+
+                    return hash;
+                }
+
+                if (tracks != null)
+                {
+                    foreach (TrackAsset track in tracks)
+                    {
+                        hash = AppendMuteFingerprint(hash, track);
+                    }
+                }
+
+                return hash;
+            }
+        }
+
+        private static int AppendMuteFingerprint(int hash, TrackAsset track)
+        {
+            if (track == null)
+            {
+                return hash;
+            }
+
+            unchecked
+            {
+                hash = (hash * 31) + track.GetInstanceID();
+                hash = (hash * 31) + (track.muted ? 1 : 0);
+                return AppendMuteFingerprint(hash, track.GetChildTracks());
+            }
         }
 
         /// <summary>表情 / 値 / レイヤー weight トラック（親トラックの子になるトラック）か。</summary>
@@ -130,8 +208,13 @@ namespace Hidano.FacialControl.Timeline.Tracks
                 || trackType == typeof(FacialLayerWeightTrack);
         }
 
-        private static void CollectCharacterTracks(TrackAsset track, List<FacialCharacterTrack> results)
+        private static void CollectCharacterTracks(TrackAsset track, bool includeMuted, List<FacialCharacterTrack> results)
         {
+            if (!includeMuted && IsMutedInHierarchy(track))
+            {
+                return;
+            }
+
             if (track is FacialCharacterTrack character)
             {
                 results.Add(character);
@@ -139,13 +222,13 @@ namespace Hidano.FacialControl.Timeline.Tracks
 
             foreach (TrackAsset child in track.GetChildTracks())
             {
-                CollectCharacterTracks(child, results);
+                CollectCharacterTracks(child, includeMuted, results);
             }
         }
 
         private static void CollectOutside(TrackAsset track, List<TrackAsset> results)
         {
-            if (track is FacialCharacterTrack)
+            if (track is FacialCharacterTrack || IsMutedInHierarchy(track))
             {
                 return;
             }
