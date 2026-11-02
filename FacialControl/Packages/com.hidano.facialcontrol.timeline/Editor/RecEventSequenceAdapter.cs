@@ -11,11 +11,24 @@ namespace Hidano.FacialControl.Timeline.Editor
         private readonly RecordedEvent[] _events;
 
         public RecEventSequenceAdapter(RecTimeline timeline)
+            : this(timeline, null)
+        {
+        }
+
+        /// <param name="remap">
+        /// REC の入力源 id / レイヤー名を対象キャラの id / 名前へ付け替える対応表（HID-412）。null なら付け替えない。
+        /// 除外した入力源・レイヤーの記録はイベント列に含めない。
+        /// </param>
+        public RecEventSequenceAdapter(RecTimeline timeline, RecSourceRemap remap)
         {
             if (timeline == null)
             {
                 throw new ArgumentNullException(nameof(timeline));
             }
+
+            remap ??= RecSourceRemap.Identity;
+            string[] mappedSourceIds = MapIds(timeline.SourceIds, remap.TryMapSource);
+            string[] mappedLayerIds = MapIds(timeline.LayerIds, remap.TryMapLayer);
 
             DurationSeconds = timeline.DurationSeconds;
             BlendShapeNames = timeline.Baseline.BlendShapeNames;
@@ -35,10 +48,15 @@ namespace Hidano.FacialControl.Timeline.Editor
             for (int i = 0; i < baselineTriggers.Count; i++)
             {
                 RecBaselineState.TriggerEntry entry = baselineTriggers[i];
+                if (!remap.TryMapSource(entry.SourceId, out string sourceId))
+                {
+                    continue;
+                }
+
                 IReadOnlyList<string> expressionIds = entry.ExpressionIds;
                 for (int j = 0; j < expressionIds.Count; j++)
                 {
-                    events.Add(RecordedEvent.CreateBaselineTriggerOn(expressionIds[j], entry.SourceId));
+                    events.Add(RecordedEvent.CreateBaselineTriggerOn(expressionIds[j], sourceId));
                 }
             }
 
@@ -48,10 +66,15 @@ namespace Hidano.FacialControl.Timeline.Editor
             for (int i = 0; i < baselineAnalogs.Count; i++)
             {
                 RecBaselineState.AnalogEntry entry = baselineAnalogs[i];
+                if (!remap.TryMapSource(entry.SourceId, out string sourceId))
+                {
+                    continue;
+                }
+
                 events.Add(new RecordedEvent(
                     0d,
                     RecordedEventKind.AnalogValue,
-                    sourceId: entry.SourceId,
+                    sourceId: sourceId,
                     axes: CopyAxes(entry.Axes)));
             }
 
@@ -60,9 +83,14 @@ namespace Hidano.FacialControl.Timeline.Editor
             for (int i = 0; i < baselineValueProviders.Count; i++)
             {
                 RecBaselineState.ValueProviderEntry entry = baselineValueProviders[i];
+                if (!remap.TryMapSource(entry.SourceId, out string sourceId))
+                {
+                    continue;
+                }
+
                 events.Add(RecordedEvent.CreateValueProviderSample(
                     0d,
-                    entry.SourceId,
+                    sourceId,
                     entry.IsValid,
                     ToArray(entry.MaskBytes),
                     ToArray(entry.Values)));
@@ -73,7 +101,10 @@ namespace Hidano.FacialControl.Timeline.Editor
             IReadOnlyList<LayerWeightEntry> baselineLayerWeights = timeline.Baseline.LayerWeightEntries;
             for (int i = 0; i < baselineLayerWeights.Count; i++)
             {
-                layerWeights.Add(new RecordedLayerWeightSample(0d, baselineLayerWeights[i].LayerName, baselineLayerWeights[i].Weight));
+                if (remap.TryMapLayer(baselineLayerWeights[i].LayerName, out string layerName))
+                {
+                    layerWeights.Add(new RecordedLayerWeightSample(0d, layerName, baselineLayerWeights[i].Weight));
+                }
             }
 
             int skippedWeightEvents = 0;
@@ -85,10 +116,15 @@ namespace Hidano.FacialControl.Timeline.Editor
                 if (kind == RecEventKind.LayerWeightSample)
                 {
                     // レイヤー weight はレイヤー weight トラックとして Export する（HID-182）。
-                    layerWeights.Add(new RecordedLayerWeightSample(
-                        recEvent.TimestampSeconds,
-                        timeline.LayerIds[recEvent.LayerIdIndex],
-                        timeline.GetPayloadSpan(i)[0]));
+                    string layerName = mappedLayerIds[recEvent.LayerIdIndex];
+                    if (layerName != null)
+                    {
+                        layerWeights.Add(new RecordedLayerWeightSample(
+                            recEvent.TimestampSeconds,
+                            layerName,
+                            timeline.GetPayloadSpan(i)[0]));
+                    }
+
                     continue;
                 }
 
@@ -108,9 +144,12 @@ namespace Hidano.FacialControl.Timeline.Editor
                     continue;
                 }
 
-                if (TryConvertEvent(timeline, i, out RecordedEvent recordedEvent))
+                if (TryConvertEvent(timeline, i, out RecordedEvent recordedEvent)
+                    && mappedSourceIds[recEvent.SourceIdIndex] is string mappedSourceId)
                 {
-                    events.Add(recordedEvent);
+                    events.Add(string.Equals(mappedSourceId, recordedEvent.SourceId, StringComparison.Ordinal)
+                        ? recordedEvent
+                        : recordedEvent.WithSourceId(mappedSourceId));
                 }
             }
 
@@ -195,6 +234,20 @@ namespace Hidano.FacialControl.Timeline.Editor
                     throw new InvalidOperationException($"Unsupported REC event kind '{evt.Kind}'.");
             }
         }
+
+        /// <summary>id 表を対応表で付け替える（除外した id は null）。</summary>
+        private static string[] MapIds(IReadOnlyList<string> ids, TryMapId tryMap)
+        {
+            var mapped = new string[ids.Count];
+            for (int i = 0; i < ids.Count; i++)
+            {
+                mapped[i] = tryMap(ids[i], out string target) ? target : null;
+            }
+
+            return mapped;
+        }
+
+        private delegate bool TryMapId(string recordedId, out string targetId);
 
         private static int CountBaselineTriggers(RecBaselineState baseline)
         {

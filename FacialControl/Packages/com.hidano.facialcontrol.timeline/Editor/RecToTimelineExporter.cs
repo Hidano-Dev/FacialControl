@@ -7,11 +7,13 @@ using Hidano.FacialControl.Adapters.ScriptableObject.Serializable;
 using Hidano.FacialControl.Domain.Adapters;
 using Hidano.FacialControl.Domain.Models;
 using Hidano.FacialControl.Rec.Adapters.FileSystem;
+using Hidano.FacialControl.Rec.Domain.Models;
 using Hidano.FacialControl.Rec.Domain.Services;
 using Hidano.FacialControl.Timeline.Adapters;
 using Hidano.FacialControl.Timeline.Adapters.Assets;
 using Hidano.FacialControl.Timeline.Clips;
 using Hidano.FacialControl.Timeline.Domain.Models;
+using Hidano.FacialControl.Timeline.Domain.Services;
 using Hidano.FacialControl.Timeline.Tracks;
 using UnityEditor;
 using UnityEngine;
@@ -147,7 +149,8 @@ namespace Hidano.FacialControl.Timeline.Editor
             string outputAssetPath,
             out ExportResult result,
             TimelineAsset existingTimeline = null,
-            IReadOnlyDictionary<string, FacialValueChannelKind> sourceKindOverrides = null)
+            IReadOnlyDictionary<string, FacialValueChannelKind> sourceKindOverrides = null,
+            RecSourceRemap sourceRemap = null)
         {
             result = null;
 
@@ -167,7 +170,14 @@ namespace Hidano.FacialControl.Timeline.Editor
                 return false;
             }
 
-            var sequence = new RecEventSequenceAdapter(readResult.Timeline);
+            // 入力源・レイヤーを対象キャラの構成へ付け替える（HID-412）。対応先が重なると 1 つの id に複数のトラックができるため書き出さない。
+            if (!TryCheckSourceRemap(readResult.Timeline, profileAsset, sourceRemap, recordingPath))
+            {
+                result = ExportResult.CreateFailed(recordingPath, outputAssetPath);
+                return false;
+            }
+
+            var sequence = new RecEventSequenceAdapter(readResult.Timeline, sourceRemap);
             GazeDetectionContext gazeContext = CollectGazeDetectionContext(profileAsset);
 
             string normalizedPath = NormalizeAssetPath(outputAssetPath);
@@ -246,6 +256,44 @@ namespace Hidano.FacialControl.Timeline.Editor
 
                 throw;
             }
+        }
+
+        /// <summary>
+        /// 対応表を当てた結果を確かめる。対応先の衝突があれば Error を出して false。対象 Profile で再生されない入力源・レイヤー・表情は
+        /// 1 回の Warning にまとめて示し、書き出しは続ける（無言で捨てない）。
+        /// </summary>
+        private static bool TryCheckSourceRemap(
+            RecTimeline timeline,
+            FacialCharacterProfileSO profileAsset,
+            RecSourceRemap sourceRemap,
+            string recordingPath)
+        {
+            // 対応表を渡さない呼び出し（従来の Export）は付け替えをしないので判定も警告もしない
+            // （宣言の無い入力源は再生時の診断が示す）。
+            if (sourceRemap == null)
+            {
+                return true;
+            }
+
+            RecRemapReport report = RecSourceRemapResolver.Analyze(timeline, TimelineProfileSource.Resolve(profileAsset), sourceRemap);
+            IReadOnlyList<string> problems = RecSourceRemapResolver.DescribeProblems(report);
+            if (report.HasCollisions)
+            {
+                Debug.LogError(
+                    $"[RecToTimelineExporter] '{recordingPath}' was not exported because the source / layer remap has collisions:\n" +
+                    string.Join("\n", problems));
+                return false;
+            }
+
+            if (problems.Count > 0)
+            {
+                Debug.LogWarning(
+                    $"[RecToTimelineExporter] '{recordingPath}' has sources / layers / expressions that the profile '{profileAsset.name}' " +
+                    "does not play back. Map them to the profile's input sources and layers in REC Export if needed:\n" +
+                    string.Join("\n", problems));
+            }
+
+            return true;
         }
 
         /// <summary>

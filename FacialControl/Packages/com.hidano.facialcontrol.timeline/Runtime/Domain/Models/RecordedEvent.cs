@@ -146,6 +146,12 @@ namespace Hidano.FacialControl.Timeline.Domain.Models
                 isBaseline: false);
         }
 
+        /// <summary>入力源 id だけを差し替えたイベントを返す（REC の入力源を別キャラの入力源へ付け替えるとき用。HID-412）。</summary>
+        public RecordedEvent WithSourceId(string sourceId)
+        {
+            return new RecordedEvent(TimeSeconds, Kind, ExpressionId, sourceId, _axes, IsValid, _maskBytes, IsBaseline);
+        }
+
         public double TimeSeconds { get; }
 
         public RecordedEventKind Kind { get; }
