@@ -149,10 +149,10 @@ namespace Hidano.FacialControl.Timeline.Editor.AnimationClipExport
             {
                 RecRemapReport report = RecSourceRemapResolver.Analyze(readResult.Timeline, profile, remap);
                 problems = RecSourceRemapResolver.DescribeProblems(report);
-                if (report.HasCollisions)
+                if (report.HasErrors)
                 {
                     return RecAnimationClipExportResult.Failed(
-                        "入力源・レイヤーの対応表で対応先が重複しているため書き出しません:\n" + string.Join("\n", problems), problems);
+                        "入力源・レイヤーの対応表で対応先が重複している、または入力源 id の形式が不正なため書き出しません:\n" + string.Join("\n", problems), problems);
                 }
 
                 if (problems.Count > 0)

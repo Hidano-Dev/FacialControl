@@ -1,3 +1,4 @@
+using System;
 using System.IO;
 using Hidano.FacialControl.Adapters.Playable;
 using Hidano.FacialControl.Adapters.ScriptableObject.Serializable;
@@ -160,18 +161,21 @@ namespace Hidano.FacialControl.Timeline.Editor.AnimationClipExport
             EnsureBuilt();
             string path = _recordingPathField.value;
             var profileAsset = _profileField.value as FacialCharacterProfileSO;
-            if (string.IsNullOrWhiteSpace(path) || !RecFileReader.TryRead(path, out RecBinaryFormat.ReadResult readResult))
+            if (string.IsNullOrWhiteSpace(path)
+                || !RecFileReader.TryRead(path, out RecBinaryFormat.ReadResult readResult, out byte[] recordingBytes))
             {
-                _remapPanel.Rebuild(null, null, null);
+                _remapPanel.Rebuild(null, null, null, 0);
                 SetStatus(string.IsNullOrWhiteSpace(path) ? "REC ファイルを選んでください。" : "REC を読み込めませんでした（詳細は Console）。",
                     string.IsNullOrWhiteSpace(path) ? HelpBoxMessageType.Info : HelpBoxMessageType.Error);
                 return;
             }
 
+            // 選択は同じ REC の内容（パスではなくバイト列）と同じ Profile の間だけ残す（REC Export ウィンドウと同じ規則）。
             _remapPanel.Rebuild(
-                Path.GetFullPath(path),
+                RecTimelineExportWindow.HashRecording(recordingBytes),
                 readResult.Timeline,
-                profileAsset != null ? TimelineProfileSource.Resolve(profileAsset) : (Hidano.FacialControl.Domain.Models.FacialProfile?)null);
+                profileAsset != null ? TimelineProfileSource.Resolve(profileAsset) : (Hidano.FacialControl.Domain.Models.FacialProfile?)null,
+                profileAsset != null ? profileAsset.GetInstanceID() : 0);
             SetStatus(profileAsset == null ? "Profile（またはキャラ）を選んでください。" : "REC を読み込みました。", HelpBoxMessageType.Info);
         }
 
@@ -186,6 +190,16 @@ namespace Hidano.FacialControl.Timeline.Editor.AnimationClipExport
             }
 
             RecSourceRemap remap = _remapPanel.BuildSourceRemap();
+
+            // 対応表を作った後に REC 欄やファイルが変わっていたら、前の REC 用の選択を当てない。
+            if (!remap.IsIdentity
+                && !string.Equals(
+                    RecTimelineExportWindow.ComputeRecordingKey(_recordingPathField.value), _remapPanel.RecordingKey, StringComparison.Ordinal))
+            {
+                SetStatus("対応表を作った後に REC が変わりました。Reload Sources で読み込み直してください。", HelpBoxMessageType.Error);
+                return false;
+            }
+
             bool success = RecAnimationClipExporter.TryExport(
                 _recordingPathField.value,
                 _controllerField.value as FacialController,

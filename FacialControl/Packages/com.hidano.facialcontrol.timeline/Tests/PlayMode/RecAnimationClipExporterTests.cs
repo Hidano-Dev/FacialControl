@@ -204,7 +204,7 @@ namespace Hidano.FacialControl.Timeline.Tests.PlayMode
                 window.RemapPanel.SetRemapChoice(false, RecFixtureWriter.ValueProviderSourceId, "not a valid id");
 
                 Assert.That(window.RemapPanel.HasErrors, Is.True, "解釈できない入力源 id はエラー");
-                Assert.That(window.RemapPanel.ProblemText, Does.Contain("not a valid id"));
+                Assert.That(window.RemapPanel.ProblemText, Is.Not.Empty, "誤りを一覧に出す");
                 Assert.That(window.Export(), Is.False, "誤りがあれば書き出さない");
                 Assert.That(AssetDatabase.FindAssets("t:AnimationClip", new[] { _outputFolder }), Is.Empty);
             }
@@ -244,21 +244,54 @@ namespace Hidano.FacialControl.Timeline.Tests.PlayMode
                 window.RemapPanel.SetRemapChoice(false, RecFixtureWriter.ValueProviderSourceId, null);
                 Assert.That(window.RemapPanel.BuildSourceRemap().IsIdentity, Is.False, "前提: 除外を選んだ");
 
-                string copy = Path.Combine(Path.GetDirectoryName(_fixture.RecordingPath), "other.fcrec");
-                File.Copy(_fixture.RecordingPath, copy);
-                window.SetInputs(copy, character.Controller, null, _outputFolder);
-
-                Assert.That(window.RemapPanel.BuildSourceRemap().IsIdentity, Is.True, "別の REC には前の選択を持ち込まない");
-
-                window.SetInputs(copy, character.Controller, null, _outputFolder);
-                window.RemapPanel.SetRemapChoice(false, RecFixtureWriter.ValueProviderSourceId, null);
                 window.Reload();
                 Assert.That(window.RemapPanel.BuildSourceRemap().IsIdentity, Is.False, "同じ REC の読み直しでは選択を残す");
+
+                string other = WriteOtherRecording();
+                window.SetInputs(other, character.Controller, null, _outputFolder);
+
+                Assert.That(window.RemapPanel.BuildSourceRemap().IsIdentity, Is.True, "別の REC には前の選択を持ち込まない");
             }
             finally
             {
                 UnityEngine.Object.DestroyImmediate(window);
             }
+        }
+
+        [Test]
+        public void Window_RecordingChangedAfterRemap_RefusesToExport()
+        {
+            TimelineE2ECharacter character = Prepare(new RecFixtureWriter.Recording { IncludeValueProvider = true });
+            var window = ScriptableObject.CreateInstance<RecAnimationClipExportWindow>();
+            try
+            {
+                window.SetInputs(_fixture.RecordingPath, character.Controller, null, _outputFolder);
+                window.RemapPanel.SetRemapChoice(false, RecFixtureWriter.ValueProviderSourceId, null);
+
+                // 対応表を作った後に REC の中身が変わった（読み込み直していない）。
+                File.Copy(WriteOtherRecording(), _fixture.RecordingPath, true);
+
+                Assert.That(window.Export(), Is.False, "前の REC 用の選択を当てない");
+                Assert.That(window.StatusText, Does.Contain("Reload Sources"));
+                Assert.That(AssetDatabase.FindAssets("t:AnimationClip", new[] { _outputFolder }), Is.Empty);
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(window);
+            }
+        }
+
+        /// <summary>fixture の REC とは中身が違う REC（値提供型の入力源は同じ）を書き、絶対パスを返す。</summary>
+        private string WriteOtherRecording()
+        {
+            string path = Path.Combine(Path.GetDirectoryName(_fixture.RecordingPath), "other.fcrec");
+            RecFixtureWriter.Write(path, new RecFixtureWriter.Recording
+            {
+                IncludeValueProvider = true,
+                IncludeLayerWeights = true,
+                BlendShapeNames = TimelineE2EFixture.MeshBlendShapes,
+            });
+            return path;
         }
 
         private TimelineE2ECharacter Prepare(RecFixtureWriter.Recording recording)

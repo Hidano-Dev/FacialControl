@@ -12,10 +12,10 @@ namespace Hidano.FacialControl.Timeline.Editor.AnimationClipExport
     /// REC の入力源・レイヤー → 対象 Profile の対応表を編集する UI 部品（HID-412 の対応表を HID-409 のウィンドウで使う）。
     /// </summary>
     /// <remarks>
-    /// <para>判定（未対応・衝突）は REC Export ウィンドウと同じ <see cref="RecSourceRemapResolver"/> に任せ、表示文言・選択肢も
-    /// <see cref="RecTimelineExportWindow"/> と共有する。行は値チャネルを記録した入力源と、レイヤー weight を記録したレイヤー。</para>
-    /// <para>選択は同じ REC（<see cref="Rebuild"/> の recordingKey）の間だけ残し、REC が変わったら「そのまま」に戻す。
-    /// 直接入力した入力源 id は <see cref="InputSourceId"/> として解釈できなければエラーにし、<see cref="HasErrors"/> を立てる。</para>
+    /// <para>判定（未対応・衝突・id の形式）は REC Export ウィンドウと同じ <see cref="RecSourceRemapResolver"/> に任せ、表示文言・選択肢も
+    /// <see cref="RecTimelineExportWindow"/> と共有する。行は REC の入力源（値チャネル・表情トリガー）と、レイヤー weight を記録したレイヤー。</para>
+    /// <para>REC 側・Profile 側の集計は <see cref="Rebuild"/> で 1 回だけ行い、選択の変更では対応表の判定だけをやり直す。
+    /// 選択は同じ REC（recordingKey）と同じ Profile（profileKey）の間だけ残す。</para>
     /// </remarks>
     internal sealed class RecSourceRemapPanel : VisualElement
     {
@@ -25,11 +25,12 @@ namespace Hidano.FacialControl.Timeline.Editor.AnimationClipExport
         private readonly Dictionary<string, string> _layerChoices = new Dictionary<string, string>(StringComparer.Ordinal);
         private readonly Dictionary<string, Label> _sourceStatusLabels = new Dictionary<string, Label>(StringComparer.Ordinal);
         private readonly Dictionary<string, Label> _layerStatusLabels = new Dictionary<string, Label>(StringComparer.Ordinal);
-        private readonly List<string> _invalidCustomIds = new List<string>();
         private readonly ScrollView _list;
         private readonly HelpBox _problemBox;
         private string _recordingKey;
-        private RecTimeline _timeline;
+        private int _profileKey;
+        private RecRemapRecording _recording;
+        private RecRemapTarget _target;
         private FacialProfile? _profile;
 
         public RecSourceRemapPanel()
@@ -47,42 +48,42 @@ namespace Hidano.FacialControl.Timeline.Editor.AnimationClipExport
             _problemBox = new HelpBox(string.Empty, HelpBoxMessageType.Warning) { name = ProblemBoxName };
             _problemBox.style.display = DisplayStyle.None;
             Add(_problemBox);
-            Rebuild(null, null, null);
+            Rebuild(null, null, null, 0);
         }
-
-        /// <summary>選択が変わったとき。</summary>
-        public event Action Changed;
 
         /// <summary>対応表を当てた現在の判定結果（REC と Profile が揃うまで null）。</summary>
         public RecRemapReport Report { get; private set; }
 
-        /// <summary>書き出しを止める問題（対応先の重複・解釈できない入力源 id）があれば true。</summary>
-        public bool HasErrors => (Report != null && Report.HasCollisions) || _invalidCustomIds.Count > 0;
+        /// <summary>書き出しを止める問題（対応先の重複・形式が不正な入力源 id）があれば true。</summary>
+        public bool HasErrors => Report != null && Report.HasErrors;
 
-        /// <summary>未対応・衝突・入力 id の誤りの一覧の文言（無ければ空）。</summary>
+        /// <summary>この対応表を作った REC の識別子（<see cref="RecTimelineExportWindow.HashRecording"/>。読み込んでいなければ null）。</summary>
+        public string RecordingKey => _recordingKey;
+
+        /// <summary>未対応・衝突・除外の一覧の文言（無ければ空）。</summary>
         public string ProblemText => _problemBox.style.display.value != DisplayStyle.None ? _problemBox.text : string.Empty;
 
         /// <summary>
-        /// 対応表の欄を作り直す。<paramref name="recordingKey"/>（REC のパス等）が前回と同じときだけ、選んだ対応先を残す。
+        /// 対応表の欄を作り直す。<paramref name="recordingKey"/> と <paramref name="profileKey"/> が前回と同じときだけ、選んだ対応先を残す。
         /// </summary>
-        public void Rebuild(string recordingKey, RecTimeline timeline, FacialProfile? profile)
+        public void Rebuild(string recordingKey, RecTimeline timeline, FacialProfile? profile, int profileKey)
         {
-            if (!string.Equals(recordingKey, _recordingKey, StringComparison.Ordinal))
+            if (!string.Equals(recordingKey, _recordingKey, StringComparison.Ordinal) || profileKey != _profileKey)
             {
                 _sourceChoices.Clear();
                 _layerChoices.Clear();
             }
 
             _recordingKey = recordingKey;
-            _timeline = timeline;
+            _profileKey = profileKey;
             _profile = profile;
+            _recording = timeline != null ? RecSourceRemapResolver.CollectRecording(timeline) : null;
+            _target = profile.HasValue ? RecSourceRemapResolver.CollectTarget(profile.Value) : null;
             _list.Clear();
             _sourceStatusLabels.Clear();
             _layerStatusLabels.Clear();
-            if (timeline == null || !profile.HasValue)
+            if (_recording == null || _target == null)
             {
-                _sourceChoices.Clear();
-                _layerChoices.Clear();
                 _list.Add(new Label(timeline == null
                     ? "REC を読み込むと対応表を編集できます。"
                     : "Profile を選ぶと、REC の入力源・レイヤーを Profile の入力源・レイヤーへ対応付けられます。"));
@@ -90,12 +91,12 @@ namespace Hidano.FacialControl.Timeline.Editor.AnimationClipExport
                 return;
             }
 
-            RecRemapReport initial = RecSourceRemapResolver.Analyze(timeline, profile.Value, RecSourceRemap.Identity);
+            RecRemapReport initial = RecSourceRemapResolver.Analyze(_recording, _target, RecSourceRemap.Identity);
             var sourceTargets = new List<string> { RecTimelineExportWindow.KeepChoice };
-            sourceTargets.AddRange(RecSourceRemapResolver.CollectTargetSourceIds(profile.Value));
+            sourceTargets.AddRange(_target.SourceIds);
             sourceTargets.Add(RecTimelineExportWindow.ExcludeChoice);
             var layerTargets = new List<string> { RecTimelineExportWindow.KeepChoice };
-            layerTargets.AddRange(RecSourceRemapResolver.CollectTargetLayerNames(profile.Value));
+            layerTargets.AddRange(_target.LayerNames);
             layerTargets.Add(RecTimelineExportWindow.ExcludeChoice);
 
             var sourceKeys = new List<string>();
@@ -114,17 +115,21 @@ namespace Hidano.FacialControl.Timeline.Editor.AnimationClipExport
             RetainOnly(_layerChoices, layerKeys, layerTargets, allowCustomId: false);
             if (sourceKeys.Count == 0 && layerKeys.Count == 0)
             {
-                _list.Add(new Label("付け替えの対象（値チャネル・レイヤー weight）はありません。"));
+                _list.Add(new Label("付け替えの対象（入力源・レイヤー weight）はありません。"));
             }
 
-            for (int i = 0; i < sourceKeys.Count; i++)
+            for (int i = 0; i < initial.Sources.Count; i++)
             {
-                _list.Add(CreateRow("Source", sourceKeys[i], sourceTargets, _sourceChoices, _sourceStatusLabels, allowCustomId: true));
+                RecRemapSourceEntry entry = initial.Sources[i];
+                string caption = entry.TriggerCount > 0
+                    ? $"Source: {entry.RecordedId}（表情トリガー {entry.TriggerCount} 件）"
+                    : $"Source: {entry.RecordedId}";
+                _list.Add(CreateRow(caption, entry.RecordedId, sourceTargets, _sourceChoices, _sourceStatusLabels, allowCustomId: true));
             }
 
             for (int i = 0; i < layerKeys.Count; i++)
             {
-                _list.Add(CreateRow("Layer", layerKeys[i], layerTargets, _layerChoices, _layerStatusLabels, allowCustomId: false));
+                _list.Add(CreateRow($"Layer: {layerKeys[i]}", layerKeys[i], layerTargets, _layerChoices, _layerStatusLabels, allowCustomId: false));
             }
 
             Refresh();
@@ -138,7 +143,7 @@ namespace Hidano.FacialControl.Timeline.Editor.AnimationClipExport
 
         /// <summary>
         /// 対応先を選ぶ（テストとプログラムからの利用向け）。<paramref name="target"/> が null なら除外、
-        /// <see cref="RecTimelineExportWindow.KeepChoice"/> ならそのまま、それ以外は対応先の id / レイヤー名。
+        /// <see cref="RecTimelineExportWindow.KeepChoice"/> ならそのまま、それ以外は id の直接入力と同じ。
         /// </summary>
         public void SetRemapChoice(bool isLayer, string recordedId, string target)
         {
@@ -174,7 +179,7 @@ namespace Hidano.FacialControl.Timeline.Editor.AnimationClipExport
         }
 
         private VisualElement CreateRow(
-            string kind,
+            string caption,
             string recordedId,
             List<string> targets,
             Dictionary<string, string> choices,
@@ -186,7 +191,7 @@ namespace Hidano.FacialControl.Timeline.Editor.AnimationClipExport
             row.style.alignItems = Align.Center;
             row.style.marginBottom = 2f;
 
-            var label = new Label($"{kind}: {recordedId}");
+            var label = new Label(caption);
             label.style.flexGrow = 1f;
             label.style.flexBasis = 0f;
             row.Add(label);
@@ -199,6 +204,7 @@ namespace Hidano.FacialControl.Timeline.Editor.AnimationClipExport
 
             // Analog / 目線の入力源は AdapterBinding が registry に直接登録するため、レイヤーの inputSources にある id だけでは
             // 対応先を選べない（例: iFacialMocap の ifm:head）。入力源は id を直接入力しても対応付けられるようにする。
+            // 入力した id の形式は判定（RecRemapStatus.InvalidId）で確かめ、不正なら書き出しを止める。
             TextField customField = null;
             if (allowCustomId)
             {
@@ -246,72 +252,47 @@ namespace Hidano.FacialControl.Timeline.Editor.AnimationClipExport
             return map;
         }
 
+        /// <summary>現在の選択で対応表を判定し直す（REC は走査し直さない）。</summary>
         private void Refresh()
         {
-            _invalidCustomIds.Clear();
-            foreach (KeyValuePair<string, string> pair in _sourceChoices)
-            {
-                if (pair.Value != RecTimelineExportWindow.KeepChoice
-                    && pair.Value != RecTimelineExportWindow.ExcludeChoice
-                    && !InputSourceId.TryParse(pair.Value, out _))
-                {
-                    _invalidCustomIds.Add($"Source '{pair.Key}': 対応先 '{pair.Value}' は入力源 id として解釈できません。");
-                }
-            }
-
-            if (_timeline == null || !_profile.HasValue)
+            if (_recording == null || _target == null)
             {
                 Report = null;
                 _problemBox.style.display = DisplayStyle.None;
                 _problemBox.text = string.Empty;
-                Changed?.Invoke();
                 return;
             }
 
-            // 解釈できない id を含むと判定ができないため、その間は前回の判定を表示しない。
-            Report = _invalidCustomIds.Count == 0
-                ? RecSourceRemapResolver.Analyze(_timeline, _profile.Value, BuildSourceRemap())
-                : null;
-            if (Report != null)
+            Report = RecSourceRemapResolver.Analyze(_recording, _target, BuildSourceRemap());
+            for (int i = 0; i < Report.Sources.Count; i++)
             {
-                for (int i = 0; i < Report.Sources.Count; i++)
+                RecRemapSourceEntry entry = Report.Sources[i];
+                if (_sourceStatusLabels.TryGetValue(entry.RecordedId, out Label label))
                 {
-                    RecRemapSourceEntry entry = Report.Sources[i];
-                    if (_sourceStatusLabels.TryGetValue(entry.RecordedId, out Label label))
-                    {
-                        label.text = RecTimelineExportWindow.StatusLabel(entry.Status, entry.TargetId, _profile.Value);
-                    }
-                }
-
-                for (int i = 0; i < Report.Layers.Count; i++)
-                {
-                    RecRemapLayerEntry entry = Report.Layers[i];
-                    if (_layerStatusLabels.TryGetValue(entry.RecordedName, out Label label))
-                    {
-                        label.text = RecTimelineExportWindow.StatusLabel(entry.Status, null, _profile.Value);
-                    }
+                    label.text = RecTimelineExportWindow.StatusLabel(entry.Status, entry.TargetId, _profile.Value);
                 }
             }
 
-            var problems = new List<string>(_invalidCustomIds);
-            if (Report != null)
+            for (int i = 0; i < Report.Layers.Count; i++)
             {
-                problems.AddRange(RecSourceRemapResolver.DescribeProblems(Report));
+                RecRemapLayerEntry entry = Report.Layers[i];
+                if (_layerStatusLabels.TryGetValue(entry.RecordedName, out Label label))
+                {
+                    label.text = RecTimelineExportWindow.StatusLabel(entry.Status, null, _profile.Value);
+                }
             }
 
+            IReadOnlyList<string> problems = RecSourceRemapResolver.DescribeProblems(Report);
             if (problems.Count == 0)
             {
                 _problemBox.style.display = DisplayStyle.None;
                 _problemBox.text = string.Empty;
-            }
-            else
-            {
-                _problemBox.messageType = HasErrors ? HelpBoxMessageType.Error : HelpBoxMessageType.Warning;
-                _problemBox.text = "未対応（書き出し前に確認してください）:\n" + string.Join("\n", problems);
-                _problemBox.style.display = DisplayStyle.Flex;
+                return;
             }
 
-            Changed?.Invoke();
+            _problemBox.messageType = Report.HasErrors ? HelpBoxMessageType.Error : HelpBoxMessageType.Warning;
+            _problemBox.text = "未対応・除外（書き出し前に確認してください）:\n" + string.Join("\n", problems);
+            _problemBox.style.display = DisplayStyle.Flex;
         }
     }
 }
