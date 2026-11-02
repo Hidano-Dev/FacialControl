@@ -115,6 +115,54 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
         }
 
         [Test]
+        public void Bake_StartsActiveClipAfterOtherTimeZeroEvent_StillAppliedWithoutTransition()
+        {
+            var timeline = ScriptableObject.CreateInstance<TimelineAsset>();
+            FacialTimelineBakeAsset bake = null;
+            try
+            {
+                var profile = new FacialProfile(
+                    schemaVersion: "1.0.0",
+                    layers: new[] { new LayerDefinition("Expressions", 0, ExclusionMode.LastWins) },
+                    expressions: new[]
+                    {
+                        new Expression("smile", "Smile", "Expressions", 0.25f, TransitionCurve.Linear,
+                            new[] { new BlendShapeMapping("Smile", 1f) }),
+                        new Expression("angry", "Angry", "Expressions", 0.25f, TransitionCurve.Linear,
+                            new[] { new BlendShapeMapping("Angry", 1f) }),
+                    });
+
+                // ルートの t=0 の通常の Clip（angry）が、子 Lane の StartsActive の Clip（smile）より先に集められる並び。
+                FacialExpressionTrack root = timeline.CreateTrack<FacialExpressionTrack>(null, "Expressions");
+                TimelineClip angryClip = root.CreateClip<FacialExpressionClip>();
+                angryClip.start = 0d;
+                angryClip.duration = 1.0d;
+                ((FacialExpressionClip)angryClip.asset).ExpressionId = "angry";
+
+                var lane = timeline.CreateTrack<FacialExpressionTrack>(root, "Expressions Lane 1");
+                TimelineClip smileClip = lane.CreateClip<FacialExpressionClip>();
+                smileClip.start = 0d;
+                smileClip.duration = 1.0d;
+                var smileAsset = (FacialExpressionClip)smileClip.asset;
+                smileAsset.ExpressionId = "smile";
+                smileAsset.StartsActive = true;
+
+                bake = Editor.TimelineBakeService.Bake(timeline, profile);
+                AnimationCurve smile = FindCurve(bake, "Expressions", "Smile").Curve;
+                AnimationCurve angry = FindCurve(bake, "Expressions", "Angry").Curve;
+
+                Assert.That(smile.Evaluate(0f), Is.EqualTo(1f).Within(0.0001f), "StartsActive のスタックは t=0 の他のイベントより先に反映する");
+                Assert.That(angry.Evaluate(0f), Is.EqualTo(0f).Within(0.0001f));
+                Assert.That(angry.Evaluate(0.125f), Is.EqualTo(0.5f).Within(0.0001f), "通常の Clip は反映したスタックの上から遷移する");
+                Assert.That(smile.Evaluate(0.125f), Is.EqualTo(0.5f).Within(0.0001f));
+            }
+            finally
+            {
+                DestroyAll(bake, timeline);
+            }
+        }
+
+        [Test]
         public void Bake_StartsActiveClipNotAtTimelineStart_TransitionsInAsUsual()
         {
             var timeline = ScriptableObject.CreateInstance<TimelineAsset>();
