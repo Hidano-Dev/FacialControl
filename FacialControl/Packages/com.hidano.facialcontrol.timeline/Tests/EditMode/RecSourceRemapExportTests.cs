@@ -183,6 +183,110 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
         }
 
         [Test]
+        public void TryExportTimelineAsset_RemappedSourceWithKindOverride_DetectsKindByRecordedId()
+        {
+            // 種別の判定と上書きは REC 上の元の id（ifm:head）で行い、付け替えは出力の id（osc:gaze）にだけ効く。
+            FacialCharacterProfileSO profile = CreateReceiverProfile();
+            string recordingPath = WriteSenderRecording();
+            var remap = new RecSourceRemap(
+                new[] { Pair("ifm", ReceiverId), Pair("udp-lipsync", null), Pair("ifm:head", "osc:gaze") },
+                new[] { Pair("lipsync", ReceiverId) });
+
+            bool success = RecToTimelineExporter.TryExportTimelineAsset(
+                recordingPath,
+                profile,
+                _folderPath + "/Exported.playable",
+                out RecToTimelineExporter.ExportResult result,
+                sourceKindOverrides: new Dictionary<string, FacialValueChannelKind> { { "ifm:head", FacialValueChannelKind.Gaze } },
+                sourceRemap: remap);
+
+            Assert.That(success, Is.True);
+            ChannelDetection gaze = default;
+            foreach (ChannelDetection detection in result.ChannelDetections)
+            {
+                Assert.That(detection.SourceId, Is.Not.EqualTo("ifm:head"), "出力は付け替え後の id");
+                if (detection.SourceId == "osc:gaze")
+                {
+                    gaze = detection;
+                }
+            }
+
+            Assert.That(gaze.Kind, Is.EqualTo(FacialValueChannelKind.Gaze));
+            Assert.That(gaze.Reason, Is.EqualTo(ChannelDetectionReason.Overridden));
+        }
+
+        [Test]
+        public void ExportTo_RecChangedAfterLoading_RefusesUntilReloadAndThenResetsChoices()
+        {
+            FacialCharacterProfileSO profile = CreateReceiverProfile();
+            string recordingPath = WriteSenderRecording();
+            _window = ScriptableObject.CreateInstance<RecTimelineExportWindow>();
+            _window.EnsureBuilt();
+            _window.SetInputs(recordingPath, profile);
+            _window.RefreshDetections();
+            _window.SetRemapChoice(false, "ifm", null);
+
+            // 別の内容の REC を同じパスへ書き直す（長さを変えて識別子を確実に変える）。
+            WriteSenderRecording(durationSeconds: 2.0d);
+            File.SetLastWriteTimeUtc(recordingPath, DateTime.UtcNow.AddMinutes(1));
+
+            Assert.That(_window.ExportTo(_folderPath + "/Window.playable"), Is.False, "読み込み時と違う REC には選択を当てない");
+            Assert.That(_window.StatusText, Does.Contain("Reload Sources"));
+
+            _window.RefreshDetections();
+
+            Assert.That(_window.BuildSourceRemap().IsIdentity, Is.True, "REC が変わったら前の REC の選択（除外を含む）を引き継がない");
+        }
+
+        [Test]
+        public void ExportTo_InvalidCustomSourceId_ShowsProblemAndRefusesExport()
+        {
+            FacialCharacterProfileSO profile = CreateReceiverProfile();
+            string recordingPath = WriteSenderRecording();
+            _window = ScriptableObject.CreateInstance<RecTimelineExportWindow>();
+            _window.EnsureBuilt();
+            _window.SetInputs(recordingPath, profile);
+            _window.RefreshDetections();
+
+            _window.SetRemapChoice(false, "ifm", "osc receiver!");
+
+            Assert.That(_window.RemapReport.HasErrors, Is.True);
+            Assert.That(_window.RemapProblemText, Does.Contain("'osc receiver!'"));
+            Assert.That(_window.ExportTo(_folderPath + "/Window.playable"), Is.False);
+            Assert.That(AssetDatabase.LoadAssetAtPath<TimelineAsset>(_folderPath + "/Window.playable"), Is.Null);
+        }
+
+        [Test]
+        public void ExportTo_ExcludedTriggerSource_ListsDroppedTriggersAndExportsNoExpressionClip()
+        {
+            FacialCharacterProfileSO profile = CreateReceiverProfile();
+            string recordingPath = WriteSenderRecording();
+            _window = ScriptableObject.CreateInstance<RecTimelineExportWindow>();
+            _window.EnsureBuilt();
+            _window.SetInputs(recordingPath, profile);
+            _window.RefreshDetections();
+
+            RecRemapSourceEntry keyboard = default;
+            foreach (RecRemapSourceEntry entry in _window.RemapReport.Sources)
+            {
+                if (entry.RecordedId == "keyboard")
+                {
+                    keyboard = entry;
+                }
+            }
+
+            Assert.That(keyboard.TriggerCount, Is.EqualTo(1), "表情トリガーだけの入力源も一覧に出す");
+
+            _window.SetRemapChoice(false, "keyboard", null);
+            Assert.That(_window.RemapProblemText, Does.Contain("表情トリガー 1 件"));
+
+            LogAssert.Expect(LogType.Warning, new Regex(@"\[RecToTimelineExporter\].*does not play back(.|\n)*表情トリガー 1 件"));
+            Assert.That(_window.ExportTo(_folderPath + "/Window.playable"), Is.True);
+            var timeline = AssetDatabase.LoadAssetAtPath<TimelineAsset>(_folderPath + "/Window.playable");
+            Assert.That(ExpressionClipCount(timeline), Is.EqualTo(0), "除外した入力源の表情 Clip は書き出さない");
+        }
+
+        [Test]
         public void ExportTo_WindowRemapCollision_RefusesExport()
         {
             FacialCharacterProfileSO profile = CreateReceiverProfile();
@@ -220,12 +324,25 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
             };
             layer.inputSources.Add(new InputSourceDeclarationSerializable { id = ReceiverId, weight = 1f });
             profile.Layers.Add(layer);
+            profile.Expressions.Add(new ExpressionSerializable
+            {
+                id = "smile",
+                name = "Smile",
+                layer = ReceiverId,
+                transitionDuration = 0.1f,
+                blendShapeValues = new List<BlendShapeMappingSerializable>
+                {
+                    new BlendShapeMappingSerializable { name = "jawOpen", value = 1f },
+                },
+            });
             AssetDatabase.CreateAsset(profile, _folderPath + "/ReceiverProfile.asset");
             return profile;
         }
 
-        /// <summary>送信側の REC: 値提供型 ifm / udp-lipsync、Analog ifm:head、レイヤー lipsync の weight。</summary>
-        private string WriteSenderRecording()
+        /// <summary>
+        /// 送信側の REC: 値提供型 ifm / udp-lipsync、2 軸の Analog ifm:head、表情トリガー keyboard（smile）、レイヤー lipsync の weight。
+        /// </summary>
+        private string WriteSenderRecording(string fileName = "sender.fcrec", double durationSeconds = 1.0d)
         {
             var baseline = new RecBaselineState(
                     null,
@@ -238,28 +355,36 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
                     null,
                     new[] { new LayerWeightEntry("lipsync", 1f) },
                     null)
-                .WithBlendShapeNames(new[] { "eyeBlinkLeft", "jawOpen" });
+                .WithBlendShapeNames(new[] { "eyeBlinkLeft", "jawOpen" })
+                .WithGazeEyeBonePaths("Armature/Head/LeftEye", "Armature/Head/RightEye");
             var timeline = new RecTimeline(
                 baseline,
                 new[]
                 {
-                    RecEvent.CreateAnalogSample(0.20d, 1, 3),
+                    RecEvent.CreateTriggerOn(0.10d, 3, 0),
+                    RecEvent.CreateAnalogSample(0.20d, 1, 2),
                     RecEvent.CreateLayerWeightSample(0.30d, 0),
                     RecEvent.CreateValueProviderSample(0.50d, 0, RecValueProviderFlags.IsValid | RecValueProviderFlags.HasValues, 2, 0),
+                    RecEvent.CreateTriggerOff(0.60d, 3, 0),
                 },
-                new[] { "ifm", "ifm:head", "udp-lipsync" },
-                Array.Empty<string>(),
+                new[] { "ifm", "ifm:head", "udp-lipsync", "keyboard" },
+                new[] { "smile" },
                 new[] { "lipsync" },
-                1.0d,
+                durationSeconds,
                 new IReadOnlyList<float>[]
                 {
-                    new[] { 0.1f, 0.2f, 0.3f },
+                    Array.Empty<float>(),
+                    new[] { 0.1f, 0.2f },
                     new[] { 0.5f },
                     new[] { 0.6f, 0.7f },
+                    Array.Empty<float>(),
                 },
-                new IReadOnlyList<byte>[] { Array.Empty<byte>(), Array.Empty<byte>(), Array.Empty<byte>() });
+                new IReadOnlyList<byte>[]
+                {
+                    Array.Empty<byte>(), Array.Empty<byte>(), Array.Empty<byte>(), Array.Empty<byte>(), Array.Empty<byte>(),
+                });
 
-            string path = _folderPath + "/sender.fcrec";
+            string path = _folderPath + "/" + fileName;
             File.WriteAllBytes(path, RecBinaryFormat.Serialize(timeline, 123L));
             return Path.GetFullPath(path);
         }
@@ -277,6 +402,23 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
 
             ids.Sort(StringComparer.Ordinal);
             return ids.ToArray();
+        }
+
+        private static int ExpressionClipCount(TimelineAsset timeline)
+        {
+            int count = 0;
+            foreach (TrackAsset track in timeline.GetOutputTracks())
+            {
+                if (track is FacialExpressionTrack)
+                {
+                    foreach (TimelineClip unused in track.GetClips())
+                    {
+                        count++;
+                    }
+                }
+            }
+
+            return count;
         }
 
         private static string[] LayerWeightTrackNames(TimelineAsset timeline)

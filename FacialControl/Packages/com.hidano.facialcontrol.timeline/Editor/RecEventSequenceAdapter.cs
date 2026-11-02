@@ -9,6 +9,7 @@ namespace Hidano.FacialControl.Timeline.Editor
     internal sealed class RecEventSequenceAdapter : IRecordedEventSequence
     {
         private readonly RecordedEvent[] _events;
+        private readonly Dictionary<string, string> _recordedSourceIdByMapped = new Dictionary<string, string>(StringComparer.Ordinal);
 
         public RecEventSequenceAdapter(RecTimeline timeline)
             : this(timeline, null)
@@ -144,12 +145,24 @@ namespace Hidano.FacialControl.Timeline.Editor
                     continue;
                 }
 
-                if (TryConvertEvent(timeline, i, out RecordedEvent recordedEvent)
-                    && mappedSourceIds[recEvent.SourceIdIndex] is string mappedSourceId)
+                // 除外した入力源のレコードは RecordedEvent を作らずに捨てる。付け替え後の id で直接作る。
+                string mappedSourceId = HasSourceId(kind) ? mappedSourceIds[recEvent.SourceIdIndex] : null;
+                if (HasSourceId(kind) && mappedSourceId == null)
                 {
-                    events.Add(string.Equals(mappedSourceId, recordedEvent.SourceId, StringComparison.Ordinal)
-                        ? recordedEvent
-                        : recordedEvent.WithSourceId(mappedSourceId));
+                    continue;
+                }
+
+                if (TryConvertEvent(timeline, i, mappedSourceId, out RecordedEvent recordedEvent))
+                {
+                    events.Add(recordedEvent);
+                }
+            }
+
+            foreach (KeyValuePair<string, string> pair in remap.SourceMap)
+            {
+                if (pair.Value.Length > 0 && !string.Equals(pair.Key, pair.Value, StringComparison.Ordinal))
+                {
+                    _recordedSourceIdByMapped[pair.Value] = pair.Key;
                 }
             }
 
@@ -196,7 +209,24 @@ namespace Hidano.FacialControl.Timeline.Editor
 
         public RecordedEvent this[int index] => _events[index];
 
-        private static bool TryConvertEvent(RecTimeline timeline, int index, out RecordedEvent recordedEvent)
+        /// <summary>
+        /// イベント列の入力源 id（付け替え後）から REC 上の元の id を返す。付け替えていない id はそのまま返す。
+        /// チャネル種別の判定（Gaze / Analog）と種別の上書きは、REC 上の元の id で行うために使う。
+        /// </summary>
+        public string GetRecordedSourceId(string sourceId)
+        {
+            return sourceId != null && _recordedSourceIdByMapped.TryGetValue(sourceId, out string recorded) ? recorded : sourceId;
+        }
+
+        private static bool HasSourceId(RecEventKind kind)
+        {
+            return kind == RecEventKind.TriggerOn
+                || kind == RecEventKind.TriggerOff
+                || kind == RecEventKind.AnalogSample
+                || kind == RecEventKind.ValueProviderSample;
+        }
+
+        private static bool TryConvertEvent(RecTimeline timeline, int index, string sourceId, out RecordedEvent recordedEvent)
         {
             RecEvent evt = timeline.Events[index];
             switch (evt.Kind)
@@ -206,26 +236,26 @@ namespace Hidano.FacialControl.Timeline.Editor
                         evt.TimestampSeconds,
                         RecordedEventKind.TriggerOn,
                         expressionId: timeline.ExpressionIds[evt.ExpressionIdIndex],
-                        sourceId: timeline.SourceIds[evt.SourceIdIndex]);
+                        sourceId: sourceId);
                     return true;
                 case RecEventKind.TriggerOff:
                     recordedEvent = new RecordedEvent(
                         evt.TimestampSeconds,
                         RecordedEventKind.TriggerOff,
                         expressionId: timeline.ExpressionIds[evt.ExpressionIdIndex],
-                        sourceId: timeline.SourceIds[evt.SourceIdIndex]);
+                        sourceId: sourceId);
                     return true;
                 case RecEventKind.AnalogSample:
                     recordedEvent = new RecordedEvent(
                         evt.TimestampSeconds,
                         RecordedEventKind.AnalogValue,
-                        sourceId: timeline.SourceIds[evt.SourceIdIndex],
+                        sourceId: sourceId,
                         axes: CopyAxes(timeline.GetAnalogAxes(index)));
                     return true;
                 case RecEventKind.ValueProviderSample:
                     recordedEvent = RecordedEvent.CreateValueProviderSample(
                         evt.TimestampSeconds,
-                        timeline.SourceIds[evt.SourceIdIndex],
+                        sourceId,
                         (evt.Flags & RecValueProviderFlags.IsValid) != 0,
                         timeline.GetMaskBytesSpan(index).ToArray(),
                         timeline.GetPayloadSpan(index).ToArray());
