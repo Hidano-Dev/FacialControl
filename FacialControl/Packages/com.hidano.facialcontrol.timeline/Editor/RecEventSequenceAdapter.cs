@@ -158,12 +158,22 @@ namespace Hidano.FacialControl.Timeline.Editor
                 }
             }
 
-            foreach (KeyValuePair<string, string> pair in remap.SourceMap)
+            // 逆引きは REC に実在する入力源（id 表と基準状態）のうち、実際に付け替えたものだけで作る。
+            // 対応表に REC で使われていない id があっても、実在するチャネルの元の id を書き換えないようにするため。
+            AddReverseMapping(remap, timeline.SourceIds);
+            for (int i = 0; i < baselineTriggers.Count; i++)
             {
-                if (pair.Value.Length > 0 && !string.Equals(pair.Key, pair.Value, StringComparison.Ordinal))
-                {
-                    _recordedSourceIdByMapped[pair.Value] = pair.Key;
-                }
+                AddReverseMapping(remap, baselineTriggers[i].SourceId);
+            }
+
+            for (int i = 0; i < baselineAnalogs.Count; i++)
+            {
+                AddReverseMapping(remap, baselineAnalogs[i].SourceId);
+            }
+
+            for (int i = 0; i < baselineValueProviders.Count; i++)
+            {
+                AddReverseMapping(remap, baselineValueProviders[i].SourceId);
             }
 
             _events = events.ToArray();
@@ -216,6 +226,23 @@ namespace Hidano.FacialControl.Timeline.Editor
         public string GetRecordedSourceId(string sourceId)
         {
             return sourceId != null && _recordedSourceIdByMapped.TryGetValue(sourceId, out string recorded) ? recorded : sourceId;
+        }
+
+        private void AddReverseMapping(RecSourceRemap remap, IReadOnlyList<string> recordedIds)
+        {
+            for (int i = 0; i < recordedIds.Count; i++)
+            {
+                AddReverseMapping(remap, recordedIds[i]);
+            }
+        }
+
+        private void AddReverseMapping(RecSourceRemap remap, string recordedId)
+        {
+            if (remap.TryMapSource(recordedId, out string mapped)
+                && !string.Equals(recordedId, mapped, StringComparison.Ordinal))
+            {
+                _recordedSourceIdByMapped[mapped] = recordedId;
+            }
         }
 
         private static bool HasSourceId(RecEventKind kind)

@@ -216,6 +216,37 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
         }
 
         [Test]
+        public void TryExportTimelineAsset_RemapEntryForSourceNotInRec_DoesNotChangeKindOfExistingSource()
+        {
+            // REC に無い id（unused）から実在する ifm:head への対応があっても、ifm:head の種別判定は ifm:head のまま行う。
+            FacialCharacterProfileSO profile = CreateReceiverProfile();
+            string recordingPath = WriteSenderRecording();
+            var remap = new RecSourceRemap(
+                new[] { Pair("ifm", ReceiverId), Pair("udp-lipsync", null), Pair("unused", "ifm:head") },
+                new[] { Pair("lipsync", ReceiverId) });
+
+            bool success = RecToTimelineExporter.TryExportTimelineAsset(
+                recordingPath,
+                profile,
+                _folderPath + "/Exported.playable",
+                out RecToTimelineExporter.ExportResult result,
+                sourceKindOverrides: new Dictionary<string, FacialValueChannelKind> { { "ifm:head", FacialValueChannelKind.Gaze } },
+                sourceRemap: remap);
+
+            Assert.That(success, Is.True);
+            ChannelDetection head = default;
+            foreach (ChannelDetection detection in result.ChannelDetections)
+            {
+                if (detection.SourceId == "ifm:head")
+                {
+                    head = detection;
+                }
+            }
+
+            Assert.That(head.Kind, Is.EqualTo(FacialValueChannelKind.Gaze));
+        }
+
+        [Test]
         public void ExportTo_RecChangedAfterLoading_RefusesUntilReloadAndThenResetsChoices()
         {
             FacialCharacterProfileSO profile = CreateReceiverProfile();
