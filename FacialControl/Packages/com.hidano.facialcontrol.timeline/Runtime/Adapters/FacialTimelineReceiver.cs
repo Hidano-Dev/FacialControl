@@ -153,7 +153,7 @@ namespace Hidano.FacialControl.Timeline.Adapters
         /// <para>controller の GameObject に既に Receiver があればそれを使う（手で置いた旧来の Receiver を含む）。</para>
         /// <para>Play では controller の GameObject に追加する（実行時の変更はシーンに保存されない）。</para>
         /// <para>Edit ではユーザーのシーン・Prefab インスタンスを書き換えないよう、controller の GameObject には追加せず、
-        /// 非表示・非保存（<see cref="HideFlags.HideAndDontSave"/>）の一時 GameObject に持つ（controller ごとに 1 つ。
+        /// 非表示・非保存（<see cref="EditReceiverHideFlags"/>）の一時 GameObject に持つ（controller ごとに 1 つ。
         /// Play 突入時・アセンブリ再読込時に破棄する）。プレビュー・Inspector・AnimationTrack 変換の副作用で Undo の無い変更や
         /// Prefab の override を作らないため（HID-408 レビュー指摘 6）。</para>
         /// <para>既にあれば確保しない（Mixer がキャッシュ切れのたびに呼ぶ）。</para>
@@ -176,7 +176,8 @@ namespace Hidano.FacialControl.Timeline.Adapters
                 return null;
             }
 
-            if (UnityEngine.Application.isPlaying)
+            // Mixer と同じ Edit / Play の判定を使う（テストの Play 相当でも controller に追加する）。
+            if (Playables.FacialTimelinePlayMode.IsPlaying)
             {
                 var created = host.AddComponent<FacialTimelineReceiver>();
                 created._boundController = controller;
@@ -198,6 +199,7 @@ namespace Hidano.FacialControl.Timeline.Adapters
         /// </summary>
         public static List<FacialTimelineReceiver> CollectAll()
         {
+            PruneEditReceivers();
             var results = new List<FacialTimelineReceiver>(
                 UnityEngine.Object.FindObjectsByType<FacialTimelineReceiver>(FindObjectsInactive.Include, FindObjectsSortMode.None));
             foreach (FacialTimelineReceiver receiver in EditReceivers.Values)
@@ -235,12 +237,13 @@ namespace Hidano.FacialControl.Timeline.Adapters
             }
 
             PruneEditReceivers();
+            // HideAndDontSave は NotEditable を含み、埋め込み Inspector のボタンが押せなくなるので、非保存 + Hierarchy 非表示だけにする。
             var holder = new GameObject("FacialTimelineReceiver (" + controller.name + ")")
             {
-                hideFlags = HideFlags.HideAndDontSave,
+                hideFlags = EditReceiverHideFlags,
             };
             var receiver = holder.AddComponent<FacialTimelineReceiver>();
-            receiver.hideFlags = HideFlags.HideAndDontSave;
+            receiver.hideFlags = EditReceiverHideFlags;
             receiver._boundController = controller;
             EditReceivers[key] = receiver;
             return receiver;
@@ -284,8 +287,13 @@ namespace Hidano.FacialControl.Timeline.Adapters
             EditReceivers.Clear();
         }
 
+        /// <summary>Edit の一時 Receiver の HideFlags（非保存・Hierarchy 非表示。編集は許す）。</summary>
+        internal const HideFlags EditReceiverHideFlags = HideFlags.DontSave | HideFlags.HideInHierarchy;
+
         private static void DestroyHolder(FacialTimelineReceiver receiver)
         {
+            // Edit では OnDestroy が呼ばれないので、破棄の前に接続と controller の破棄通知の購読を必ず外す。
+            receiver.DetachBinding();
             GameObject holder = receiver.gameObject;
             if (UnityEngine.Application.isPlaying)
             {
@@ -587,10 +595,14 @@ namespace Hidano.FacialControl.Timeline.Adapters
         /// <summary>
         /// 指定 Profile で静的診断を評価する（Editor は TimelineProfileSource で解決した Profile を渡す）。
         /// </summary>
-        public void EvaluateStaticDiagnostics(FacialProfile profile, bool hasProfile)
+        /// <param name="director">評価に使う Director（null ならシーン走査で解決）。呼び出し側の文脈で渡し、Receiver には保存しない。</param>
+        public void EvaluateStaticDiagnostics(FacialProfile profile, bool hasProfile, PlayableDirector director = null)
         {
             FacialController controller = ResolveController();
-            PlayableDirector resolved = TimelineTrackBindingResolver.ResolveDirector(this, _directorOverride, out DirectorResolveStatus status);
+            DirectorResolveStatus status = DirectorResolveStatus.Override;
+            PlayableDirector resolved = director != null
+                ? director
+                : TimelineTrackBindingResolver.ResolveDirector(this, _directorOverride, out status);
             TimelineAsset timeline = resolved != null ? resolved.playableAsset as TimelineAsset : null;
             BakeLocateResult located = FacialTimelineBakeLocator.Locate(timeline, bakeAsset);
             TimelineDerivation derivation = timeline != null && hasProfile

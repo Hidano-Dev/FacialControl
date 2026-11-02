@@ -524,6 +524,32 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
         }
 
         [Test]
+        public void EditEvaluate_GivenDirectorWhileTwoDirectorsBindController_UsesGivenDirectorWithoutStoringIt()
+        {
+            // 同じ controller を 2 つの Director が Bind しているとシーン走査では Ambiguous。Inspector が開いている Director を
+            // 評価のたびに渡し、共有の Receiver には保存しない（HID-408 レビュー指摘 3）。
+            Scenario s = CreateScenario();
+            var otherHost = new GameObject("OtherDirectorHost");
+            _created.Add(otherHost);
+            var otherDirector = otherHost.AddComponent<PlayableDirector>();
+            otherDirector.playableAsset = s.Timeline;
+            otherDirector.SetGenericBinding(s.Character, s.Controller);
+            TimelineEditChangeWatcher watcher = CreateWatcher();
+
+            ReceiverEditEvaluation result = FacialTimelineReceiverEditEvaluator.Evaluate(
+                s.Receiver, watcher, requestAutoRebake: false, gate: null, director: s.Director);
+
+            Assert.That(result.Director, Is.SameAs(s.Director));
+            Assert.That(s.Receiver.Diagnostics.Contains(TimelineDiagnosticCode.DirectorAmbiguous), Is.False, Describe(s.Receiver.Diagnostics));
+            Assert.That(s.Receiver.DirectorOverride, Is.Null, "共有の Receiver に保存しない");
+
+            FacialTimelineReceiverEditEvaluator.Evaluate(s.Receiver, watcher, requestAutoRebake: false);
+
+            Assert.That(s.Receiver.Diagnostics.Contains(TimelineDiagnosticCode.DirectorAmbiguous), Is.True,
+                "Director を渡さない評価はシーン走査（2 つあるので Ambiguous）");
+        }
+
+        [Test]
         public void EditEvaluate_ResolvesDirectorTimelineAndProfile()
         {
             Scenario s = CreateScenario();

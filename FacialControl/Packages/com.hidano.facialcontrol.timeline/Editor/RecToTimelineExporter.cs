@@ -422,10 +422,20 @@ namespace Hidano.FacialControl.Timeline.Editor
         /// </summary>
         private static FacialCharacterTrack ResolveCharacterTrack(TimelineAsset timeline)
         {
-            List<FacialCharacterTrack> existing = FacialCharacterTrackBinding.CollectCharacterTracks(timeline);
-            return existing.Count > 0
-                ? existing[0]
+            FacialCharacterTrack reusable = FindReusableCharacterTrack(timeline);
+            return reusable != null
+                ? reusable
                 : timeline.CreateTrack<FacialCharacterTrack>(null, CharacterTrackName);
+        }
+
+        /// <summary>
+        /// 再利用する親トラック: ミュートされていない（親階層のミュートも無い）最初の Facial Character トラック。
+        /// ミュート中の親を使うと子トラックが鳴らないため使わない（HID-408 レビュー指摘）。
+        /// </summary>
+        private static FacialCharacterTrack FindReusableCharacterTrack(TimelineAsset timeline)
+        {
+            List<FacialCharacterTrack> active = FacialCharacterTrackBinding.CollectCharacterTracks(timeline, includeMuted: false);
+            return active.Count > 0 ? active[0] : null;
         }
 
         private static bool ContainsSource(List<ChannelDetection> detections, string sourceId)
@@ -1187,16 +1197,18 @@ namespace Hidano.FacialControl.Timeline.Editor
         }
 
         /// <summary>
-        /// 上書き Export の前にトラックを消す。Facial Character トラックは残して子だけ消す（シーンの Director がこのトラックに
-        /// Bind した FacialController を失わないため。自動 Bind は無いので、親を作り直すと Bind が外れたままになる。HID-408）。
+        /// 上書き Export の前にトラックを消す。再利用する Facial Character トラック（ミュートされていない最初の 1 本）は残して子だけ消す
+        /// （シーンの Director がこのトラックに Bind した FacialController を失わないため。自動 Bind は無いので、親を作り直すと Bind が
+        /// 外れたままになる。HID-408）。ほかの親トラック（ミュート中・2 本目以降）は子ごと消し、1 Timeline 1 体に戻す。
         /// </summary>
         private static void ClearTimeline(TimelineAsset timeline)
         {
+            FacialCharacterTrack keep = FindReusableCharacterTrack(timeline);
             TrackAsset[] outputTracks = ToArray(timeline.GetOutputTracks());
             var scheduled = new HashSet<TrackAsset>();
             for (int i = 0; i < outputTracks.Length; i++)
             {
-                if (!(outputTracks[i] is FacialCharacterTrack))
+                if (!ReferenceEquals(outputTracks[i], keep))
                 {
                     scheduled.Add(outputTracks[i]);
                 }

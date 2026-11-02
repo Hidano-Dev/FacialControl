@@ -105,7 +105,8 @@ namespace Hidano.FacialControl.Timeline.Tracks
                 return false;
             }
 
-            List<FacialCharacterTrack> characters = CollectCharacterTracks(timeline);
+            // ミュート中（親階層のミュートを含む）の親トラックは再生されないので、この controller の Director として数えない。
+            List<FacialCharacterTrack> characters = CollectCharacterTracks(timeline, includeMuted: false);
             for (int i = 0; i < characters.Count; i++)
             {
                 if (ToController(director.GetGenericBinding(characters[i])) == controller)

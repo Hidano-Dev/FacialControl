@@ -217,6 +217,35 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
         }
 
         [Test]
+        public void TrackTime_TwoTimelinePlayablesInGraph_ReadsTheTimelineTheMixerBelongsTo()
+        {
+            // 出力側を辿って自分が属する TimelinePlayable を使う（HID-408 レビュー指摘 9）。
+            var go = new GameObject("TrackTimeHost");
+            PlayableGraph graph = PlayableGraph.Create("TrackTimeTwoTimelines");
+            try
+            {
+                ScriptPlayable<TimelinePlayable> first =
+                    TimelinePlayable.Create(graph, System.Array.Empty<TrackAsset>(), go, false, false);
+                ScriptPlayable<TimelinePlayable> second =
+                    TimelinePlayable.Create(graph, System.Array.Empty<TrackAsset>(), go, false, false);
+                Playable parent = Playable.Create(graph, 1);
+                Playable mixer = Playable.Create(graph);
+                graph.Connect(mixer, 0, parent, 0);
+                second.SetInputCount(1);
+                graph.Connect(parent, 0, second, 0);
+                first.SetTime(1.0d);
+                second.SetTime(3.0d);
+
+                Assert.That(FacialMixerTarget.TrackTime(mixer), Is.EqualTo(3.0d).Within(1e-9d), "1 つ目の root ではなく自分の Timeline");
+            }
+            finally
+            {
+                graph.Destroy();
+                UnityEngine.Object.DestroyImmediate(go);
+            }
+        }
+
+        [Test]
         public void ResetWarnings_AfterLegacyTrackWarning_ClearsWarnedTracks()
         {
             // PlayMode 突入時（Domain Reload 無しでも）に呼ばれ、Play ごとに知らせ直す（HID-408 指摘 9）。

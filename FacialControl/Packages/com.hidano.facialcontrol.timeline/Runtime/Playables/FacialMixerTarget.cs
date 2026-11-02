@@ -20,6 +20,9 @@ namespace Hidano.FacialControl.Timeline.Playables
     {
         private const string LogPrefix = "[FacialTimeline] ";
 
+        // 出力側を辿る深さの上限（Mixer → 親トラック → Timeline の 2 段 + 通知 Playable 等の余裕）。
+        private const int MaxOutputDepth = 8;
+
         // 旧構造 / 未 Bind を知らせたトラック（instanceID）。ドメインリロードまで 1 トラック 1 回。
         private static readonly HashSet<int> WarnedLegacyTracks = new HashSet<int>();
         private static readonly HashSet<int> WarnedUnboundTracks = new HashSet<int>();
@@ -51,6 +54,24 @@ namespace Hidano.FacialControl.Timeline.Playables
         /// </remarks>
         public static double TrackTime(Playable playable)
         {
+            // まず自分の出力側を辿り、自分が属する TimelinePlayable を探す（1 つのグラフに Timeline が複数あっても取り違えない）。
+            Playable current = playable;
+            for (int depth = 0; depth < MaxOutputDepth && current.IsValid(); depth++)
+            {
+                if (current.GetPlayableType() == typeof(TimelinePlayable))
+                {
+                    return current.GetTime();
+                }
+
+                if (current.GetOutputCount() == 0)
+                {
+                    break;
+                }
+
+                current = current.GetOutput(0);
+            }
+
+            // 出力側で見つからない（Timeline の外のグラフ）ときは root を探す。
             PlayableGraph graph = playable.GetGraph();
             if (graph.IsValid())
             {

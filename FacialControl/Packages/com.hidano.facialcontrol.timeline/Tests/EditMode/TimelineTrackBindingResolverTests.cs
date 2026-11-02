@@ -158,6 +158,21 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
         }
 
         [Test]
+        public void ResolveDirector_OnlyMutedCharacterTrackBindsController_ReturnsNotFound()
+        {
+            // ミュート中の親トラックは再生されないので、この controller の Director として数えない（HID-408 レビュー指摘 8）。
+            FacialTimelineReceiver receiver = CreateReceiver("Character");
+            TimelineAsset timeline = CreateTimeline(out FacialCharacterTrack character, out _, out _);
+            character.muted = true;
+            CreateDirector("MutedDirector", timeline).SetGenericBinding(character, receiver.GetComponent<FacialController>());
+
+            PlayableDirector resolved = TimelineTrackBindingResolver.ResolveDirector(receiver, null, out DirectorResolveStatus status);
+
+            Assert.That(status, Is.EqualTo(DirectorResolveStatus.NotFound));
+            Assert.That(resolved, Is.Null);
+        }
+
+        [Test]
         public void ResolveDirector_NoDirectorBindsController_ReturnsNotFound()
         {
             FacialTimelineReceiver receiver = CreateReceiver("Character");

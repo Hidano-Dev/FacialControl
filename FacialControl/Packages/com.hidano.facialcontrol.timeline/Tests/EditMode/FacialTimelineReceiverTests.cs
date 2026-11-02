@@ -10,6 +10,7 @@ using Hidano.FacialControl.Timeline.Adapters.InputSources;
 using Hidano.FacialControl.Timeline.Clips;
 using Hidano.FacialControl.Timeline.Domain.Diagnostics;
 using Hidano.FacialControl.Timeline.Domain.Services;
+using Hidano.FacialControl.Timeline.Playables;
 using Hidano.FacialControl.Timeline.Tracks;
 using NUnit.Framework;
 using UnityEngine;
@@ -526,7 +527,8 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
                 Assert.That(created, Is.Not.Null);
                 Assert.That(s.Host.Controller.GetComponent<FacialTimelineReceiver>(), Is.Null, "controller の GameObject は書き換えない");
                 Assert.That(created.gameObject, Is.Not.SameAs(s.Host.Controller.gameObject));
-                Assert.That(created.gameObject.hideFlags, Is.EqualTo(HideFlags.HideAndDontSave), "非表示・非保存の一時 GameObject に持つ");
+                Assert.That(created.gameObject.hideFlags, Is.EqualTo(HideFlags.DontSave | HideFlags.HideInHierarchy), "非表示・非保存の一時 GameObject に持つ");
+                Assert.That((created.hideFlags & HideFlags.NotEditable) == 0, Is.True, "埋め込み Inspector のボタンが押せるよう NotEditable にしない");
                 Assert.That(created.Controller, Is.SameAs(s.Host.Controller), "対象の controller を保持する");
                 Assert.That(FacialTimelineReceiver.GetOrCreate(s.Host.Controller), Is.SameAs(created), "2 回目は同じ Receiver を返す");
                 CollectionAssert.Contains(FacialTimelineReceiver.CollectAll(), created, "非保存の Receiver も一覧に含める");
@@ -549,8 +551,30 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
 
             UnityEngine.Object.DestroyImmediate(s.Host.Controller);
 
+            CollectionAssert.DoesNotContain(FacialTimelineReceiver.CollectAll(), created, "一覧を作る前に破棄済みの一時 Receiver を片付ける");
             Assert.That(FacialTimelineReceiver.EditReceiverCount, Is.EqualTo(0), "controller が消えたら一時 Receiver も片付ける");
             Assert.That(holder == null, Is.True);
+        }
+
+        [Test]
+        public void GetOrCreate_PlayEquivalent_AddsReceiverToControllerObject()
+        {
+            // Edit / Play の判定は Mixer と同じ FacialTimelinePlayMode を使う（HID-408 レビュー指摘 4）。
+            Scenario s = CreateScenario();
+            UnityEngine.Object.DestroyImmediate(s.Host.Receiver);
+            FacialTimelinePlayMode.OverrideIsPlaying = true;
+            try
+            {
+                FacialTimelineReceiver created = FacialTimelineReceiver.GetOrCreate(s.Host.Controller);
+
+                Assert.That(created.gameObject, Is.SameAs(s.Host.Controller.gameObject), "Play では controller の GameObject に置く");
+                Assert.That(created.Controller, Is.SameAs(s.Host.Controller));
+                Assert.That(FacialTimelineReceiver.EditReceiverCount, Is.EqualTo(0));
+            }
+            finally
+            {
+                FacialTimelinePlayMode.OverrideIsPlaying = null;
+            }
         }
 
         [Test]
