@@ -149,7 +149,11 @@ namespace Hidano.FacialControl.Timeline.Editor
         /// シーン上の PlayableDirector には触れない（Req 10.5）。再生するには、PlayableDirector に TimelineAsset をセットし、
         /// Facial Character トラックに FacialController を Bind する（HID-408）。
         /// </summary>
-        /// <param name="sourceKindOverrides">チャネル種別の上書き（プログラム・テスト用途。Export ウィンドウは渡さない）。</param>
+        /// <param name="sourceKindOverrides">
+        /// チャネル種別の上書き（プログラム・テスト用途。Export ウィンドウは渡さない）。キーは入力源 id。
+        /// <paramref name="sourceRemap"/> で付け替えた入力源は、REC 上の元の id と付け替え後の id のどちらでも指定でき、両方あれば元の id を優先する。
+        /// </param>
+        /// <param name="sourceRemap">REC の入力源 id / レイヤー名を対象 Profile の id / 名前へ付け替える対応表（HID-412）。null なら付け替えない。</param>
         public static bool TryExportTimelineAsset(
             string recordingPath,
             FacialCharacterProfileSO profileAsset,
@@ -177,8 +181,9 @@ namespace Hidano.FacialControl.Timeline.Editor
                 return false;
             }
 
-            // 入力源・レイヤーを対象キャラの構成へ付け替える（HID-412）。対応先が重なると 1 つの id に複数のトラックができるため書き出さない。
-            if (!TryCheckSourceRemap(readResult.Timeline, profileAsset, sourceRemap, recordingPath))
+            // 入力源・レイヤーを対象キャラの構成へ付け替える（HID-412）。対応先の重複・不正な id があれば書き出さない。
+            FacialProfile profile = TimelineProfileSource.Resolve(profileAsset);
+            if (!TryCheckSourceRemap(readResult.Timeline, profile, profileAsset.name, sourceRemap, recordingPath))
             {
                 result = ExportResult.CreateFailed(recordingPath, outputAssetPath);
                 return false;
@@ -216,7 +221,7 @@ namespace Hidano.FacialControl.Timeline.Editor
                 List<ChannelDetection> detections = PopulateTimelineInternal(
                     targetTimeline,
                     sequence,
-                    TimelineProfileSource.Resolve(profileAsset),
+                    profile,
                     gazeContext,
                     sourceKindOverrides,
                     ResolveRecordedBlendShapeNames(sequence));
@@ -266,12 +271,13 @@ namespace Hidano.FacialControl.Timeline.Editor
         }
 
         /// <summary>
-        /// 対応表を当てた結果を確かめる。対応先の衝突があれば Error を出して false。対象 Profile で再生されない入力源・レイヤー・表情は
-        /// 1 回の Warning にまとめて示し、書き出しは続ける（無言で捨てない）。
+        /// 対応表を当てた結果を確かめる。対応先の重複・不正な id があれば Error を出して false。対象 Profile で再生されない入力源・
+        /// レイヤー・表情と、除外で書き出さない表情トリガーは 1 回の Warning にまとめて示し、書き出しは続ける（無言で捨てない）。
         /// </summary>
         private static bool TryCheckSourceRemap(
             RecTimeline timeline,
-            FacialCharacterProfileSO profileAsset,
+            FacialProfile profile,
+            string profileName,
             RecSourceRemap sourceRemap,
             string recordingPath)
         {
@@ -282,12 +288,12 @@ namespace Hidano.FacialControl.Timeline.Editor
                 return true;
             }
 
-            RecRemapReport report = RecSourceRemapResolver.Analyze(timeline, TimelineProfileSource.Resolve(profileAsset), sourceRemap);
+            RecRemapReport report = RecSourceRemapResolver.Analyze(timeline, profile, sourceRemap);
             IReadOnlyList<string> problems = RecSourceRemapResolver.DescribeProblems(report);
-            if (report.HasCollisions)
+            if (report.HasErrors)
             {
                 Debug.LogError(
-                    $"[RecToTimelineExporter] '{recordingPath}' was not exported because the source / layer remap has collisions:\n" +
+                    $"[RecToTimelineExporter] '{recordingPath}' was not exported because the source / layer remap has collisions or invalid ids:\n" +
                     string.Join("\n", problems));
                 return false;
             }
@@ -295,7 +301,7 @@ namespace Hidano.FacialControl.Timeline.Editor
             if (problems.Count > 0)
             {
                 Debug.LogWarning(
-                    $"[RecToTimelineExporter] '{recordingPath}' has sources / layers / expressions that the profile '{profileAsset.name}' " +
+                    $"[RecToTimelineExporter] '{recordingPath}' has sources / layers / expressions that the profile '{profileName}' " +
                     "does not play back. Map them to the profile's input sources and layers in REC Export if needed:\n" +
                     string.Join("\n", problems));
             }
@@ -503,7 +509,8 @@ namespace Hidano.FacialControl.Timeline.Editor
 
         /// <summary>
         /// <see cref="DetectChannels(RecBinaryFormat.ReadResult, FacialCharacterProfileSO)"/> の記録列版。
-        /// <paramref name="sourceKindOverrides"/> はプログラム・テスト用途の種別上書き。
+        /// <paramref name="sourceKindOverrides"/> はプログラム・テスト用途の種別上書き（キーは入力源 id。対応表で付け替えた列なら、
+        /// REC 上の元の id と付け替え後の id のどちらでも指定でき、元の id を優先する）。
         /// </summary>
         /// <remarks>
         /// Gaze 判定順: (1) 規約 id のチャネル id が GazeChannels にある →
@@ -529,7 +536,7 @@ namespace Hidano.FacialControl.Timeline.Editor
             var detections = new List<ChannelDetection>(sources.Count);
             for (int i = 0; i < sources.Count; i++)
             {
-                detections.Add(Detect(sources[i], context, sourceKindOverrides));
+                detections.Add(Detect(sources[i], context, sourceKindOverrides, sequence as RecEventSequenceAdapter));
             }
 
             BuildValueProviderTracks(sequence, ResolveRecordedBlendShapeNames(sequence), detections, warn: false);
@@ -537,10 +544,14 @@ namespace Hidano.FacialControl.Timeline.Editor
             return detections;
         }
 
+        /// <param name="recSequence">
+        /// REC から読んだ列（それ以外は null）。対応表で付け替えた入力源は、REC 上の元の id と付け替え後の id の両方で判定する（HID-412）。
+        /// </param>
         private static ChannelDetection Detect(
             SourceSamples source,
             GazeDetectionContext context,
-            IReadOnlyDictionary<string, FacialValueChannelKind> sourceKindOverrides)
+            IReadOnlyDictionary<string, FacialValueChannelKind> sourceKindOverrides,
+            RecEventSequenceAdapter recSequence)
         {
             string sourceId = source.SourceId;
             int maxAxisCount = 0;
@@ -552,9 +563,15 @@ namespace Hidano.FacialControl.Timeline.Editor
                 hasNonGazeAxisCount |= axisCount != 2;
             }
 
+            // 付け替えた入力源は、REC 上の元の id と付け替え後の id のどちらかが手がかりに合えば判定する。元の id の Gaze の手がかり
+            // （規約 id・binding の宣言）も、対象 Profile のヒント（wildcard slug 等）が新しい id にだけ合う場合も拾うため（HID-412）。
+            // 上書きは元の id を優先する。
+            string recordedSourceId = recSequence != null ? recSequence.GetRecordedSourceId(sourceId) : sourceId;
+            bool remapped = !string.Equals(recordedSourceId, sourceId, StringComparison.Ordinal);
             ChannelDetectionReason gazeReason;
             bool wantsGaze;
-            if (TryGetSourceKindOverride(sourceKindOverrides, sourceId, out FacialValueChannelKind overrideKind))
+            if (TryGetSourceKindOverride(sourceKindOverrides, recordedSourceId, out FacialValueChannelKind overrideKind)
+                || (remapped && TryGetSourceKindOverride(sourceKindOverrides, sourceId, out overrideKind)))
             {
                 if (overrideKind != FacialValueChannelKind.Gaze)
                 {
@@ -566,7 +583,8 @@ namespace Hidano.FacialControl.Timeline.Editor
             }
             else
             {
-                wantsGaze = TryDetectGaze(sourceId, context, out gazeReason);
+                wantsGaze = TryDetectGaze(recordedSourceId, context, out gazeReason)
+                    || (remapped && TryDetectGaze(sourceId, context, out gazeReason));
             }
 
             if (!wantsGaze)
@@ -901,7 +919,7 @@ namespace Hidano.FacialControl.Timeline.Editor
             detections = new List<ChannelDetection>(sources.Count);
             for (int i = 0; i < sources.Count; i++)
             {
-                ChannelDetection detection = Detect(sources[i], gazeContext, sourceKindOverrides);
+                ChannelDetection detection = Detect(sources[i], gazeContext, sourceKindOverrides, sequence as RecEventSequenceAdapter);
                 detections.Add(detection);
                 tracks.Add(new AnalogTrackInfo(sources[i].SourceId, detection.Kind, detection.AxisCount, sources[i].Events));
             }
@@ -1132,6 +1150,7 @@ namespace Hidano.FacialControl.Timeline.Editor
 
             /// <summary>ワイルドカード宣言（チャネル id 空）を持つ binding の slug。</summary>
             public HashSet<string> WildcardSlugs { get; } = new HashSet<string>(StringComparer.Ordinal);
+
 
             public static GazeDetectionContext Empty()
             {
