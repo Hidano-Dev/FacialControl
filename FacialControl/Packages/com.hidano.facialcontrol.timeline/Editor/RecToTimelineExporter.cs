@@ -107,6 +107,31 @@ namespace Hidano.FacialControl.Timeline.Editor
                 referenceBlendShapeNames);
         }
 
+        /// <summary>
+        /// <see cref="CreateTimelineAsset(IRecordedEventSequence, FacialCharacterProfileSO)"/> と同じ規則（Profile の Gaze 宣言・REC の
+        /// BlendShape 名）で、呼び出し側が用意した <paramref name="timeline"/> にトラックを作る。作りかけで例外が出ても、
+        /// 呼び出し側が自分の持つ <paramref name="timeline"/> を破棄できる（REC から直接 AnimationClip を書き出す経路。HID-409）。
+        /// </summary>
+        internal static void PopulateTimelineForProfileAsset(
+            TimelineAsset timeline,
+            IRecordedEventSequence sequence,
+            FacialCharacterProfileSO profileAsset,
+            FacialProfile profile)
+        {
+            if (profileAsset == null)
+            {
+                throw new ArgumentNullException(nameof(profileAsset));
+            }
+
+            PopulateTimelineInternal(
+                timeline,
+                sequence,
+                profile,
+                CollectGazeDetectionContext(profileAsset),
+                null,
+                ResolveRecordedBlendShapeNames(sequence));
+        }
+
         private static List<ChannelDetection> PopulateTimelineInternal(
             TimelineAsset timeline,
             IRecordedEventSequence sequence,
@@ -281,6 +306,21 @@ namespace Hidano.FacialControl.Timeline.Editor
             RecSourceRemap sourceRemap,
             string recordingPath)
         {
+            return TryCheckSourceRemap(timeline, profile, profileName, sourceRemap, recordingPath, out IReadOnlyList<string> _);
+        }
+
+        /// <param name="problems">未対応・除外・衝突の一覧（<see cref="RecSourceRemapResolver.DescribeProblems"/>。対応表が null なら空）。</param>
+        /// <remarks>REC から直接 AnimationClip を書き出す経路（HID-409）も同じ判定とログを使う。</remarks>
+        internal static bool TryCheckSourceRemap(
+            RecTimeline timeline,
+            FacialProfile profile,
+            string profileName,
+            RecSourceRemap sourceRemap,
+            string recordingPath,
+            out IReadOnlyList<string> problems)
+        {
+            problems = Array.Empty<string>();
+
             // 対応表を渡さない呼び出し（従来の Export）は付け替えをしないので判定も警告もしない
             // （宣言の無い入力源は再生時の診断が示す）。
             if (sourceRemap == null)
@@ -289,7 +329,7 @@ namespace Hidano.FacialControl.Timeline.Editor
             }
 
             RecRemapReport report = RecSourceRemapResolver.Analyze(timeline, profile, sourceRemap);
-            IReadOnlyList<string> problems = RecSourceRemapResolver.DescribeProblems(report);
+            problems = RecSourceRemapResolver.DescribeProblems(report);
             if (report.HasErrors)
             {
                 Debug.LogError(
@@ -319,7 +359,7 @@ namespace Hidano.FacialControl.Timeline.Editor
         /// レイヤー weight はレイヤー weight トラックとして Export するため対象外（HID-182）。
         /// 件数は 1 行にまとめ、レコードごとには出さない（Console を埋めないため）。
         /// </remarks>
-        private static void WarnSkippedWeightRecords(RecEventSequenceAdapter sequence, string recordingPath)
+        internal static void WarnSkippedWeightRecords(RecEventSequenceAdapter sequence, string recordingPath)
         {
             if (sequence.SkippedWeightEventCount <= 0)
             {
@@ -339,7 +379,7 @@ namespace Hidano.FacialControl.Timeline.Editor
         /// 系1（<c>ExpressionUseCase</c> / <c>FacialController.Activate</c> 経由の Expression 操作）は REC 再生では再現されるが、
         /// Timeline に表現するトラックが無いため Export した Timeline の再生では再現されない。weight と同じく無言では捨てない。
         /// </remarks>
-        private static void WarnSkippedExpressionRecords(RecEventSequenceAdapter sequence, string recordingPath)
+        internal static void WarnSkippedExpressionRecords(RecEventSequenceAdapter sequence, string recordingPath)
         {
             if (sequence.SkippedExpressionEventCount <= 0)
             {

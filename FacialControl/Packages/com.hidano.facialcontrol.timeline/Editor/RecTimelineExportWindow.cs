@@ -7,6 +7,7 @@ using Hidano.FacialControl.Rec.Domain.Models;
 using Hidano.FacialControl.Rec.Domain.Services;
 using Hidano.FacialControl.Timeline.Domain.Models;
 using Hidano.FacialControl.Timeline.Domain.Services;
+using Hidano.FacialControl.Timeline.Editor.AnimationClipExport;
 using Hidano.FacialControl.Timeline.Tracks;
 using UnityEditor;
 using UnityEditor.UIElements;
@@ -43,27 +44,16 @@ namespace Hidano.FacialControl.Timeline.Editor
         internal const string ExcludeChoice = "(除外)";
 
         private readonly List<string> _listedSourceIds = new List<string>();
-        private readonly Dictionary<string, string> _sourceChoices = new Dictionary<string, string>(StringComparer.Ordinal);
-        private readonly Dictionary<string, string> _layerChoices = new Dictionary<string, string>(StringComparer.Ordinal);
-        private readonly Dictionary<string, Label> _sourceStatusLabels = new Dictionary<string, Label>(StringComparer.Ordinal);
-        private readonly Dictionary<string, Label> _layerStatusLabels = new Dictionary<string, Label>(StringComparer.Ordinal);
 
         private TextField _recordingPathField;
         private ObjectField _profileField;
         private ObjectField _timelineField;
         private ScrollView _detectionList;
-        private ScrollView _remapList;
-        private HelpBox _remapProblemBox;
         private HelpBox _statusBox;
-        private RecRemapRecording _remapRecording;
-        private RecRemapTarget _remapTarget;
-        private FacialProfile? _remapProfile;
-        private RecRemapReport _remapReport;
 
-        // 対応表の選択を作った REC の識別子（読み込んだバイト列の SHA-256）と Profile（instance ID。無しは 0）。
-        // どちらかが変わったら選択を引き継がない。
-        private string _remapRecordingKey;
-        private int _remapProfileKey;
+        // 対応表の UI（REC から AnimationClip を書き出すウィンドウと共通。HID-409）。選択は、作った REC の識別子
+        // （読み込んだバイト列の SHA-256）と Profile（instance ID。無しは 0）が同じ間だけ引き継ぐ。
+        private RecSourceRemapPanel _remapPanel;
         private bool _built;
 
         [MenuItem("Tools/FacialControl/Timeline/REC Export")]
@@ -81,11 +71,10 @@ namespace Hidano.FacialControl.Timeline.Editor
         internal string StatusText => _statusBox != null ? _statusBox.text : string.Empty;
 
         /// <summary>テスト用: 対応表を当てた現在の判定結果（REC と Profile が揃うまで null）。</summary>
-        internal RecRemapReport RemapReport => _remapReport;
+        internal RecRemapReport RemapReport => _remapPanel?.Report;
 
         /// <summary>テスト用: 未対応・衝突の一覧の文言（無ければ空）。</summary>
-        internal string RemapProblemText =>
-            _remapProblemBox != null && _remapProblemBox.style.display.value != DisplayStyle.None ?_remapProblemBox.text : string.Empty;
+        internal string RemapProblemText => _remapPanel != null ? _remapPanel.ProblemText : string.Empty;
 
         private void CreateGUI()
         {
@@ -155,19 +144,8 @@ namespace Hidano.FacialControl.Timeline.Editor
             _detectionList.style.marginTop = 4f;
             root.Add(_detectionList);
 
-            var remapHeader = new Label("Source / Layer Remap（REC の入力源・レイヤー → Profile）");
-            remapHeader.style.marginTop = 8f;
-            remapHeader.style.unityFontStyleAndWeight = FontStyle.Bold;
-            root.Add(remapHeader);
-
-            _remapList = new ScrollView(ScrollViewMode.Vertical) { name = RemapListName };
-            _remapList.style.minHeight = 80f;
-            _remapList.style.marginTop = 4f;
-            root.Add(_remapList);
-
-            _remapProblemBox = new HelpBox(string.Empty, HelpBoxMessageType.Warning) { name = RemapProblemBoxName };
-            _remapProblemBox.style.display = DisplayStyle.None;
-            root.Add(_remapProblemBox);
+            _remapPanel = new RecSourceRemapPanel(RemapListName, RemapProblemBoxName);
+            root.Add(_remapPanel);
 
             _statusBox = new HelpBox("Select a REC file and reload sources.", HelpBoxMessageType.Info);
             _statusBox.style.marginTop = 8f;
@@ -225,7 +203,7 @@ namespace Hidano.FacialControl.Timeline.Editor
 
             if (!RecFileReader.TryRead(_recordingPathField.value, out RecBinaryFormat.ReadResult readResult, out byte[] recordingBytes))
             {
-                RebuildRemap(null, null, null);
+                _remapPanel.Rebuild(null, null, null, 0);
                 SetStatus("REC load failed. Check Console for details.", HelpBoxMessageType.Error);
                 return;
             }
@@ -243,7 +221,11 @@ namespace Hidano.FacialControl.Timeline.Editor
                 _detectionList.Add(new Label("値チャネル（Analog / Gaze / ValueProvider）はありません。"));
             }
 
-            RebuildRemap(readResult.Timeline, profile, HashRecording(recordingBytes));
+            _remapPanel.Rebuild(
+                HashRecording(recordingBytes),
+                readResult.Timeline,
+                profile != null ? TimelineProfileSource.Resolve(profile) : (FacialProfile?)null,
+                profile != null ? profile.GetInstanceID() : 0);
 
             string message = $"Loaded {detections.Count} value channel(s) from REC.";
             if (profile == null)
@@ -254,71 +236,21 @@ namespace Hidano.FacialControl.Timeline.Editor
             SetStatus(message, HelpBoxMessageType.Info);
         }
 
-        /// <summary>
-        /// 対応表の欄を作り直す。行は REC の入力源（値チャネル・表情トリガー）と、レイヤー weight を記録したレイヤー。
-        /// 既定は「そのまま」（同じ id）。同じ REC（<paramref name="recordingKey"/> が同じ）のまま作り直すときだけ選んだ対応先を残す。
-        /// REC 側の集計はここで 1 回だけ行い、選択の変更では対応表の判定だけをやり直す。
-        /// </summary>
-        private void RebuildRemap(RecTimeline timeline, FacialCharacterProfileSO profileAsset, string recordingKey)
+        /// <summary>入力欄の選択から対応表を作る（「そのまま」は対応表に入れない）。</summary>
+        internal RecSourceRemap BuildSourceRemap()
         {
-            _remapList.Clear();
-            _sourceStatusLabels.Clear();
-            _layerStatusLabels.Clear();
-            _remapReport = null;
-            // REC が変わった・Profile を外した / 変えたときは、見えない選択を持ち越さない。
-            int profileKey = profileAsset != null ? profileAsset.GetInstanceID() : 0;
-            if (!string.Equals(recordingKey, _remapRecordingKey, StringComparison.Ordinal) || profileKey != _remapProfileKey)
-            {
-                _sourceChoices.Clear();
-                _layerChoices.Clear();
-            }
+            EnsureBuilt();
+            return _remapPanel.BuildSourceRemap();
+        }
 
-            _remapRecordingKey = recordingKey;
-            _remapProfileKey = profileKey;
-            _remapRecording = timeline != null ? RecSourceRemapResolver.CollectRecording(timeline) : null;
-            _remapProfile = profileAsset != null ? TimelineProfileSource.Resolve(profileAsset) : (FacialProfile?)null;
-            _remapTarget = _remapProfile.HasValue ? RecSourceRemapResolver.CollectTarget(_remapProfile.Value) : null;
-            if (_remapRecording == null || _remapTarget == null)
-            {
-                _remapList.Add(new Label(timeline == null
-                    ? "REC を読み込むと対応表を編集できます。"
-                    : "Profile を選ぶと、REC の入力源・レイヤーを Profile の入力源・レイヤーへ対応付けられます。"));
-                UpdateRemapProblems();
-                return;
-            }
-
-            RecRemapReport initial = RecSourceRemapResolver.Analyze(_remapRecording, _remapTarget, RecSourceRemap.Identity);
-            var sourceTargets = new List<string> { KeepChoice };
-            sourceTargets.AddRange(_remapTarget.SourceIds);
-            sourceTargets.Add(ExcludeChoice);
-            var layerTargets = new List<string> { KeepChoice };
-            layerTargets.AddRange(_remapTarget.LayerNames);
-            layerTargets.Add(ExcludeChoice);
-
-            RetainOnly(_sourceChoices, initial.Sources, entry => entry.RecordedId, sourceTargets, allowCustomId: true);
-            RetainOnly(_layerChoices, initial.Layers, entry => entry.RecordedName, layerTargets, allowCustomId: false);
-
-            if (initial.Sources.Count == 0 && initial.Layers.Count == 0)
-            {
-                _remapList.Add(new Label("付け替えの対象（入力源・レイヤー weight）はありません。"));
-            }
-
-            for (int i = 0; i < initial.Sources.Count; i++)
-            {
-                RecRemapSourceEntry entry = initial.Sources[i];
-                string caption = entry.TriggerCount > 0
-                    ? $"Source: {entry.RecordedId}（表情トリガー {entry.TriggerCount} 件）"
-                    : $"Source: {entry.RecordedId}";
-                _remapList.Add(CreateRemapRow(caption, entry.RecordedId, sourceTargets, _sourceChoices, _sourceStatusLabels, allowCustomId: true));
-            }
-
-            for (int i = 0; i < initial.Layers.Count; i++)
-            {
-                string recordedName = initial.Layers[i].RecordedName;
-                _remapList.Add(CreateRemapRow($"Layer: {recordedName}", recordedName, layerTargets, _layerChoices, _layerStatusLabels, allowCustomId: false));
-            }
-
-            UpdateRemapProblems();
+        /// <summary>
+        /// 対応先を選ぶ（テストとプログラムからの利用向け）。<paramref name="target"/> が null なら除外、
+        /// <see cref="KeepChoice"/> ならそのまま、それ以外は id の直接入力と同じ。REC と Profile を読み込んだ後に呼ぶ。
+        /// </summary>
+        internal void SetRemapChoice(bool isLayer, string recordedId, string target)
+        {
+            EnsureBuilt();
+            _remapPanel.SetRemapChoice(isLayer, recordedId, target);
         }
 
         /// <summary>REC の識別子（バイト列の SHA-256 の 16 進文字列）。null なら null。</summary>
@@ -351,166 +283,6 @@ namespace Hidano.FacialControl.Timeline.Editor
             {
                 return null;
             }
-        }
-
-        private static void RetainOnly<T>(
-            Dictionary<string, string> choices,
-            IReadOnlyList<T> entries,
-            Func<T, string> keyOf,
-            List<string> validChoices,
-            bool allowCustomId)
-        {
-            var keep = new Dictionary<string, string>(StringComparer.Ordinal);
-            for (int i = 0; i < entries.Count; i++)
-            {
-                string key = keyOf(entries[i]);
-                keep[key] = choices.TryGetValue(key, out string choice) && (allowCustomId || validChoices.Contains(choice))
-                    ? choice
-                    : KeepChoice;
-            }
-
-            choices.Clear();
-            foreach (KeyValuePair<string, string> pair in keep)
-            {
-                choices.Add(pair.Key, pair.Value);
-            }
-        }
-
-        private VisualElement CreateRemapRow(
-            string caption,
-            string recordedId,
-            List<string> targets,
-            Dictionary<string, string> choices,
-            Dictionary<string, Label> statusLabels,
-            bool allowCustomId)
-        {
-            var row = new VisualElement();
-            row.style.flexDirection = FlexDirection.Row;
-            row.style.alignItems = Align.Center;
-            row.style.marginBottom = 2f;
-
-            var label = new Label(caption);
-            label.style.flexGrow = 1f;
-            label.style.flexBasis = 0f;
-            row.Add(label);
-
-            string current = choices[recordedId];
-            bool isCustom = !targets.Contains(current);
-            var dropdown = new DropdownField(targets, isCustom ? KeepChoice : current);
-            dropdown.style.width = 180f;
-            row.Add(dropdown);
-
-            // Analog / 目線の入力源は AdapterBinding が registry に直接登録するため、レイヤーの inputSources にある id だけでは
-            // 対応先を選べない（例: iFacialMocap の ifm:head）。入力源は id を直接入力しても対応付けられるようにする。
-            // 入力した id の形式は判定（RecRemapStatus.InvalidId）で確かめ、不正なら Export を止める。
-            TextField customField = null;
-            if (allowCustomId)
-            {
-                customField = new TextField { value = isCustom ? current : string.Empty, tooltip = "対応先の入力源 id を直接入力（空ならドロップダウンの選択）" };
-                customField.style.width = 120f;
-                customField.RegisterValueChangedCallback(evt =>
-                {
-                    string typed = evt.newValue != null ? evt.newValue.Trim() : string.Empty;
-                    choices[recordedId] = typed.Length > 0 ? typed : dropdown.value;
-                    UpdateRemapProblems();
-                });
-                row.Add(customField);
-            }
-
-            dropdown.RegisterValueChangedCallback(evt =>
-            {
-                choices[recordedId] = evt.newValue;
-                customField?.SetValueWithoutNotify(string.Empty);
-                UpdateRemapProblems();
-            });
-
-            var status = new Label();
-            status.style.width = 160f;
-            status.style.marginLeft = 6f;
-            status.style.whiteSpace = WhiteSpace.Normal;
-            row.Add(status);
-            statusLabels[recordedId] = status;
-            return row;
-        }
-
-        /// <summary>入力欄の選択から対応表を作る（「そのまま」は対応表に入れない）。</summary>
-        internal RecSourceRemap BuildSourceRemap()
-        {
-            return new RecSourceRemap(ToMap(_sourceChoices), ToMap(_layerChoices));
-        }
-
-        /// <summary>
-        /// 対応先を選ぶ（テストとプログラムからの利用向け）。<paramref name="target"/> が null なら除外、
-        /// <see cref="KeepChoice"/> ならそのまま、それ以外は id の直接入力と同じ。REC と Profile を読み込んだ後に呼ぶ。
-        /// </summary>
-        internal void SetRemapChoice(bool isLayer, string recordedId, string target)
-        {
-            Dictionary<string, string> choices = isLayer ? _layerChoices : _sourceChoices;
-            if (!choices.ContainsKey(recordedId))
-            {
-                throw new ArgumentException($"'{recordedId}' is not a remappable {(isLayer ? "layer" : "source")}.", nameof(recordedId));
-            }
-
-            choices[recordedId] = target ?? ExcludeChoice;
-            UpdateRemapProblems();
-        }
-
-        private static List<KeyValuePair<string, string>> ToMap(Dictionary<string, string> choices)
-        {
-            var map = new List<KeyValuePair<string, string>>();
-            foreach (KeyValuePair<string, string> pair in choices)
-            {
-                if (pair.Value == KeepChoice)
-                {
-                    continue;
-                }
-
-                map.Add(new KeyValuePair<string, string>(pair.Key, pair.Value == ExcludeChoice ? null : pair.Value));
-            }
-
-            return map;
-        }
-
-        /// <summary>現在の選択で対応表を判定し直す（REC は走査し直さない）。</summary>
-        private void UpdateRemapProblems()
-        {
-            if (_remapRecording == null || _remapTarget == null)
-            {
-                _remapReport = null;
-                _remapProblemBox.style.display = DisplayStyle.None;
-                return;
-            }
-
-            _remapReport = RecSourceRemapResolver.Analyze(_remapRecording, _remapTarget, BuildSourceRemap());
-            for (int i = 0; i < _remapReport.Sources.Count; i++)
-            {
-                RecRemapSourceEntry entry = _remapReport.Sources[i];
-                if (_sourceStatusLabels.TryGetValue(entry.RecordedId, out Label label))
-                {
-                    label.text = StatusLabel(entry.Status, entry.TargetId, _remapProfile.Value);
-                }
-            }
-
-            for (int i = 0; i < _remapReport.Layers.Count; i++)
-            {
-                RecRemapLayerEntry entry = _remapReport.Layers[i];
-                if (_layerStatusLabels.TryGetValue(entry.RecordedName, out Label label))
-                {
-                    label.text = StatusLabel(entry.Status, null, _remapProfile.Value);
-                }
-            }
-
-            IReadOnlyList<string> problems = RecSourceRemapResolver.DescribeProblems(_remapReport);
-            if (problems.Count == 0)
-            {
-                _remapProblemBox.style.display = DisplayStyle.None;
-                _remapProblemBox.text = string.Empty;
-                return;
-            }
-
-            _remapProblemBox.messageType = _remapReport.HasErrors ? HelpBoxMessageType.Error : HelpBoxMessageType.Warning;
-            _remapProblemBox.text = "未対応・除外（Export 前に確認してください）:\n" + string.Join("\n", problems);
-            _remapProblemBox.style.display = DisplayStyle.Flex;
         }
 
         /// <summary>対応表の行の状態表示。入力源は、対応先を宣言している Profile のレイヤーも示す。</summary>
@@ -627,14 +399,14 @@ namespace Hidano.FacialControl.Timeline.Editor
             // 対応表の選択は読み込んだ REC に対して作ったもの。REC 欄のファイルの中身が読み込み時と違えば当て直しを求める。
             // 読み込んでいない（識別子が null）ときも、選択があれば照合する（null と現在の識別子は一致しないので拒否される）。
             RecSourceRemap remap = BuildSourceRemap();
-            if ((_remapRecordingKey != null || !remap.IsIdentity)
-                && !string.Equals(ComputeRecordingKey(_recordingPathField.value), _remapRecordingKey, StringComparison.Ordinal))
+            if ((_remapPanel.RecordingKey != null || !remap.IsIdentity)
+                && !string.Equals(ComputeRecordingKey(_recordingPathField.value), _remapPanel.RecordingKey, StringComparison.Ordinal))
             {
                 SetStatus("REC が読み込み時から変わっています。Reload Sources で読み込み直し、対応表を確認してから Export してください。", HelpBoxMessageType.Error);
                 return false;
             }
 
-            if (_remapReport != null && _remapReport.HasErrors)
+            if (_remapPanel.HasErrors)
             {
                 SetStatus("対応表に重複した対応先か不正な id があるため Export できません。Source / Layer Remap を確認してください。", HelpBoxMessageType.Error);
                 return false;
