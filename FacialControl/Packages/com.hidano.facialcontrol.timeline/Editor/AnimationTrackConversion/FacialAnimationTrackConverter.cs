@@ -420,8 +420,9 @@ namespace Hidano.FacialControl.Timeline.Editor.AnimationTrackConversion
 
         /// <summary>
         /// 値が跳び得る時刻（独自 Track の Clip 境界・Bake の状態イベント・階段カーブのキー）を集める。
+        /// REC から直接 AnimationClip を書き出す経路（HID-409）も同じ時刻列を使う。
         /// </summary>
-        private static List<double> CollectStepCandidateTimes(TimelineAsset timeline, FacialTimelineBakeAsset bake)
+        internal static List<double> CollectStepCandidateTimes(TimelineAsset timeline, FacialTimelineBakeAsset bake)
         {
             var times = new List<double>();
             var tracks = new List<(TrackAsset track, bool mutedInHierarchy)>();
