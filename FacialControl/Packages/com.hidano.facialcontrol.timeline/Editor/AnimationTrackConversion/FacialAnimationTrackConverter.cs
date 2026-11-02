@@ -19,33 +19,46 @@ using GazeChannel = Hidano.FacialControl.Adapters.ScriptableObject.GazeChannel;
 
 namespace Hidano.FacialControl.Timeline.Editor.AnimationTrackConversion
 {
+    /// <summary>変換で作った AnimationClip 1 本と、それを置いた AnimationTrack（HID-410）。</summary>
+    internal readonly struct AnimationTrackConversionClip
+    {
+        public AnimationTrackConversionClip(FacialAnimationClipPart part, AnimationTrack track, string clipPath)
+        {
+            Part = part;
+            Track = track;
+            ClipPath = clipPath;
+        }
+
+        /// <summary>ビルダーが作った Clip（保存済み）と、その種類・名前・カーブ数・キー数。</summary>
+        public FacialAnimationClipPart Part { get; }
+
+        /// <summary>作った AnimationTrack（Animator にバインド済み）。</summary>
+        public AnimationTrack Track { get; }
+
+        /// <summary>AnimationClip の保存先（<c>&lt;Timeline 名&gt;_&lt;対象名&gt;_&lt;ClipName&gt;.anim</c>。同名があれば番号付き）。</summary>
+        public string ClipPath { get; }
+    }
+
     /// <summary>1 対象（Receiver）分の変換結果。</summary>
     internal readonly struct AnimationTrackConversionResult
     {
         public AnimationTrackConversionResult(
             FacialTimelineReceiver receiver,
-            AnimationTrack track,
-            AnimationClip clip,
-            string clipPath,
+            IReadOnlyList<AnimationTrackConversionClip> clips,
             IReadOnlyList<TrackAsset> mutedTracks)
         {
             Receiver = receiver;
-            Track = track;
-            Clip = clip;
-            ClipPath = clipPath;
+            Clips = clips;
             MutedTracks = mutedTracks;
         }
 
         public FacialTimelineReceiver Receiver { get; }
 
-        /// <summary>作った AnimationTrack（Animator にバインド済み）。</summary>
-        public AnimationTrack Track { get; }
-
-        /// <summary>保存した AnimationClip。</summary>
-        public AnimationClip Clip { get; }
-
-        /// <summary>AnimationClip の保存先（<c>&lt;Timeline 名&gt;_&lt;対象名&gt;.anim</c>。同名があれば番号付き）。</summary>
-        public string ClipPath { get; }
+        /// <summary>
+        /// 作った AnimationClip と AnimationTrack（レイヤー別 → Base → Gaze の順。カーブの無いものは作らない）。
+        /// 各 Clip は互いに別のプロパティだけを持つ。
+        /// </summary>
+        public IReadOnlyList<AnimationTrackConversionClip> Clips { get; }
 
         /// <summary>ミュートした FacialControl の独自 Track。</summary>
         public IReadOnlyList<TrackAsset> MutedTracks { get; }
@@ -56,8 +69,11 @@ namespace Hidano.FacialControl.Timeline.Editor.AnimationTrackConversion
     /// </summary>
     /// <remarks>
     /// <para>独自 Track はレイヤーの priority・weight・overlay の suppress 等で合成されて最終値になるため、トラックごとではなく
-    /// 対象ごとに Edit プレビューと同じ合成（<see cref="TimelinePreviewCompositor"/>）でまとめて評価し、BlendShape と目ボーンの
-    /// カーブを持つ AnimationClip を 1 つ作る。シーンの renderer / ボーンは書き換えず、合成出力を直接読む。</para>
+    /// 対象ごとに Edit プレビューと同じ合成（<see cref="TimelinePreviewCompositor"/>）でまとめて評価する。合成後の最終値を
+    /// BlendShape ごとの担当レイヤーで振り分け、レイヤー別の AnimationClip と目ボーン回転の AnimationClip を作り、
+    /// 1 本ずつ AnimationTrack に置く（HID-410。<see cref="FacialAnimationClipBuilder"/>）。Clip 同士は同じプロパティを触らないので、
+    /// 全トラックを再生した結果は合成結果と一致する。Clip の値は合成後の数値なので、編集してもレイヤー合成は再計算されない。
+    /// シーンの renderer / ボーンは書き換えず、合成出力を直接読む。</para>
     /// <para>キーは Timeline のフレームごとに評価した値から、直線で結んだときのずれが閾値以下の中間キーを消して作る
     /// （<see cref="KeyframeReducer"/>）。Clip 境界・状態イベント・階段カーブのキーの時刻では直前の値も評価し、値が跳ぶ箇所は
     /// 段差（右接線 Constant）にする。</para>
@@ -66,14 +82,6 @@ namespace Hidano.FacialControl.Timeline.Editor.AnimationTrackConversion
     /// </remarks>
     internal static class FacialAnimationTrackConverter
     {
-        /// <summary>BlendShape の間引き閾値（AnimationClip 上の 0..100 スケール。ドメイン値で 0.001）。</summary>
-        public const float BlendShapeTolerance = 0.1f;
-
-        /// <summary>目ボーン回転の間引き閾値（度）。</summary>
-        public const float GazeRotationToleranceDegrees = 0.1f;
-
-        /// <summary>段差を調べる時刻で、直前の値を評価する時間幅（秒）。</summary>
-        public const double StepProbeSeconds = 5e-4d;
 
         /// <summary>Timeline に有効なフレームレートが無いときに使う値。</summary>
         public const double FallbackFrameRate = 60d;
@@ -81,14 +89,6 @@ namespace Hidano.FacialControl.Timeline.Editor.AnimationTrackConversion
         public const string UndoName = "Convert FacialControl Tracks To AnimationTrack";
 
         private const string LogPrefix = "[FacialAnimationTrackConverter] ";
-        private const string BlendShapePropertyPrefix = "blendShape.";
-        private static readonly string[] RotationProperties =
-        {
-            "m_LocalRotation.x",
-            "m_LocalRotation.y",
-            "m_LocalRotation.z",
-            "m_LocalRotation.w",
-        };
 
         public static bool IsFacialTrack(TrackAsset track)
         {
@@ -96,7 +96,8 @@ namespace Hidano.FacialControl.Timeline.Editor.AnimationTrackConversion
         }
 
         /// <summary>
-        /// <paramref name="selection"/> のうち独自 Track が紐づく対象ごとに 1 本の AnimationTrack を作る。
+        /// <paramref name="selection"/> のうち独自 Track が紐づく対象ごとに、レイヤー別・Base・Gaze の AnimationClip を 1 本ずつ置いた
+        /// AnimationTrack 群を作る（対象 1 つにつき結果 1 つ。<see cref="AnimationTrackConversionResult.Clips"/>）。
         /// 独自 Track が無い・対象を解決できない選択は空の結果を返す（理由はログに出す）。
         /// </summary>
         public static List<AnimationTrackConversionResult> Convert(PlayableDirector director, IEnumerable<TrackAsset> selection)
@@ -252,10 +253,10 @@ namespace Hidano.FacialControl.Timeline.Editor.AnimationTrackConversion
             }
 
             Transform root = animator != null ? animator.transform : controller.transform;
-            AnimationClip clip = BuildClip(timeline, controller, profileAsset, compositor, root, animator != null && animator.isHuman ? animator : null);
-            if (AnimationUtility.GetCurveBindings(clip).Length == 0)
+            List<FacialAnimationClipPart> parts = BuildClips(
+                timeline, controller, profileAsset, compositor, root, animator != null && animator.isHuman ? animator : null);
+            if (parts.Count == 0)
             {
-                UnityEngine.Object.DestroyImmediate(clip);
                 Debug.LogError(LogPrefix + $"'{controller.name}' の BlendShape・目ボーンが Animator の階層に無いため、変換するカーブがありません。変換しません。", receiver);
                 return false;
             }
@@ -265,27 +266,38 @@ namespace Hidano.FacialControl.Timeline.Editor.AnimationTrackConversion
                 animator = Undo.AddComponent<Animator>(controller.gameObject);
             }
 
-            clip.name = timeline.name + "_" + controller.name;
-            string clipPath = ResolveClipPath(timeline, controller.name);
-            AssetDatabase.CreateAsset(clip, clipPath);
-
             Undo.RegisterCompleteObjectUndo(timeline, UndoName);
-            var track = timeline.CreateTrack<AnimationTrack>(null, controller.name + " (Animation)");
-            Undo.RegisterCreatedObjectUndo(track, UndoName);
-            TimelineClip timelineClip = track.CreateClip(clip);
-            timelineClip.start = 0d;
-            timelineClip.displayName = clip.name;
-            if (timelineClip.asset != null)
-            {
-                Undo.RegisterCreatedObjectUndo(timelineClip.asset, UndoName);
-            }
-
             Undo.RecordObject(director, UndoName);
-            director.SetGenericBinding(track, animator);
+            var clips = new List<AnimationTrackConversionClip>(parts.Count);
+            var summary = new System.Text.StringBuilder();
+            for (int i = 0; i < parts.Count; i++)
+            {
+                FacialAnimationClipPart part = parts[i];
+                AnimationClip clip = part.Clip;
+                clip.name = timeline.name + "_" + controller.name + "_" + part.ClipName;
+                string clipPath = ResolveClipPath(timeline, controller.name + "_" + part.ClipName);
+                AssetDatabase.CreateAsset(clip, clipPath);
+
+                var track = timeline.CreateTrack<AnimationTrack>(null, controller.name + " (" + part.ClipName + ")");
+                Undo.RegisterCreatedObjectUndo(track, UndoName);
+                TimelineClip timelineClip = track.CreateClip(clip);
+                timelineClip.start = 0d;
+                timelineClip.displayName = clip.name;
+                if (timelineClip.asset != null)
+                {
+                    Undo.RegisterCreatedObjectUndo(timelineClip.asset, UndoName);
+                }
+
+                // Clip 同士は別のプロパティだけを持つので、すべて同じ Animator にバインドしても値は混ざらない。
+                director.SetGenericBinding(track, animator);
+                clips.Add(new AnimationTrackConversionClip(part, track, clipPath));
+                summary.Append(i == 0 ? string.Empty : ", ").Append($"{part.ClipName}: カーブ {part.CurveCount} / キー {part.KeyCount}");
+            }
 
             List<TrackAsset> muted = MuteSourceTracks(timeline, resolver, receiver);
             EditorUtility.SetDirty(timeline);
-            result = new AnimationTrackConversionResult(receiver, track, clip, clipPath, muted);
+            Debug.Log(LogPrefix + $"'{controller.name}' を {clips.Count} 本の AnimationClip に変換しました（{summary}）。", receiver);
+            result = new AnimationTrackConversionResult(receiver, clips, muted);
             return true;
         }
 
@@ -392,7 +404,7 @@ namespace Hidano.FacialControl.Timeline.Editor.AnimationTrackConversion
             return new string(chars);
         }
 
-        private static AnimationClip BuildClip(
+        private static List<FacialAnimationClipPart> BuildClips(
             TimelineAsset timeline,
             FacialController controller,
             FacialCharacterProfileSO profileAsset,
@@ -402,204 +414,9 @@ namespace Hidano.FacialControl.Timeline.Editor.AnimationTrackConversion
         {
             double frameRate = timeline.editorSettings.frameRate > 0d ? timeline.editorSettings.frameRate : FallbackFrameRate;
             SampleTimeline samples = SampleTimeline.Create(timeline.duration, frameRate, CollectStepCandidateTimes(timeline, compositor.BakeLocate.Bake));
-            var clip = new AnimationClip { frameRate = (float)frameRate };
-
-            var bindings = new List<EditorCurveBinding>();
-            var curves = new List<AnimationCurve>();
-            CollectBlendShapeCurves(controller, compositor, root, samples, bindings, curves);
-            CollectGazeCurves(controller, profileAsset, compositor, root, humanoid, samples, bindings, curves);
-            AnimationUtility.SetEditorCurves(clip, bindings.ToArray(), curves.ToArray());
-            return clip;
+            return FacialAnimationClipBuilder.Build(compositor, controller, profileAsset, root, humanoid, samples, frameRate);
         }
 
-        private static void CollectBlendShapeCurves(
-            FacialController controller,
-            TimelinePreviewCompositor compositor,
-            Transform root,
-            SampleTimeline samples,
-            List<EditorCurveBinding> bindings,
-            List<AnimationCurve> curves)
-        {
-            IReadOnlyList<string> names = compositor.BlendShapeNames;
-            int shapeCount = names.Count;
-            var outputIndexByName = new Dictionary<string, int>(shapeCount, StringComparer.Ordinal);
-            for (int s = 0; s < shapeCount; s++)
-            {
-                outputIndexByName[names[s]] = s;
-            }
-
-            int sampleCount = samples.Times.Count;
-            var values = new float[shapeCount][];
-            for (int s = 0; s < shapeCount; s++)
-            {
-                values[s] = new float[sampleCount];
-            }
-
-            for (int i = 0; i < sampleCount; i++)
-            {
-                if (!compositor.TryEvaluateOutput(samples.Times[i], out ReadOnlySpan<float> output))
-                {
-                    continue;
-                }
-
-                int count = Math.Min(shapeCount, output.Length);
-                for (int s = 0; s < count; s++)
-                {
-                    // renderer へ書く値（SkinnedMeshRendererBlendShapeWriter と同じ 0..100 スケール）。
-                    values[s][i] = output[s] * 100f;
-                }
-            }
-
-            var built = new AnimationCurve[shapeCount];
-            SkinnedMeshRenderer[] renderers = TimelinePreviewCompositor.ResolveRenderers(controller);
-            for (int r = 0; r < renderers.Length; r++)
-            {
-                SkinnedMeshRenderer renderer = renderers[r];
-                Mesh mesh = renderer != null ? renderer.sharedMesh : null;
-                if (mesh == null || !TryGetPath(renderer.transform, root, out string path))
-                {
-                    continue;
-                }
-
-                for (int shapeIndex = 0; shapeIndex < mesh.blendShapeCount; shapeIndex++)
-                {
-                    string shapeName = mesh.GetBlendShapeName(shapeIndex);
-                    if (!outputIndexByName.TryGetValue(shapeName, out int outputIndex))
-                    {
-                        continue;
-                    }
-
-                    built[outputIndex] ??= BuildScalarCurve(samples, values[outputIndex], BlendShapeTolerance);
-                    bindings.Add(EditorCurveBinding.FloatCurve(path, typeof(SkinnedMeshRenderer), BlendShapePropertyPrefix + shapeName));
-                    curves.Add(built[outputIndex]);
-                }
-            }
-        }
-
-        private static void CollectGazeCurves(
-            FacialController controller,
-            FacialCharacterProfileSO profileAsset,
-            TimelinePreviewCompositor compositor,
-            Transform root,
-            Animator humanoid,
-            SampleTimeline samples,
-            List<EditorCurveBinding> bindings,
-            List<AnimationCurve> curves)
-        {
-            IReadOnlyList<GazeChannel> gazeChannels = profileAsset.GazeChannels;
-            if (gazeChannels == null || gazeChannels.Count == 0)
-            {
-                return;
-            }
-
-            GazeEyeBoneResolver resolver = FacialTimelineEditorPreview.GetGazeEyeResolver(controller);
-            var targets = new List<FacialTimelinePreviewEyeTarget>();
-            compositor.ResolveGazeTargets(gazeChannels, resolver, targets);
-            if (targets.Count == 0)
-            {
-                return;
-            }
-
-            // 同じボーンを複数の target が指す場合は、プレビュー（後から書いた方が残る）と同じく最後の target を使う。
-            var bones = new List<Transform>();
-            var lastTargetOfBone = new List<int>();
-            for (int t = 0; t < targets.Count; t++)
-            {
-                int index = bones.IndexOf(targets[t].Bone);
-                if (index < 0)
-                {
-                    bones.Add(targets[t].Bone);
-                    lastTargetOfBone.Add(t);
-                }
-                else
-                {
-                    lastTargetOfBone[index] = t;
-                }
-            }
-
-            Transform leftEye = humanoid != null ? humanoid.GetBoneTransform(HumanBodyBones.LeftEye) : null;
-            Transform rightEye = humanoid != null ? humanoid.GetBoneTransform(HumanBodyBones.RightEye) : null;
-            int sampleCount = samples.Times.Count;
-            for (int b = 0; b < bones.Count; b++)
-            {
-                Transform bone = bones[b];
-                if (bone == null || !TryGetPath(bone, root, out string path))
-                {
-                    continue;
-                }
-
-                if (bone == leftEye || bone == rightEye)
-                {
-                    Debug.LogWarning(LogPrefix + $"目ボーン '{bone.name}' は Humanoid の Avatar にマップされています。Humanoid の Animator ではこのボーンの回転カーブが適用されないことがあります。", bone);
-                }
-
-                FacialTimelinePreviewEyeTarget target = targets[lastTargetOfBone[b]];
-                var components = new float[sampleCount * 4];
-                for (int i = 0; i < sampleCount; i++)
-                {
-                    Quaternion rotation = compositor.ComputeGazeRotation(samples.Times[i], target, gazeChannels);
-                    components[(i * 4) + 0] = rotation.x;
-                    components[(i * 4) + 1] = rotation.y;
-                    components[(i * 4) + 2] = rotation.z;
-                    components[(i * 4) + 3] = rotation.w;
-                }
-
-                QuaternionChannelMetric.AlignHemispheres(components);
-                AnimationCurve[] rotationCurves = BuildQuaternionCurves(samples, components, GazeRotationToleranceDegrees);
-                for (int c = 0; c < 4; c++)
-                {
-                    bindings.Add(EditorCurveBinding.FloatCurve(path, typeof(Transform), RotationProperties[c]));
-                    curves.Add(rotationCurves[c]);
-                }
-            }
-        }
-
-        internal static AnimationCurve BuildScalarCurve(SampleTimeline samples, float[] values, float tolerance)
-        {
-            var metric = new ScalarChannelMetric(samples.Times, values);
-            bool[] steps = samples.DetectSteps(metric, tolerance);
-            List<ReducedKey> keys = KeyframeReducer.Reduce(steps, values.Length, metric, tolerance);
-            return CreateCurve(samples.Times, keys, i => values[i]);
-        }
-
-        internal static AnimationCurve[] BuildQuaternionCurves(SampleTimeline samples, float[] components, float toleranceDegrees)
-        {
-            var metric = new QuaternionChannelMetric(samples.Times, components);
-            bool[] steps = samples.DetectSteps(metric, toleranceDegrees);
-            List<ReducedKey> keys = KeyframeReducer.Reduce(steps, components.Length / 4, metric, toleranceDegrees);
-            var curves = new AnimationCurve[4];
-            for (int c = 0; c < 4; c++)
-            {
-                int component = c;
-                curves[c] = CreateCurve(samples.Times, keys, i => components[(i * 4) + component]);
-            }
-
-            return curves;
-        }
-
-        /// <summary>
-        /// 残すキーから AnimationCurve を作る。接線は Linear、<see cref="ReducedKey.HoldUntilNext"/> のキーと次のキーの間は Constant
-        /// （接線の値は tangent mode から Unity が計算する）。
-        /// </summary>
-        internal static AnimationCurve CreateCurve(IReadOnlyList<double> times, List<ReducedKey> keys, Func<int, float> valueAt)
-        {
-            var frames = new Keyframe[keys.Count];
-            for (int k = 0; k < keys.Count; k++)
-            {
-                frames[k] = new Keyframe((float)times[keys[k].SampleIndex], valueAt(keys[k].SampleIndex));
-            }
-
-            var curve = new AnimationCurve(frames);
-            for (int k = 0; k < frames.Length; k++)
-            {
-                bool holdBefore = k > 0 && keys[k - 1].HoldUntilNext;
-                AnimationUtility.SetKeyBroken(curve, k, true);
-                AnimationUtility.SetKeyLeftTangentMode(curve, k, holdBefore ? AnimationUtility.TangentMode.Constant : AnimationUtility.TangentMode.Linear);
-                AnimationUtility.SetKeyRightTangentMode(curve, k, keys[k].HoldUntilNext ? AnimationUtility.TangentMode.Constant : AnimationUtility.TangentMode.Linear);
-            }
-
-            return curve;
-        }
 
         /// <summary>
         /// 値が跳び得る時刻（独自 Track の Clip 境界・Bake の状態イベント・階段カーブのキー）を集める。
@@ -676,18 +493,6 @@ namespace Hidano.FacialControl.Timeline.Editor.AnimationTrackConversion
             }
         }
 
-        private static bool TryGetPath(Transform target, Transform root, out string path)
-        {
-            if (!target.IsChildOf(root))
-            {
-                Debug.LogWarning(LogPrefix + $"'{target.name}' は Animator（{root.name}）の階層に無いため AnimationClip に含めません。", target);
-                path = null;
-                return false;
-            }
-
-            path = AnimationUtility.CalculateTransformPath(target, root);
-            return true;
-        }
     }
 
     /// <summary>
@@ -706,126 +511,6 @@ namespace Hidano.FacialControl.Timeline.Editor.AnimationTrackConversion
         public FacialTimelineReceiver Resolve(TrackAsset track)
         {
             return FacialTimelineEditorPreview.ResolveBoundReceiver(_director, track);
-        }
-    }
-
-    /// <summary>
-    /// 変換で評価する時刻列。Timeline のフレーム（0 〜 duration）に、値が跳び得る時刻 t ごとの (t - <see cref="FacialAnimationTrackConverter.StepProbeSeconds"/>, t) を加える。
-    /// </summary>
-    internal sealed class SampleTimeline
-    {
-        private const double MergeTolerance = 1e-6d;
-
-        private readonly List<double> _times;
-
-        // _probeIndices[k] は「直前の値」を評価したサンプル（値が跳び得る時刻の直前）。跳ぶかどうかはチャネルごとに判定する。
-        private readonly List<int> _probeIndices;
-
-        private SampleTimeline(List<double> times, List<int> probeIndices)
-        {
-            _times = times;
-            _probeIndices = probeIndices;
-        }
-
-        public IReadOnlyList<double> Times => _times;
-
-        public static SampleTimeline Create(double duration, double frameRate, IReadOnlyList<double> stepCandidates)
-        {
-            duration = Math.Max(0d, duration);
-            var all = new List<double>();
-            int frameCount = (int)Math.Ceiling((duration * frameRate) - MergeTolerance);
-            for (int f = 0; f <= frameCount; f++)
-            {
-                all.Add(Math.Min(f / frameRate, duration));
-            }
-
-            var candidates = new List<double>();
-            var probes = new List<double>();
-            if (stepCandidates != null)
-            {
-                for (int i = 0; i < stepCandidates.Count; i++)
-                {
-                    double t = stepCandidates[i];
-                    if (t - FacialAnimationTrackConverter.StepProbeSeconds <= 0d || t > duration + MergeTolerance)
-                    {
-                        continue;
-                    }
-
-                    t = Math.Min(t, duration);
-                    candidates.Add(t);
-                    probes.Add(t - FacialAnimationTrackConverter.StepProbeSeconds);
-                }
-            }
-
-            // 「直前の値」のすぐ次のサンプルが段差候補の時刻になるよう、(t - probe, t) に入るフレームは評価しない。
-            candidates.Sort();
-            all.RemoveAll(frame => IsInsideProbeWindow(candidates, frame));
-            all.AddRange(candidates);
-            all.AddRange(probes);
-            all.Sort();
-            var times = new List<double>(all.Count);
-            for (int i = 0; i < all.Count; i++)
-            {
-                if (times.Count == 0 || all[i] - times[times.Count - 1] > MergeTolerance)
-                {
-                    times.Add(all[i]);
-                }
-            }
-
-            probes.Sort();
-            var probeIndices = new List<int>(probes.Count);
-            int cursor = 0;
-            for (int i = 0; i < probes.Count; i++)
-            {
-                while (cursor < times.Count && times[cursor] < probes[i] - MergeTolerance)
-                {
-                    cursor++;
-                }
-
-                if (cursor + 1 < times.Count && (probeIndices.Count == 0 || probeIndices[probeIndices.Count - 1] != cursor))
-                {
-                    probeIndices.Add(cursor);
-                }
-            }
-
-            return new SampleTimeline(times, probeIndices);
-        }
-
-        private static bool IsInsideProbeWindow(List<double> sortedCandidates, double frame)
-        {
-            int index = sortedCandidates.BinarySearch(frame);
-            if (index < 0)
-            {
-                index = ~index;
-            }
-
-            // frame 以上で最小の候補 t について、t - probe < frame < t なら窓の中。
-            while (index < sortedCandidates.Count && sortedCandidates[index] - frame <= MergeTolerance)
-            {
-                index++;
-            }
-
-            return index < sortedCandidates.Count
-                && sortedCandidates[index] - FacialAnimationTrackConverter.StepProbeSeconds < frame - MergeTolerance;
-        }
-
-        /// <summary>
-        /// 「直前の値」のサンプル p と次のサンプル p + 1 の間で、保持のずれが <paramref name="tolerance"/> を超えるものを段差とする
-        /// （戻り値の [p + 1] が true）。
-        /// </summary>
-        public bool[] DetectSteps(IKeyframeChannelMetric metric, float tolerance)
-        {
-            var steps = new bool[_times.Count];
-            for (int i = 0; i < _probeIndices.Count; i++)
-            {
-                int p = _probeIndices[i];
-                if (metric.DeviationFromHold(p, p + 1) > tolerance)
-                {
-                    steps[p + 1] = true;
-                }
-            }
-
-            return steps;
         }
     }
 }

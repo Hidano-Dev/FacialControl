@@ -14,6 +14,7 @@ using Hidano.FacialControl.Timeline.Tracks;
 using NUnit.Framework;
 using UnityEditor;
 using UnityEngine;
+using UnityEngine.Playables;
 using UnityEngine.TestTools;
 using UnityEngine.Timeline;
 
@@ -29,10 +30,10 @@ namespace Hidano.FacialControl.Timeline.Tests.PlayMode
     public sealed class FacialAnimationTrackConverterTests : SizedTestFixture
     {
         /// <summary>BlendShape の許容誤差（間引き閾値 + float の丸め）。</summary>
-        private const float BlendShapeTolerance = FacialAnimationTrackConverter.BlendShapeTolerance + 0.01f;
+        private const float BlendShapeTolerance = FacialAnimationCurveFactory.BlendShapeTolerance + 0.01f;
 
         /// <summary>目ボーン回転の許容誤差（度。間引き閾値 + float の丸め）。</summary>
-        private const float GazeToleranceDegrees = FacialAnimationTrackConverter.GazeRotationToleranceDegrees + 0.05f;
+        private const float GazeToleranceDegrees = FacialAnimationCurveFactory.GazeRotationToleranceDegrees + 0.05f;
 
         private TimelineE2EFixture _fixture;
         private TimelinePreviewCompositor _compositor;
@@ -60,14 +61,20 @@ namespace Hidano.FacialControl.Timeline.Tests.PlayMode
 
             List<AnimationTrackConversionResult> results = Convert(character);
 
-            Assert.That(results.Count, Is.EqualTo(1), "対象 1 つにつき AnimationTrack は 1 本");
-            AnimationClip clip = results[0].Clip;
+            Assert.That(results.Count, Is.EqualTo(1), "対象 1 つにつき結果は 1 つ");
+            IReadOnlyList<AnimationTrackConversionClip> clips = results[0].Clips;
+            Assert.That(clips.Count, Is.GreaterThan(1), "レイヤー別と目線の Clip に分かれる");
             GameObject animatorObject = character.Root;
             float maxSmile = 0f;
             for (int i = 0; i < expected.Count; i++)
             {
                 (double time, float[] weights, Quaternion left, Quaternion right) = expected[i];
-                clip.SampleAnimation(animatorObject, (float)time);
+                // Clip 同士は別のプロパティだけを持つため、全 AnimationTrack を並べた再生と同じく順にサンプルすればよい。
+                for (int c = 0; c < clips.Count; c++)
+                {
+                    clips[c].Part.Clip.SampleAnimation(animatorObject, (float)time);
+                }
+
                 string[] names = TimelineE2EFixture.MeshBlendShapes;
                 for (int s = 0; s < names.Length; s++)
                 {
@@ -86,14 +93,60 @@ namespace Hidano.FacialControl.Timeline.Tests.PlayMode
         }
 
         [Test]
+        public void Convert_RecExportedTimeline_DirectorPlaybackOfAllAnimationTracksMatchesSourceEveryFrame()
+        {
+            // 変換で作った複数の AnimationTrack を、同じ Animator にバインドしたまま PlayableDirector で再生する。
+            // Timeline はトラックごとに Animation の layer を重ねるため、後ろのトラックが前のトラックのプロパティを
+            // 既定値へ戻さない（Clip 同士でプロパティが重ならない）ことを、合成結果との一致で確かめる。
+            TimelineE2ECharacter character = Prepare(new RecFixtureWriter.Recording
+            {
+                IncludeValueProvider = true,
+                IncludeLayerWeights = true,
+            });
+            List<(double time, float[] weights, Quaternion left, Quaternion right)> expected = EvaluateSource(character);
+            List<AnimationTrackConversionResult> results = Convert(character);
+            Assert.That(results[0].Clips.Count, Is.GreaterThan(2), "前提: レイヤー別・目線の複数トラックを再生する");
+
+            // FacialController / Receiver の LateUpdate が renderer を上書きしないよう止め、AnimationTrack の再生結果だけを読む。
+            character.Controller.enabled = false;
+            character.Receiver.enabled = false;
+            PlayableDirector director = character.Director;
+            director.RebuildGraph();
+            director.Play();
+            float maxSmile = 0f;
+            string[] names = TimelineE2EFixture.MeshBlendShapes;
+            for (int i = 0; i < expected.Count; i++)
+            {
+                (double time, float[] weights, Quaternion left, Quaternion right) = expected[i];
+                director.time = time;
+                director.Evaluate();
+                for (int s = 0; s < names.Length; s++)
+                {
+                    Assert.That(
+                        character.GetBlendShapeWeight(names[s]),
+                        Is.EqualTo(weights[s]).Within(BlendShapeTolerance),
+                        $"t={time:F4} {names[s]}");
+                }
+
+                Assert.That(Quaternion.Angle(character.LeftEye.localRotation, left), Is.LessThanOrEqualTo(GazeToleranceDegrees), $"t={time:F4} LeftEye");
+                Assert.That(Quaternion.Angle(character.RightEye.localRotation, right), Is.LessThanOrEqualTo(GazeToleranceDegrees), $"t={time:F4} RightEye");
+                maxSmile = Math.Max(maxSmile, weights[0]);
+            }
+
+            director.Stop();
+            Assert.That(maxSmile, Is.GreaterThan(50f), "前提: 比較した時刻に smile が出ている");
+        }
+
+        [Test]
         public void Convert_GenericModelWithoutJointNames_DrivesEyesByRecordedPaths()
         {
             // 書き出し側は Generic (Avatar なし) で、目線メニューのジョイント名も未指定。Avatar からも名前からも目線ボーンを
             // 引けないが、REC に記録された目線ボーンのパスで引いて目線を再現する (HID-192)。
             TimelineE2ECharacter character = Prepare(new RecFixtureWriter.Recording(), ClearGazeJointNames);
 
-            AnimationClip clip = Convert(character)[0].Clip;
+            AnimationClip clip = FindClip(Convert(character)[0], FacialAnimationClipKind.Gaze);
 
+            Assert.That(clip, Is.Not.Null, "目線の Clip がある");
             EditorCurveBinding[] bindings = AnimationUtility.GetCurveBindings(clip);
             Assert.That(HasRotationCurve(bindings, RecFixtureWriter.DefaultLeftEyeBonePath), Is.True, "左目の回転カーブがある");
             Assert.That(HasRotationCurve(bindings, RecFixtureWriter.DefaultRightEyeBonePath), Is.True, "右目の回転カーブがある");
@@ -110,12 +163,13 @@ namespace Hidano.FacialControl.Timeline.Tests.PlayMode
                 new RecFixtureWriter.Recording { LeftEyeBonePath = null, RightEyeBonePath = null },
                 ClearGazeJointNames);
 
-            AnimationClip clip = Convert(character)[0].Clip;
+            AnimationTrackConversionResult result = Convert(character)[0];
 
-            EditorCurveBinding[] bindings = AnimationUtility.GetCurveBindings(clip);
+            Assert.That(FindClip(result, FacialAnimationClipKind.Gaze), Is.Null, "目線の Clip は作らない");
+            List<EditorCurveBinding> bindings = AllBindings(result);
             Assert.That(HasRotationCurve(bindings, RecFixtureWriter.DefaultLeftEyeBonePath), Is.False);
             Assert.That(HasRotationCurve(bindings, RecFixtureWriter.DefaultRightEyeBonePath), Is.False);
-            Assert.That(bindings.Length, Is.GreaterThan(0), "目線以外 (BlendShape) は従来どおり変換する");
+            Assert.That(bindings.Count, Is.GreaterThan(0), "目線以外 (BlendShape) は従来どおり変換する");
         }
 
         private static void ClearGazeJointNames(Hidano.FacialControl.Adapters.ScriptableObject.Serializable.FacialCharacterProfileSO profileAsset)
@@ -125,9 +179,9 @@ namespace Hidano.FacialControl.Timeline.Tests.PlayMode
             gaze.rightEyeBonePath = string.Empty;
         }
 
-        private static bool HasRotationCurve(EditorCurveBinding[] bindings, string path)
+        private static bool HasRotationCurve(IReadOnlyList<EditorCurveBinding> bindings, string path)
         {
-            for (int i = 0; i < bindings.Length; i++)
+            for (int i = 0; i < bindings.Count; i++)
             {
                 if (bindings[i].path == path && bindings[i].type == typeof(Transform) && bindings[i].propertyName == "m_LocalRotation.w")
                 {
@@ -144,18 +198,63 @@ namespace Hidano.FacialControl.Timeline.Tests.PlayMode
             TimelineE2ECharacter character = Prepare(new RecFixtureWriter.Recording());
             int frameCount = (int)Math.Ceiling(_fixture.Timeline.duration * _fixture.Timeline.editorSettings.frameRate) + 1;
 
-            AnimationClip clip = Convert(character)[0].Clip;
+            AnimationTrackConversionResult result = Convert(character)[0];
 
-            EditorCurveBinding[] bindings = AnimationUtility.GetCurveBindings(clip);
-            Assert.That(bindings.Length, Is.GreaterThan(0));
-            for (int i = 0; i < bindings.Length; i++)
+            Assert.That(AllBindings(result).Count, Is.GreaterThan(0));
+            for (int c = 0; c < result.Clips.Count; c++)
             {
-                AnimationCurve curve = AnimationUtility.GetEditorCurve(clip, bindings[i]);
-                Assert.That(curve.length, Is.LessThan(frameCount / 2), $"{bindings[i].path}/{bindings[i].propertyName} はフルキーにしない");
-                if (IsConstant(curve))
+                AnimationClip clip = result.Clips[c].Part.Clip;
+                foreach (EditorCurveBinding binding in AnimationUtility.GetCurveBindings(clip))
                 {
-                    Assert.That(curve.length, Is.LessThanOrEqualTo(2), $"{bindings[i].propertyName}: 値が一定なら両端だけ");
+                    AnimationCurve curve = AnimationUtility.GetEditorCurve(clip, binding);
+                    Assert.That(curve.length, Is.LessThan(frameCount / 2), $"{binding.path}/{binding.propertyName} はフルキーにしない");
+                    if (IsConstant(curve))
+                    {
+                        Assert.That(curve.length, Is.LessThanOrEqualTo(2), $"{binding.propertyName}: 値が一定なら両端だけ");
+                    }
                 }
+            }
+        }
+
+        [Test]
+        public void Convert_RecExportedTimeline_EachPropertyInExactlyOneClip()
+        {
+            TimelineE2ECharacter character = Prepare(new RecFixtureWriter.Recording
+            {
+                IncludeValueProvider = true,
+                IncludeLayerWeights = true,
+            });
+
+            AnimationTrackConversionResult result = Convert(character)[0];
+
+            var seen = new HashSet<string>(StringComparer.Ordinal);
+            foreach (EditorCurveBinding binding in AllBindings(result))
+            {
+                Assert.That(seen.Add(binding.path + "/" + binding.propertyName), Is.True, $"{binding.propertyName} は 1 つの Clip にだけ入る");
+            }
+
+            foreach (string shape in TimelineE2EFixture.MeshBlendShapes)
+            {
+                Assert.That(seen.Contains(RendererPath(character) + "/blendShape." + shape), Is.True, $"{shape} はどれかの Clip に入る");
+            }
+        }
+
+        [Test]
+        public void Convert_ShapesWrittenByLayers_GoToHighestPriorityWritingLayerClip()
+        {
+            // emotion(priority 0) は Smile、値提供型を受ける face(priority 2) は Blink / JawOpen を書く。
+            TimelineE2ECharacter character = Prepare(new RecFixtureWriter.Recording { IncludeValueProvider = true });
+
+            AnimationTrackConversionResult result = Convert(character)[0];
+
+            Assert.That(ShapesOf(result, TimelineE2EFixture.EmotionLayer), Does.Contain(TimelineE2EFixture.SmileBlendShape));
+            Assert.That(ShapesOf(result, TimelineE2EFixture.FaceLayer), Does.Contain(TimelineE2EFixture.BlinkBlendShape));
+            Assert.That(ShapesOf(result, TimelineE2EFixture.FaceLayer), Does.Contain(TimelineE2EFixture.JawOpenBlendShape));
+            AnimationClip gaze = FindClip(result, FacialAnimationClipKind.Gaze);
+            Assert.That(gaze, Is.Not.Null);
+            foreach (EditorCurveBinding binding in AnimationUtility.GetCurveBindings(gaze))
+            {
+                Assert.That(binding.type, Is.EqualTo(typeof(Transform)), "目線の Clip は目ボーン回転だけを持つ");
             }
         }
 
@@ -166,8 +265,17 @@ namespace Hidano.FacialControl.Timeline.Tests.PlayMode
 
             AnimationTrackConversionResult result = Convert(character)[0];
 
-            Assert.That(character.Director.GetGenericBinding(result.Track), Is.SameAs(character.Root.GetComponent<Animator>()));
-            Assert.That(result.Track.GetClips(), Has.Exactly(1).Matches<TimelineClip>(c => c.start == 0d));
+            string folder = System.IO.Path.GetDirectoryName(AssetDatabase.GetAssetPath(_fixture.Timeline)).Replace('\\', '/');
+            for (int c = 0; c < result.Clips.Count; c++)
+            {
+                AnimationTrackConversionClip converted = result.Clips[c];
+                Assert.That(character.Director.GetGenericBinding(converted.Track), Is.SameAs(character.Root.GetComponent<Animator>()));
+                Assert.That(converted.Track.GetClips(), Has.Exactly(1).Matches<TimelineClip>(clip => clip.start == 0d));
+                Assert.That(converted.Track.name, Is.EqualTo(character.Root.name + " (" + converted.Part.ClipName + ")"));
+                Assert.That(converted.ClipPath, Is.EqualTo(folder + "/" + _fixture.Timeline.name + "_" + character.Root.name + "_" + converted.Part.ClipName + ".anim"));
+                Assert.That(AssetDatabase.LoadAssetAtPath<AnimationClip>(converted.ClipPath), Is.Not.Null);
+            }
+
             Assert.That(result.MutedTracks.Count, Is.GreaterThan(0));
             foreach (TrackAsset track in _fixture.Timeline.GetOutputTracks())
             {
@@ -176,10 +284,6 @@ namespace Hidano.FacialControl.Timeline.Tests.PlayMode
                     Assert.That(track.muted, Is.True, $"{track.name} はミュートして残す");
                 }
             }
-
-            string folder = System.IO.Path.GetDirectoryName(AssetDatabase.GetAssetPath(_fixture.Timeline)).Replace('\\', '/');
-            Assert.That(result.ClipPath, Is.EqualTo(folder + "/" + _fixture.Timeline.name + "_" + character.Root.name + ".anim"));
-            Assert.That(AssetDatabase.LoadAssetAtPath<AnimationClip>(result.ClipPath), Is.Not.Null);
         }
 
         [Test]
@@ -332,6 +436,59 @@ namespace Hidano.FacialControl.Timeline.Tests.PlayMode
             }
 
             return expected;
+        }
+
+        private static AnimationClip FindClip(AnimationTrackConversionResult result, FacialAnimationClipKind kind)
+        {
+            for (int i = 0; i < result.Clips.Count; i++)
+            {
+                if (result.Clips[i].Part.Kind == kind)
+                {
+                    return result.Clips[i].Part.Clip;
+                }
+            }
+
+            return null;
+        }
+
+        private static List<EditorCurveBinding> AllBindings(AnimationTrackConversionResult result)
+        {
+            var bindings = new List<EditorCurveBinding>();
+            for (int i = 0; i < result.Clips.Count; i++)
+            {
+                bindings.AddRange(AnimationUtility.GetCurveBindings(result.Clips[i].Part.Clip));
+            }
+
+            return bindings;
+        }
+
+        /// <summary>レイヤー <paramref name="layerName"/> の Clip が持つ BlendShape 名（Clip が無ければ空）。</summary>
+        private static List<string> ShapesOf(AnimationTrackConversionResult result, string layerName)
+        {
+            var shapes = new List<string>();
+            for (int i = 0; i < result.Clips.Count; i++)
+            {
+                FacialAnimationClipPart clip = result.Clips[i].Part;
+                if (clip.Kind != FacialAnimationClipKind.Layer || clip.Name != layerName)
+                {
+                    continue;
+                }
+
+                foreach (EditorCurveBinding binding in AnimationUtility.GetCurveBindings(clip.Clip))
+                {
+                    if (binding.propertyName.StartsWith("blendShape.", StringComparison.Ordinal))
+                    {
+                        shapes.Add(binding.propertyName.Substring("blendShape.".Length));
+                    }
+                }
+            }
+
+            return shapes;
+        }
+
+        private static string RendererPath(TimelineE2ECharacter character)
+        {
+            return AnimationUtility.CalculateTransformPath(character.Renderer.transform, character.Root.transform);
         }
 
         private static bool IsConstant(AnimationCurve curve)

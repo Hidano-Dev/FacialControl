@@ -40,7 +40,7 @@ namespace Hidano.FacialControl.Timeline.Editor
     /// 同じ id の Analog Value トラックの値で駆動する（Req 7.1）。Timeline 以外の live 入力が無い条件で Play と一致する。
     /// Editor 専用・メインスレッド専用。</para>
     /// </remarks>
-    internal sealed class TimelinePreviewCompositor : IDisposable
+    internal sealed class TimelinePreviewCompositor : IDisposable, AnimationTrackConversion.IFacialOutputEvaluator
     {
         private static readonly AdapterSlug PreviewSlug = AdapterSlug.Parse(TimelineSinkIdConvention.DefaultSlug);
 
@@ -186,6 +186,9 @@ namespace Hidano.FacialControl.Timeline.Editor
         /// <summary>合成出力の BlendShape 名（<see cref="TryEvaluateOutput"/> の出力と同じ並び。描画できないときは空）。</summary>
         public IReadOnlyList<string> BlendShapeNames => _blendShapeNames;
 
+        /// <summary>合成（<see cref="LayerUseCase"/>）を組んだ Profile のレイヤー定義（宣言順。<see cref="AccumulateLayerContributions"/> の並び）。</summary>
+        public ReadOnlyMemory<LayerDefinition> Layers => _profile.Layers;
+
         /// <summary>
         /// 指定時刻を合成し、renderer へは書かずに出力（正規化 weight。<see cref="BlendShapeNames"/> と同じ並び）を返す。
         /// AnimationTrack への変換のように、シーンを書き換えずに最終値だけを読みたい呼出側が使う。
@@ -243,6 +246,20 @@ namespace Hidano.FacialControl.Timeline.Editor
             _layerUseCase.UpdateWeights(0f);
             output = _layerUseCase.BlendedOutputSpan;
             return true;
+        }
+
+        /// <summary>
+        /// 直前の <see cref="TryEvaluateOutput"/> で最終ブレンドに入ったレイヤーが書いた BlendShape を積む
+        /// （<see cref="LayerUseCase.AccumulateBlendedContributions"/>。Profile のレイヤー宣言順 × <see cref="BlendShapeNames"/> の並び）。
+        /// </summary>
+        public void AccumulateLayerContributions(Span<bool> contributes)
+        {
+            if (!CanRender || _disposed || _layerUseCase == null)
+            {
+                return;
+            }
+
+            _layerUseCase.AccumulateBlendedContributions(contributes);
         }
 
         /// <summary>
