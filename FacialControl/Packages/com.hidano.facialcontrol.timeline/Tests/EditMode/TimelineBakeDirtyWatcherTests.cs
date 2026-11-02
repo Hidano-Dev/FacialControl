@@ -432,9 +432,9 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
             if (bindDirector)
             {
                 director.playableAsset = timeline;
-                foreach (TrackAsset track in timeline.GetOutputTracks())
+                foreach (FacialCharacterTrack character in FacialCharacterTrackBinding.CollectCharacterTracks(timeline))
                 {
-                    director.SetGenericBinding(track, receiver);
+                    director.SetGenericBinding(character, controller);
                 }
             }
 
@@ -524,7 +524,8 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
             var timeline = ScriptableObject.CreateInstance<TimelineAsset>();
             AssetDatabase.CreateAsset(timeline, timelinePath);
 
-            FacialExpressionTrack expressionTrack = timeline.CreateTrack<FacialExpressionTrack>(null, "Expressions");
+            FacialCharacterTrack character = timeline.CreateTrack<FacialCharacterTrack>(null, "Facial Character");
+            FacialExpressionTrack expressionTrack = character.CreateChildTrack<FacialExpressionTrack>("Expressions");
             TimelineClip expressionClip = expressionTrack.CreateClip<FacialExpressionClip>();
             expressionClip.start = 0d;
             expressionClip.duration = 1d;
@@ -537,7 +538,7 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
                 laneClip.start = 1d;
                 laneClip.duration = 1d;
                 ((FacialExpressionClip)laneClip.asset).ExpressionId = "smile";
-                timeline.CreateTrack<FacialValueTrack>(null, "osc:lt");
+                character.CreateChildTrack<FacialValueTrack>("osc:lt");
             }
 
             var bake = ScriptableObject.CreateInstance<FacialTimelineBakeAsset>();

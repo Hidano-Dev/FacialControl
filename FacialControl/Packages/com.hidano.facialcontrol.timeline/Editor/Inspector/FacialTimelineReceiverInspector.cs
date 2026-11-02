@@ -25,13 +25,13 @@ namespace Hidano.FacialControl.Timeline.Editor.Inspector
     /// このインスタンスが所有し、<see cref="CreateInspectorGUI"/> で登録、root の DetachFromPanelEvent と OnDisable で解除する
     /// （二重解除は no-op。各 handler の先頭で target の破棄を確認する）。Detach で解除した root が再び panel に attach されたら
     /// AttachToPanelEvent で購読を戻す（購読中なら二重登録しない）。再描画は 100 ms 後に合流させる。</para>
-    /// <para>Edit 評価は未設定の Facial トラック binding があるときだけ Receiver を自動設定する（Req 1.6）。自動設定はこの Inspector
-    /// インスタンス × (Director, TimelineAsset) ごとに 1 回だけで、Undo / Redo 起点の評価では書かない（D7）。</para>
+    /// <para>Receiver は Facial Character トラックの Mixer が FacialController の GameObject に自動で置く内部実装（保存しない）。
+    /// この Inspector は FacialController の GameObject と Facial Character トラックの Inspector に出る（HID-408）。
+    /// トラックの binding は書かない。</para>
     /// </remarks>
     [CustomEditor(typeof(FacialTimelineReceiver))]
     public sealed class FacialTimelineReceiverInspector : UnityEditor.Editor
     {
-        internal const string AssignBindingsButtonName = "facial-timeline-assign-bindings";
         internal const string RebakeButtonName = "facial-timeline-rebake";
         internal const string RemoveLegacyButtonName = "facial-timeline-remove-legacy";
         internal const string DiagnosticsContainerName = "facial-timeline-diagnostics";
@@ -41,17 +41,12 @@ namespace Hidano.FacialControl.Timeline.Editor.Inspector
         private const string AutoRebakeNote = "（自動再ベイク中）";
 
         private readonly AutoRebakeRequestGate _autoRebakeGate = new AutoRebakeRequestGate();
-        private readonly TrackBindingAutoAssignGate _trackBindingGate = new TrackBindingAutoAssignGate();
-
-        // 保留中の評価に Undo / Redo 起点のものが含まれるか（含まれる間は Track binding を書かない）。
-        private bool _pendingFromUndo;
 
         private VisualElement _root;
         private VisualElement _diagnosticsContainer;
         private VisualElement _sessionContainer;
         private Label _overrideDiffersLabel;
         private Label _statusLabel;
-        private Button _assignButton;
         private Button _rebakeButton;
         private Button _removeLegacyButton;
         private IVisualElementScheduledItem _scheduledRefresh;
@@ -170,8 +165,6 @@ namespace Hidano.FacialControl.Timeline.Editor.Inspector
             if (!playing && _pendingEvaluate)
             {
                 _pendingEvaluate = false;
-                bool fromUndo = _pendingFromUndo;
-                _pendingFromUndo = false;
                 _evaluating = true;
                 try
                 {
@@ -179,9 +172,7 @@ namespace Hidano.FacialControl.Timeline.Editor.Inspector
                         receiver,
                         TimelineEditorServices.ChangeWatcher,
                         requestAutoRebake: true,
-                        _autoRebakeGate,
-                        allowTrackBindingWrite: !fromUndo,
-                        assignGate: _trackBindingGate);
+                        _autoRebakeGate);
                 }
                 finally
                 {
@@ -200,8 +191,10 @@ namespace Hidano.FacialControl.Timeline.Editor.Inspector
         {
             var section = new VisualElement();
             section.style.marginBottom = 6;
-            section.Add(new PropertyField(serializedObject.FindProperty("director"), "Director（上書き・任意）"));
-            section.Add(new PropertyField(serializedObject.FindProperty("bakeAsset"), "Bake（上書き・任意）"));
+            var note = new Label("Facial Character トラックに Bind された FacialController の再生状態です（自動で置かれ、シーンには保存されません）。");
+            note.style.whiteSpace = WhiteSpace.Normal;
+            note.style.opacity = 0.8f;
+            section.Add(note);
             _overrideDiffersLabel = new Label("この Bake はトラックの Bake 参照と異なります（BakeOverrideDiffers）。意図しない場合は空にしてください。");
             _overrideDiffersLabel.style.whiteSpace = WhiteSpace.Normal;
             _overrideDiffersLabel.style.color = new Color(0.95f, 0.75f, 0.2f);
@@ -234,10 +227,8 @@ namespace Hidano.FacialControl.Timeline.Editor.Inspector
             var buttons = new VisualElement();
             buttons.style.marginTop = 6;
 
-            _assignButton = new Button(OnAssignBindingsClicked) { name = AssignBindingsButtonName, text = "トラック binding を今設定" };
             _rebakeButton = new Button(OnRebakeClicked) { name = RebakeButtonName, text = "今再ベイク" };
             _removeLegacyButton = new Button(OnRemoveLegacyClicked) { name = RemoveLegacyButtonName, text = "旧 timeline 宣言を削除" };
-            buttons.Add(_assignButton);
             buttons.Add(_rebakeButton);
             buttons.Add(_removeLegacyButton);
 
@@ -261,7 +252,6 @@ namespace Hidano.FacialControl.Timeline.Editor.Inspector
             RenderDiagnostics(diagnostics, autoRebakePending: !playing && _lastEvaluation.AutoRebakePending);
             RenderSession(receiver, playing);
 
-            _assignButton.SetEnabled(FacialTimelineReceiverInspectorModel.CanAssignTrackBindings(playing, _lastEvaluation));
             _rebakeButton.SetEnabled(FacialTimelineReceiverInspectorModel.CanRebake(playing, _lastEvaluation));
             _removeLegacyButton.SetEnabled(FacialTimelineReceiverInspectorModel.CanRemoveLegacyDeclarations(playing, diagnostics));
         }
@@ -370,26 +360,6 @@ namespace Hidano.FacialControl.Timeline.Editor.Inspector
         // ================================================================
         // ボタン
         // ================================================================
-
-        private void OnAssignBindingsClicked()
-        {
-            if (!(target is FacialTimelineReceiver receiver) || receiver == null)
-            {
-                return;
-            }
-
-            PlayableDirector director = _lastEvaluation.Director;
-            TimelineAsset timeline = _lastEvaluation.Timeline;
-            if (director == null || timeline == null)
-            {
-                SetStatus("Director または TimelineAsset が見つからないため設定できません。");
-                return;
-            }
-
-            TrackBindingReport report = TimelineTrackBindingResolver.EnsureBindings(director, timeline, receiver, EditorTrackBindingWriter.Instance);
-            SetStatus($"トラック binding を {report.Assigned} 本設定しました（他オブジェクトを指す {report.BoundToOther.Count} 本は変更していません）。");
-            RequestRefresh(evaluate: true);
-        }
 
         private void OnRebakeClicked()
         {
@@ -537,8 +507,6 @@ namespace Hidano.FacialControl.Timeline.Editor.Inspector
                 return;
             }
 
-            // Undo / Redo 起点の評価は表示更新のみ（binding を書くと Undo を打ち消し Redo 履歴も消える）。
-            _pendingFromUndo = true;
             RequestRefresh(evaluate: true);
         }
 

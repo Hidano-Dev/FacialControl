@@ -126,7 +126,7 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
             var diagnostics = new FacialTimelineDiagnostics();
             diagnostics.ReplaceArea(
                 TimelineDiagnosticArea.TrackBinding,
-                new[] { Item(TimelineDiagnosticArea.TrackBinding, TimelineDiagnosticCode.TrackBindingAutoAssigned, TimelineDiagnosticSeverity.Info) });
+                new[] { Item(TimelineDiagnosticArea.TrackBinding, TimelineDiagnosticCode.BakeFresh, TimelineDiagnosticSeverity.Info) });
 
             Assert.That(diagnostics.Overall, Is.EqualTo(TimelineDiagnosticSeverity.Ok));
         }

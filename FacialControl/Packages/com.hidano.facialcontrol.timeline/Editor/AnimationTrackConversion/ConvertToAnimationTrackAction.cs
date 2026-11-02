@@ -22,7 +22,7 @@ namespace Hidano.FacialControl.Timeline.Editor.AnimationTrackConversion
 
             foreach (TrackAsset track in tracks)
             {
-                if (FacialAnimationTrackConverter.IsFacialTrack(track))
+                if (FacialAnimationTrackConverter.IsFacialTrack(track) || track is Tracks.FacialCharacterTrack)
                 {
                     return ActionValidity.Valid;
                 }

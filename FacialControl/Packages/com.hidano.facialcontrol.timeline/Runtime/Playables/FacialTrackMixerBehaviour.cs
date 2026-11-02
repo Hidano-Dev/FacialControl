@@ -47,6 +47,14 @@ namespace Hidano.FacialControl.Timeline.Playables
             _isPlaying = FacialTimelinePlayMode.IsPlaying;
         }
 
+        private readonly FacialMixerTarget _target = new FacialMixerTarget();
+
+        /// <summary>対象（親トラックの binding）を引くためのトラック。<see cref="Tracks.FacialExpressionTrack"/> が Mixer 生成時に渡す。</summary>
+        public void SetOwnerTrack(TrackAsset track)
+        {
+            _target.SetTrack(track);
+        }
+
         public void ConfigureExpression(string layerName, TimelineStateEvent[] stateEvents)
         {
             _layerName = layerName ?? string.Empty;
@@ -67,18 +75,18 @@ namespace Hidano.FacialControl.Timeline.Playables
                 return;
             }
 
-            FacialTimelineReceiver receiver = ResolveReceiver(playerData);
+            PlayableDirector director = ResolveDirector(playable);
+            FacialTimelineReceiver receiver = _target.Resolve(director);
             if (receiver == null)
             {
                 return;
             }
 
-            PlayableDirector director = ResolveDirector(playable);
             TimelineAsset timeline = director != null ? director.playableAsset as TimelineAsset : null;
             if (!_isPlaying)
             {
                 // Edit はプレビューのみ。セッションは開始しない（Receiver の状態・診断・registry に触れない）。
-                FacialTimelineEditorPreviewBridge.ApplyPreview?.Invoke(receiver, timeline, playable.GetTime());
+                FacialTimelineEditorPreviewBridge.ApplyPreview?.Invoke(receiver, timeline, FacialMixerTarget.TrackTime(playable));
                 return;
             }
 
@@ -103,7 +111,7 @@ namespace Hidano.FacialControl.Timeline.Playables
                 receiver.TryCreateExpressionTransitionPlayer(_layerName, _stateEvents, out _player);
             }
 
-            double rawTime = playable.GetTime();
+            double rawTime = FacialMixerTarget.TrackTime(playable);
             double holdEndTime = FacialValueMixerBehaviour.ResolveHoldEndTime(director);
             double evaluatedTime = ResolveEvaluationTime(rawTime, holdEndTime);
 
@@ -200,21 +208,6 @@ namespace Hidano.FacialControl.Timeline.Playables
         public override void OnPlayableDestroy(Playable playable)
         {
             ReleaseReceiver();
-        }
-
-        private static FacialTimelineReceiver ResolveReceiver(object playerData)
-        {
-            switch (playerData)
-            {
-                case FacialTimelineReceiver receiver:
-                    return receiver;
-                case GameObject gameObject:
-                    return gameObject.GetComponent<FacialTimelineReceiver>();
-                case Component component:
-                    return component.GetComponent<FacialTimelineReceiver>();
-                default:
-                    return null;
-            }
         }
 
         private static PlayableDirector ResolveDirector(Playable playable)

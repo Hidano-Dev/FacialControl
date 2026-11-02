@@ -49,7 +49,7 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
         {
             FacialTimelinePlayMode.OverrideIsPlaying = false;
             FacialTimelineEditorPreviewBridge.ApplyPreview = (receiver, timeline, time) => _previewCalls++;
-            // binding 未接続（Play なら BindingMissing の Error になる構成）でも Edit ではセッションに触れない。
+            // 接続コンテキスト無しでも Edit ではセッションに触れない。
             using TimelineReceiverTestHost host = CreateHost(CreateTimeline, attach: false);
             using var logs = new TimelineLogCounter();
 
@@ -87,7 +87,9 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
         [Test]
         public void ExpressionMixer_PlayWithFailedSession_DoesNotWriteSinks()
         {
-            using TimelineReceiverTestHost host = CreateHost(CreateTimeline, attach: false);
+            using TimelineReceiverTestHost host = CreateHost(CreateTimeline);
+            // 親トラックが 2 本ある Timeline はセッションを開始しない（MultipleCharacterTracks）。
+            ((TimelineAsset)host.Director.playableAsset).CreateTrack<FacialCharacterTrack>(null, "Second Character");
             using var logs = new TimelineLogCounter();
 
             host.Director.RebuildGraph();
@@ -99,6 +101,68 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
             Assert.That(host.Receiver.SessionState, Is.EqualTo(TimelineSessionState.Failed));
             Assert.That(host.Receiver.TryGetExpressionSink("Expressions", out _), Is.False);
             Assert.That(logs.Errors, Is.EqualTo(1), "Mixer 自身はログを出さず、Receiver の最初の Error 1 件のみ");
+        }
+
+        // ================================================================
+        // 親トラック（Facial Character）からの対象解決（HID-408）
+        // ================================================================
+
+        [Test]
+        public void Mixers_TwoChildTracksUnderCharacter_EachChildMixerRunsOncePerEvaluate()
+        {
+            // 親トラックの Playable は Passthrough。子トラックの出力はそれぞれ自分の Mixer だけを辿り、
+            // 親トラックがまとめて繋ぐ子孫の Clip は何もしない（子の Mixer が二重に動かない）。
+            FacialTimelinePlayMode.OverrideIsPlaying = false;
+            var calls = new System.Collections.Generic.List<FacialTimelineReceiver>();
+            FacialTimelineEditorPreviewBridge.ApplyPreview = (receiver, timeline, time) => calls.Add(receiver);
+            using TimelineReceiverTestHost host = CreateHost(timeline => CreateAnalogTimeline(CreateTimeline(timeline)));
+
+            host.Director.RebuildGraph();
+            calls.Clear();
+            host.Director.time = 0.25d;
+            host.Director.Evaluate();
+
+            Assert.That(calls, Has.Count.EqualTo(2), "表情トラック（Lane 込みで 1 つの Mixer）と値トラックの Mixer が 1 回ずつ");
+            Assert.That(calls, Has.All.SameAs(host.Receiver), "どちらも親トラックに Bind した controller の Receiver を使う");
+        }
+
+        [Test]
+        public void Mixers_CharacterTrackNotBound_DoNotPlayOrStartSession()
+        {
+            using TimelineReceiverTestHost host = CreateHost(CreateTimeline);
+            host.Director.ClearGenericBinding(TimelineReceiverTestHost.Character((TimelineAsset)host.Director.playableAsset));
+
+            host.Director.RebuildGraph();
+            host.Director.time = 0.25d;
+            host.Director.Evaluate();
+
+            Assert.That(host.Receiver.SessionState, Is.EqualTo(TimelineSessionState.Idle), "Bind されていない親トラックの子は再生しない");
+            Assert.That(host.Receiver.TryGetExpressionSink("Expressions", out _), Is.False);
+        }
+
+        [Test]
+        public void Mixers_TrackOutsideCharacterBoundToReceiver_IsNotPlayed()
+        {
+            FacialTimelinePlayMode.OverrideIsPlaying = false;
+            FacialTimelineEditorPreviewBridge.ApplyPreview = (receiver, timeline, time) => _previewCalls++;
+            using TimelineReceiverTestHost host = CreateHost(timeline =>
+            {
+                FacialExpressionTrack legacy = timeline.CreateTrack<FacialExpressionTrack>(null, "Expressions");
+                TimelineClip clip = legacy.CreateClip<FacialExpressionClip>();
+                clip.duration = 1d;
+                ((FacialExpressionClip)clip.asset).ExpressionId = "smile";
+                return timeline;
+            });
+            foreach (TrackAsset root in ((TimelineAsset)host.Director.playableAsset).GetRootTracks())
+            {
+                host.Director.SetGenericBinding(root, host.Receiver);
+            }
+
+            host.Director.RebuildGraph();
+            host.Director.time = 0.25d;
+            host.Director.Evaluate();
+
+            Assert.That(_previewCalls, Is.EqualTo(0), "旧構造（親トラックの外）のトラックは Receiver を Bind していても再生しない");
         }
 
         // ================================================================
@@ -201,7 +265,7 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
 
         private static TimelineAsset CreateTimeline(TimelineAsset timeline)
         {
-            var parentTrack = timeline.CreateTrack<FacialExpressionTrack>(null, "Expressions");
+            var parentTrack = TimelineReceiverTestHost.Character(timeline).CreateChildTrack<FacialExpressionTrack>("Expressions");
             TimelineClip parentClip = parentTrack.CreateClip<FacialExpressionClip>();
             parentClip.start = 0.0d;
             parentClip.duration = 1.0d;
@@ -218,7 +282,7 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
 
         private static TimelineAsset CreateAnalogTimeline(TimelineAsset timeline)
         {
-            var track = timeline.CreateTrack<FacialValueTrack>(null, "Analog");
+            var track = TimelineReceiverTestHost.Character(timeline).CreateChildTrack<FacialValueTrack>("Analog");
             track.ChannelSubId = "osc:analog";
             track.ChannelKind = FacialValueChannelKind.Analog;
 
@@ -237,7 +301,7 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
 
         private static TimelineAsset CreateGazeTimeline(TimelineAsset timeline)
         {
-            var track = timeline.CreateTrack<FacialValueTrack>(null, "Gaze");
+            var track = TimelineReceiverTestHost.Character(timeline).CreateChildTrack<FacialValueTrack>("Gaze");
             track.ChannelSubId = "osc:gaze";
             track.ChannelKind = FacialValueChannelKind.Gaze;
 

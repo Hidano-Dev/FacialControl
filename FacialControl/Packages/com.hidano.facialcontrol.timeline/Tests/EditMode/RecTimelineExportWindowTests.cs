@@ -90,7 +90,7 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
 
             Assert.That(success, Is.True);
             Assert.That(_window.StatusText, Does.Contain("PlayableDirector"));
-            Assert.That(_window.StatusText, Does.Contain("FacialTimelineReceiver"));
+            Assert.That(_window.StatusText, Does.Contain("Facial Character"), "親トラックに FacialController を Bind する手順を案内する");
         }
 
         private FacialCharacterProfileSO CreateProfileAsset()

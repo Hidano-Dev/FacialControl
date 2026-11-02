@@ -1,10 +1,10 @@
 using System;
 using System.Collections.Generic;
+using Hidano.FacialControl.Adapters.InputSources;
 using Hidano.FacialControl.Adapters.Playable;
 using Hidano.FacialControl.Adapters.ScriptableObject;
 using Hidano.FacialControl.Adapters.ScriptableObject.Serializable;
 using Hidano.FacialControl.Domain.Models;
-using Hidano.FacialControl.Timeline.Adapters.AdapterBindings;
 using Hidano.FacialControl.Timeline.Adapters.Assets;
 using Hidano.FacialControl.Timeline.Adapters.Diagnostics;
 using Hidano.FacialControl.Timeline.Adapters.InputSources;
@@ -38,14 +38,18 @@ namespace Hidano.FacialControl.Timeline.Adapters
     }
 
     /// <summary>
-    /// Timeline 再生の設定・状態・診断の集約点（ファサード）。
+    /// Timeline 再生の設定・状態・診断の集約点（ファサード）。キャラ 1 体（FacialController）につき 1 つで、ユーザーは置かない。
     /// </summary>
     /// <remarks>
-    /// <para>binding（<c>TimelineAdapterBinding.OnStart</c>）から接続コンテキストを受け取り、Mixer が呼ぶ
+    /// <para>Facial Character トラックに Bind された FacialController の GameObject に、子トラックの Mixer が
+    /// <see cref="GetOrCreate"/> で内部実装として置く（シーンには保存しない。HID-408）。Inspector には診断が出る。</para>
+    /// <para>接続コンテキスト（registry・Profile・BlendShape 名）は controller の公開 API から取り、controller の
+    /// <see cref="FacialController.Deinitializing"/> で解放する（Profile の Adapter Bindings への追加は要らない）。Mixer が呼ぶ
     /// <see cref="BeginPlaybackSession"/> で Bake 解決 → レイヤー導出 → 接続（<see cref="TimelineLayerConnector"/>）→
     /// Analog / Gaze の乗っ取り（<see cref="TimelineChannelTakeover"/>）を行う。</para>
-    /// <para>Failed の判定順: (1) binding 未接続 / 無効 / Receiver が controller と別 GameObject → (2) Bake 参照の不整合 / 旧形式 →
-    /// (3) 旧 <c>:state</c> 宣言。最初に見つかった Error だけを Console に 1 回出す（Inspector は診断状態の全件を読む）。
+    /// <para>Failed の判定順: (1) controller が無い / 親トラックの外にある旧構造の Facial トラック / 親トラックが複数 →
+    /// (2) Bake 参照の不整合 / 旧形式 → (3) 旧 <c>:state</c> 宣言。最初に見つかった Error だけを Console に 1 回出す
+    /// （Inspector は診断状態の全件を読む）。
     /// Profile 内容ハッシュ不一致（ProfileMismatch）と Source ハッシュ不一致（BakeStale）は Warning で、Active のまま再生する。</para>
     /// <para>Play 中の表情の値は Bake のカーブではなく、セッションの Profile とランタイムの trigger 入力源と同じ遷移計算で作る
     /// （<see cref="TryCreateExpressionTransitionPlayer"/>。REC 再生と同じ位相にするため。HID-318）。Bake は Edit プレビューと、
@@ -55,6 +59,8 @@ namespace Hidano.FacialControl.Timeline.Adapters
     /// 同じ Bake インスタンスでも再ベイクで中身（ExpressionBakes / SourceHashHex）が変わったら作り直す。</para>
     /// <para>メインスレッド専用。Active 中の Mixer 向け API（TryGet* / <see cref="ApplyExpressionValues"/>）はヒープ確保しない。</para>
     /// </remarks>
+    [AddComponentMenu("")]
+    [DisallowMultipleComponent]
     public sealed class FacialTimelineReceiver : MonoBehaviour
     {
         /// <summary>
@@ -62,15 +68,12 @@ namespace Hidano.FacialControl.Timeline.Adapters
         /// </summary>
         public static event Action<BakeInspectionIssue> BakeIssueDetected;
 
+        /// <summary>接続コンテキストの slug（値 sink の id の prefix。<c>timeline:{レイヤー名}</c>）。</summary>
+        public static readonly AdapterSlug TimelineSlug = AdapterSlug.Parse("timeline");
+
         private const string LogPrefix = "[FacialTimelineReceiver] ";
-        private const string BindingMissingDetail =
-            "Profile の AdapterBindings に Timeline binding が無いため、Timeline の値を受信できません。Profile Inspector で Timeline binding を追加してください。";
-        private const string BindingDisabledDetail =
-            "Timeline binding の受信が無効になっています。Profile Inspector で Timeline binding を有効にしてください。";
-        private const string ReceiverNotOnControllerDetail =
-            "FacialTimelineReceiver を FacialController と同じ GameObject に置いてください。";
         private const string ControllerMissingDetail =
-            "FacialController が見つかりません。FacialTimelineReceiver と同じ GameObject に FacialController を置いてください。";
+            "FacialController が見つかりません。Facial Character トラックには FacialController を Bind してください。";
         private const string TimelineNotBoundDetail =
             "PlayableDirector に TimelineAsset がセットされていません。Director の Playable 欄に Export した TimelineAsset をセットしてください。";
         private const string SessionConflictDetail =
@@ -81,7 +84,13 @@ namespace Hidano.FacialControl.Timeline.Adapters
         private static readonly TimelineDiagnosticItem[] EmptyItems = Array.Empty<TimelineDiagnosticItem>();
 
         [SerializeField] private FacialTimelineBakeAsset bakeAsset;
-        [SerializeField] private PlayableDirector director;
+
+        // Director の上書き（テスト・Inspector 用。保存しない）。
+        [NonSerialized] private PlayableDirector _directorOverride;
+
+        // 接続コンテキストを controller から自動で取ったか（テストが直接渡した接続は controller の破棄通知で外さない）。
+        [NonSerialized] private bool _bindingFromController;
+        [NonSerialized] private FacialController _subscribedController;
 
         private readonly FacialTimelineDiagnostics _diagnostics = new FacialTimelineDiagnostics();
         private readonly TimelineOnceWarningGate _warningGate = new TimelineOnceWarningGate();
@@ -102,11 +111,6 @@ namespace Hidano.FacialControl.Timeline.Adapters
 
         // セッション開始時の Profile（表情の値の再生器が Expression と遷移を引く）。
         private FacialProfile _sessionProfile;
-
-        // Play の OnEnable で行った Track binding 自動設定の結果（Start の静的診断の TrackBinding 領域に使う）。
-        private TrackBindingReport _trackBindingReport;
-        private PlayableDirector _trackBindingDirector;
-        private bool _hasTrackBindingReport;
 
         // 記録済みの SessionConflict の相手（同じ相手の再記録で文字列を作らないため）。
         private PlayableDirector _conflictDirector;
@@ -129,11 +133,42 @@ namespace Hidano.FacialControl.Timeline.Adapters
             set => bakeAsset = value;
         }
 
-        /// <summary>任意上書きの Director（Director 解決順の最優先）。</summary>
+        /// <summary>
+        /// 静的診断に使う Director の上書き（保存しない）。未指定なら、この controller を Bind した Facial Character トラックを持つ
+        /// Director をシーンから探す。
+        /// </summary>
         public PlayableDirector DirectorOverride
         {
-            get => director;
-            set => director = value;
+            get => _directorOverride;
+            set => _directorOverride = value;
+        }
+
+        /// <summary>
+        /// controller の GameObject にある Receiver を返す。無ければ内部実装として追加する（シーンには保存しない）。
+        /// controller が null、またはシーンに無い（Prefab アセット等）なら null。
+        /// </summary>
+        /// <remarks>既にあれば確保しない（Mixer がキャッシュ切れのたびに呼ぶ）。</remarks>
+        public static FacialTimelineReceiver GetOrCreate(FacialController controller)
+        {
+            if (controller == null)
+            {
+                return null;
+            }
+
+            if (controller.TryGetComponent(out FacialTimelineReceiver existing))
+            {
+                return existing;
+            }
+
+            GameObject host = controller.gameObject;
+            if (!host.scene.IsValid())
+            {
+                return null;
+            }
+
+            var created = host.AddComponent<FacialTimelineReceiver>();
+            created.hideFlags = HideFlags.DontSave;
+            return created;
         }
 
         /// <summary>診断状態（Inspector / テストはログ文言ではなくこの値を読む）。</summary>
@@ -168,8 +203,8 @@ namespace Hidano.FacialControl.Timeline.Adapters
         public BakeInspectionStatus LastBakeInspectionStatus { get; private set; } = BakeInspectionStatus.NotChecked;
 
         /// <summary>
-        /// binding の OnStart から接続コンテキストを受け取る。controller は未初期化でよく、接続はセッション開始まで遅らせる。
-        /// 既に接続していれば先に解放する。
+        /// 接続コンテキストを直接渡す（テスト用。controller の child scope を作らない EditMode で registry を差し込む）。
+        /// 接続はセッション開始まで遅らせる。既に接続していれば先に解放する。
         /// </summary>
         internal void AttachBinding(in TimelineBindingContext context)
         {
@@ -179,7 +214,7 @@ namespace Hidano.FacialControl.Timeline.Adapters
         }
 
         /// <summary>
-        /// binding の Dispose から呼ぶ。セッションを解放し、接続コンテキストと接続 / 乗っ取りの資源を破棄する。二重呼び出しは no-op。
+        /// セッションを解放し、接続コンテキストと接続 / 乗っ取りの資源を破棄する（controller の破棄通知でも呼ぶ）。二重呼び出しは no-op。
         /// </summary>
         internal void DetachBinding()
         {
@@ -190,7 +225,55 @@ namespace Hidano.FacialControl.Timeline.Adapters
             _takeover = null;
             _binding = default;
             _hasBinding = false;
+            _bindingFromController = false;
+            UnsubscribeController();
             ClearPool();
+        }
+
+        /// <summary>
+        /// controller の公開 API から接続コンテキストを作って接続する（HID-408。Profile の Adapter Bindings は使わない）。
+        /// controller が未初期化・registry が無いときは false（呼び出し側は Pending にする）。
+        /// </summary>
+        private bool TryAttachFromController(FacialController controller)
+        {
+            IInputSourceRegistry registry = controller.InputSourceRegistry;
+            if (!controller.IsInitialized || !controller.CurrentProfile.HasValue || registry == null)
+            {
+                return false;
+            }
+
+            if (_hasBinding && _bindingFromController && ReferenceEquals(_binding.Registry, registry)
+                && ReferenceEquals(_binding.Controller, controller))
+            {
+                return true;
+            }
+
+            AttachBinding(new TimelineBindingContext(
+                TimelineSlug,
+                controller.CurrentProfile.Value,
+                controller.BlendShapeNames,
+                registry,
+                controller,
+                enabled: true));
+            _bindingFromController = true;
+            _subscribedController = controller;
+            controller.Deinitializing += OnControllerDeinitializing;
+            return true;
+        }
+
+        private void OnControllerDeinitializing(FacialController controller)
+        {
+            // registry とレイヤー構成が破棄される前に、後付け接続と乗っ取りを解放する（再初期化後は次のセッション開始で取り直す）。
+            DetachBinding();
+        }
+
+        private void UnsubscribeController()
+        {
+            if (!ReferenceEquals(_subscribedController, null))
+            {
+                _subscribedController.Deinitializing -= OnControllerDeinitializing;
+                _subscribedController = null;
+            }
         }
 
         /// <summary>
@@ -211,56 +294,13 @@ namespace Hidano.FacialControl.Timeline.Adapters
                     return;
             }
 
-            // (1) binding・配置
-            if (!_hasBinding)
-            {
-                FacialController hostController = GetComponent<FacialController>();
-                if (hostController == null)
-                {
-                    Fail(TimelineDiagnosticArea.Placement, TimelineDiagnosticCode.ReceiverNotOnControllerObject, name, ReceiverNotOnControllerDetail);
-                }
-                else if (!hostController.IsInitialized)
-                {
-                    // binding の OnStart は controller の初期化中に呼ばれるため、未初期化の間は binding 未接続を確定しない（ログ無し）。
-                    _state = TimelineSessionState.Pending;
-                }
-                else
-                {
-                    // ヘッダーのトグルで binding ごと無効にした場合は OnStart されず接続も無いが、binding 自体はあるので
-                    // 静的診断と同じ BindingDisabled（件名は slug）にする。
-                    TimelineAdapterBinding disabledBinding =
-                        TimelineDiagnosticsEvaluator.FindTimelineBinding(hostController.CharacterSO);
-                    if (disabledBinding != null && disabledBinding.Disabled)
-                    {
-                        string slugText = string.IsNullOrWhiteSpace(disabledBinding.Slug) ? "timeline" : disabledBinding.Slug;
-                        string subject = AdapterSlug.TryParse(slugText, out AdapterSlug disabledSlug) ? disabledSlug.Value : slugText;
-                        Fail(TimelineDiagnosticArea.ProfileBinding, TimelineDiagnosticCode.BindingDisabled, subject, BindingDisabledDetail);
-                    }
-                    else
-                    {
-                        Fail(TimelineDiagnosticArea.ProfileBinding, TimelineDiagnosticCode.BindingMissing, name, BindingMissingDetail);
-                    }
-                }
-
-                return;
-            }
-
-            if (!_binding.Enabled)
-            {
-                Fail(TimelineDiagnosticArea.ProfileBinding, TimelineDiagnosticCode.BindingDisabled, _binding.Slug.Value, BindingDisabledDetail);
-                return;
-            }
-
-            FacialController controller = _binding.Controller;
+            // (1) controller・トラック構造
+            FacialController controller = _hasBinding && _binding.Controller != null
+                ? _binding.Controller
+                : GetComponent<FacialController>();
             if (controller == null)
             {
                 Fail(TimelineDiagnosticArea.Placement, TimelineDiagnosticCode.ControllerMissing, name, ControllerMissingDetail);
-                return;
-            }
-
-            if (controller.gameObject != gameObject)
-            {
-                Fail(TimelineDiagnosticArea.Placement, TimelineDiagnosticCode.ReceiverNotOnControllerObject, name, ReceiverNotOnControllerDetail);
                 return;
             }
 
@@ -271,10 +311,23 @@ namespace Hidano.FacialControl.Timeline.Adapters
                 return;
             }
 
+            if (!(_hasBinding && !_bindingFromController) && !TryAttachFromController(controller))
+            {
+                // registry がまだ無い（child scope の構築前）。次のフレームで再試行する。
+                _state = TimelineSessionState.Pending;
+                return;
+            }
+
             if (timeline == null)
             {
                 Fail(TimelineDiagnosticArea.Director, TimelineDiagnosticCode.TimelineNotBound,
                     playingDirector != null ? playingDirector.name : string.Empty, TimelineNotBoundDetail);
+                return;
+            }
+
+            if (TimelineDiagnosticsEvaluator.EvaluateTrackStructureArea(_diagnostics, timeline))
+            {
+                FailWithFirstError(TimelineDiagnosticArea.TrackBinding);
                 return;
             }
 
@@ -392,15 +445,12 @@ namespace Hidano.FacialControl.Timeline.Adapters
         public void EvaluateStaticDiagnostics(FacialProfile profile, bool hasProfile)
         {
             FacialController controller = ResolveController();
-            PlayableDirector resolved = TimelineTrackBindingResolver.ResolveDirector(this, director, out DirectorResolveStatus status);
+            PlayableDirector resolved = TimelineTrackBindingResolver.ResolveDirector(this, _directorOverride, out DirectorResolveStatus status);
             TimelineAsset timeline = resolved != null ? resolved.playableAsset as TimelineAsset : null;
             BakeLocateResult located = FacialTimelineBakeLocator.Locate(timeline, bakeAsset);
             TimelineDerivation derivation = timeline != null && hasProfile
                 ? TimelineChannelDeriver.Derive(TimelineAssetScanner.Scan(timeline).Tracks, profile)
                 : null;
-            TrackBindingReport? trackBindings = _hasTrackBindingReport && _trackBindingDirector == resolved
-                ? _trackBindingReport
-                : (TrackBindingReport?)null;
 
             var context = new TimelineStaticEvaluationContext(
                 resolved,
@@ -412,45 +462,13 @@ namespace Hidano.FacialControl.Timeline.Adapters
                 hasProfile,
                 gazeChannels: null,
                 bake: located,
-                derivation: derivation,
-                trackBindings: trackBindings);
+                derivation: derivation);
             TimelineDiagnosticsEvaluator.EvaluateStatic(this, _diagnostics, context);
-        }
-
-        /// <summary>
-        /// Track binding 自動設定の結果を記録する（次の静的診断の TrackBinding 領域に使う）。Edit では Inspector の評価が呼ぶ。
-        /// </summary>
-        internal void RecordTrackBindingReport(PlayableDirector boundDirector, TrackBindingReport report)
-        {
-            _trackBindingReport = report;
-            _trackBindingDirector = boundDirector;
-            _hasTrackBindingReport = boundDirector != null;
-        }
-
-        /// <summary>指定 Director について記録済みの Track binding 自動設定の結果を返す。</summary>
-        internal bool TryGetTrackBindingReport(PlayableDirector boundDirector, out TrackBindingReport report)
-        {
-            if (_hasTrackBindingReport && boundDirector != null && _trackBindingDirector == boundDirector)
-            {
-                report = _trackBindingReport;
-                return true;
-            }
-
-            report = default;
-            return false;
         }
 
         // ================================================================
         // ライフサイクル（Play のみ。Edit の評価は Inspector が行う）
         // ================================================================
-
-        private void OnEnable()
-        {
-            if (UnityEngine.Application.isPlaying)
-            {
-                OnEnableInPlay();
-            }
-        }
 
         private void Start()
         {
@@ -467,34 +485,7 @@ namespace Hidano.FacialControl.Timeline.Adapters
 
         private void OnDestroy()
         {
-            ReleaseAll();
-        }
-
-        /// <summary>
-        /// Play の OnEnable 本体: Director を解決し、binding 未設定の Facial トラックに自分を設定する。
-        /// 設定が発生し graph が既に有効なら RebuildGraph する（Mixer は binding 済みトラックからしか Receiver を呼ばないため）。
-        /// </summary>
-        internal void OnEnableInPlay()
-        {
-            _hasTrackBindingReport = false;
-            _trackBindingDirector = null;
-
-            PlayableDirector resolved = TimelineTrackBindingResolver.ResolveDirector(this, director, out _);
-            if (resolved == null || !(resolved.playableAsset is TimelineAsset timeline))
-            {
-                return;
-            }
-
-            TrackBindingReport report = TimelineTrackBindingResolver.EnsureBindings(
-                resolved, timeline, this, RuntimeTrackBindingWriter.Instance);
-            _trackBindingReport = report;
-            _trackBindingDirector = resolved;
-            _hasTrackBindingReport = true;
-
-            if (report.Assigned > 0 && resolved.playableGraph.IsValid())
-            {
-                resolved.RebuildGraph();
-            }
+            DetachBinding();
         }
 
         /// <summary>
@@ -538,7 +529,7 @@ namespace Hidano.FacialControl.Timeline.Adapters
                 return _binding.Controller;
             }
 
-            return GetComponentInParent<FacialController>(true);
+            return GetComponent<FacialController>();
         }
 
         // ================================================================

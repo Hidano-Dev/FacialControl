@@ -123,8 +123,8 @@ namespace Hidano.FacialControl.Timeline.Editor.AnimationTrackConversion
             {
                 Debug.LogError(
                     LogPrefix + (unresolved != null
-                        ? $"'{timeline.name}' の独自 Track '{unresolved.name}' の対象（FacialTimelineReceiver）を解決できないため変換しません。トラックの binding を設定してください。"
-                        : $"'{timeline.name}' には複数の対象（FacialTimelineReceiver）の独自 Track があるため変換しません。合成は Timeline 全体を 1 つの対象として評価するので、対象ごとに Timeline を分けてから変換してください。"),
+                        ? $"'{timeline.name}' の独自 Track '{unresolved.name}' の対象を解決できないため変換しません。Facial Character トラックの子に置き、親トラックに FacialController を Bind してください（親トラックの外にある旧構造のトラックは REC から書き出し直してください）。"
+                        : $"'{timeline.name}' には複数の対象（FacialController）の独自 Track があるため変換しません。合成は Timeline 全体を 1 つの対象として評価するので、対象ごとに Timeline を分けてから変換してください。"),
                     timeline);
                 return results;
             }
@@ -186,7 +186,8 @@ namespace Hidano.FacialControl.Timeline.Editor.AnimationTrackConversion
             var receivers = new List<FacialTimelineReceiver>();
             foreach (TrackAsset track in selection)
             {
-                if (!IsFacialTrack(track))
+                // 親トラック（Facial Character）を選んだときはその子トラックすべてを変換する（対象は親の binding）。
+                if (!IsFacialTrack(track) && !(track is FacialCharacterTrack))
                 {
                     continue;
                 }
@@ -194,7 +195,7 @@ namespace Hidano.FacialControl.Timeline.Editor.AnimationTrackConversion
                 FacialTimelineReceiver receiver = resolver.Resolve(track);
                 if (receiver == null)
                 {
-                    Debug.LogWarning(LogPrefix + $"トラック '{track.name}' の対象（FacialTimelineReceiver）を解決できないため変換しません。トラックの binding を設定してください。");
+                    Debug.LogWarning(LogPrefix + $"トラック '{track.name}' の対象を解決できないため変換しません。Facial Character トラックに FacialController を Bind してください。");
                     continue;
                 }
 
@@ -690,14 +691,12 @@ namespace Hidano.FacialControl.Timeline.Editor.AnimationTrackConversion
     }
 
     /// <summary>
-    /// トラックが紐づく Receiver を解決する（binding。未設定なら、この Director を使う Receiver がシーンに 1 つだけのときその Receiver）。
-    /// 未設定トラック用のシーン走査は 1 回の変換につき 1 回だけ行う。
+    /// トラックが紐づく Receiver を解決する。対象は祖先の Facial Character トラックに Bind された FacialController で、
+    /// 親トラックが無い（旧構造）・Bind されていないトラックは null（シーンから推測しない。HID-408）。
     /// </summary>
     internal sealed class ReceiverResolver
     {
         private readonly PlayableDirector _director;
-        private bool _fallbackResolved;
-        private FacialTimelineReceiver _fallback;
 
         public ReceiverResolver(PlayableDirector director)
         {
@@ -706,42 +705,7 @@ namespace Hidano.FacialControl.Timeline.Editor.AnimationTrackConversion
 
         public FacialTimelineReceiver Resolve(TrackAsset track)
         {
-            FacialTimelineReceiver bound = FacialTimelineEditorPreview.ResolveBoundReceiver(_director, track);
-            if (bound != null)
-            {
-                return bound;
-            }
-
-            if (!_fallbackResolved)
-            {
-                _fallbackResolved = true;
-                _fallback = FindSingleReceiverOfDirector();
-            }
-
-            return _fallback;
-        }
-
-        private FacialTimelineReceiver FindSingleReceiverOfDirector()
-        {
-            FacialTimelineReceiver found = null;
-            FacialTimelineReceiver[] all = UnityEngine.Object.FindObjectsByType<FacialTimelineReceiver>(FindObjectsSortMode.None);
-            for (int i = 0; i < all.Length; i++)
-            {
-                FacialTimelineReceiver candidate = all[i];
-                if (TimelineTrackBindingResolver.ResolveDirector(candidate, candidate.DirectorOverride, out _) != _director)
-                {
-                    continue;
-                }
-
-                if (found != null)
-                {
-                    return null;
-                }
-
-                found = candidate;
-            }
-
-            return found;
+            return FacialTimelineEditorPreview.ResolveBoundReceiver(_director, track);
         }
     }
 

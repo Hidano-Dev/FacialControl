@@ -6,6 +6,7 @@ using Hidano.FacialControl.Adapters.ScriptableObject.Serializable;
 using Hidano.FacialControl.Domain.Models;
 using Hidano.FacialControl.Timeline.Adapters;
 using Hidano.FacialControl.Timeline.Adapters.Assets;
+using Hidano.FacialControl.Timeline.Tracks;
 using UnityEditor;
 using UnityEditor.Timeline;
 using UnityEngine;
@@ -237,14 +238,27 @@ namespace Hidano.FacialControl.Timeline.Editor
                 return false;
             }
 
-            foreach (TrackAsset track in timeline.GetOutputTracks())
-            {
-                if (!TryResolveReceiver(director.GetGenericBinding(track), out FacialTimelineReceiver receiver))
-                {
-                    continue;
-                }
+            return TryResolveBoundProfileAsset(director, timeline, out profileAsset);
+        }
 
-                FacialController controller = receiver.GetComponent<FacialController>();
+        /// <summary>
+        /// Timeline の Facial Character トラックに Bind された FacialController の Character SO（最初に見つかったもの）を返す（HID-408）。
+        /// </summary>
+        internal static bool TryResolveBoundProfileAsset(
+            PlayableDirector director,
+            TimelineAsset timeline,
+            out FacialCharacterProfileSO profileAsset)
+        {
+            profileAsset = null;
+            if (director == null || timeline == null)
+            {
+                return false;
+            }
+
+            List<FacialCharacterTrack> characters = FacialCharacterTrackBinding.CollectCharacterTracks(timeline);
+            for (int i = 0; i < characters.Count; i++)
+            {
+                FacialController controller = FacialCharacterTrackBinding.ToController(director.GetGenericBinding(characters[i]));
                 if (controller == null || controller.CharacterSO == null)
                 {
                     continue;
@@ -255,25 +269,6 @@ namespace Hidano.FacialControl.Timeline.Editor
             }
 
             return false;
-        }
-
-        private static bool TryResolveReceiver(object binding, out FacialTimelineReceiver receiver)
-        {
-            switch (binding)
-            {
-                case FacialTimelineReceiver directReceiver:
-                    receiver = directReceiver;
-                    return true;
-                case GameObject gameObject:
-                    receiver = gameObject.GetComponent<FacialTimelineReceiver>();
-                    return receiver != null;
-                case Component component:
-                    receiver = component.GetComponent<FacialTimelineReceiver>();
-                    return receiver != null;
-                default:
-                    receiver = null;
-                    return false;
-            }
         }
 
         private readonly struct CacheKey : IEquatable<CacheKey>

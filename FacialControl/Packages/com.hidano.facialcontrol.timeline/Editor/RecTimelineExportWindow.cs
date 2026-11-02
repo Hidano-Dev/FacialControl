@@ -16,8 +16,8 @@ namespace Hidano.FacialControl.Timeline.Editor
     /// REC（.fcrec）を TimelineAsset に書き出すウィンドウ。
     /// </summary>
     /// <remarks>
-    /// <para>入力は REC ファイル / Profile / 出力 TimelineAsset（任意）だけ。Director / Receiver の配線は Receiver が
-    /// 再生開始時と Edit 評価時に自動で行うため指定欄を持たない（Req 10.5）。</para>
+    /// <para>入力は REC ファイル / Profile / 出力 TimelineAsset（任意）だけ。Director と Facial Character トラックの binding は
+    /// ユーザーが Timeline で設定するため指定欄を持たない（Req 10.5 / HID-408）。</para>
     /// <para>チャネル種別（Analog / Gaze / ValueProvider）は <see cref="RecToTimelineExporter.DetectChannels(RecBinaryFormat.ReadResult, FacialCharacterProfileSO)"/>
     /// の自動判定に任せ、上書き欄（Source Overrides）は持たない。REC 読み込み後に検出結果（source id / 判定結果 / 理由）を
     /// 読み取り専用で表示する。トリガー専用の source は検出結果に含まれないため表示しない（Req 10.1 / 10.2）。</para>
@@ -27,7 +27,7 @@ namespace Hidano.FacialControl.Timeline.Editor
         internal const string DetectionListName = "rec-export-detections";
 
         internal const string NextStepsMessage =
-            "次の手順: 1) PlayableDirector に TimelineAsset をセット 2) FacialController と同じ GameObject に FacialTimelineReceiver を追加";
+            "次の手順: 1) PlayableDirector に TimelineAsset をセット 2) Facial Character トラックの binding に FacialController をセット";
 
         private readonly List<string> _listedSourceIds = new List<string>();
 

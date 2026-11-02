@@ -487,7 +487,7 @@ namespace Hidano.FacialControl.Timeline.Tests.PlayMode
         private static TimelineAsset CreateTimeline(string expressionId)
         {
             var timeline = ScriptableObject.CreateInstance<TimelineAsset>();
-            FacialExpressionTrack track = timeline.CreateTrack<FacialExpressionTrack>(null, "Expressions");
+            FacialExpressionTrack track = TimelinePlayModeRig.Character(timeline).CreateChildTrack<FacialExpressionTrack>("Expressions");
             TimelineClip clip = track.CreateClip<FacialExpressionClip>();
             clip.start = ClipStartTime;
             clip.duration = ClipDuration;

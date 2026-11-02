@@ -10,8 +10,11 @@ using UnityEngine.Timeline;
 
 namespace Hidano.FacialControl.Timeline.Tracks
 {
+    /// <summary>
+    /// 表情トラック（トラック名 = Profile のレイヤー名）。<see cref="FacialCharacterTrack"/> の子に置き、対象は親の binding を使う
+    /// （本トラックは Bind を持たない。HID-408）。
+    /// </summary>
     [TrackClipType(typeof(FacialExpressionClip))]
-    [TrackBindingType(typeof(FacialTimelineReceiver))]
     [TrackColor(0.78f, 0.36f, 0.28f)]
     public sealed class FacialExpressionTrack : TrackAsset, ILayerable, IPropertyPreview, IFacialTimelineBakeHolder
     {
@@ -28,7 +31,9 @@ namespace Hidano.FacialControl.Timeline.Tracks
         {
             ScriptPlayable<FacialTrackMixerBehaviour> playable =
                 ScriptPlayable<FacialTrackMixerBehaviour>.Create(graph, inputCount);
-            playable.GetBehaviour().ConfigureExpression(name, TimelineStateEventCollector.Collect(this));
+            FacialTrackMixerBehaviour behaviour = playable.GetBehaviour();
+            behaviour.SetOwnerTrack(this);
+            behaviour.ConfigureExpression(name, TimelineStateEventCollector.Collect(this));
             return playable;
         }
 

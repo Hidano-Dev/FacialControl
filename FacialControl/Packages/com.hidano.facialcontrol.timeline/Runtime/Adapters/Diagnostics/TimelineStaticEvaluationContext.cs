@@ -33,7 +33,6 @@ namespace Hidano.FacialControl.Timeline.Adapters.Diagnostics
         /// <param name="gazeChannels">Profile 内容ハッシュに含める GazeChannels。null なら Profile SO の値を使う。</param>
         /// <param name="bake">Bake の解決結果。</param>
         /// <param name="derivation">トラック記述子と Profile からの導出結果（null 可）。</param>
-        /// <param name="trackBindings">Track binding 自動設定の結果（未実行なら null）。</param>
         /// <param name="expectedProfileContentHashHex">Bake に記録された Profile 内容ハッシュ。null なら採用 Bake の値を使う。</param>
         public TimelineStaticEvaluationContext(
             PlayableDirector director,
@@ -46,7 +45,6 @@ namespace Hidano.FacialControl.Timeline.Adapters.Diagnostics
             IReadOnlyList<GazeChannel> gazeChannels,
             BakeLocateResult bake,
             TimelineDerivation derivation,
-            TrackBindingReport? trackBindings = null,
             string expectedProfileContentHashHex = null)
         {
             Director = director;
@@ -61,8 +59,6 @@ namespace Hidano.FacialControl.Timeline.Adapters.Diagnostics
                 ?? EmptyGazeChannels;
             Bake = bake;
             Derivation = derivation;
-            HasTrackBindings = trackBindings.HasValue;
-            TrackBindings = trackBindings ?? default;
             ExpectedProfileContentHashHex = expectedProfileContentHashHex
                 ?? (bake.Bake != null ? bake.Bake.ProfileContentHashHex : string.Empty);
         }
@@ -86,11 +82,6 @@ namespace Hidano.FacialControl.Timeline.Adapters.Diagnostics
         public BakeLocateResult Bake { get; }
 
         public TimelineDerivation Derivation { get; }
-
-        /// <summary><see cref="TrackBindings"/> が与えられているか。</summary>
-        public bool HasTrackBindings { get; }
-
-        public TrackBindingReport TrackBindings { get; }
 
         /// <summary>Bake に記録された Profile 内容ハッシュ（空文字は不一致扱い）。</summary>
         public string ExpectedProfileContentHashHex { get; }

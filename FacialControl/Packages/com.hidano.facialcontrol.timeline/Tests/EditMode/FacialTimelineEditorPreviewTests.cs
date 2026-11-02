@@ -25,6 +25,8 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
         private GameObject _host;
         private TimelineAsset _timeline;
         private FacialTimelineBakeAsset _bake;
+        private FacialCharacterTrack _character;
+        private FacialExpressionTrack _track;
 
         [SetUp]
         public void SetUp()
@@ -33,8 +35,9 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
             FacialTimelineEditorPreview.ClearCache();
             _timeline = ScriptableObject.CreateInstance<TimelineAsset>();
             _bake = ScriptableObject.CreateInstance<FacialTimelineBakeAsset>();
-            var track = _timeline.CreateTrack<FacialExpressionTrack>(null, "emotion");
-            track.Bake = _bake;
+            _character = _timeline.CreateTrack<FacialCharacterTrack>(null, "Facial Character");
+            _track = _character.CreateChildTrack<FacialExpressionTrack>("emotion");
+            _track.Bake = _bake;
         }
 
         [TearDown]
@@ -88,17 +91,16 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
             // Edit では FacialController が未初期化で SkinnedMeshRenderers（手動オーバーライド欄）が空のことが多い。
             // プレビューが書き込む子の SkinnedMeshRenderer を復元対象に登録しないと、プレビュー終了後も BlendShape が残る。
             _host = new GameObject("PreviewHost");
-            _host.AddComponent<FacialController>();
-            var receiver = _host.AddComponent<FacialTimelineReceiver>();
+            var controller = _host.AddComponent<FacialController>();
             var director = _host.AddComponent<PlayableDirector>();
             var face = new GameObject("Face");
             face.transform.SetParent(_host.transform, false);
             var renderer = face.AddComponent<SkinnedMeshRenderer>();
             renderer.sharedMesh = CreateMeshWithBlendShapes("smile", "blink");
 
-            TrackAsset track = _timeline.GetOutputTrack(0);
+            TrackAsset track = _track;
             director.playableAsset = _timeline;
-            director.SetGenericBinding(track, receiver);
+            director.SetGenericBinding(_character, controller);
             var collector = new RecordingPropertyCollector();
 
             try
@@ -121,8 +123,7 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
             // Play の FacialController はアクティブな子だけを集める。プレビューも同じ renderer に書き込み・復元しないと
             // BlendShape の並び（index）が Play とずれる。
             _host = new GameObject("PreviewHost");
-            _host.AddComponent<FacialController>();
-            var receiver = _host.AddComponent<FacialTimelineReceiver>();
+            var controller = _host.AddComponent<FacialController>();
             var director = _host.AddComponent<PlayableDirector>();
             var hidden = new GameObject("Hidden");
             hidden.transform.SetParent(_host.transform, false);
@@ -134,9 +135,9 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
             var renderer = face.AddComponent<SkinnedMeshRenderer>();
             renderer.sharedMesh = CreateMeshWithBlendShapes("smile");
 
-            TrackAsset track = _timeline.GetOutputTrack(0);
+            TrackAsset track = _track;
             director.playableAsset = _timeline;
-            director.SetGenericBinding(track, receiver);
+            director.SetGenericBinding(_character, controller);
             var collector = new RecordingPropertyCollector();
 
             try

@@ -219,7 +219,7 @@ namespace Hidano.FacialControl.Timeline.Tests.PlayMode
         {
             TimelineE2ECharacter character = Prepare(new RecFixtureWriter.Recording());
             FacialExpressionTrack parent = null;
-            foreach (TrackAsset track in _fixture.Timeline.GetRootTracks())
+            foreach (TrackAsset track in _fixture.Timeline.GetOutputTracks())
             {
                 parent ??= track as FacialExpressionTrack;
             }
@@ -238,19 +238,14 @@ namespace Hidano.FacialControl.Timeline.Tests.PlayMode
         }
 
         [Test]
-        public void Convert_TracksBoundToTwoReceivers_LogsErrorAndAddsNoTrack()
+        public void Convert_TracksUnderTwoCharacterTracksBoundToDifferentControllers_LogsErrorAndAddsNoTrack()
         {
             TimelineE2ECharacter character = Prepare(new RecFixtureWriter.Recording());
             TimelineE2ECharacter other = _fixture.Spawn(TimelineE2EPlacement.SameObject);
-            bool first = true;
-            foreach (TrackAsset track in _fixture.Timeline.GetOutputTracks())
-            {
-                if (FacialAnimationTrackConverter.IsFacialTrack(track))
-                {
-                    character.Director.SetGenericBinding(track, first ? other.Receiver : character.Receiver);
-                    first = false;
-                }
-            }
+            var secondCharacter = _fixture.Timeline.CreateTrack<FacialCharacterTrack>(null, "Second Character");
+            var secondTrack = secondCharacter.CreateChildTrack<FacialExpressionTrack>(TimelineE2EFixture.EmotionLayer);
+            secondTrack.Bake = _fixture.Bake;
+            character.Director.SetGenericBinding(secondCharacter, other.Controller);
 
             int trackCount = CountOutputTracks(_fixture.Timeline);
 
@@ -263,42 +258,30 @@ namespace Hidano.FacialControl.Timeline.Tests.PlayMode
         }
 
         [Test]
-        public void Convert_UnboundTrackWithTwoReceiversOnDirector_LogsErrorAndAddsNoTrack()
+        public void Convert_TimelineWithTrackOutsideCharacterTrack_LogsErrorAndAddsNoTrack()
         {
             TimelineE2ECharacter character = Prepare(new RecFixtureWriter.Recording());
-
-            // 同じ Director を使う 2 つ目の Receiver があると、未設定のトラックの対象は決まらない。
-            var otherHost = new GameObject("OtherReceiver");
-            otherHost.SetActive(false);
-            FacialTimelineReceiver other = otherHost.AddComponent<FacialTimelineReceiver>();
-            other.DirectorOverride = character.Director;
-            otherHost.SetActive(true);
-            try
+            TrackAsset bound = null;
+            foreach (TrackAsset track in _fixture.Timeline.GetOutputTracks())
             {
-                TrackAsset bound = null;
-                foreach (TrackAsset track in _fixture.Timeline.GetOutputTracks())
+                if (FacialAnimationTrackConverter.IsFacialTrack(track))
                 {
-                    if (FacialAnimationTrackConverter.IsFacialTrack(track))
-                    {
-                        bound ??= track;
-                        character.Director.SetGenericBinding(track, track == bound ? character.Receiver : null);
-                    }
+                    bound ??= track;
                 }
-
-                int trackCount = CountOutputTracks(_fixture.Timeline);
-
-                LogAssert.Expect(LogType.Error, new Regex("対象（FacialTimelineReceiver）を解決できない"));
-                List<AnimationTrackConversionResult> results =
-                    FacialAnimationTrackConverter.Convert(character.Director, new[] { bound });
-
-                Assert.That(results, Is.Empty, "Play で適用されない未設定トラックを焼き込まない");
-                Assert.That(CountOutputTracks(_fixture.Timeline), Is.EqualTo(trackCount));
             }
-            finally
-            {
-                UnityEngine.Object.DestroyImmediate(otherHost);
-            }
+
+            // 親トラックの外にある旧構造のトラックは対象が決まらず、Play でも再生されない（HID-408）。
+            _fixture.Timeline.CreateTrack<FacialExpressionTrack>(null, "legacy").Bake = _fixture.Bake;
+            int trackCount = CountOutputTracks(_fixture.Timeline);
+
+            LogAssert.Expect(LogType.Error, new Regex("対象を解決できない"));
+            List<AnimationTrackConversionResult> results =
+                FacialAnimationTrackConverter.Convert(character.Director, new[] { bound });
+
+            Assert.That(results, Is.Empty, "Play で適用されないトラックを焼き込まない");
+            Assert.That(CountOutputTracks(_fixture.Timeline), Is.EqualTo(trackCount));
         }
+
 
         private TimelineE2ECharacter Prepare(
             RecFixtureWriter.Recording recording,

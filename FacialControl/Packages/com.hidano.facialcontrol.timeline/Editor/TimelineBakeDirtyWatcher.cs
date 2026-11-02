@@ -601,44 +601,7 @@ namespace Hidano.FacialControl.Timeline.Editor
             TimelineAsset timeline,
             out FacialCharacterProfileSO profileAsset)
         {
-            profileAsset = null;
-            foreach (TrackAsset track in timeline.GetOutputTracks())
-            {
-                if (!TryResolveReceiver(director.GetGenericBinding(track), out FacialTimelineReceiver receiver))
-                {
-                    continue;
-                }
-
-                FacialController controller = receiver.GetComponent<FacialController>();
-                if (controller == null || controller.CharacterSO == null)
-                {
-                    continue;
-                }
-
-                profileAsset = controller.CharacterSO;
-                return true;
-            }
-
-            return false;
-        }
-
-        private static bool TryResolveReceiver(object binding, out FacialTimelineReceiver receiver)
-        {
-            switch (binding)
-            {
-                case FacialTimelineReceiver directReceiver:
-                    receiver = directReceiver;
-                    return true;
-                case GameObject gameObject:
-                    receiver = gameObject.GetComponent<FacialTimelineReceiver>();
-                    return receiver != null;
-                case Component component:
-                    receiver = component.GetComponent<FacialTimelineReceiver>();
-                    return receiver != null;
-                default:
-                    receiver = null;
-                    return false;
-            }
+            return TimelineProfileSource.TryResolveBoundProfileAsset(director, timeline, out profileAsset);
         }
 
         private static bool TryLoadTimeline(string timelinePath, out TimelineAsset timeline)

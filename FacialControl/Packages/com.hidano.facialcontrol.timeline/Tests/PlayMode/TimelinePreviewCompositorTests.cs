@@ -376,7 +376,7 @@ namespace Hidano.FacialControl.Timeline.Tests.PlayMode
         private static T FindRootTrack<T>(TimelineAsset timeline)
             where T : TrackAsset
         {
-            foreach (TrackAsset track in timeline.GetRootTracks())
+            foreach (TrackAsset track in timeline.GetOutputTracks())
             {
                 if (track is T typed)
                 {

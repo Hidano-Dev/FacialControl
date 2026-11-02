@@ -204,7 +204,7 @@ namespace Hidano.FacialControl.Timeline.Tests.PlayMode
         /// <summary>BlendShape "Smile" を値ごと・寄与 mask・有効状態の階段カーブで動かす値提供型トラックを足す。</summary>
         private static void AddValueProviderTrack(TimelineAsset timeline)
         {
-            var track = timeline.CreateTrack<FacialValueTrack>(null, ValueProviderId);
+            var track = TimelinePlayModeRig.Character(timeline).CreateChildTrack<FacialValueTrack>(ValueProviderId);
             track.ChannelSubId = ValueProviderId;
             track.ChannelKind = FacialValueChannelKind.ValueProvider;
             TimelineClip clip = track.CreateClip<FacialValueClip>();
@@ -227,7 +227,7 @@ namespace Hidano.FacialControl.Timeline.Tests.PlayMode
         private static TimelineAsset CreateTimeline()
         {
             var timeline = ScriptableObject.CreateInstance<TimelineAsset>();
-            FacialExpressionTrack track = timeline.CreateTrack<FacialExpressionTrack>(null, ExpressionLayerName);
+            FacialExpressionTrack track = TimelinePlayModeRig.Character(timeline).CreateChildTrack<FacialExpressionTrack>(ExpressionLayerName);
             TimelineClip clip = track.CreateClip<FacialExpressionClip>();
             clip.start = 0d;
             // ウォームアップと計測のフレーム（計 2 秒強）を Clip の中に収める。Clip が終わると表情が無くなり、値 sink が無効になって

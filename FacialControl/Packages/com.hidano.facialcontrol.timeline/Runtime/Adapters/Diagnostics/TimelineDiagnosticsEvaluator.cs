@@ -2,14 +2,12 @@ using System;
 using System.Collections.Generic;
 using Hidano.FacialControl.Adapters.Playable;
 using Hidano.FacialControl.Adapters.ScriptableObject;
-using Hidano.FacialControl.Adapters.ScriptableObject.Serializable;
-using Hidano.FacialControl.Domain.Adapters;
 using Hidano.FacialControl.Domain.Models;
-using Hidano.FacialControl.Timeline.Adapters.AdapterBindings;
 using Hidano.FacialControl.Timeline.Adapters.Assets;
 using Hidano.FacialControl.Timeline.Adapters.Session;
 using Hidano.FacialControl.Timeline.Domain.Diagnostics;
 using Hidano.FacialControl.Timeline.Domain.Services;
+using Hidano.FacialControl.Timeline.Tracks;
 using UnityEngine.Timeline;
 
 namespace Hidano.FacialControl.Timeline.Adapters.Diagnostics
@@ -18,7 +16,7 @@ namespace Hidano.FacialControl.Timeline.Adapters.Diagnostics
     /// Edit / Play 開始前に静的に判定できる診断を評価し、領域単位で診断状態へ置換する。
     /// </summary>
     /// <remarks>
-    /// <para>置換する領域: Director / TrackBinding / Bake / Profile / ProfileBinding / LayerMatch / Placement。
+    /// <para>置換する領域: Director / TrackBinding（トラック構造）/ Bake / Profile / LayerMatch / Placement。
     /// セッション側の領域（LayerConnection / Analog / Gaze / Session）には触れない。</para>
     /// <para>Console 出力は行わない（出すかどうかは呼び出し側が警告ゲートで判断する）。</para>
     /// <para>確保は評価時に閉じる（毎フレーム呼ばない）。</para>
@@ -26,14 +24,18 @@ namespace Hidano.FacialControl.Timeline.Adapters.Diagnostics
     public static class TimelineDiagnosticsEvaluator
     {
         private const string DirectorMissingDetail =
-            "PlayableDirector が見つかりません。FacialTimelineReceiver と同じ GameObject（または親）に PlayableDirector を置くか、Receiver の Director 欄に指定してください。";
+            "この FacialController を Bind した Facial Character トラックを持つ PlayableDirector が見つかりません。"
+            + "Facial Character トラックの binding に FacialController をセットしてください。";
         private const string DirectorAmbiguousDetail =
-            "この Receiver を binding している PlayableDirector が複数あります。Receiver の Director 欄で使う Director を指定してください。";
+            "この FacialController を Bind している PlayableDirector が複数あります。診断は最初に再生された Director で行います。";
         private const string TimelineNotBoundDetail =
             "PlayableDirector に TimelineAsset がセットされていません。Director の Playable 欄に Export した TimelineAsset をセットしてください。";
-        private const string AutoAssignedDetail = "Facial トラックの binding に Receiver を自動設定しました。";
-        private const string ForeignDetail =
-            "このトラックの binding は別のオブジェクトを指しているため変更しません。この Receiver で再生する場合は、PlayableDirector の Bindings でこのトラックの binding を外す（None にする）と自動で設定されます。";
+        private const string LegacyTrackStructureDetail =
+            "Facial Character トラックの外にある Facial トラックは再生されません（親トラック導入前に書き出した旧構造）。"
+            + "REC から TimelineAsset を書き出し直してください。";
+        private const string MultipleCharacterTracksDetail =
+            "1 つの Timeline に置ける Facial Character トラックは 1 本までです（Bake は Timeline 全体を 1 体として作るため）。"
+            + "キャラごとに Timeline を分けてください。";
         private const string BakeMissingDetail =
             "TimelineAsset に Facial トラックが無いため、再生する Bake がありません。";
         private const string BakeLegacyExportDetail =
@@ -49,24 +51,12 @@ namespace Hidano.FacialControl.Timeline.Adapters.Diagnostics
         private const string ProfileMatchedDetail = "Bake は現在の Profile から作られています。";
         private const string ProfileMismatchDetail =
             "Bake が現在の Profile と異なるスナップショットから作られています。Bake の値で再生を続けます。Edit に戻ると自動で再ベイクされます（今すぐ直す場合は Receiver Inspector の『今再ベイク』）。";
-        private const string BindingMissingDetail =
-            "Profile の AdapterBindings に Timeline binding がありません。Profile Inspector で Timeline binding を追加してください。";
-        private const string BindingSlugInvalidDetail =
-            "Timeline binding の Slug が不正です。英小文字・数字・ハイフンなどの有効な slug（既定 timeline）にしてください。";
-        private const string BindingDisabledDetail =
-            "Timeline binding の受信が無効になっています。Profile Inspector で Timeline binding を有効にしてください。";
-        private const string BindingLegacyFieldsDetail =
-            "Timeline binding に旧フィールド（Target Layer Names / Channel Definitions）が残っています。再生には使われません（レイヤーとチャネルはトラックから自動で導出されます）。";
         private const string TrackLayerUnmatchedDetail =
             "トラック名が Profile のレイヤー名と一致しないため、このトラックは再生されません。トラック名をレイヤー名に合わせてください。";
-        private const string ReceiverNotOnControllerDetail =
-            "FacialTimelineReceiver を FacialController と同じ GameObject に置いてください。";
         private const string ControllerMissingDetail =
-            "FacialController が見つかりません。FacialTimelineReceiver と同じ GameObject に FacialController を置いてください。";
+            "FacialController が見つかりません。Facial Character トラックには FacialController を Bind してください。";
         private const string ControllerNotInitializedDetail =
             "FacialController はまだ初期化されていません（Play 開始後に初期化されます）。";
-
-        private const string DefaultBindingSlug = "timeline";
 
         public static void EvaluateStatic(
             FacialTimelineReceiver receiver,
@@ -88,21 +78,36 @@ namespace Hidano.FacialControl.Timeline.Adapters.Diagnostics
             EvaluateDirector(context, items);
             Flush(target, TimelineDiagnosticArea.Director, items);
 
-            EvaluateTrackBinding(context, items);
+            EvaluateTrackStructure(context.Timeline, items);
             Flush(target, TimelineDiagnosticArea.TrackBinding, items);
 
             EvaluateBakeAndProfile(context, items, out List<TimelineDiagnosticItem> profileItems);
             Flush(target, TimelineDiagnosticArea.Bake, items);
             Flush(target, TimelineDiagnosticArea.Profile, profileItems);
 
-            EvaluateProfileBinding(context, items);
-            Flush(target, TimelineDiagnosticArea.ProfileBinding, items);
-
             EvaluateLayerMatch(context, items);
             Flush(target, TimelineDiagnosticArea.LayerMatch, items);
 
             EvaluatePlacement(receiver, context, items);
             Flush(target, TimelineDiagnosticArea.Placement, items);
+        }
+
+        /// <summary>
+        /// TrackBinding 領域（トラック構造: 親トラックの外の旧構造トラック / 親トラックが複数）だけを評価して置換する。
+        /// Error があれば true（再生セッションは開始しない）。
+        /// </summary>
+        public static bool EvaluateTrackStructureArea(FacialTimelineDiagnostics target, TimelineAsset timeline)
+        {
+            if (target == null)
+            {
+                throw new ArgumentNullException(nameof(target));
+            }
+
+            var items = new List<TimelineDiagnosticItem>();
+            EvaluateTrackStructure(timeline, items);
+            bool hasError = items.Count > 0;
+            Flush(target, TimelineDiagnosticArea.TrackBinding, items);
+            return hasError;
         }
 
         /// <summary>
@@ -142,7 +147,7 @@ namespace Hidano.FacialControl.Timeline.Adapters.Diagnostics
             {
                 if (context.DirectorStatus == DirectorResolveStatus.Ambiguous)
                 {
-                    items.Add(Error(TimelineDiagnosticArea.Director, TimelineDiagnosticCode.DirectorAmbiguous, string.Empty, DirectorAmbiguousDetail));
+                    items.Add(Warning(TimelineDiagnosticArea.Director, TimelineDiagnosticCode.DirectorAmbiguous, string.Empty, DirectorAmbiguousDetail));
                 }
                 else
                 {
@@ -158,26 +163,25 @@ namespace Hidano.FacialControl.Timeline.Adapters.Diagnostics
             }
         }
 
-        private static void EvaluateTrackBinding(in TimelineStaticEvaluationContext context, List<TimelineDiagnosticItem> items)
+        private static void EvaluateTrackStructure(TimelineAsset timeline, List<TimelineDiagnosticItem> items)
         {
-            if (!context.HasTrackBindings)
+            if (timeline == null)
             {
+                // Director 領域が原因を示す。
                 return;
             }
 
-            TrackBindingReport report = context.TrackBindings;
-            if (report.Assigned > 0)
+            List<TrackAsset> outside = FacialCharacterTrackBinding.CollectTracksOutsideCharacter(timeline);
+            for (int i = 0; i < outside.Count; i++)
             {
-                string directorName = context.Director != null ? context.Director.name : string.Empty;
-                string subject = report.Assigned + " 本（" + directorName + "）";
-                items.Add(Info(TimelineDiagnosticArea.TrackBinding, TimelineDiagnosticCode.TrackBindingAutoAssigned, subject, AutoAssignedDetail));
+                string subject = outside[i] != null ? outside[i].name : string.Empty;
+                items.Add(Error(TimelineDiagnosticArea.TrackBinding, TimelineDiagnosticCode.LegacyTrackStructure, subject, LegacyTrackStructureDetail));
             }
 
-            IReadOnlyList<TrackAsset> foreign = report.BoundToOther;
-            for (int i = 0; i < foreign.Count; i++)
+            List<FacialCharacterTrack> characters = FacialCharacterTrackBinding.CollectCharacterTracks(timeline);
+            if (characters.Count > 1)
             {
-                string subject = foreign[i] != null ? foreign[i].name : string.Empty;
-                items.Add(Warning(TimelineDiagnosticArea.TrackBinding, TimelineDiagnosticCode.TrackBindingForeign, subject, ForeignDetail));
+                items.Add(Error(TimelineDiagnosticArea.TrackBinding, TimelineDiagnosticCode.MultipleCharacterTracks, timeline.name, MultipleCharacterTracksDetail));
             }
         }
 
@@ -249,38 +253,6 @@ namespace Hidano.FacialControl.Timeline.Adapters.Diagnostics
             }
         }
 
-        private static void EvaluateProfileBinding(in TimelineStaticEvaluationContext context, List<TimelineDiagnosticItem> items)
-        {
-            FacialCharacterProfileSO source = context.ProfileSource;
-            string subject = source != null ? source.name : string.Empty;
-            TimelineAdapterBinding binding = FindTimelineBinding(source);
-            if (binding == null)
-            {
-                items.Add(Error(TimelineDiagnosticArea.ProfileBinding, TimelineDiagnosticCode.BindingMissing, subject, BindingMissingDetail));
-                return;
-            }
-
-            string slugText = string.IsNullOrWhiteSpace(binding.Slug) ? DefaultBindingSlug : binding.Slug;
-            bool slugValid = AdapterSlug.TryParse(slugText, out AdapterSlug slug);
-            if (!slugValid)
-            {
-                items.Add(Error(TimelineDiagnosticArea.ProfileBinding, TimelineDiagnosticCode.BindingSlugInvalid, slugText, BindingSlugInvalidDetail));
-            }
-
-            // Adapter Bindings ヘッダーのトグルで binding ごと無効にした場合（Disabled）も、受信しない点は同じなので同じ診断にする。
-            if (binding.Disabled || !binding.Enabled)
-            {
-                // 件名は Receiver のセッション開始時の BindingDisabled と同じ（slug）にし、警告ゲートで重複させない。
-                string disabledSubject = slugValid ? slug.Value : slugText;
-                items.Add(Error(TimelineDiagnosticArea.ProfileBinding, TimelineDiagnosticCode.BindingDisabled, disabledSubject, BindingDisabledDetail));
-            }
-
-            if (binding.HasLegacyFields)
-            {
-                items.Add(Warning(TimelineDiagnosticArea.ProfileBinding, TimelineDiagnosticCode.BindingLegacyFields, subject, BindingLegacyFieldsDetail));
-            }
-        }
-
         private static void EvaluateLayerMatch(in TimelineStaticEvaluationContext context, List<TimelineDiagnosticItem> items)
         {
             if (context.Derivation == null)
@@ -307,44 +279,10 @@ namespace Hidano.FacialControl.Timeline.Adapters.Diagnostics
                 return;
             }
 
-            if (controller.gameObject != receiver.gameObject)
-            {
-                items.Add(Error(TimelineDiagnosticArea.Placement, TimelineDiagnosticCode.ReceiverNotOnControllerObject, receiver.name, ReceiverNotOnControllerDetail));
-            }
-
             if (!controller.IsInitialized)
             {
                 items.Add(Info(TimelineDiagnosticArea.Placement, TimelineDiagnosticCode.ControllerNotInitialized, controller.name, ControllerNotInitializedDetail));
             }
-        }
-
-        /// <summary>
-        /// Profile の Timeline binding を返す。Play で起動するもの（<see cref="AdapterBindingBase.Disabled"/> でないもの）を
-        /// 優先し、無ければ無効の binding を返す（BindingDisabled の診断に使う）。
-        /// </summary>
-        internal static TimelineAdapterBinding FindTimelineBinding(FacialCharacterProfileSO source)
-        {
-            if (source == null || source.AdapterBindings == null)
-            {
-                return null;
-            }
-
-            TimelineAdapterBinding firstDisabled = null;
-            IReadOnlyList<AdapterBindingBase> bindings = source.AdapterBindings;
-            for (int i = 0; i < bindings.Count; i++)
-            {
-                if (bindings[i] is TimelineAdapterBinding timelineBinding)
-                {
-                    if (!timelineBinding.Disabled)
-                    {
-                        return timelineBinding;
-                    }
-
-                    firstDisabled ??= timelineBinding;
-                }
-            }
-
-            return firstDisabled;
         }
 
         private static void Flush(FacialTimelineDiagnostics target, TimelineDiagnosticArea area, List<TimelineDiagnosticItem> items)
