@@ -8,6 +8,7 @@ using Hidano.FacialControl.Rec.Domain.Models;
 using Hidano.FacialControl.Timeline.Editor;
 using Hidano.FacialControl.Timeline.Clips;
 using Hidano.FacialControl.Timeline.Domain.Models;
+using Hidano.FacialControl.Timeline.Domain.Services;
 using Hidano.FacialControl.Timeline.Playables;
 using Hidano.FacialControl.Timeline.Tracks;
 using NUnit.Framework;
@@ -101,6 +102,168 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
             Assert.That(sequence[2].Axes, Is.EqualTo(new[] { 0.9f }));
             Assert.That(sequence[3].IsValid, Is.False);
             Assert.That(sequence[3].Axes, Is.Empty);
+        }
+
+        // ================================================================
+        // 録画開始時の基準（kind 5 / 6）と trigger の入力源（HID-298）
+        // ================================================================
+
+        [Test]
+        public void RecEventSequenceAdapter_BaselineTriggersAndAnalogs_PlacedAtTimeZeroBeforeRecords()
+        {
+            var sequence = new RecEventSequenceAdapter(CreateBaselineRecording());
+
+            Assert.That(sequence.Count, Is.EqualTo(7), "基準の trigger 2 件 + 基準の Analog 1 件 + 時刻付き 4 件");
+            AssertBaselineTriggerOn(sequence[0], "smile");
+            AssertBaselineTriggerOn(sequence[1], "angry");
+            Assert.That(sequence[2].Kind, Is.EqualTo(RecordedEventKind.AnalogValue));
+            Assert.That(sequence[2].TimeSeconds, Is.EqualTo(0d), "基準（kind 6）は t=0 のサンプル");
+            Assert.That(sequence[2].SourceId, Is.EqualTo("analog:lt"));
+            Assert.That(sequence[2].Axes, Is.EqualTo(new[] { 0.4f }));
+            Assert.That(sequence[3].Kind, Is.EqualTo(RecordedEventKind.TriggerOff));
+            Assert.That(sequence[3].ExpressionId, Is.EqualTo("angry"));
+            Assert.That(sequence[3].SourceId, Is.EqualTo("input:trigger"), "TriggerOn / Off の入力源を捨てない");
+            Assert.That(sequence[3].IsBaseline, Is.False);
+        }
+
+        [Test]
+        public void CreateTimelineAsset_BaselineTriggerStack_ExportsStartsActiveClipsAtZeroInStackOrder()
+        {
+            TimelineAsset timeline = null;
+            try
+            {
+                timeline = Editor.RecToTimelineExporter.CreateTimelineAsset(
+                    new RecEventSequenceAdapter(CreateBaselineRecording()), CreateProfile());
+
+                var rootTrack = FindTrack<FacialExpressionTrack>(timeline, "emotion");
+                Assert.That(rootTrack, Is.Not.Null);
+                TimelineClip[] rootClips = ToArray(rootTrack.GetClips());
+                Assert.That(rootClips, Has.Length.EqualTo(2));
+                AssertClip(rootClips[0], "smile", 0d, 0.80d);
+                Assert.That(((FacialExpressionClip)rootClips[0].asset).StartsActive, Is.True, "録画開始時に押されていた表情は先頭から遷移なしで有効");
+                AssertClip(rootClips[1], "smile", 1.20d, 2.0d);
+                Assert.That(((FacialExpressionClip)rootClips[1].asset).StartsActive, Is.False, "録画中に押した表情は通常どおり遷移する");
+
+                TrackAsset[] childTracks = ToArray(rootTrack.GetChildTracks());
+                Assert.That(childTracks, Has.Length.EqualTo(1));
+                TimelineClip[] childClips = ToArray(childTracks[0].GetClips());
+                Assert.That(childClips, Has.Length.EqualTo(1));
+                AssertClip(childClips[0], "angry", 0d, 0.30d);
+                Assert.That(((FacialExpressionClip)childClips[0].asset).StartsActive, Is.True);
+
+                // 先に終わる angry（スタックの上）が下の smile より前に集められると、Bake で復元するスタックの順が逆になる。
+                TimelineStateEvent[] events = TimelineStateEventCollector.Collect(rootTrack);
+                Assert.That(events[0].ExpressionId, Is.EqualTo("smile"));
+                Assert.That(events[0].StartsActive, Is.True);
+                Assert.That(events[1].ExpressionId, Is.EqualTo("angry"));
+                Assert.That(events[1].StartsActive, Is.True);
+            }
+            finally
+            {
+                if (timeline != null)
+                {
+                    UnityEngine.Object.DestroyImmediate(timeline);
+                }
+            }
+        }
+
+        [Test]
+        public void CreateTimelineAsset_BaselineAnalog_HoldsBaselineValueUntilFirstSample()
+        {
+            TimelineAsset timeline = null;
+            try
+            {
+                timeline = Editor.RecToTimelineExporter.CreateTimelineAsset(
+                    new RecEventSequenceAdapter(CreateBaselineRecording()), CreateProfile());
+
+                var track = FindTrack<FacialValueTrack>(timeline, "analog:lt");
+                Assert.That(track, Is.Not.Null);
+                TimelineClip clip = ToArray(track.GetClips())[0];
+                Assert.That(clip.start, Is.EqualTo(0d));
+                AnimationCurve curve = ((FacialValueClip)clip.asset).Axes[0];
+                AssertCurve(curve, (0f, 0.4f), (0.49f, 0.4f), (0.5f, 0.9f), (1.5f, 0.9f));
+                Assert.That(curve.keys[0].time, Is.EqualTo(0f));
+                Assert.That(curve.keys[0].value, Is.EqualTo(0.4f).Within(1e-6f), "基準の値が 0 のキーを置き換える（最初のサンプルまで 0 にしない）");
+            }
+            finally
+            {
+                if (timeline != null)
+                {
+                    UnityEngine.Object.DestroyImmediate(timeline);
+                }
+            }
+        }
+
+        [Test]
+        public void CreateTimelineAsset_TriggersFromMultipleSourcesOnSameLayer_WarnsOnceThatStacksAreMerged()
+        {
+            var sequence = new FakeRecordedEventSequence(
+                1.0d,
+                new[]
+                {
+                    new RecordedEvent(0.10d, RecordedEventKind.TriggerOn, expressionId: "smile", sourceId: "pad:a"),
+                    new RecordedEvent(0.20d, RecordedEventKind.TriggerOn, expressionId: "angry", sourceId: "pad:b"),
+                    new RecordedEvent(0.30d, RecordedEventKind.TriggerOff, expressionId: "angry", sourceId: "pad:b"),
+                    new RecordedEvent(0.40d, RecordedEventKind.TriggerOn, expressionId: "angry", sourceId: "pad:b"),
+                });
+
+            TimelineAsset timeline = null;
+            try
+            {
+                LogAssert.Expect(
+                    LogType.Warning,
+                    new System.Text.RegularExpressions.Regex(@"\[RecToTimelineExporter\].*multiple input sources: emotion \(pad:a, pad:b\)"));
+
+                timeline = Editor.RecToTimelineExporter.CreateTimelineAsset(sequence, CreateProfile());
+
+                LogAssert.NoUnexpectedReceived();
+            }
+            finally
+            {
+                if (timeline != null)
+                {
+                    UnityEngine.Object.DestroyImmediate(timeline);
+                }
+            }
+        }
+
+        /// <summary>
+        /// 録画開始時に smile → angry のスタック（angry が上）と lt = 0.4 があり、angry を 0.3 s、smile を 0.8 s で離し、
+        /// 1.2 s に smile を押し直す記録。
+        /// </summary>
+        private static RecTimeline CreateBaselineRecording()
+        {
+            var baseline = new RecBaselineState(
+                new[] { new RecBaselineState.TriggerEntry("input:trigger", new[] { "smile", "angry" }) },
+                new[] { new RecBaselineState.AnalogEntry("analog:lt", new[] { 0.4f }) });
+            return new RecTimeline(
+                baseline,
+                new[]
+                {
+                    RecEvent.CreateTriggerOff(0.30d, 0, 1),
+                    RecEvent.CreateAnalogSample(0.50d, 1, 1),
+                    RecEvent.CreateTriggerOff(0.80d, 0, 0),
+                    RecEvent.CreateTriggerOn(1.20d, 0, 0),
+                },
+                new[] { "input:trigger", "analog:lt" },
+                new[] { "smile", "angry" },
+                2.0d,
+                new IReadOnlyList<float>[]
+                {
+                    Array.Empty<float>(),
+                    new[] { 0.9f },
+                    Array.Empty<float>(),
+                    Array.Empty<float>(),
+                });
+        }
+
+        private static void AssertBaselineTriggerOn(RecordedEvent evt, string expressionId)
+        {
+            Assert.That(evt.Kind, Is.EqualTo(RecordedEventKind.TriggerOn));
+            Assert.That(evt.TimeSeconds, Is.EqualTo(0d), "基準（kind 5）は t=0 の TriggerOn");
+            Assert.That(evt.ExpressionId, Is.EqualTo(expressionId));
+            Assert.That(evt.SourceId, Is.EqualTo("input:trigger"));
+            Assert.That(evt.IsBaseline, Is.True);
         }
 
         // ================================================================

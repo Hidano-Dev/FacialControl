@@ -100,6 +100,7 @@ namespace Hidano.FacialControl.Timeline.Tests.Shared
         private readonly List<string> _layerIds = new List<string>();
         private readonly List<PendingEvent> _events = new List<PendingEvent>();
         private readonly List<RecBaselineState.TriggerEntry> _baselineTriggers = new List<RecBaselineState.TriggerEntry>();
+        private readonly List<RecBaselineState.AnalogEntry> _baselineAnalogs = new List<RecBaselineState.AnalogEntry>();
         private readonly List<RecBaselineState.ValueProviderEntry> _baselineValueProviders = new List<RecBaselineState.ValueProviderEntry>();
         private readonly List<LayerWeightEntry> _baselineLayerWeights = new List<LayerWeightEntry>();
         private readonly List<RecEquivalenceEventInfo> _baselineInfos = new List<RecEquivalenceEventInfo>();
@@ -162,6 +163,17 @@ namespace Hidano.FacialControl.Timeline.Tests.Shared
 
             _baselineTriggers.Add(new RecBaselineState.TriggerEntry(RecEquivalenceSpec.TriggerSourceId, expressionIds));
             _baselineInfos.Add(new RecEquivalenceEventInfo(0d, "Baseline trigger [" + string.Join(", ", expressionIds) + "]"));
+            return this;
+        }
+
+        /// <summary>録画開始時の目線（REC の基準 kind 6）。</summary>
+        public RecEquivalenceScenarioBuilder BaselineGaze(float x, float y)
+        {
+            Tag(RecEquivalenceTags.Baseline);
+            Tag(RecEquivalenceTags.Gaze);
+            SourceIndex(RecEquivalenceSpec.GazeSourceId);
+            _baselineAnalogs.Add(new RecBaselineState.AnalogEntry(RecEquivalenceSpec.GazeSourceId, new[] { x, y }));
+            _baselineInfos.Add(new RecEquivalenceEventInfo(0d, "Baseline gaze " + Format(x) + ", " + Format(y)));
             return this;
         }
 
@@ -255,7 +267,7 @@ namespace Hidano.FacialControl.Timeline.Tests.Shared
             string[] blendShapeNames = _baselineValueProviders.Count > 0 ? RecEquivalenceSpec.MeshBlendShapes : null;
             var baseline = new RecBaselineState(
                 _baselineTriggers.Count > 0 ? _baselineTriggers : null,
-                null,
+                _baselineAnalogs.Count > 0 ? _baselineAnalogs : null,
                 _baselineValueProviders.Count > 0 ? _baselineValueProviders : null,
                 null,
                 _baselineLayerWeights.Count > 0 ? _baselineLayerWeights : null,

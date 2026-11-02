@@ -83,7 +83,15 @@ namespace Hidano.FacialControl.Timeline.Editor
 
             double currentTime = 0d;
             bool hasRecordedCurrentTime = false;
+            events = ApplyStartsActiveStack(source, events, out bool appliedStartsActive);
             int eventIndex = 0;
+            if (appliedStartsActive)
+            {
+                // 遷移なしで反映したスタックの値を t=0 のキーにする（最初のサンプルまで 0 から補間させない）。
+                CaptureCurrent(aggregator, observer, layerScratch, curveKeys, _blendShapeNames, currentTime);
+                hasRecordedCurrentTime = true;
+            }
+
             while (eventIndex < events.Length)
             {
                 double eventTime = events[eventIndex].TimeSeconds;
@@ -127,6 +135,51 @@ namespace Hidano.FacialControl.Timeline.Editor
             }
 
             return CreateBake(track.name, curveKeys);
+        }
+
+        /// <summary>
+        /// 先頭（t=0）で遷移なしに有効になる表情（<see cref="TimelineStateEvent.StartsActive"/>）を、REC 再生の開始
+        /// （<c>RecTriggerInjector.TryBeginInjection</c>）と同じくスタックとして即座に反映する（HID-298）。
+        /// </summary>
+        /// <remarks>
+        /// t=0 の他のイベント（0 秒で離した基準の表情の Off、StartsActive でない t=0 の On）と並びが混ざっても、
+        /// StartsActive の On はすべてスタックに入れる（REC 再生はスタックの反映を最初のフレームのイベントより先に行う）。
+        /// </remarks>
+        /// <returns>スタックに入れたイベントを除いたイベント列（StartsActive の On が無ければ <paramref name="events"/> そのもの）。</returns>
+        private static TimelineStateEvent[] ApplyStartsActiveStack(OfflineExpressionSource source, TimelineStateEvent[] events, out bool applied)
+        {
+            List<string> stack = null;
+            List<TimelineStateEvent> remaining = null;
+            for (int i = 0; i < events.Length; i++)
+            {
+                // StartsActive は TimelineStateEventCollector が 0 秒から始まる Clip にだけ立てる。
+                if (events[i].IsOn && events[i].StartsActive)
+                {
+                    if (stack == null)
+                    {
+                        stack = new List<string>();
+                        remaining = new List<TimelineStateEvent>(events.Length);
+                        for (int j = 0; j < i; j++)
+                        {
+                            remaining.Add(events[j]);
+                        }
+                    }
+
+                    stack.Add(events[i].ExpressionId);
+                    continue;
+                }
+
+                remaining?.Add(events[i]);
+            }
+
+            applied = stack != null;
+            if (!applied)
+            {
+                return events;
+            }
+
+            source.ResetToExpressionStack(stack);
+            return remaining.ToArray();
         }
 
         private static void AdvanceAndCapture(
