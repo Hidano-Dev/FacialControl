@@ -80,6 +80,9 @@ namespace Hidano.FacialControl.Timeline.Adapters.Session
             ConnectedLayerNames = _connectedLayerNames.AsReadOnly();
         }
 
+        /// <summary>state sink の Expression スタックの最大深度（表情の値の再生器もこれにそろえる）。</summary>
+        public int MaxStackDepth => _maxStackDepth;
+
         /// <summary>値 sink が接続済み（自前接続または宣言経路）のレイヤー名。</summary>
         public IReadOnlyList<string> ConnectedLayerNames { get; }
 
@@ -320,7 +323,7 @@ namespace Hidano.FacialControl.Timeline.Adapters.Session
             var valueSink = new TimelineBakedValueSink(
                 valueId,
                 hostBlendShapeNames,
-                CollectBakedBlendShapeNames(bake, layerName));
+                CollectProfileBlendShapeNames(profile));
 
             var created = new PooledSinks(valueSink, stateSink, valueId.Value, stateId.Value, hostBlendShapeNames, profile, bake);
             _pool[layerName] = created;
@@ -373,32 +376,32 @@ namespace Hidano.FacialControl.Timeline.Adapters.Session
             return new TimelineDiagnosticItem(TimelineDiagnosticArea.LayerConnection, code, severity, subject, detail);
         }
 
-        private static string[] CollectBakedBlendShapeNames(FacialTimelineBakeAsset bake, string layerName)
+        /// <summary>
+        /// 値 sink が値を出す BlendShape 名（Profile の Expression に出てくる順、重複なし）。Bake の BlendShape 名と同じ規則
+        /// （<c>BakeSimulationHarness</c>）。Play の表情の値は Profile から遷移計算するので（HID-318）、Bake が古くても
+        /// Profile の Expression の BlendShape をすべて出せるよう、Bake ではなく Profile から作る。
+        /// </summary>
+        private static string[] CollectProfileBlendShapeNames(FacialProfile profile)
         {
-            if (bake == null || bake.ExpressionBakes == null)
+            var names = new List<string>();
+            var seen = new HashSet<string>(StringComparer.Ordinal);
+            ReadOnlySpan<Expression> expressions = profile.Expressions.Span;
+            for (int expressionIndex = 0; expressionIndex < expressions.Length; expressionIndex++)
             {
-                return Array.Empty<string>();
+                ReadOnlySpan<BlendShapeMapping> mappings = expressions[expressionIndex].BlendShapeValues.Span;
+                for (int mappingIndex = 0; mappingIndex < mappings.Length; mappingIndex++)
+                {
+                    string name = mappings[mappingIndex].Name;
+                    if (string.IsNullOrEmpty(name) || !seen.Add(name))
+                    {
+                        continue;
+                    }
+
+                    names.Add(name);
+                }
             }
 
-            for (int bakeIndex = 0; bakeIndex < bake.ExpressionBakes.Length; bakeIndex++)
-            {
-                ExpressionSourceBake expressionBake = bake.ExpressionBakes[bakeIndex];
-                if (expressionBake == null || !string.Equals(expressionBake.LayerName, layerName, StringComparison.Ordinal))
-                {
-                    continue;
-                }
-
-                BlendShapeCurve[] curves = expressionBake.Curves ?? Array.Empty<BlendShapeCurve>();
-                var names = new string[curves.Length];
-                for (int i = 0; i < curves.Length; i++)
-                {
-                    names[i] = curves[i]?.BlendShapeName ?? string.Empty;
-                }
-
-                return names;
-            }
-
-            return Array.Empty<string>();
+            return names.ToArray();
         }
 
         private sealed class LayerConnection

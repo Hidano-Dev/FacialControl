@@ -81,7 +81,7 @@ namespace Hidano.FacialControl.Timeline.Tests.PlayMode
         }
 
         [Test]
-        public void TimelinePlayback_WithoutBake_DegradesToStateOnlyAndPreservesSuppressOverlay()
+        public void TimelinePlayback_WithoutBakeCurves_PlaysProfileValuesAndPreservesSuppressOverlay()
         {
             string[] blendShapeNames = { "Smile", "Blink" };
             FacialProfile profile = CreateSuppressOverlayProfile();
@@ -97,15 +97,16 @@ namespace Hidano.FacialControl.Timeline.Tests.PlayMode
             fixture.AdvanceTo(0.25f);
             overlayHarness.Aggregate();
 
-            // 値カーブを持たない（Profile 内容ハッシュも空の）Bake は再生を止めず、Warning の診断で知らせて state のみで続ける。
+            // 値カーブを持たない（Profile 内容ハッシュも空の）Bake は再生を止めず、Warning の診断で知らせる。Play の表情の値は
+            // Bake ではなく Profile から遷移計算するので（HID-318）、値も再生する。
             Assert.That(fixture.Receiver.SessionState, Is.EqualTo(TimelineSessionState.Active));
             Assert.That(fixture.Receiver.Diagnostics.Contains(TimelineDiagnosticCode.ProfileMismatch), Is.True);
             Assert.That(fixture.Receiver.Diagnostics.HasErrors, Is.False);
             Assert.That(fixture.ExpressionSink.ActiveExpressionIds, Is.EquivalentTo(new[] { "smile_suppress" }));
             Assert.That(overlayHarness.ActiveProvider.TryGetTopActiveExpression(ExpressionLayer)?.Id, Is.EqualTo("smile_suppress"));
-            Assert.That(fixture.ValueSink.IsValid, Is.False);
-            Assert.That(overlayHarness.Output[0], Is.EqualTo(0f).Within(Tolerance));
-            Assert.That(overlayHarness.Output[1], Is.EqualTo(0f).Within(Tolerance));
+            Assert.That(fixture.ValueSink.IsValid, Is.True);
+            Assert.That(overlayHarness.Output[0], Is.EqualTo(1f).Within(Tolerance), "Profile の smile_suppress の値");
+            Assert.That(overlayHarness.Output[1], Is.EqualTo(0f).Within(Tolerance), "suppress で既定の blink overlay を止める");
         }
 
         private static FacialProfile CreateSimpleProfile(string expressionId, float transitionDuration)

@@ -18,6 +18,16 @@ namespace Hidano.FacialControl.Timeline.Tests.Shared
         public static readonly HashSet<string> EnabledInSmall = new HashSet<string>(StringComparer.Ordinal)
         {
             "baseline-hold",
+            // HID-318: Play の表情の値を REC 再生と同じ遷移計算（フレームの位相・再サンプルなし）で作る。
+            "expr-switch-basic",
+            "expr-interrupt",
+            "expr-hold-fallback",
+            "expr-zero-duration",
+            "layer-weight",
+            "baseline-trigger",
+            "random-mix-1",
+            "random-mix-2",
+            "random-mix-3",
         };
 
         /// <summary>Medium（REC 再生 ⇔ Timeline 再生の全経路）の必須テストで回すシナリオ。</summary>
@@ -27,6 +37,17 @@ namespace Hidano.FacialControl.Timeline.Tests.Shared
             "gaze-dense",
             "gaze-sparse",
             "baseline-hold",
+            // HID-318: Play の表情の値を REC 再生と同じ遷移計算（フレームの位相・再サンプルなし）で作る。
+            "expr-switch-basic",
+            "expr-interrupt",
+            "expr-hold-fallback",
+            "expr-zero-duration",
+            "layer-weight",
+            "baseline-trigger",
+            "value-provider",
+            "random-mix-1",
+            "random-mix-2",
+            "random-mix-3",
         };
 
         private static readonly Func<RecEquivalenceScenario>[] Factories =

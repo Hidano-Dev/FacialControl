@@ -231,6 +231,36 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
         /// 録画開始時に smile → angry のスタック（angry が上）と lt = 0.4 があり、angry を 0.3 s、smile を 0.8 s で離し、
         /// 1.2 s に smile を押し直す記録。
         /// </summary>
+        [Test]
+        public void CreateTimelineAsset_ExpressionHeldToRecordingEnd_ExportsEndsActiveClipAndHeldOff()
+        {
+            TimelineAsset timeline = null;
+            try
+            {
+                timeline = Editor.RecToTimelineExporter.CreateTimelineAsset(
+                    new RecEventSequenceAdapter(CreateBaselineRecording()), CreateProfile());
+
+                var rootTrack = FindTrack<FacialExpressionTrack>(timeline, "emotion");
+                TimelineClip[] rootClips = ToArray(rootTrack.GetClips());
+                Assert.That(((FacialExpressionClip)rootClips[0].asset).EndsActive, Is.False, "記録の途中（0.80 s）で離した表情");
+                AssertClip(rootClips[1], "smile", 1.20d, 2.0d);
+                Assert.That(((FacialExpressionClip)rootClips[1].asset).EndsActive, Is.True, "記録の終わりまで押していた表情は、終わりで離さない");
+
+                TimelineStateEvent[] events = TimelineStateEventCollector.Collect(rootTrack);
+                TimelineStateEvent last = events[events.Length - 1];
+                Assert.That(last.IsOff, Is.True);
+                Assert.That(last.TimeSeconds, Is.EqualTo(2.0d).Within(1e-9d));
+                Assert.That(last.IsHeldToEnd, Is.True, "Play では発火しない Off");
+            }
+            finally
+            {
+                if (timeline != null)
+                {
+                    UnityEngine.Object.DestroyImmediate(timeline);
+                }
+            }
+        }
+
         private static RecTimeline CreateBaselineRecording()
         {
             var baseline = new RecBaselineState(

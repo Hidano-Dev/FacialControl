@@ -46,11 +46,14 @@ namespace Hidano.FacialControl.Timeline.Adapters
     /// Analog / Gaze の乗っ取り（<see cref="TimelineChannelTakeover"/>）を行う。</para>
     /// <para>Failed の判定順: (1) binding 未接続 / 無効 / Receiver が controller と別 GameObject → (2) Bake 参照の不整合 / 旧形式 →
     /// (3) 旧 <c>:state</c> 宣言。最初に見つかった Error だけを Console に 1 回出す（Inspector は診断状態の全件を読む）。
-    /// Profile 内容ハッシュ不一致（ProfileMismatch）と Source ハッシュ不一致（BakeStale）は Warning で、Active のまま Bake の値を再生する。</para>
+    /// Profile 内容ハッシュ不一致（ProfileMismatch）と Source ハッシュ不一致（BakeStale）は Warning で、Active のまま再生する。</para>
+    /// <para>Play 中の表情の値は Bake のカーブではなく、セッションの Profile とランタイムの trigger 入力源と同じ遷移計算で作る
+    /// （<see cref="TryCreateExpressionTransitionPlayer"/>。REC 再生と同じ位相にするため。HID-318）。Bake は Edit プレビューと、
+    /// 値 sink の BlendShape 名（レイヤーへの寄与範囲）に使う。</para>
     /// <para>Profile は controller が保持する値（<see cref="FacialController.CurrentProfile"/>）を使い、再読込しない。</para>
     /// <para>(Timeline, Bake, Profile) が同じ間はセッション資源（導出結果・sink・Bake → sink のバインディング）を再利用する。
     /// 同じ Bake インスタンスでも再ベイクで中身（ExpressionBakes / SourceHashHex）が変わったら作り直す。</para>
-    /// <para>メインスレッド専用。Active 中の Mixer 向け API（TryGet* / <see cref="SampleExpressionValues"/>）はヒープ確保しない。</para>
+    /// <para>メインスレッド専用。Active 中の Mixer 向け API（TryGet* / <see cref="ApplyExpressionValues"/>）はヒープ確保しない。</para>
     /// </remarks>
     public sealed class FacialTimelineReceiver : MonoBehaviour
     {
@@ -82,8 +85,8 @@ namespace Hidano.FacialControl.Timeline.Adapters
 
         private readonly FacialTimelineDiagnostics _diagnostics = new FacialTimelineDiagnostics();
         private readonly TimelineOnceWarningGate _warningGate = new TimelineOnceWarningGate();
-        private readonly Dictionary<string, ExpressionBakePlayback> _playbackByLayer =
-            new Dictionary<string, ExpressionBakePlayback>(StringComparer.Ordinal);
+        private readonly Dictionary<string, ExpressionValuePlayback> _playbackByLayer =
+            new Dictionary<string, ExpressionValuePlayback>(StringComparer.Ordinal);
 
         private TimelineBindingContext _binding;
         private bool _hasBinding;
@@ -96,6 +99,9 @@ namespace Hidano.FacialControl.Timeline.Adapters
         private PlayableDirector _activeDirector;
         private BakeLocateResult _lastBakeLocate;
         private FacialTimelineBakeAsset _sessionBake;
+
+        // セッション開始時の Profile（表情の値の再生器が Expression と遷移を引く）。
+        private FacialProfile _sessionProfile;
 
         // Play の OnEnable で行った Track binding 自動設定の結果（Start の静的診断の TrackBinding 領域に使う）。
         private TrackBindingReport _trackBindingReport;
@@ -324,7 +330,8 @@ namespace Hidano.FacialControl.Timeline.Adapters
             }
 
             _sessionBake = located.Bake;
-            BuildExpressionBakePlaybacks(derivation, located.Bake);
+            _sessionProfile = profile;
+            BuildExpressionValuePlaybacks(derivation);
             _diagnostics.ReplaceArea(TimelineDiagnosticArea.Session, EmptyItems);
             _conflictDirector = null;
             _hasConflictRecord = false;
@@ -355,6 +362,7 @@ namespace Hidano.FacialControl.Timeline.Adapters
             _takeover?.Release();
             _connector?.Disconnect();
             _sessionBake = null;
+            _sessionProfile = default;
             _activeTimeline = null;
             _activeDirector = null;
             _state = TimelineSessionState.Idle;
@@ -560,32 +568,64 @@ namespace Hidano.FacialControl.Timeline.Adapters
         }
 
         /// <summary>
-        /// セッション開始時に構築した Bake → 値 sink のバインディングで、指定時刻のカーブ値を値 sink に書く。
-        /// 値カーブが無いレイヤーは値 sink を無効化する。ヒープ確保しない。
+        /// Expression トラックの状態イベントから、指定レイヤーの表情の値を作る再生器を作る（HID-318）。
         /// </summary>
-        public void SampleExpressionValues(string layerName, double timeSeconds)
+        /// <remarks>
+        /// 値は Bake のカーブではなく、セッションの Profile とランタイムの trigger 入力源と同じ遷移計算で作る（REC 再生と同じ位相に
+        /// するため。<see cref="TimelineExpressionTransitionPlayer"/>）。Bake は値 sink の BlendShape 名（寄与範囲）にだけ使う。
+        /// Mixer が sink の切り替わり時にだけ呼ぶ（確保はここに閉じる）。
+        /// </remarks>
+        public bool TryCreateExpressionTransitionPlayer(
+            string layerName,
+            TimelineStateEvent[] events,
+            out TimelineExpressionTransitionPlayer player)
+        {
+            player = null;
+            if (_state != TimelineSessionState.Active
+                || string.IsNullOrEmpty(layerName)
+                || !TryGetExpressionValueSink(layerName, out TimelineBakedValueSink sink))
+            {
+                return false;
+            }
+
+            player = new TimelineExpressionTransitionPlayer(
+                events,
+                sink.BakedBlendShapeNames,
+                _sessionProfile,
+                _connector.MaxStackDepth,
+                ResolveExclusionMode(_sessionProfile, layerName));
+            return true;
+        }
+
+        /// <summary>
+        /// 再生器の現在値を指定レイヤーの値 sink に書く。表情が無く遷移も終わっていれば値 sink を無効化し、レイヤーに寄与させない
+        /// （REC 再生の trigger 入力源と同じ）。ヒープ確保しない。
+        /// </summary>
+        public void ApplyExpressionValues(string layerName, TimelineExpressionTransitionPlayer player)
         {
             if (string.IsNullOrEmpty(layerName) || !TryGetExpressionValueSink(layerName, out TimelineBakedValueSink sink))
             {
                 return;
             }
 
-            if (_sessionBake == null
-                || !_playbackByLayer.TryGetValue(layerName, out ExpressionBakePlayback playback)
+            if (player == null
+                || !_playbackByLayer.TryGetValue(layerName, out ExpressionValuePlayback playback)
                 || !ReferenceEquals(playback.Sink, sink)
-                || playback.Bindings.Length == 0)
+                || playback.Scratch.Length == 0
+                || player.BlendShapeCount != playback.Scratch.Length
+                || !player.TryWriteValues(playback.Scratch))
             {
                 sink.Invalidate();
                 return;
             }
 
-            CurveBinding[] bindings = playback.Bindings;
-            for (int i = 0; i < bindings.Length; i++)
-            {
-                CurveBinding binding = bindings[i];
-                float value = binding.Curve != null ? binding.Curve.Evaluate((float)timeSeconds) : 0f;
-                sink.SetValue(binding.BufferIndex, value);
-            }
+            sink.SetValues(playback.Scratch);
+        }
+
+        private static ExclusionMode ResolveExclusionMode(FacialProfile profile, string layerName)
+        {
+            LayerDefinition? layer = profile.FindLayerByName(layerName);
+            return layer.HasValue ? layer.Value.ExclusionMode : ExclusionMode.LastWins;
         }
 
         /// <summary>
@@ -711,8 +751,8 @@ namespace Hidano.FacialControl.Timeline.Adapters
             return ids;
         }
 
-        /// <summary>接続済みの全レイヤーについて Bake → 値 sink のバインディングを先行構築する（ProcessFrame 中の辞書追加を無くす）。</summary>
-        private void BuildExpressionBakePlaybacks(TimelineDerivation derivation, FacialTimelineBakeAsset bake)
+        /// <summary>接続済みの全レイヤーについて値 sink に書く作業バッファを先行構築する（ProcessFrame 中の確保を無くす）。</summary>
+        private void BuildExpressionValuePlaybacks(TimelineDerivation derivation)
         {
             IReadOnlyList<TimelineLayerDescriptor> layers = derivation.Layers;
             for (int i = 0; i < layers.Count; i++)
@@ -723,53 +763,15 @@ namespace Hidano.FacialControl.Timeline.Adapters
                     continue;
                 }
 
-                if (_playbackByLayer.TryGetValue(layerName, out ExpressionBakePlayback existing)
+                if (_playbackByLayer.TryGetValue(layerName, out ExpressionValuePlayback existing)
                     && ReferenceEquals(existing.Sink, sink))
                 {
                     continue;
                 }
 
-                _playbackByLayer[layerName] = BuildExpressionBakePlayback(bake, layerName, sink);
+                float[] scratch = sink.BakedValueCount == 0 ? Array.Empty<float>() : new float[sink.BakedValueCount];
+                _playbackByLayer[layerName] = new ExpressionValuePlayback(sink, scratch);
             }
-        }
-
-        private static ExpressionBakePlayback BuildExpressionBakePlayback(
-            FacialTimelineBakeAsset bake,
-            string layerName,
-            TimelineBakedValueSink sink)
-        {
-            if (bake == null || bake.ExpressionBakes == null)
-            {
-                return new ExpressionBakePlayback(sink, Array.Empty<CurveBinding>());
-            }
-
-            for (int bakeIndex = 0; bakeIndex < bake.ExpressionBakes.Length; bakeIndex++)
-            {
-                ExpressionSourceBake expressionBake = bake.ExpressionBakes[bakeIndex];
-                if (expressionBake == null || !string.Equals(expressionBake.LayerName, layerName, StringComparison.Ordinal))
-                {
-                    continue;
-                }
-
-                BlendShapeCurve[] curves = expressionBake.Curves ?? Array.Empty<BlendShapeCurve>();
-                var bindings = new List<CurveBinding>(curves.Length);
-                for (int curveIndex = 0; curveIndex < curves.Length; curveIndex++)
-                {
-                    BlendShapeCurve curve = curves[curveIndex];
-                    if (curve == null
-                        || string.IsNullOrEmpty(curve.BlendShapeName)
-                        || !sink.TryGetBufferIndex(curve.BlendShapeName, out int bufferIndex))
-                    {
-                        continue;
-                    }
-
-                    bindings.Add(new CurveBinding(bufferIndex, curve.Curve));
-                }
-
-                return new ExpressionBakePlayback(sink, bindings.ToArray());
-            }
-
-            return new ExpressionBakePlayback(sink, Array.Empty<CurveBinding>());
         }
 
         // ================================================================
@@ -806,6 +808,7 @@ namespace Hidano.FacialControl.Timeline.Adapters
             _activeTimeline = null;
             _activeDirector = null;
             _sessionBake = null;
+            _sessionProfile = default;
             _state = TimelineSessionState.Failed;
             if (_warningGate.TryPass(GetInstanceID(), firstError.Code, firstError.Subject))
             {
@@ -890,30 +893,17 @@ namespace Hidano.FacialControl.Timeline.Adapters
             BakeIssueDetected?.Invoke(new BakeInspectionIssue(this, timeline, profileSource, status));
         }
 
-        private readonly struct ExpressionBakePlayback
+        private readonly struct ExpressionValuePlayback
         {
-            public ExpressionBakePlayback(TimelineBakedValueSink sink, CurveBinding[] bindings)
+            public ExpressionValuePlayback(TimelineBakedValueSink sink, float[] scratch)
             {
                 Sink = sink;
-                Bindings = bindings ?? Array.Empty<CurveBinding>();
+                Scratch = scratch ?? Array.Empty<float>();
             }
 
             public TimelineBakedValueSink Sink { get; }
 
-            public CurveBinding[] Bindings { get; }
-        }
-
-        private readonly struct CurveBinding
-        {
-            public CurveBinding(int bufferIndex, AnimationCurve curve)
-            {
-                BufferIndex = bufferIndex;
-                Curve = curve;
-            }
-
-            public int BufferIndex { get; }
-
-            public AnimationCurve Curve { get; }
+            public float[] Scratch { get; }
         }
     }
 

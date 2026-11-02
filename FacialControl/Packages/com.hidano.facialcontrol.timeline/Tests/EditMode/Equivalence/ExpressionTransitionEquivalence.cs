@@ -2,11 +2,14 @@ using System;
 using System.Collections.Generic;
 using Hidano.FacialControl.Domain.Models;
 using Hidano.FacialControl.Rec.Domain.Models;
-using Hidano.FacialControl.Timeline.Adapters.Assets;
+using Hidano.FacialControl.Timeline.Adapters.Session;
 using Hidano.FacialControl.Timeline.Clips;
+using Hidano.FacialControl.Timeline.Domain.Models;
+using Hidano.FacialControl.Timeline.Domain.Services;
 using Hidano.FacialControl.Timeline.Editor;
+using Hidano.FacialControl.Timeline.Playables;
 using Hidano.FacialControl.Timeline.Tests.Shared;
-using UnityEngine;
+using Hidano.FacialControl.Timeline.Tracks;
 using UnityEngine.Timeline;
 
 namespace Hidano.FacialControl.Timeline.Tests.EditMode
@@ -17,7 +20,8 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
     /// <remarks>
     /// <para>期待: REC 再生と同じ順序（フレームの先頭で経過時間を進め、記録時刻が経過時間以下の trigger を発火してから、
     /// trigger 入力源を同じ dt で進める）で、ランタイムの trigger 入力源（<see cref="FakeTriggerInputSource"/>）を回した値。</para>
-    /// <para>実際: 同じ記録を REC Export → Bake した emotion レイヤーのカーブを、同じフレーム時刻で評価した値。</para>
+    /// <para>実際: 同じ記録を REC Export した emotion トラックを、Timeline の Play と同じ手順（<see cref="TimelineExpressionTransitionPlayer"/>。
+    /// 最初のフレームは JumpTo、以降は前回の時刻から Advance）で同じフレーム時刻に回した値。</para>
     /// <para>Medium（実ランタイムでの REC 再生 ⇔ Timeline 再生）の近似。両者が食い違うときは Medium が正しい。</para>
     /// </remarks>
     internal static class ExpressionTransitionEquivalence
@@ -38,7 +42,7 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
 
             EquivalenceFrameTrace expected = SimulateRecPlayback(scenario, profile, blendShapeNames, emotionBlendShapes, channels, stepMode);
             var context = new List<string>();
-            EquivalenceFrameTrace actual = EvaluateBake(scenario, profile, emotionBlendShapes, channels, expected, context);
+            EquivalenceFrameTrace actual = EvaluateTimelinePlayback(scenario, profile, blendShapeNames, emotionBlendShapes, channels, expected, context);
             EquivalenceResult result = EquivalenceComparer.Compare(expected, actual);
             return new EquivalenceReport(Tier, scenario, stepMode, result, context);
         }
@@ -112,40 +116,64 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
             }
         }
 
-        private static EquivalenceFrameTrace EvaluateBake(
+        /// <summary>
+        /// Timeline 再生（<c>FacialTrackMixerBehaviour</c> の Play 経路）と同じ手順で、Export した emotion トラックの表情の値を
+        /// REC 再生と同じフレーム時刻で作る（最初のフレームは JumpTo、以降は前回の時刻から Advance）。
+        /// </summary>
+        private static EquivalenceFrameTrace EvaluateTimelinePlayback(
             RecEquivalenceScenario scenario,
             FacialProfile profile,
+            string[] blendShapeNames,
             string[] emotionBlendShapes,
             EquivalenceChannel[] channels,
             EquivalenceFrameTrace expected,
             List<string> context)
         {
             TimelineAsset timeline = null;
-            FacialTimelineBakeAsset bake = null;
             try
             {
                 timeline = RecToTimelineExporter.CreateTimelineAsset(new RecEventSequenceAdapter(scenario.Timeline), profile);
-                bake = TimelineBakeService.Bake(timeline, profile);
                 DescribeTimeline(timeline, context);
 
-                var curves = new AnimationCurve[emotionBlendShapes.Length];
-                for (int i = 0; i < curves.Length; i++)
-                {
-                    curves[i] = FindCurve(bake, RecEquivalenceSpec.EmotionLayer, emotionBlendShapes[i]);
-                }
+                FacialExpressionTrack track = FindExpressionTrack(timeline, RecEquivalenceSpec.EmotionLayer);
+                TimelineStateEvent[] events = track != null ? TimelineStateEventCollector.Collect(track) : Array.Empty<TimelineStateEvent>();
+                LayerDefinition? layer = profile.FindLayerByName(RecEquivalenceSpec.EmotionLayer);
+                var player = new TimelineExpressionTransitionPlayer(
+                    events,
+                    blendShapeNames,
+                    profile,
+                    TimelineLayerConnector.DefaultMaxStackDepth,
+                    layer.HasValue ? layer.Value.ExclusionMode : ExclusionMode.LastWins);
 
                 var trace = new EquivalenceFrameTrace(channels);
+                var values = new float[blendShapeNames.Length];
                 var frame = new float[emotionBlendShapes.Length];
                 // Medium の Timeline 再生は Director が Hold で終端に留まる（RecTimelineEquivalenceFixture）。最後のフレームが
-                // 記録の長さを越えても、Timeline の終端の値を見る（終端まで押していた表情の Clip の終わりから遷移させない）。
+                // 記録の長さを越えても、イベントは Timeline の終端までしか拾わない。
                 double holdEndTime = timeline.duration;
+                double previousTime = 0d;
+                double previousEvaluated = 0d;
                 for (int f = 0; f < expected.FrameCount; f++)
                 {
                     double time = expected.GetTime(f);
-                    double evaluatedTime = Math.Min(time, holdEndTime);
-                    for (int i = 0; i < curves.Length; i++)
+                    double evaluatedTime = FacialTrackMixerBehaviour.ResolveEvaluationTime(time, holdEndTime);
+                    if (f == 0)
                     {
-                        frame[i] = curves[i] != null ? curves[i].Evaluate((float)evaluatedTime) * 100f : 0f;
+                        player.JumpTo(evaluatedTime);
+                    }
+                    else
+                    {
+                        player.Advance(previousEvaluated, evaluatedTime, (float)(time - previousTime));
+                    }
+
+                    previousTime = time;
+                    previousEvaluated = evaluatedTime;
+
+                    Array.Clear(values, 0, values.Length);
+                    player.TryWriteValues(values);
+                    for (int i = 0; i < emotionBlendShapes.Length; i++)
+                    {
+                        frame[i] = values[Array.IndexOf(blendShapeNames, emotionBlendShapes[i])] * 100f;
                     }
 
                     trace.AddFrame(time, frame);
@@ -155,16 +183,24 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
             }
             finally
             {
-                if (bake != null)
-                {
-                    UnityEngine.Object.DestroyImmediate(bake);
-                }
-
                 if (timeline != null)
                 {
                     UnityEngine.Object.DestroyImmediate(timeline);
                 }
             }
+        }
+
+        private static FacialExpressionTrack FindExpressionTrack(TimelineAsset timeline, string layerName)
+        {
+            foreach (TrackAsset track in timeline.GetOutputTracks())
+            {
+                if (track is FacialExpressionTrack expressionTrack && string.Equals(track.name, layerName, StringComparison.Ordinal))
+                {
+                    return expressionTrack;
+                }
+            }
+
+            return null;
         }
 
         internal static void DescribeTimeline(TimelineAsset timeline, List<string> context)
@@ -179,34 +215,6 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
                     context.Add($"{track.name}: [{clip.start:0.00000}, {clip.end:0.00000}] {label}");
                 }
             }
-        }
-
-        private static AnimationCurve FindCurve(FacialTimelineBakeAsset bake, string layerName, string blendShapeName)
-        {
-            if (bake == null || bake.ExpressionBakes == null)
-            {
-                return null;
-            }
-
-            for (int i = 0; i < bake.ExpressionBakes.Length; i++)
-            {
-                ExpressionSourceBake expressionBake = bake.ExpressionBakes[i];
-                if (expressionBake == null || !string.Equals(expressionBake.LayerName, layerName, StringComparison.Ordinal))
-                {
-                    continue;
-                }
-
-                BlendShapeCurve[] curves = expressionBake.Curves ?? Array.Empty<BlendShapeCurve>();
-                for (int j = 0; j < curves.Length; j++)
-                {
-                    if (curves[j] != null && string.Equals(curves[j].BlendShapeName, blendShapeName, StringComparison.Ordinal))
-                    {
-                        return curves[j].Curve;
-                    }
-                }
-            }
-
-            return null;
         }
 
         /// <summary>Bake と同じ並び（Profile の Expression 順、重複なし）の BlendShape 名。</summary>

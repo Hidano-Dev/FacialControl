@@ -20,9 +20,18 @@ namespace Hidano.FacialControl.Timeline.Playables
         internal static bool IsPlaying => OverrideIsPlaying ?? UnityEngine.Application.isPlaying;
     }
 
+    /// <remarks>
+    /// <para>Play 中は、表情の状態（trigger sink）と値（<see cref="TimelineExpressionTransitionPlayer"/>）を同じ評価時刻で進める。
+    /// 値はフレームごとに「通過したイベントを発火してからそのフレームの dt で進める」ため、REC 再生と同じ位相になる（HID-318）。</para>
+    /// </remarks>
     public sealed class FacialTrackMixerBehaviour : PlayableBehaviour
     {
+        /// <summary>終端に留めたとき、終端ちょうどのイベントを拾うための余裕（秒）。</summary>
+        internal const double HoldEndEventMargin = 1e-6d;
+
         private readonly TimelineEventStateReconstructor _stateReconstructor = new TimelineEventStateReconstructor();
+        private TimelineExpressionTransitionPlayer _player;
+        private double _lastRawTime;
 
         private string _layerName = string.Empty;
         private TimelineStateEvent[] _stateEvents = Array.Empty<TimelineStateEvent>();
@@ -45,7 +54,9 @@ namespace Hidano.FacialControl.Timeline.Playables
             _stateReconstructor.SetEvents(_stateEvents);
             _receiver = null;
             _sink = null;
+            _player = null;
             _lastEvaluatedTime = 0d;
+            _lastRawTime = 0d;
             _hasEvaluationTime = false;
         }
 
@@ -89,49 +100,91 @@ namespace Hidano.FacialControl.Timeline.Playables
                 _receiver = receiver;
                 _sink = expressionSink;
                 _hasEvaluationTime = false;
+                receiver.TryCreateExpressionTransitionPlayer(_layerName, _stateEvents, out _player);
             }
 
-            double evaluatedTime = playable.GetTime();
+            double rawTime = playable.GetTime();
             double holdEndTime = FacialValueMixerBehaviour.ResolveHoldEndTime(director);
-            if (evaluatedTime > holdEndTime)
-            {
-                // Hold の Director は終端に留まる（Value / レイヤー weight の Mixer と同じ）。終端まで押していた表情を、
-                // Clip の終わり（= 記録の終わり）から遷移させない。REC 再生は記録の終わりでも最後の値を保持する（HID-298）。
-                evaluatedTime = holdEndTime;
-            }
-
-            receiver.SampleExpressionValues(_layerName, evaluatedTime);
+            double evaluatedTime = ResolveEvaluationTime(rawTime, holdEndTime);
 
             if (!_hasEvaluationTime)
             {
                 _stateReconstructor.JumpTo(evaluatedTime, _sink);
+                _player?.JumpTo(evaluatedTime);
+                receiver.ApplyExpressionValues(_layerName, _player);
                 _lastEvaluatedTime = evaluatedTime;
+                _lastRawTime = rawTime;
                 _hasEvaluationTime = true;
                 return;
             }
 
-            double deltaTime = evaluatedTime - _lastEvaluatedTime;
-            if (Math.Abs(deltaTime) <= 1e-9d)
+            // 終端（Hold）では Director の時刻が止まる。途中の遷移は REC 再生と同じく、フレームの dt で実時間どおり進め切る。
+            double frameDelta = info.deltaTime > 0d ? info.deltaTime : Time.deltaTime;
+            bool atHoldEnd = rawTime >= holdEndTime;
+            double rawDelta = rawTime - _lastRawTime;
+            if (Math.Abs(rawDelta) <= 1e-9d)
             {
+                if (atHoldEnd && frameDelta > 0d)
+                {
+                    _player?.Advance(_lastEvaluatedTime, _lastEvaluatedTime, (float)frameDelta);
+                }
+
+                receiver.ApplyExpressionValues(_layerName, _player);
                 return;
             }
 
-            double expectedLinearDelta = info.deltaTime;
-            bool isLinearAdvance =
-                deltaTime > 0d &&
-                expectedLinearDelta > 0d &&
-                Math.Abs(deltaTime - expectedLinearDelta) <= Math.Max(1e-6d, Math.Abs(expectedLinearDelta) * 0.1d);
-
-            if (isLinearAdvance)
+            // 終端に届いたフレームは、Director の時刻の進みが終端で切られて dt より短い。シークではないので 1 フレームの前進として扱う。
+            bool reachesHoldEnd = atHoldEnd && rawDelta > 0d && frameDelta > 0d && rawDelta <= frameDelta * 1.1d;
+            if (reachesHoldEnd || IsLinearAdvance(rawDelta, info.deltaTime, Time.deltaTime))
             {
                 _stateReconstructor.AdvanceLinear(_lastEvaluatedTime, evaluatedTime, _sink);
+                _player?.Advance(_lastEvaluatedTime, evaluatedTime, (float)(reachesHoldEnd ? frameDelta : rawDelta));
             }
             else
             {
                 _stateReconstructor.JumpTo(evaluatedTime, _sink);
+                _player?.JumpTo(evaluatedTime);
             }
 
+            receiver.ApplyExpressionValues(_layerName, _player);
             _lastEvaluatedTime = evaluatedTime;
+            _lastRawTime = rawTime;
+        }
+
+        /// <summary>
+        /// 状態イベントを拾う評価時刻。Hold の Director は終端に留まる（Value / レイヤー weight の Mixer と同じ）ので、終端以降は
+        /// 終端に留める。終端ちょうどのイベント（記録の最後に離した表情の Off）を取りこぼさないよう、<see cref="HoldEndEventMargin"/>
+        /// だけ先まで拾う。
+        /// </summary>
+        /// <remarks>
+        /// 記録の終わりまで押していた表情の Clip の終わりの Off は、<see cref="TimelineStateEvent.IsHeldToEnd"/> として発火しない
+        /// （REC 再生は記録の終わりでも表情を保持する。HID-298 / HID-318）。
+        /// </remarks>
+        internal static double ResolveEvaluationTime(double rawTime, double holdEndTime)
+        {
+            return rawTime >= holdEndTime ? holdEndTime + HoldEndEventMargin : rawTime;
+        }
+
+        /// <summary>
+        /// 前回の評価から順方向に 1 フレームぶん進んだか（シークでないか）。Director の時刻の進みが、そのフレームの dt と合うときだけ
+        /// 1 フレームの前進とみなす。dt は GameTime などの再生なら Director の dt（<see cref="FrameData.deltaTime"/>）、Manual の
+        /// <c>PlayableDirector.Evaluate</c>（Director の dt が 0）ならゲームのフレームの dt（<see cref="Time.deltaTime"/>）。
+        /// </summary>
+        /// <remarks>時刻を飛ばした評価（スクラブ・シーク）はシークとして扱い、遷移を記録時刻ちょうどの位相で計算し直す。</remarks>
+        internal static bool IsLinearAdvance(double delta, double frameDeltaTime, double gameDeltaTime)
+        {
+            if (delta <= 0d)
+            {
+                return false;
+            }
+
+            double reference = frameDeltaTime > 0d ? frameDeltaTime : gameDeltaTime;
+            if (reference <= 0d)
+            {
+                return false;
+            }
+
+            return Math.Abs(delta - reference) <= Math.Max(1e-6d, reference * 0.1d);
         }
 
         public override void OnGraphStop(Playable playable)
@@ -178,7 +231,9 @@ namespace Hidano.FacialControl.Timeline.Playables
 
             _receiver = null;
             _sink = null;
+            _player = null;
             _lastEvaluatedTime = 0d;
+            _lastRawTime = 0d;
             _hasEvaluationTime = false;
         }
     }
