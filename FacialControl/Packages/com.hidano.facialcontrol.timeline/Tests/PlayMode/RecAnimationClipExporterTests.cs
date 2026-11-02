@@ -170,6 +170,8 @@ namespace Hidano.FacialControl.Timeline.Tests.PlayMode
                 new[] { new KeyValuePair<string, string>(RecFixtureWriter.AnalogSourceId, RecFixtureWriter.ValueProviderSourceId) },
                 Array.Empty<KeyValuePair<string, string>>());
 
+            // 対応表の判定は REC Export と同じ処理（そのログ）を使い、書き出さなかった理由を重ねて出す。
+            LogAssert.Expect(LogType.Error, new Regex("collisions or invalid ids"));
             LogAssert.Expect(LogType.Error, new Regex("対応先が重複"));
             bool success = RecAnimationClipExporter.TryExport(
                 _fixture.RecordingPath, character.Controller, null, remap, _outputFolder, false, out RecAnimationClipExportResult result);
@@ -274,6 +276,154 @@ namespace Hidano.FacialControl.Timeline.Tests.PlayMode
                 Assert.That(window.Export(), Is.False, "前の REC 用の選択を当てない");
                 Assert.That(window.StatusText, Does.Contain("Reload Sources"));
                 Assert.That(AssetDatabase.FindAssets("t:AnimationClip", new[] { _outputFolder }), Is.Empty);
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(window);
+            }
+        }
+
+        [Test]
+        public void Window_RecordingChangedWithIdentityRemap_RefusesToExport()
+        {
+            TimelineE2ECharacter character = Prepare(new RecFixtureWriter.Recording { IncludeValueProvider = true });
+            var window = ScriptableObject.CreateInstance<RecAnimationClipExportWindow>();
+            try
+            {
+                window.SetInputs(_fixture.RecordingPath, character.Controller, null, _outputFolder);
+                File.Copy(WriteOtherRecording(), _fixture.RecordingPath, true);
+
+                Assert.That(window.Export(), Is.False, "対応表が恒等でも、読み込んだ内容と違う REC は書き出さない");
+                Assert.That(window.StatusText, Does.Contain("Reload Sources"));
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(window);
+            }
+        }
+
+        [Test]
+        public void Window_ChangeCharacter_ReplacesAutoFilledProfileWithoutReloadingRecording()
+        {
+            TimelineE2ECharacter character = Prepare(new RecFixtureWriter.Recording());
+            TimelineE2ECharacter other = _fixture.Spawn(TimelineE2EPlacement.SameObject);
+            var otherProfile = ScriptableObject.CreateInstance<Hidano.FacialControl.Adapters.ScriptableObject.Serializable.FacialCharacterProfileSO>();
+            otherProfile.name = "OtherProfile";
+            other.Controller.CharacterSO = otherProfile;
+            var window = ScriptableObject.CreateInstance<RecAnimationClipExportWindow>();
+            try
+            {
+                window.SetInputs(_fixture.RecordingPath, character.Controller, null, _outputFolder);
+                int loads = window.RecordingLoadCount;
+                Assert.That(window.ProfileValue, Is.SameAs(_fixture.ProfileAsset), "前提: キャラの Character SO が入る");
+
+                window.SetController(other.Controller);
+
+                Assert.That(window.ProfileValue, Is.SameAs(otherProfile), "自動で入れた Profile は新しいキャラの SO に差し替える");
+                Assert.That(window.RecordingLoadCount, Is.EqualTo(loads), "キャラの変更では REC を読み直さない");
+                Assert.That(window.RemapPanel.NoticeText, Is.Empty);
+
+                window.SetProfile(_fixture.ProfileAsset);
+                Assert.That(window.RemapPanel.NoticeText, Does.Contain("OtherProfile"), "キャラと Profile が食い違えば警告する");
+
+                window.SetController(character.Controller);
+                Assert.That(window.ProfileValue, Is.SameAs(_fixture.ProfileAsset), "手で選んだ Profile はそのまま");
+                Assert.That(window.RemapPanel.NoticeText, Is.Empty, "食い違いが解消したら警告を消す");
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(window);
+                other.Controller.CharacterSO = null;
+                UnityEngine.Object.DestroyImmediate(otherProfile);
+            }
+        }
+
+        [Test]
+        public void Window_ExceptionWhileSaving_RollsBackAndShowsError()
+        {
+            TimelineE2ECharacter character = Prepare(new RecFixtureWriter.Recording());
+            var window = ScriptableObject.CreateInstance<RecAnimationClipExportWindow>();
+            try
+            {
+                window.SetInputs(_fixture.RecordingPath, character.Controller, null, _outputFolder, createTimeline: true);
+                Assert.That(window.Export(), Is.True, "前提: 書き出せる");
+                Assert.That(window.LastResult, Is.Not.Null);
+                foreach (string guid in AssetDatabase.FindAssets(string.Empty, new[] { _outputFolder }))
+                {
+                    AssetDatabase.DeleteAsset(AssetDatabase.GUIDToAssetPath(guid));
+                }
+
+                RecAnimationClipExporter.BeforeCreateTimelineForTests = _ => throw new InvalidOperationException("save failed for test");
+                LogAssert.Expect(LogType.Exception, new Regex("save failed for test"));
+                bool exported = window.Export();
+
+                Assert.That(exported, Is.False, "例外は捕まえて失敗として返す");
+                Assert.That(window.LastResult, Is.Null, "結果を残さない");
+                Assert.That(window.StatusText, Does.Contain("save failed for test"));
+                Assert.That(AssetDatabase.FindAssets("t:AnimationClip", new[] { _outputFolder }), Is.Empty, "途中まで保存した .anim を消す");
+                Assert.That(AssetDatabase.FindAssets("t:TimelineAsset", new[] { _outputFolder }), Is.Empty);
+            }
+            finally
+            {
+                RecAnimationClipExporter.BeforeCreateTimelineForTests = null;
+                UnityEngine.Object.DestroyImmediate(window);
+            }
+        }
+
+        [Test]
+        public void TryExport_ExceptionWhileSaving_DeletesSavedClipsAndDestroysUnsaved()
+        {
+            TimelineE2ECharacter character = Prepare(new RecFixtureWriter.Recording { IncludeValueProvider = true });
+            int clipCount = Resources.FindObjectsOfTypeAll<AnimationClip>().Length;
+            RecAnimationClipExporter.BeforeCreateTimelineForTests = _ => throw new InvalidOperationException("save failed for test");
+            try
+            {
+                Assert.Throws<InvalidOperationException>(() => RecAnimationClipExporter.TryExport(
+                    _fixture.RecordingPath, character.Controller, null, null, _outputFolder, true, out RecAnimationClipExportResult _));
+            }
+            finally
+            {
+                RecAnimationClipExporter.BeforeCreateTimelineForTests = null;
+            }
+
+            Assert.That(AssetDatabase.FindAssets("t:AnimationClip", new[] { _outputFolder }), Is.Empty, "保存した .anim を消す");
+            Assert.That(Resources.FindObjectsOfTypeAll<AnimationClip>().Length, Is.EqualTo(clipCount), "Clip をメモリに残さない");
+        }
+
+        [Test]
+        public void DestroyScratch_TimelineWithChildTracksAndClips_DestroysEverything()
+        {
+            var timeline = ScriptableObject.CreateInstance<TimelineAsset>();
+            var parent = timeline.CreateTrack<GroupTrack>(null, "Group");
+            var child = timeline.CreateTrack<AnimationTrack>(parent, "Child");
+            TimelineClip clip = child.CreateDefaultClip();
+            UnityEngine.Object clipAsset = clip.asset;
+            var bake = ScriptableObject.CreateInstance<FacialTimelineBakeAsset>();
+
+            RecAnimationClipExporter.DestroyScratch(timeline, bake);
+
+            Assert.That(timeline == null, Is.True);
+            Assert.That(parent == null, Is.True, "親トラック");
+            Assert.That(child == null, Is.True, "子トラック");
+            Assert.That(clipAsset == null, Is.True, "Clip アセット");
+            Assert.That(bake == null, Is.True);
+        }
+
+        [Test]
+        public void RemapPanel_CustomSourceId_ShowsCustomChoiceInDropdown()
+        {
+            TimelineE2ECharacter character = Prepare(new RecFixtureWriter.Recording { IncludeValueProvider = true });
+            var window = ScriptableObject.CreateInstance<RecAnimationClipExportWindow>();
+            try
+            {
+                window.SetInputs(_fixture.RecordingPath, character.Controller, null, _outputFolder);
+                window.RemapPanel.SetRemapChoice(false, RecFixtureWriter.ValueProviderSourceId, "osc-custom");
+                window.Reload();
+
+                var dropdowns = UnityEngine.UIElements.UQueryExtensions.Query<UnityEngine.UIElements.DropdownField>(window.RemapPanel).ToList();
+                UnityEngine.UIElements.DropdownField custom = dropdowns.Find(d => d.value == RecSourceRemapPanel.CustomChoice);
+                Assert.That(custom, Is.Not.Null, "手入力の行は「(手入力)」と表示する");
+                Assert.That(custom.choices, Does.Contain(RecTimelineExportWindow.KeepChoice), "「そのまま」を選び直せる");
             }
             finally
             {

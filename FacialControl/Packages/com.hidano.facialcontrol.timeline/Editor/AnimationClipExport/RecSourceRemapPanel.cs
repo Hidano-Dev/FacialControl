@@ -21,12 +21,16 @@ namespace Hidano.FacialControl.Timeline.Editor.AnimationClipExport
     {
         internal const string ProblemBoxName = "rec-remap-panel-problems";
 
+        /// <summary>入力源 id を直接入力している行のドロップダウンの表示。</summary>
+        internal const string CustomChoice = "(手入力)";
+
         private readonly Dictionary<string, string> _sourceChoices = new Dictionary<string, string>(StringComparer.Ordinal);
         private readonly Dictionary<string, string> _layerChoices = new Dictionary<string, string>(StringComparer.Ordinal);
         private readonly Dictionary<string, Label> _sourceStatusLabels = new Dictionary<string, Label>(StringComparer.Ordinal);
         private readonly Dictionary<string, Label> _layerStatusLabels = new Dictionary<string, Label>(StringComparer.Ordinal);
         private readonly ScrollView _list;
         private readonly HelpBox _problemBox;
+        private readonly HelpBox _noticeBox;
         private string _recordingKey;
         private int _profileKey;
         private RecRemapRecording _recording;
@@ -34,21 +38,43 @@ namespace Hidano.FacialControl.Timeline.Editor.AnimationClipExport
         private FacialProfile? _profile;
 
         public RecSourceRemapPanel()
+            : this(null, ProblemBoxName)
+        {
+        }
+
+        /// <param name="listName">行の一覧（ScrollView）の要素名。</param>
+        /// <param name="problemBoxName">未対応・衝突の一覧（HelpBox）の要素名。</param>
+        public RecSourceRemapPanel(string listName, string problemBoxName)
         {
             var header = new Label("Source / Layer Remap（REC の入力源・レイヤー → Profile）");
             header.style.marginTop = 8f;
             header.style.unityFontStyleAndWeight = UnityEngine.FontStyle.Bold;
             Add(header);
 
-            _list = new ScrollView(ScrollViewMode.Vertical);
+            _noticeBox = new HelpBox(string.Empty, HelpBoxMessageType.Warning);
+            _noticeBox.style.display = DisplayStyle.None;
+            Add(_noticeBox);
+
+            _list = new ScrollView(ScrollViewMode.Vertical) { name = listName };
             _list.style.minHeight = 80f;
             _list.style.marginTop = 4f;
             Add(_list);
 
-            _problemBox = new HelpBox(string.Empty, HelpBoxMessageType.Warning) { name = ProblemBoxName };
+            _problemBox = new HelpBox(string.Empty, HelpBoxMessageType.Warning) { name = problemBoxName };
             _problemBox.style.display = DisplayStyle.None;
             Add(_problemBox);
             Rebuild(null, null, null, 0);
+        }
+
+        /// <summary>テスト用: 対応表の上に出している注意書き（無ければ空）。</summary>
+        public string NoticeText => _noticeBox.style.display.value != DisplayStyle.None ? _noticeBox.text : string.Empty;
+
+        /// <summary>対応表の上に注意書き（例: キャラと Profile の食い違い）を出す。null / 空なら隠す。</summary>
+        public void SetNotice(string message)
+        {
+            bool show = !string.IsNullOrEmpty(message);
+            _noticeBox.text = show ? message : string.Empty;
+            _noticeBox.style.display = show ? DisplayStyle.Flex : DisplayStyle.None;
         }
 
         /// <summary>対応表を当てた現在の判定結果（REC と Profile が揃うまで null）。</summary>
@@ -84,6 +110,9 @@ namespace Hidano.FacialControl.Timeline.Editor.AnimationClipExport
             _layerStatusLabels.Clear();
             if (_recording == null || _target == null)
             {
+                // 見えない選択を持ち越さない。
+                _sourceChoices.Clear();
+                _layerChoices.Clear();
                 _list.Add(new Label(timeline == null
                     ? "REC を読み込むと対応表を編集できます。"
                     : "Profile を選ぶと、REC の入力源・レイヤーを Profile の入力源・レイヤーへ対応付けられます。"));
@@ -197,8 +226,16 @@ namespace Hidano.FacialControl.Timeline.Editor.AnimationClipExport
             row.Add(label);
 
             string current = choices[recordedId];
-            bool isCustom = !targets.Contains(current);
-            var dropdown = new DropdownField(targets, isCustom ? RecTimelineExportWindow.KeepChoice : current);
+            bool isCustom = allowCustomId && !targets.Contains(current);
+
+            // 手入力の行は、ドロップダウンを「(手入力)」と表示する（「そのまま」に見えないようにし、選び直せるようにする）。
+            var rowTargets = new List<string>(targets);
+            if (allowCustomId)
+            {
+                rowTargets.Add(CustomChoice);
+            }
+
+            var dropdown = new DropdownField(rowTargets, isCustom ? CustomChoice : current);
             dropdown.style.width = 180f;
             row.Add(dropdown);
 
@@ -208,12 +245,22 @@ namespace Hidano.FacialControl.Timeline.Editor.AnimationClipExport
             TextField customField = null;
             if (allowCustomId)
             {
-                customField = new TextField { value = isCustom ? current : string.Empty, tooltip = "対応先の入力源 id を直接入力（空ならドロップダウンの選択）" };
+                customField = new TextField { value = isCustom ? current : string.Empty, tooltip = "対応先の入力源 id を直接入力（空ならそのまま）" };
                 customField.style.width = 120f;
                 customField.RegisterValueChangedCallback(evt =>
                 {
                     string typed = evt.newValue != null ? evt.newValue.Trim() : string.Empty;
-                    choices[recordedId] = typed.Length > 0 ? typed : dropdown.value;
+                    if (typed.Length > 0)
+                    {
+                        choices[recordedId] = typed;
+                        dropdown.SetValueWithoutNotify(CustomChoice);
+                    }
+                    else if (dropdown.value == CustomChoice)
+                    {
+                        choices[recordedId] = RecTimelineExportWindow.KeepChoice;
+                        dropdown.SetValueWithoutNotify(RecTimelineExportWindow.KeepChoice);
+                    }
+
                     Refresh();
                 });
                 row.Add(customField);
@@ -221,8 +268,18 @@ namespace Hidano.FacialControl.Timeline.Editor.AnimationClipExport
 
             dropdown.RegisterValueChangedCallback(evt =>
             {
-                choices[recordedId] = evt.newValue;
-                customField?.SetValueWithoutNotify(string.Empty);
+                if (evt.newValue == CustomChoice)
+                {
+                    // 入力欄の id を使う（空なら「そのまま」と同じ）。
+                    string typed = customField != null && customField.value != null ? customField.value.Trim() : string.Empty;
+                    choices[recordedId] = typed.Length > 0 ? typed : RecTimelineExportWindow.KeepChoice;
+                }
+                else
+                {
+                    choices[recordedId] = evt.newValue;
+                    customField?.SetValueWithoutNotify(string.Empty);
+                }
+
                 Refresh();
             });
 

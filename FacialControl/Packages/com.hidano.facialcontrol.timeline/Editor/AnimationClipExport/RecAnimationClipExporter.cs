@@ -8,7 +8,6 @@ using Hidano.FacialControl.Rec.Adapters.FileSystem;
 using Hidano.FacialControl.Rec.Domain.Services;
 using Hidano.FacialControl.Timeline.Adapters.Assets;
 using Hidano.FacialControl.Timeline.Domain.Models;
-using Hidano.FacialControl.Timeline.Domain.Services;
 using Hidano.FacialControl.Timeline.Editor.AnimationTrackConversion;
 using UnityEditor;
 using UnityEngine;
@@ -32,7 +31,7 @@ namespace Hidano.FacialControl.Timeline.Editor.AnimationClipExport
         public string AssetPath { get; }
     }
 
-    /// <summary><see cref="RecAnimationClipExporter.TryExport"/> の結果。</summary>
+    /// <summary><see cref="RecAnimationClipExporter.TryExport(string, FacialController, FacialCharacterProfileSO, RecSourceRemap, string, bool, out RecAnimationClipExportResult)"/> の結果。</summary>
     internal sealed class RecAnimationClipExportResult
     {
         public RecAnimationClipExportResult(
@@ -72,11 +71,12 @@ namespace Hidano.FacialControl.Timeline.Editor.AnimationClipExport
     /// </summary>
     /// <remarks>
     /// <para>評価は、REC Export（<see cref="RecToTimelineExporter"/>）と同じ規則で組んだ TimelineAsset と Bake をメモリ上にだけ作り、
-    /// AnimationTrack 変換と同じ合成（<see cref="TimelinePreviewCompositor"/>）とビルダー（<see cref="FacialAnimationClipBuilder"/>）で行う。
+    /// AnimationTrack 変換と同じ合成（<see cref="TimelinePreviewCompositor"/>）とサンプリング（<see cref="FacialAnimationTrackConverter.BuildClips"/>）で行う。
     /// REC 再生と同じ遷移計算（HID-318）を Timeline 経路と共有し、従来の「Export → Timeline → AnimationTrack 変換」と同じ値になる。
-    /// 一時オブジェクトはアセットとして保存せず、書き出し後に必ず破棄する。</para>
+    /// 一時オブジェクト（TimelineAsset・トラック・Clip アセット・Bake）はアセットとして保存せず、例外時も含めて必ず破棄する。</para>
     /// <para>シーンの FacialController・renderer・ボーンは書き換えない（Animator も追加しない）。カーブの path は、FacialController の
     /// 親階層（自身を含む）→ 子階層の順に見つかった Animator の Transform、無ければ FacialController の Transform を基準にする。</para>
+    /// <para>保存は 1 回の AssetDatabase 編集にまとめ、途中で失敗したらそれまでに保存したアセットを削除する（中途半端な出力を残さない）。</para>
     /// </remarks>
     internal static class RecAnimationClipExporter
     {
@@ -97,7 +97,27 @@ namespace Hidano.FacialControl.Timeline.Editor.AnimationClipExport
             bool createTimeline,
             out RecAnimationClipExportResult result)
         {
-            result = TryExportCore(recordingPath, controller, profileAsset, sourceRemap, outputFolder, createTimeline);
+            if (!RecFileReader.TryRead(recordingPath, out RecBinaryFormat.ReadResult readResult))
+            {
+                return Fail($"REC '{recordingPath}' を読み込めませんでした（詳細は Console）。", out result);
+            }
+
+            return TryExport(readResult, recordingPath, controller, profileAsset, sourceRemap, outputFolder, createTimeline, out result);
+        }
+
+        /// <summary>読み込み済みの REC から書き出す（ウィンドウが読み込んだ REC を読み直さないため）。</summary>
+        /// <param name="recordingPath">出力名とログに使う REC のパス（読み直さない）。</param>
+        internal static bool TryExport(
+            RecBinaryFormat.ReadResult readResult,
+            string recordingPath,
+            FacialController controller,
+            FacialCharacterProfileSO profileAsset,
+            RecSourceRemap sourceRemap,
+            string outputFolder,
+            bool createTimeline,
+            out RecAnimationClipExportResult result)
+        {
+            result = TryExportCore(readResult, recordingPath, controller, profileAsset, sourceRemap, outputFolder, createTimeline);
             if (!result.Succeeded)
             {
                 Debug.LogError(LogPrefix + result.Error);
@@ -107,7 +127,15 @@ namespace Hidano.FacialControl.Timeline.Editor.AnimationClipExport
             return true;
         }
 
+        private static bool Fail(string error, out RecAnimationClipExportResult result)
+        {
+            result = RecAnimationClipExportResult.Failed(error);
+            Debug.LogError(LogPrefix + error);
+            return false;
+        }
+
         private static RecAnimationClipExportResult TryExportCore(
+            RecBinaryFormat.ReadResult readResult,
             string recordingPath,
             FacialController controller,
             FacialCharacterProfileSO profileAsset,
@@ -115,6 +143,11 @@ namespace Hidano.FacialControl.Timeline.Editor.AnimationClipExport
             string outputFolder,
             bool createTimeline)
         {
+            if (readResult == null || readResult.Timeline == null)
+            {
+                return RecAnimationClipExportResult.Failed("REC が読み込まれていません。");
+            }
+
             if (controller == null)
             {
                 return RecAnimationClipExportResult.Failed("FacialController を指定してください。");
@@ -137,68 +170,24 @@ namespace Hidano.FacialControl.Timeline.Editor.AnimationClipExport
                 return RecAnimationClipExportResult.Failed($"出力フォルダ '{outputFolder}' がプロジェクト内（Assets 配下）に見つかりません。");
             }
 
-            if (!RecFileReader.TryRead(recordingPath, out RecBinaryFormat.ReadResult readResult))
-            {
-                return RecAnimationClipExportResult.Failed($"REC '{recordingPath}' を読み込めませんでした（詳細は Console）。");
-            }
-
+            // 対応表の判定とログは REC Export と同じ処理を使う（衝突・不正な id は Error、未対応・除外は Warning）。
             FacialProfile profile = TimelineProfileSource.Resolve(profileAsset);
             RecSourceRemap remap = sourceRemap != null && !sourceRemap.IsIdentity ? sourceRemap : null;
-            IReadOnlyList<string> problems = Array.Empty<string>();
-            if (remap != null)
+            if (!RecToTimelineExporter.TryCheckSourceRemap(
+                    readResult.Timeline, profile, profileAsset.name, remap, recordingPath, out IReadOnlyList<string> problems))
             {
-                RecRemapReport report = RecSourceRemapResolver.Analyze(readResult.Timeline, profile, remap);
-                problems = RecSourceRemapResolver.DescribeProblems(report);
-                if (report.HasErrors)
-                {
-                    return RecAnimationClipExportResult.Failed(
-                        "入力源・レイヤーの対応表で対応先が重複している、または入力源 id の形式が不正なため書き出しません:\n" + string.Join("\n", problems), problems);
-                }
-
-                if (problems.Count > 0)
-                {
-                    Debug.LogWarning(LogPrefix + $"'{recordingPath}' には Profile '{profileAsset.name}' で再生されない入力源・レイヤー・表情があります:\n" + string.Join("\n", problems));
-                }
+                return RecAnimationClipExportResult.Failed(
+                    "入力源・レイヤーの対応表で対応先が重複している、または入力源 id の形式が不正なため書き出しません:\n" + string.Join("\n", problems), problems);
             }
 
             var sequence = new RecEventSequenceAdapter(readResult.Timeline, remap);
-            WarnSkippedRecords(sequence, recordingPath);
+            RecToTimelineExporter.WarnSkippedWeightRecords(sequence, recordingPath);
+            RecToTimelineExporter.WarnSkippedExpressionRecords(sequence, recordingPath);
 
-            TimelineAsset scratchTimeline = null;
-            FacialTimelineBakeAsset scratchBake = null;
-            List<FacialAnimationClipPart> parts = null;
-            try
+            List<FacialAnimationClipPart> parts = BuildParts(sequence, controller, profileAsset, profile, out string buildError);
+            if (parts == null)
             {
-                // REC Export と同じ規則でメモリ上にだけ組む（保存しない）。
-                scratchTimeline = RecToTimelineExporter.CreateTimelineAsset(sequence, profileAsset);
-                scratchTimeline.hideFlags = HideFlags.HideAndDontSave;
-                scratchBake = TimelineBakeService.Bake(scratchTimeline, profileAsset);
-                scratchBake.hideFlags = HideFlags.HideAndDontSave;
-                BakeReferenceWriter.Apply(scratchTimeline, scratchBake);
-
-                using (var compositor = new TimelinePreviewCompositor(controller, profileAsset, profile, null, scratchTimeline))
-                {
-                    if (!compositor.CanRender)
-                    {
-                        return RecAnimationClipExportResult.Failed($"REC から組んだ合成を評価できません（{compositor.BakeLocate.Status}）。", problems);
-                    }
-
-                    Animator animator = ResolveAnimator(controller);
-                    Transform root = animator != null ? animator.transform : controller.transform;
-                    double frameRate = scratchTimeline.editorSettings.frameRate > 0d
-                        ? scratchTimeline.editorSettings.frameRate
-                        : FacialAnimationTrackConverter.FallbackFrameRate;
-                    SampleTimeline samples = SampleTimeline.Create(
-                        scratchTimeline.duration,
-                        frameRate,
-                        FacialAnimationTrackConverter.CollectStepCandidateTimes(scratchTimeline, scratchBake));
-                    parts = FacialAnimationClipBuilder.Build(
-                        compositor, controller, profileAsset, root, animator != null && animator.isHuman ? animator : null, samples, frameRate);
-                }
-            }
-            finally
-            {
-                DestroyScratch(scratchTimeline, scratchBake);
+                return RecAnimationClipExportResult.Failed(buildError, problems);
             }
 
             if (parts.Count == 0)
@@ -208,28 +197,125 @@ namespace Hidano.FacialControl.Timeline.Editor.AnimationClipExport
 
             string baseName = FacialAnimationTrackConverter.SanitizeFileName(
                 Path.GetFileNameWithoutExtension(recordingPath) + "_" + controller.name);
-            var clips = new List<RecAnimationClipExportClip>(parts.Count);
-            for (int i = 0; i < parts.Count; i++)
-            {
-                FacialAnimationClipPart part = parts[i];
-                string clipName = baseName + "_" + FacialAnimationTrackConverter.SanitizeFileName(part.ClipName);
-                part.Clip.name = clipName;
-                string assetPath = AssetDatabase.GenerateUniqueAssetPath(folder + "/" + clipName + ".anim");
-                AssetDatabase.CreateAsset(part.Clip, assetPath);
-                clips.Add(new RecAnimationClipExportClip(part, assetPath));
-            }
-
-            string timelinePath = createTimeline ? CreateTimelineWithClips(folder, baseName, controller.name, clips) : null;
-            AssetDatabase.SaveAssets();
+            List<RecAnimationClipExportClip> clips = SaveAll(parts, folder, baseName, controller.name, createTimeline, out string timelinePath);
             Debug.Log(LogPrefix + $"'{recordingPath}' を {clips.Count} 本の AnimationClip に書き出しました（{Describe(clips)}）。");
             return new RecAnimationClipExportResult(clips, timelinePath, problems, null);
         }
 
-        /// <summary>FacialController の親階層（自身を含む）→ 子階層の順に Animator を探す（AnimationTrack 変換と同じ）。</summary>
-        internal static Animator ResolveAnimator(FacialController controller)
+        /// <summary>
+        /// REC Export と同じ規則で TimelineAsset と Bake をメモリ上にだけ組み、変換と同じサンプリングで Clip（未保存）を作る。
+        /// 評価できなければ null と理由を返す。一時オブジェクトは例外時も含めて必ず破棄する。
+        /// </summary>
+        private static List<FacialAnimationClipPart> BuildParts(
+            RecEventSequenceAdapter sequence,
+            FacialController controller,
+            FacialCharacterProfileSO profileAsset,
+            FacialProfile profile,
+            out string error)
         {
-            Animator animator = controller.GetComponentInParent<Animator>(true);
-            return animator != null ? animator : controller.GetComponentInChildren<Animator>(true);
+            error = null;
+            TimelineAsset scratchTimeline = null;
+            FacialTimelineBakeAsset scratchBake = null;
+            try
+            {
+                // 生成した TimelineAsset をこちらが持ってからトラックを作る（作りかけで例外が出ても破棄できる）。
+                scratchTimeline = ScriptableObject.CreateInstance<TimelineAsset>();
+                scratchTimeline.hideFlags = HideFlags.HideAndDontSave;
+                RecToTimelineExporter.PopulateTimelineForProfileAsset(scratchTimeline, sequence, profileAsset, profile);
+                scratchBake = TimelineBakeService.Bake(scratchTimeline, profileAsset);
+                scratchBake.hideFlags = HideFlags.HideAndDontSave;
+                BakeReferenceWriter.Apply(scratchTimeline, scratchBake);
+
+                using (var compositor = new TimelinePreviewCompositor(controller, profileAsset, profile, null, scratchTimeline))
+                {
+                    if (!compositor.CanRender)
+                    {
+                        error = $"REC から組んだ合成を評価できません（{compositor.BakeLocate.Status}）。";
+                        return null;
+                    }
+
+                    return FacialAnimationTrackConverter.BuildClips(
+                        scratchTimeline,
+                        scratchBake,
+                        compositor,
+                        controller,
+                        profileAsset,
+                        FacialAnimationTrackConverter.ResolveAnimator(controller));
+                }
+            }
+            finally
+            {
+                DestroyScratch(scratchTimeline, scratchBake);
+            }
+        }
+
+        /// <summary>
+        /// Clip（と任意で TimelineAsset）を 1 回の AssetDatabase 編集で保存する。途中で例外が出たら、保存したアセットを削除し、
+        /// 未保存の Clip を破棄してから例外を投げ直す。
+        /// </summary>
+        private static List<RecAnimationClipExportClip> SaveAll(
+            List<FacialAnimationClipPart> parts,
+            string folder,
+            string baseName,
+            string targetName,
+            bool createTimeline,
+            out string timelinePath)
+        {
+            timelinePath = null;
+            var clips = new List<RecAnimationClipExportClip>(parts.Count);
+            var createdPaths = new List<string>(parts.Count + 1);
+            bool completed = false;
+            AssetDatabase.StartAssetEditing();
+            try
+            {
+                for (int i = 0; i < parts.Count; i++)
+                {
+                    FacialAnimationClipPart part = parts[i];
+                    string clipName = baseName + "_" + FacialAnimationTrackConverter.SanitizeFileName(part.ClipName);
+                    part.Clip.name = clipName;
+                    string assetPath = AssetDatabase.GenerateUniqueAssetPath(folder + "/" + clipName + ".anim");
+                    AssetDatabase.CreateAsset(part.Clip, assetPath);
+                    createdPaths.Add(assetPath);
+                    clips.Add(new RecAnimationClipExportClip(part, assetPath));
+                }
+
+                if (createTimeline)
+                {
+                    timelinePath = AssetDatabase.GenerateUniqueAssetPath(folder + "/" + baseName + ".playable");
+                    CreateTimelineWithClips(timelinePath, targetName, clips);
+                    createdPaths.Add(timelinePath);
+                }
+
+                completed = true;
+            }
+            finally
+            {
+                AssetDatabase.StopAssetEditing();
+                if (!completed)
+                {
+                    Rollback(parts, createdPaths);
+                }
+            }
+
+            AssetDatabase.SaveAssets();
+            return clips;
+        }
+
+        private static void Rollback(List<FacialAnimationClipPart> parts, List<string> createdPaths)
+        {
+            for (int i = 0; i < createdPaths.Count; i++)
+            {
+                AssetDatabase.DeleteAsset(createdPaths[i]);
+            }
+
+            for (int i = 0; i < parts.Count; i++)
+            {
+                AnimationClip clip = parts[i].Clip;
+                if (clip != null && !EditorUtility.IsPersistent(clip))
+                {
+                    UnityEngine.Object.DestroyImmediate(clip);
+                }
+            }
         }
 
         /// <summary>プロジェクト相対のフォルダパスへ正規化する（末尾の区切り・区切り文字の違いを吸収。Assets 外は null）。</summary>
@@ -250,13 +336,12 @@ namespace Hidano.FacialControl.Timeline.Editor.AnimationClipExport
             return normalized == "Assets" || normalized.StartsWith("Assets/", StringComparison.Ordinal) ? normalized : null;
         }
 
-        private static string CreateTimelineWithClips(
-            string folder,
-            string baseName,
-            string targetName,
-            IReadOnlyList<RecAnimationClipExportClip> clips)
+        /// <summary>テスト用: 保存の途中で例外を起こす（ロールバックの確認）。null なら何もしない。</summary>
+        internal static Action<string> BeforeCreateTimelineForTests;
+
+        private static void CreateTimelineWithClips(string path, string targetName, IReadOnlyList<RecAnimationClipExportClip> clips)
         {
-            string path = AssetDatabase.GenerateUniqueAssetPath(folder + "/" + baseName + ".playable");
+            BeforeCreateTimelineForTests?.Invoke(path);
             var timeline = ScriptableObject.CreateInstance<TimelineAsset>();
             AssetDatabase.CreateAsset(timeline, path);
             for (int i = 0; i < clips.Count; i++)
@@ -269,11 +354,10 @@ namespace Hidano.FacialControl.Timeline.Editor.AnimationClipExport
             }
 
             EditorUtility.SetDirty(timeline);
-            return path;
         }
 
-        /// <summary>メモリ上に組んだ TimelineAsset（トラック・Clip を含む）と Bake を破棄する。</summary>
-        private static void DestroyScratch(TimelineAsset timeline, FacialTimelineBakeAsset bake)
+        /// <summary>メモリ上に組んだ TimelineAsset（子のトラック・Clip アセットを含む）と Bake を破棄する。</summary>
+        internal static void DestroyScratch(TimelineAsset timeline, FacialTimelineBakeAsset bake)
         {
             if (timeline != null)
             {
@@ -304,19 +388,6 @@ namespace Hidano.FacialControl.Timeline.Editor.AnimationClipExport
             if (bake != null)
             {
                 UnityEngine.Object.DestroyImmediate(bake);
-            }
-        }
-
-        private static void WarnSkippedRecords(RecEventSequenceAdapter sequence, string recordingPath)
-        {
-            if (sequence.SkippedWeightEventCount > 0)
-            {
-                Debug.LogWarning(LogPrefix + $"'{recordingPath}' の入力源 weight のレコード {sequence.SkippedWeightEventCount} 件は Timeline 経路と同じく書き出しに反映されません。");
-            }
-
-            if (sequence.SkippedExpressionEventCount > 0)
-            {
-                Debug.LogWarning(LogPrefix + $"'{recordingPath}' の Expression の Activate / Deactivate レコード（kind 9 / 10）{sequence.SkippedExpressionEventCount} 件は Timeline 経路と同じく書き出しに反映されません。");
             }
         }
 

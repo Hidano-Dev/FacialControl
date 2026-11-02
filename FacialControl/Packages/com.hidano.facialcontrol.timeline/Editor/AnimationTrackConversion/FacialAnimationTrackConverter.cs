@@ -245,16 +245,10 @@ namespace Hidano.FacialControl.Timeline.Editor.AnimationTrackConversion
                 return false;
             }
 
-            // Animator は FacialController の親階層（自身を含む）→ 子階層の順に探す。無ければ変換が成功したときだけ追加する。
-            Animator animator = controller.GetComponentInParent<Animator>(true);
-            if (animator == null)
-            {
-                animator = controller.GetComponentInChildren<Animator>(true);
-            }
-
-            Transform root = animator != null ? animator.transform : controller.transform;
+            // Animator が無ければ変換が成功したときだけ追加する。
+            Animator animator = ResolveAnimator(controller);
             List<FacialAnimationClipPart> parts = BuildClips(
-                timeline, controller, profileAsset, compositor, root, animator != null && animator.isHuman ? animator : null);
+                timeline, compositor.BakeLocate.Bake, compositor, controller, profileAsset, animator);
             if (parts.Count == 0)
             {
                 Debug.LogError(LogPrefix + $"'{controller.name}' の BlendShape・目ボーンが Animator の階層に無いため、変換するカーブがありません。変換しません。", receiver);
@@ -404,25 +398,38 @@ namespace Hidano.FacialControl.Timeline.Editor.AnimationTrackConversion
             return new string(chars);
         }
 
-        private static List<FacialAnimationClipPart> BuildClips(
+        /// <summary>カーブの path の基準にする Animator を、FacialController の親階層（自身を含む）→ 子階層の順に探す（無ければ null）。</summary>
+        internal static Animator ResolveAnimator(FacialController controller)
+        {
+            Animator animator = controller.GetComponentInParent<Animator>(true);
+            return animator != null ? animator : controller.GetComponentInChildren<Animator>(true);
+        }
+
+        /// <summary>
+        /// <paramref name="timeline"/> の長さとフレームレート（無ければ <see cref="FallbackFrameRate"/>）で時刻列を作り、
+        /// <paramref name="evaluator"/> を評価して Clip を作る。カーブの path は <paramref name="animator"/>（null なら FacialController）の
+        /// Transform を基準にする。AnimationTrack 変換と、REC から直接書き出す経路（HID-409）が共有する。
+        /// </summary>
+        internal static List<FacialAnimationClipPart> BuildClips(
             TimelineAsset timeline,
+            FacialTimelineBakeAsset bake,
+            IFacialOutputEvaluator evaluator,
             FacialController controller,
             FacialCharacterProfileSO profileAsset,
-            TimelinePreviewCompositor compositor,
-            Transform root,
-            Animator humanoid)
+            Animator animator)
         {
+            Transform root = animator != null ? animator.transform : controller.transform;
+            Animator humanoid = animator != null && animator.isHuman ? animator : null;
             double frameRate = timeline.editorSettings.frameRate > 0d ? timeline.editorSettings.frameRate : FallbackFrameRate;
-            SampleTimeline samples = SampleTimeline.Create(timeline.duration, frameRate, CollectStepCandidateTimes(timeline, compositor.BakeLocate.Bake));
-            return FacialAnimationClipBuilder.Build(compositor, controller, profileAsset, root, humanoid, samples, frameRate);
+            SampleTimeline samples = SampleTimeline.Create(timeline.duration, frameRate, CollectStepCandidateTimes(timeline, bake));
+            return FacialAnimationClipBuilder.Build(evaluator, controller, profileAsset, root, humanoid, samples, frameRate);
         }
 
 
         /// <summary>
         /// 値が跳び得る時刻（独自 Track の Clip 境界・Bake の状態イベント・階段カーブのキー）を集める。
-        /// REC から直接 AnimationClip を書き出す経路（HID-409）も同じ時刻列を使う。
         /// </summary>
-        internal static List<double> CollectStepCandidateTimes(TimelineAsset timeline, FacialTimelineBakeAsset bake)
+        private static List<double> CollectStepCandidateTimes(TimelineAsset timeline, FacialTimelineBakeAsset bake)
         {
             var times = new List<double>();
             var tracks = new List<(TrackAsset track, bool mutedInHierarchy)>();
