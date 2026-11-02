@@ -105,6 +105,61 @@ namespace Hidano.FacialControl.Tests.PlayMode.Adapters.Playable
         }
 
         // ================================================================
+        // 拡張向けの文脈（BlendShape 名 / 破棄前の通知。HID-408）
+        // ================================================================
+
+        [Test]
+        public void BlendShapeNames_Initialized_ReturnsRendererBlendShapeNames()
+        {
+            var controller = CreateInitializedController(CreateProfile(), out _);
+
+            Assert.That(controller.BlendShapeNames, Is.EqualTo(BlendShapeNames));
+        }
+
+        [Test]
+        public void BlendShapeNames_NotInitialized_ReturnsEmpty()
+        {
+            var controller = CreateUninitializedController();
+
+            Assert.That(controller.BlendShapeNames, Is.Empty);
+        }
+
+        [Test]
+        public void Deinitializing_Reinitialize_NotifiesOnceBeforeTeardown()
+        {
+            var profile = CreateProfile();
+            var controller = CreateInitializedController(profile, out _);
+            int calls = 0;
+            bool initializedDuringNotification = false;
+            controller.Deinitializing += sender =>
+            {
+                calls++;
+                initializedDuringNotification = sender.IsInitialized;
+            };
+
+            controller.InitializeWithProfile(profile);
+
+            Assert.That(calls, Is.EqualTo(1), "再初期化の前に 1 回だけ通知する");
+            Assert.That(initializedDuringNotification, Is.True, "通知中は初期化済みのまま（後付け接続を解放できる）");
+        }
+
+        [Test]
+        public void Deinitializing_FirstInitialization_DoesNotNotify()
+        {
+            var controller = CreateUninitializedController();
+            int calls = 0;
+            controller.Deinitializing += _ => calls++;
+            var meshObject = new GameObject("Face");
+            meshObject.transform.SetParent(controller.transform, false);
+            meshObject.AddComponent<SkinnedMeshRenderer>().sharedMesh = CreateMesh(BlendShapeNames);
+
+            controller.InitializeWithProfile(CreateProfile());
+
+            Assert.That(controller.IsInitialized, Is.True, "fixture: 初期化できること");
+            Assert.That(calls, Is.EqualTo(0), "初期化済みの状態が無ければ通知しない");
+        }
+
+        // ================================================================
         // 値入力源の接続 / 解放
         // ================================================================
 

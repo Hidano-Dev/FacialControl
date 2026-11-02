@@ -138,6 +138,26 @@ namespace Hidano.FacialControl.Adapters.Playable
         public int BlendShapeCount => _blendShapeNames?.Length ?? 0;
 
         /// <summary>
+        /// 現在のプロファイルで解決された BlendShape 名（レイヤー合成の出力の並び）。未初期化時は空。
+        /// </summary>
+        /// <remarks>
+        /// adapter binding を経由せずに 1 体ぶんの文脈（<see cref="CurrentProfile"/> / <see cref="InputSourceRegistry"/> /
+        /// BlendShape 名）を読む拡張（Timeline 再生等）向け。
+        /// </remarks>
+        public IReadOnlyList<string> BlendShapeNames =>
+            _isInitialized && _blendShapeNames != null ? _blendShapeNames : Array.Empty<string>();
+
+        /// <summary>
+        /// 初期化済みの状態（<see cref="InputSourceRegistry"/>・レイヤー構成など）を破棄する直前に通知する
+        /// （再初期化・Profile の再読込・無効化・破棄のいずれでも、破棄の前に 1 回）。
+        /// </summary>
+        /// <remarks>
+        /// adapter binding を経由せずに文脈を受け取った拡張が、registry やレイヤーへの後付け接続をこの時点で解放するために使う。
+        /// 通知中は <see cref="IsInitialized"/> が true のまま。
+        /// </remarks>
+        public event Action<FacialController> Deinitializing;
+
+        /// <summary>
         /// 目線ボーン (目線メニューのジョイント名 → Avatar の目線ボーンの順で、目線制御と同じ規則で解決したもの) の、
         /// Animator のルートからの相対パスを返す。REC が録画開始時に記録し、Export が Generic のモデルでも
         /// 目線ボーンを引けるようにする (HID-192)。解決できない目は null。Animator が無いときは両方 null。
@@ -1549,6 +1569,11 @@ namespace Hidano.FacialControl.Adapters.Playable
         }
         private void Cleanup()
         {
+            if (_isInitialized)
+            {
+                NotifyDeinitializing();
+            }
+
             FacialControllerRendererOwnership.Unregister(this);
 
             ClearObservedTriggerSources();
@@ -1607,6 +1632,29 @@ namespace Hidano.FacialControl.Adapters.Playable
 
             _expressionUseCase = null;
             _isInitialized = false;
+        }
+
+        private void NotifyDeinitializing()
+        {
+            Action<FacialController> handlers = Deinitializing;
+            if (handlers == null)
+            {
+                return;
+            }
+
+            // 購読者の例外で後片付けが止まらないよう、1 件ずつ呼んで例外はログに出す。
+            Delegate[] invocations = handlers.GetInvocationList();
+            for (int i = 0; i < invocations.Length; i++)
+            {
+                try
+                {
+                    ((Action<FacialController>)invocations[i]).Invoke(this);
+                }
+                catch (Exception e)
+                {
+                    Debug.LogException(e, this);
+                }
+            }
         }
 
         /// <summary>
