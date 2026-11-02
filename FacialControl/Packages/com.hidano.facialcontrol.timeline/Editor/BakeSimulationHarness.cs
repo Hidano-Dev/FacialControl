@@ -83,7 +83,14 @@ namespace Hidano.FacialControl.Timeline.Editor
 
             double currentTime = 0d;
             bool hasRecordedCurrentTime = false;
-            int eventIndex = 0;
+            int eventIndex = ApplyStartsActiveStack(source, events);
+            if (eventIndex > 0)
+            {
+                // 遷移なしで反映したスタックの値を t=0 のキーにする（最初のサンプルまで 0 から補間させない）。
+                CaptureCurrent(aggregator, observer, layerScratch, curveKeys, _blendShapeNames, currentTime);
+                hasRecordedCurrentTime = true;
+            }
+
             while (eventIndex < events.Length)
             {
                 double eventTime = events[eventIndex].TimeSeconds;
@@ -127,6 +134,32 @@ namespace Hidano.FacialControl.Timeline.Editor
             }
 
             return CreateBake(track.name, curveKeys);
+        }
+
+        /// <summary>
+        /// 先頭（t=0）で遷移なしに有効になる表情（<see cref="TimelineStateEvent.StartsActive"/>）を、REC 再生の開始
+        /// （<c>RecTriggerInjector.TryBeginInjection</c>）と同じくスタックとして即座に反映する（HID-298）。
+        /// </summary>
+        /// <returns>反映したイベントの次の index（先頭にそうしたイベントが無ければ 0）。</returns>
+        private static int ApplyStartsActiveStack(OfflineExpressionSource source, TimelineStateEvent[] events)
+        {
+            List<string> stack = null;
+            int index = 0;
+            while (index < events.Length
+                && events[index].IsOn
+                && events[index].StartsActive
+                && events[index].TimeSeconds <= TimeEpsilon)
+            {
+                (stack ??= new List<string>()).Add(events[index].ExpressionId);
+                index++;
+            }
+
+            if (stack != null)
+            {
+                source.ResetToExpressionStack(stack);
+            }
+
+            return index;
         }
 
         private static void AdvanceAndCapture(

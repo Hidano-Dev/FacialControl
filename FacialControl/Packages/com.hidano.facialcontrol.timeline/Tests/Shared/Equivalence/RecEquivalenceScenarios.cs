@@ -17,6 +17,7 @@ namespace Hidano.FacialControl.Timeline.Tests.Shared
         /// <summary>Small 層（遷移計算のみ）の必須テストで回すシナリオ。</summary>
         public static readonly HashSet<string> EnabledInSmall = new HashSet<string>(StringComparer.Ordinal)
         {
+            "baseline-hold",
         };
 
         /// <summary>Medium（REC 再生 ⇔ Timeline 再生の全経路）の必須テストで回すシナリオ。</summary>
@@ -25,6 +26,7 @@ namespace Hidano.FacialControl.Timeline.Tests.Shared
             "analog-ramp",
             "gaze-dense",
             "gaze-sparse",
+            "baseline-hold",
         };
 
         private static readonly Func<RecEquivalenceScenario>[] Factories =
@@ -39,6 +41,7 @@ namespace Hidano.FacialControl.Timeline.Tests.Shared
             ValueProviderRecords,
             LayerWeightOverExpression,
             BaselineTrigger,
+            BaselineHold,
             () => RandomMix(1),
             () => RandomMix(2),
             () => RandomMix(3),
@@ -250,6 +253,19 @@ namespace Hidano.FacialControl.Timeline.Tests.Shared
                 .TriggerOff(T(0.60), RecEquivalenceSpec.SmileExpressionId)
                 .TriggerOn(T(0.90), RecEquivalenceSpec.AngryExpressionId)
                 .TriggerOff(T(1.40), RecEquivalenceSpec.AngryExpressionId)
+                .Build();
+        }
+
+        /// <summary>
+        /// 録画開始時に押されていた表情のスタック（基準 kind 5。上の表情を最後まで押したまま）と、録画開始時の目線
+        /// （基準 kind 6。最初のサンプルまで保持）。遷移を含まないので、HID-318 の差（遷移の再サンプル）に左右されない。
+        /// </summary>
+        private static RecEquivalenceScenario BaselineHold()
+        {
+            return new RecEquivalenceScenarioBuilder("baseline-hold", 0, 1.5d)
+                .BaselineTrigger(RecEquivalenceSpec.AngryExpressionId, RecEquivalenceSpec.SmileExpressionId)
+                .BaselineGaze(0.6f, -0.4f)
+                .Gaze(T(0.70), -0.3f, 0.5f)
                 .Build();
         }
 

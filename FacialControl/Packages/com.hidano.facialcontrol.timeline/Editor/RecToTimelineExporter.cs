@@ -602,6 +602,7 @@ namespace Hidano.FacialControl.Timeline.Editor
         {
             var clips = new List<ExpressionClipInfo>();
             var openClipsByExpression = new Dictionary<string, Stack<OpenExpressionClip>>(StringComparer.Ordinal);
+            var triggerSourcesByLayer = new Dictionary<string, HashSet<string>>(StringComparer.Ordinal);
             string fallbackLayerName = ResolveFallbackLayerName(profile);
 
             for (int i = 0; i < sequence.Count; i++)
@@ -628,7 +629,8 @@ namespace Hidano.FacialControl.Timeline.Editor
                         openClipsByExpression.Add(evt.ExpressionId, openClips);
                     }
 
-                    openClips.Push(new OpenExpressionClip(evt.ExpressionId, layerName, evt.TimeSeconds, i));
+                    openClips.Push(new OpenExpressionClip(evt.ExpressionId, layerName, evt.TimeSeconds, i, evt.IsBaseline));
+                    AddTriggerSource(triggerSourcesByLayer, layerName, evt.SourceId);
                     continue;
                 }
 
@@ -649,7 +651,8 @@ namespace Hidano.FacialControl.Timeline.Editor
                     openClip.LayerName,
                     openClip.StartTime,
                     evt.TimeSeconds,
-                    openClip.Sequence));
+                    openClip.Sequence,
+                    openClip.IsBaseline));
             }
 
             foreach (KeyValuePair<string, Stack<OpenExpressionClip>> pair in openClipsByExpression)
@@ -661,12 +664,64 @@ namespace Hidano.FacialControl.Timeline.Editor
                         openClip.LayerName,
                         openClip.StartTime,
                         sequence.DurationSeconds,
-                        openClip.Sequence));
+                        openClip.Sequence,
+                        openClip.IsBaseline));
                 }
             }
 
             clips.Sort(ExpressionClipInfoComparer.Instance);
+            WarnMergedTriggerSources(triggerSourcesByLayer);
             return clips;
+        }
+
+        private static void AddTriggerSource(Dictionary<string, HashSet<string>> sourcesByLayer, string layerName, string sourceId)
+        {
+            if (string.IsNullOrEmpty(sourceId))
+            {
+                return;
+            }
+
+            if (!sourcesByLayer.TryGetValue(layerName, out HashSet<string> sources))
+            {
+                sources = new HashSet<string>(StringComparer.Ordinal);
+                sourcesByLayer.Add(layerName, sources);
+            }
+
+            sources.Add(sourceId);
+        }
+
+        /// <summary>
+        /// 同じレイヤーの表情を複数の trigger 入力源から押した記録を、Export 1 回につき 1 回だけ警告する（HID-298）。
+        /// </summary>
+        /// <remarks>
+        /// 録画時は入力源ごとに別のスタックを持ち、レイヤーで weighted-sum される。Timeline の表情トラックはレイヤーごとに
+        /// 1 つのスタックへまとめるため、LastWins の結果や戻り先の表情が REC 再生と変わり得る。入力源ごとのスタックの再現は
+        /// 行わない（トラックの構成を変える必要があるため別 Issue）が、無言では食い違わせない。
+        /// </remarks>
+        private static void WarnMergedTriggerSources(Dictionary<string, HashSet<string>> sourcesByLayer)
+        {
+            List<string> mergedLayers = null;
+            foreach (KeyValuePair<string, HashSet<string>> pair in sourcesByLayer)
+            {
+                if (pair.Value.Count > 1)
+                {
+                    var sources = new List<string>(pair.Value);
+                    sources.Sort(StringComparer.Ordinal);
+                    (mergedLayers ??= new List<string>()).Add($"{pair.Key} ({string.Join(", ", sources)})");
+                }
+            }
+
+            if (mergedLayers == null)
+            {
+                return;
+            }
+
+            mergedLayers.Sort(StringComparer.Ordinal);
+            Debug.LogWarning(
+                "[RecToTimelineExporter] Expressions on the same layer were triggered from multiple input sources: " +
+                $"{string.Join("; ", mergedLayers)}. While recording each input source kept its own expression stack, " +
+                "but the exported expression track merges them into one stack per layer, so the result may differ from REC playback " +
+                "where the stacks overlap.");
         }
 
         private static void CreateExpressionTracks(TimelineAsset timeline, List<ExpressionClipInfo> clips)
@@ -713,7 +768,10 @@ namespace Hidano.FacialControl.Timeline.Editor
                     TimelineClip timelineClip = lanes[laneIndex].Track.CreateClip<FacialExpressionClip>();
                     timelineClip.start = clip.StartTime;
                     timelineClip.duration = Math.Max(0d, clip.EndTime - clip.StartTime);
-                    ((FacialExpressionClip)timelineClip.asset).ExpressionId = clip.ExpressionId;
+                    var expressionClipAsset = (FacialExpressionClip)timelineClip.asset;
+                    expressionClipAsset.ExpressionId = clip.ExpressionId;
+                    // 録画開始時に押されていた表情は、REC 再生と同じく先頭から遷移なしで有効にする（HID-298）。
+                    expressionClipAsset.StartsActive = clip.IsBaseline;
                     lanes[laneIndex].LastEndTime = clip.EndTime;
                 }
             }
@@ -834,7 +892,7 @@ namespace Hidano.FacialControl.Timeline.Editor
 
                 // REC 再生は再生開始時に録画開始時の値（基準 kind 6。無ければ全軸 0）を入れ、最初のサンプルまで保持する
                 // （RecAnalogInjector）。Clip を t=0 から始めて 0 のキーを置き、基準の無い記録では最初のサンプルより前も揃える。
-                // 基準の値の書き出しは HID-298。
+                // 基準の値は RecEventSequenceAdapter が t=0 のサンプルとして渡し、同時刻の後勝ちで 0 のキーを置き換える（HID-298）。
                 TimelineClip clip = track.CreateClip<FacialValueClip>();
                 clip.start = 0d;
                 clip.duration = Math.Max(MinimumClipDuration, durationSeconds);
@@ -1107,13 +1165,16 @@ namespace Hidano.FacialControl.Timeline.Editor
 
         private readonly struct OpenExpressionClip
         {
-            public OpenExpressionClip(string expressionId, string layerName, double startTime, int sequence)
+            public OpenExpressionClip(string expressionId, string layerName, double startTime, int sequence, bool isBaseline)
             {
                 ExpressionId = expressionId;
                 LayerName = layerName;
                 StartTime = startTime;
                 Sequence = sequence;
+                IsBaseline = isBaseline;
             }
+
+            public bool IsBaseline { get; }
 
             public string ExpressionId { get; }
 
@@ -1131,14 +1192,19 @@ namespace Hidano.FacialControl.Timeline.Editor
                 string layerName,
                 double startTime,
                 double endTime,
-                int sequence)
+                int sequence,
+                bool isBaseline)
             {
                 ExpressionId = expressionId;
                 LayerName = layerName;
                 StartTime = startTime;
                 EndTime = Math.Max(startTime, endTime);
                 Sequence = sequence;
+                IsBaseline = isBaseline;
             }
+
+            /// <summary>録画開始時の基準（REC の kind 5）から作った Clip か。</summary>
+            public bool IsBaseline { get; }
 
             public string ExpressionId { get; }
 
@@ -1167,6 +1233,18 @@ namespace Hidano.FacialControl.Timeline.Editor
                 if (start != 0)
                 {
                     return start;
+                }
+
+                // 基準の Clip は記録のスタック順（下 → 上 = Sequence 順）で先に並べる。Lane へ順に割り当てられ、
+                // TimelineStateEventCollector がルート → Lane の順に集めるため、Bake で復元するスタックの順が記録と揃う。
+                if (left.IsBaseline != right.IsBaseline)
+                {
+                    return left.IsBaseline ? -1 : 1;
+                }
+
+                if (left.IsBaseline)
+                {
+                    return left.Sequence.CompareTo(right.Sequence);
                 }
 
                 int end = left.EndTime.CompareTo(right.EndTime);

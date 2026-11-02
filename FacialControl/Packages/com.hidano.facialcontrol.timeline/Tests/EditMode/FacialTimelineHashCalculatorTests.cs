@@ -58,6 +58,29 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
         }
 
         [Test]
+        public void ComputeHash_WhenStartsActiveChanges_ReturnsDifferentValue()
+        {
+            var profile = CreateProfile(0.10f);
+            var original = CreateTimeline("Expressions", 0.0d, 1.0d, 0.25f);
+            var startsActive = CreateTimeline("Expressions", 0.0d, 1.0d, 0.25f);
+
+            try
+            {
+                SetStartsActive(startsActive, true);
+
+                Assert.That(
+                    FacialTimelineHashCalculator.ComputeHash(original, profile),
+                    Is.Not.EqualTo(FacialTimelineHashCalculator.ComputeHash(startsActive, profile)),
+                    "遷移なしで最初から有効にすると Bake の結果が変わるので、ハッシュも変わる");
+            }
+            finally
+            {
+                Object.DestroyImmediate(original);
+                Object.DestroyImmediate(startsActive);
+            }
+        }
+
+        [Test]
         public void ComputeHash_WhenKeyframeChanges_ReturnsDifferentValue()
         {
             var profile = CreateProfile(0.10f);
@@ -340,6 +363,20 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
             };
 
             return timeline;
+        }
+
+        private static void SetStartsActive(TimelineAsset timeline, bool startsActive)
+        {
+            foreach (TrackAsset track in timeline.GetOutputTracks())
+            {
+                foreach (TimelineClip clip in track.GetClips())
+                {
+                    if (clip.asset is FacialExpressionClip expressionClip)
+                    {
+                        expressionClip.StartsActive = startsActive;
+                    }
+                }
+            }
         }
 
         private static TimelineAsset CreateTimelineWithTwoValueTracks(string firstSubId, string secondSubId)

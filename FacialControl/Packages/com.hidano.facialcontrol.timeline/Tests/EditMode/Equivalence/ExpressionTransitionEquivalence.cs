@@ -136,12 +136,16 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
 
                 var trace = new EquivalenceFrameTrace(channels);
                 var frame = new float[emotionBlendShapes.Length];
+                // Medium の Timeline 再生は Director が Hold で終端に留まる（RecTimelineEquivalenceFixture）。最後のフレームが
+                // 記録の長さを越えても、Timeline の終端の値を見る（終端まで押していた表情の Clip の終わりから遷移させない）。
+                double holdEndTime = timeline.duration;
                 for (int f = 0; f < expected.FrameCount; f++)
                 {
                     double time = expected.GetTime(f);
+                    double evaluatedTime = Math.Min(time, holdEndTime);
                     for (int i = 0; i < curves.Length; i++)
                     {
-                        frame[i] = curves[i] != null ? curves[i].Evaluate((float)time) * 100f : 0f;
+                        frame[i] = curves[i] != null ? curves[i].Evaluate((float)evaluatedTime) * 100f : 0f;
                     }
 
                     trace.AddFrame(time, frame);

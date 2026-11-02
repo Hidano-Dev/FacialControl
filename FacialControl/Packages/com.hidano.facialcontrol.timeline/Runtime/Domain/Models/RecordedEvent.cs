@@ -35,7 +35,7 @@ namespace Hidano.FacialControl.Timeline.Domain.Models
             string expressionId = null,
             string sourceId = null,
             float[] axes = null)
-            : this(timeSeconds, kind, expressionId, sourceId, axes, isValid: false, maskBytes: null)
+            : this(timeSeconds, kind, expressionId, sourceId, axes, isValid: false, maskBytes: null, isBaseline: false)
         {
             if (kind == RecordedEventKind.ValueProviderSample)
             {
@@ -51,7 +51,8 @@ namespace Hidano.FacialControl.Timeline.Domain.Models
             string sourceId,
             float[] axes,
             bool isValid,
-            byte[] maskBytes)
+            byte[] maskBytes,
+            bool isBaseline)
         {
             if (timeSeconds < 0d)
             {
@@ -101,6 +102,25 @@ namespace Hidano.FacialControl.Timeline.Domain.Models
             ExpressionId = expressionId ?? string.Empty;
             SourceId = sourceId ?? string.Empty;
             IsValid = isValid;
+            IsBaseline = isBaseline;
+        }
+
+        /// <summary>
+        /// 録画開始時に既に押されていた表情（REC の基準 kind 5）を t=0 の <see cref="RecordedEventKind.TriggerOn"/> として作る。
+        /// REC 再生は再生開始時にこのスタックを遷移なしで即座に反映する（<c>RecTriggerInjector.TryBeginInjection</c>）ため、
+        /// Export はこのイベントの Clip を「先頭から遷移なしで有効」にする（HID-298）。
+        /// </summary>
+        public static RecordedEvent CreateBaselineTriggerOn(string expressionId, string sourceId)
+        {
+            return new RecordedEvent(
+                0d,
+                RecordedEventKind.TriggerOn,
+                expressionId,
+                sourceId,
+                axes: null,
+                isValid: false,
+                maskBytes: null,
+                isBaseline: true);
         }
 
         /// <summary>
@@ -122,7 +142,8 @@ namespace Hidano.FacialControl.Timeline.Domain.Models
                 sourceId: sourceId,
                 axes: values,
                 isValid: isValid,
-                maskBytes: maskBytes);
+                maskBytes: maskBytes,
+                isBaseline: false);
         }
 
         public double TimeSeconds { get; }
@@ -135,6 +156,11 @@ namespace Hidano.FacialControl.Timeline.Domain.Models
 
         /// <summary>値提供型のみ。記録時の有効状態。</summary>
         public bool IsValid { get; }
+
+        /// <summary>
+        /// TriggerOn のみ。録画開始時の基準（REC の kind 5）から作ったイベントか（<see cref="CreateBaselineTriggerOn"/>）。
+        /// </summary>
+        public bool IsBaseline { get; }
 
         public int AxisCount => _axes?.Length ?? 0;
 

@@ -8,6 +8,9 @@ namespace Hidano.FacialControl.Timeline.Domain.Services
 {
 public static class TimelineStateEventCollector
     {
+        /// <summary><see cref="FacialExpressionClip.StartsActive"/> を有効とみなす Clip の開始時刻の上限（秒）。</summary>
+        public const double StartsActiveTimeEpsilon = 1e-6d;
+
         public static TimelineStateEvent[] Collect(FacialExpressionTrack rootTrack)
         {
             return Collect(rootTrack, rootTrack != null ? rootTrack.name : string.Empty);
@@ -50,8 +53,10 @@ public static class TimelineStateEventCollector
                     continue;
                 }
 
+                // 遷移なしで最初から有効にできるのは Timeline の先頭から始まる Clip だけ（途中から始まる Clip は通常どおり遷移する）。
+                bool startsActive = expressionClip.StartsActive && clip.start <= StartsActiveTimeEpsilon;
                 events.Add(new OrderedTimelineStateEvent(
-                    new TimelineStateEvent(clip.start, TimelineStateEvent.KindOn, expressionClip.ExpressionId, layerName),
+                    new TimelineStateEvent(clip.start, TimelineStateEvent.KindOn, expressionClip.ExpressionId, layerName, startsActive),
                     sequence++));
                 events.Add(new OrderedTimelineStateEvent(
                     new TimelineStateEvent(clip.end, TimelineStateEvent.KindOff, expressionClip.ExpressionId, layerName),

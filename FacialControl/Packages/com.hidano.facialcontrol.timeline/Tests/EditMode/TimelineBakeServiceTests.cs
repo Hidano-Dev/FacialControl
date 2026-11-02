@@ -88,6 +88,78 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
         }
 
         [Test]
+        public void Bake_StartsActiveClipAtTimelineStart_IsFullyActiveFromZeroAndTransitionsOutAtEnd()
+        {
+            var timeline = ScriptableObject.CreateInstance<TimelineAsset>();
+            FacialTimelineBakeAsset bake = null;
+            try
+            {
+                FacialProfile profile = CreateProfile(transitionDuration: 0.25f);
+                FacialExpressionTrack track = CreateExpressionTrack(timeline, start: 0d, duration: 0.50d);
+                SetStartsActive(track, true);
+
+                bake = Editor.TimelineBakeService.Bake(timeline, profile);
+                AnimationCurve curve = FindCurve(bake, "Expressions", "Smile").Curve;
+
+                // REC 再生が録画開始時のスタックを遷移なしで反映するのと同じく、t=0 から重み 1。
+                Assert.That(curve.Evaluate(0f), Is.EqualTo(1f).Within(0.0001f), "t=0");
+                Assert.That(curve.Evaluate(0.0083333f), Is.EqualTo(1f).Within(0.0001f), "最初のフレーム");
+                Assert.That(curve.Evaluate(0.30f), Is.EqualTo(1f).Within(0.0001f), "Clip の途中");
+                Assert.That(curve.Evaluate(0.625f), Is.EqualTo(0.5f).Within(0.0001f), "Clip の終端からは通常どおり遷移で抜ける");
+                Assert.That(curve.Evaluate(0.80f), Is.EqualTo(0f).Within(0.0001f));
+            }
+            finally
+            {
+                DestroyAll(bake, timeline);
+            }
+        }
+
+        [Test]
+        public void Bake_StartsActiveClipNotAtTimelineStart_TransitionsInAsUsual()
+        {
+            var timeline = ScriptableObject.CreateInstance<TimelineAsset>();
+            FacialTimelineBakeAsset bake = null;
+            try
+            {
+                FacialProfile profile = CreateProfile(transitionDuration: 0.25f);
+                FacialExpressionTrack track = CreateExpressionTrack(timeline, start: 0.025d, duration: 0.50d);
+                SetStartsActive(track, true);
+
+                bake = Editor.TimelineBakeService.Bake(timeline, profile);
+                AnimationCurve curve = FindCurve(bake, "Expressions", "Smile").Curve;
+
+                Assert.That(curve.Evaluate(0.025f), Is.EqualTo(0f).Within(0.0001f), "先頭以外から始まる Clip では無視する");
+                Assert.That(curve.Evaluate(0.15f), Is.EqualTo(0.5f).Within(0.0001f));
+            }
+            finally
+            {
+                DestroyAll(bake, timeline);
+            }
+        }
+
+        [Test]
+        public void Bake_ClipAtTimelineStartWithoutStartsActive_TransitionsInFromZero()
+        {
+            var timeline = ScriptableObject.CreateInstance<TimelineAsset>();
+            FacialTimelineBakeAsset bake = null;
+            try
+            {
+                FacialProfile profile = CreateProfile(transitionDuration: 0.25f);
+                CreateExpressionTrack(timeline, start: 0d, duration: 0.50d);
+
+                bake = Editor.TimelineBakeService.Bake(timeline, profile);
+                AnimationCurve curve = FindCurve(bake, "Expressions", "Smile").Curve;
+
+                Assert.That(curve.Evaluate(0f), Is.EqualTo(0f).Within(0.0001f), "既定は従来どおり 0 から遷移する");
+                Assert.That(curve.Evaluate(0.125f), Is.EqualTo(0.5f).Within(0.0001f));
+            }
+            finally
+            {
+                DestroyAll(bake, timeline);
+            }
+        }
+
+        [Test]
         public void Bake_IncludesStateEventsAndMergedValueChannels()
         {
             var timeline = ScriptableObject.CreateInstance<TimelineAsset>();
@@ -613,6 +685,14 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
             clip.duration = duration;
             ((FacialExpressionClip)clip.asset).ExpressionId = "smile";
             return track;
+        }
+
+        private static void SetStartsActive(FacialExpressionTrack track, bool startsActive)
+        {
+            foreach (TimelineClip clip in track.GetClips())
+            {
+                ((FacialExpressionClip)clip.asset).StartsActive = startsActive;
+            }
         }
 
         private static BlendShapeCurve FindCurve(FacialTimelineBakeAsset bake, string layerName, string blendShapeName)

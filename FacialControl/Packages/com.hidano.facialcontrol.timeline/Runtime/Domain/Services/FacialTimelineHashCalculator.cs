@@ -168,6 +168,11 @@ namespace Hidano.FacialControl.Timeline.Domain.Services
                 writer.WriteDouble(clip.start);
                 writer.WriteDouble(clip.duration);
                 writer.WriteString(asset != null ? asset.ExpressionId : string.Empty);
+                if (asset != null && asset.StartsActive)
+                {
+                    // 既定値（false）の Clip は書かない（導入前に Bake した Timeline のハッシュを変えないため）。
+                    writer.WriteString("starts-active");
+                }
             }
         }
 

@@ -21,7 +21,39 @@ namespace Hidano.FacialControl.Timeline.Editor
             BlendShapeNames = timeline.Baseline.BlendShapeNames;
             LeftEyeBonePath = timeline.Baseline.LeftEyeBonePath;
             RightEyeBonePath = timeline.Baseline.RightEyeBonePath;
-            var events = new List<RecordedEvent>(timeline.Events.Count + timeline.Baseline.ValueProviderEntries.Count);
+            var events = new List<RecordedEvent>(
+                timeline.Events.Count
+                + CountBaselineTriggers(timeline.Baseline)
+                + timeline.Baseline.AnalogEntries.Count
+                + timeline.Baseline.ValueProviderEntries.Count);
+
+            // 録画開始時に押されていた表情（kind 5）は t=0 の TriggerOn として先頭に置く。REC 再生は注入開始時に
+            // 入力源ごとのスタックを遷移なしで即座に反映する（RecTriggerInjector.TryBeginInjection）ため、
+            // 基準のイベントとして作り、Export が「先頭から遷移なしで有効」の Clip にする（HID-298）。
+            // スタックの順（下 → 上）を保って並べる。
+            IReadOnlyList<RecBaselineState.TriggerEntry> baselineTriggers = timeline.Baseline.TriggerEntries;
+            for (int i = 0; i < baselineTriggers.Count; i++)
+            {
+                RecBaselineState.TriggerEntry entry = baselineTriggers[i];
+                IReadOnlyList<string> expressionIds = entry.ExpressionIds;
+                for (int j = 0; j < expressionIds.Count; j++)
+                {
+                    events.Add(RecordedEvent.CreateBaselineTriggerOn(expressionIds[j], entry.SourceId));
+                }
+            }
+
+            // 録画開始時の Analog / 目線の値（kind 6）は t=0 のサンプルとして先頭に置く。REC 再生は注入開始時にこの値を入れ、
+            // 最初のサンプルまで保持する（RecAnalogInjector）。
+            IReadOnlyList<RecBaselineState.AnalogEntry> baselineAnalogs = timeline.Baseline.AnalogEntries;
+            for (int i = 0; i < baselineAnalogs.Count; i++)
+            {
+                RecBaselineState.AnalogEntry entry = baselineAnalogs[i];
+                events.Add(new RecordedEvent(
+                    0d,
+                    RecordedEventKind.AnalogValue,
+                    sourceId: entry.SourceId,
+                    axes: CopyAxes(entry.Axes)));
+            }
 
             // 値提供型の基準（kind 8）は t=0 の状態として先頭に置く（REC 再生が注入開始時に適用するのと同じ）。
             IReadOnlyList<RecBaselineState.ValueProviderEntry> baselineValueProviders = timeline.Baseline.ValueProviderEntries;
@@ -134,13 +166,15 @@ namespace Hidano.FacialControl.Timeline.Editor
                     recordedEvent = new RecordedEvent(
                         evt.TimestampSeconds,
                         RecordedEventKind.TriggerOn,
-                        expressionId: timeline.ExpressionIds[evt.ExpressionIdIndex]);
+                        expressionId: timeline.ExpressionIds[evt.ExpressionIdIndex],
+                        sourceId: timeline.SourceIds[evt.SourceIdIndex]);
                     return true;
                 case RecEventKind.TriggerOff:
                     recordedEvent = new RecordedEvent(
                         evt.TimestampSeconds,
                         RecordedEventKind.TriggerOff,
-                        expressionId: timeline.ExpressionIds[evt.ExpressionIdIndex]);
+                        expressionId: timeline.ExpressionIds[evt.ExpressionIdIndex],
+                        sourceId: timeline.SourceIds[evt.SourceIdIndex]);
                     return true;
                 case RecEventKind.AnalogSample:
                     recordedEvent = new RecordedEvent(
@@ -160,6 +194,18 @@ namespace Hidano.FacialControl.Timeline.Editor
                 default:
                     throw new InvalidOperationException($"Unsupported REC event kind '{evt.Kind}'.");
             }
+        }
+
+        private static int CountBaselineTriggers(RecBaselineState baseline)
+        {
+            int count = 0;
+            IReadOnlyList<RecBaselineState.TriggerEntry> entries = baseline.TriggerEntries;
+            for (int i = 0; i < entries.Count; i++)
+            {
+                count += entries[i].ExpressionIds.Count;
+            }
+
+            return count;
         }
 
         private static float[] CopyAxes(IReadOnlyList<float> axes)

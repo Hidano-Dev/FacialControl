@@ -74,5 +74,6 @@ Analog の乗っ取りが消費者に届くのは、registry の差し替えを�
 - Trigger on/off は Expression id ごとのスタックでペアにし `FacialExpressionClip` にする。閉じていないクリップは duration まで延ばす。レイヤーは `profile.GetEffectiveLayer`、見つからなければ `emotion` → 先頭レイヤー → `Expressions` の順でフォールバックして警告
 - アナログ / Gaze は sourceId ごとに `FacialValueTrack` 1 本 + クリップ 1 つ。`ChannelSubId` には REC の sourceId がそのまま入り、再生時の乗っ取り先になる
 - チャネル種別の判定は source id ごとに種別・理由・軸数を返す。判定順: GazeChannel の明示 source id と完全一致（`ExplicitGazeSourceId`）→ 規約 id のチャネルが GazeChannels にある（`ConventionGazeChannel`）→ Profile の binding の gaze 宣言（`GazeProviderDeclaration`）→ 2 軸でなければ Analog（`NonTwoAxisSamples`、警告して継続）→ 既定 Analog（`DefaultAnalog`）。`sourceKindOverrides` で上書きした場合は `Overridden`（プログラム・テスト用途。ウィンドウからは指定しない）
-- 値提供型・系1 のレコード kind（7 / 9 / 10）は Export 対象外として無視する。これらの kind が含まれていても読込は失敗せず、変換可能なレコードの Export を継続する
-- REC の baseline とトリガーの sourceId は変換しない
+- 系1 のレコード kind（9 / 10 / 11）は Export 対象外として無視する（時刻付きの 9 / 10 は件数を 1 回だけ警告する）。これらの kind が含まれていても読込は失敗せず、変換可能なレコードの Export を継続する
+- 録画開始時に押されていた表情（基準 kind 5）は t=0 から始まる `FacialExpressionClip` にし、`StartsActive` を立てる。Bake は REC 再生と同じく、このスタックを遷移なしで t=0 から反映する（`StartsActive` は 0 秒から始まる Clip でのみ効く）。録画開始時の Analog / 目線の値（基準 kind 6）は t=0 のサンプルとして Clip の先頭に入れ、最初のサンプルまで保持する
+- トリガーの sourceId は Clip に残さない。同じレイヤーの表情を複数の入力源から押した記録は、録画時の入力源ごとのスタックが 1 つにまとまるため、Export 時に 1 回だけ警告する
