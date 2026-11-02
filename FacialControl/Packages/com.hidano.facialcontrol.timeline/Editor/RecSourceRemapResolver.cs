@@ -268,6 +268,9 @@ namespace Hidano.FacialControl.Timeline.Editor
                     case RecRemapStatus.InvalidId:
                         lines.Add($"入力源 '{entry.RecordedId}' の対応先 '{entry.TargetId}' は入力源 id の形式（英数字と _ . - :、64 文字以内）ではありません（書き出せません）。");
                         break;
+                    case RecRemapStatus.MergedTriggers:
+                        lines.Add($"入力源 '{entry.RecordedId}' の表情トリガーは、ほかの入力源と同じ '{entry.TargetId}' にまとまります（Timeline の表情トラックはレイヤーごとに 1 つのスタックなので出力は変わりませんが、REC 再生とは結果が違うことがあります）。");
+                        break;
                     case RecRemapStatus.Excluded when entry.TriggerCount > 0:
                         lines.Add($"入力源 '{entry.RecordedId}' を除外したため、表情トリガー {entry.TriggerCount} 件の表情 Clip は書き出しません。");
                         break;

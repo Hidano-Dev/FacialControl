@@ -52,9 +52,7 @@ namespace Hidano.FacialControl.Timeline.Domain.Services
             Id = id;
             Usage = usage;
             TriggerCount = triggerCount;
-            _triggeredExpressionIds = triggeredExpressionIds != null
-                ? new List<string>(triggeredExpressionIds).ToArray()
-                : Array.Empty<string>();
+            _triggeredExpressionIds = CopyIds(triggeredExpressionIds);
         }
 
         public string Id { get; }
@@ -69,6 +67,26 @@ namespace Hidano.FacialControl.Timeline.Domain.Services
 
         /// <summary>値チャネル（Analog / 目線 / 値提供型）として Timeline のトラックになる入力源か。</summary>
         public bool IsValueChannel => (Usage & (RecRecordedSourceUsage.Analog | RecRecordedSourceUsage.ValueProvider)) != 0;
+
+        /// <summary>表情トリガーを記録している入力源か。</summary>
+        public bool HasTriggers => (Usage & RecRecordedSourceUsage.Trigger) != 0;
+
+        private static string[] CopyIds(IEnumerable<string> ids)
+        {
+            if (ids == null)
+            {
+                return Array.Empty<string>();
+            }
+
+            if (ids is ICollection<string> collection)
+            {
+                var copied = new string[collection.Count];
+                collection.CopyTo(copied, 0);
+                return copied;
+            }
+
+            return new List<string>(ids).ToArray();
+        }
     }
 
     /// <summary>対応表を適用した 1 項目（入力源またはレイヤー）の状態。</summary>
@@ -92,8 +110,14 @@ namespace Hidano.FacialControl.Timeline.Domain.Services
         /// <summary>別の REC の入力源 / レイヤーと同じ対応先になる（書き出せない）。</summary>
         Collision,
 
-        /// <summary>対応先が入力源 id の形式（<see cref="InputSourceId"/>）を満たさない（書き出せない）。</summary>
+        /// <summary>対応先が入力源 id の形式（<see cref="InputSourceId"/>）を満たさない（書き出せない）。対応先を変えた行だけで確かめる。</summary>
         InvalidId,
+
+        /// <summary>
+        /// 表情トリガーだけの入力源が、別の入力源と同じ id にまとまる。Timeline の表情トラックはレイヤーごとに 1 つのスタックなので
+        /// 出力は変わらないが、REC 再生（入力源ごとのスタック）とは結果が違いうるため警告として示す（書き出せる）。
+        /// </summary>
+        MergedTriggers,
     }
 
     /// <summary>入力源 1 つの付け替え結果。</summary>
@@ -175,7 +199,7 @@ namespace Hidano.FacialControl.Timeline.Domain.Services
         /// <summary>同じ対応先を持つ入力源・レイヤーがあるか。</summary>
         public bool HasCollisions => Contains(RecRemapStatus.Collision);
 
-        /// <summary>書き出せない対応（衝突・不正な id）があるか。</summary>
+        /// <summary>書き出せない対応（値チャネル・レイヤーの衝突、不正な id）があるか。表情トリガーのまとまり（<see cref="RecRemapStatus.MergedTriggers"/>）は含めない。</summary>
         public bool HasErrors => HasCollisions || Contains(RecRemapStatus.InvalidId);
 
         /// <summary>対象 Profile に無い対応先・表情があるか（書き出せるが、その分は再生されない）。</summary>
@@ -213,9 +237,10 @@ namespace Hidano.FacialControl.Timeline.Domain.Services
     /// 確かめられないため <see cref="RecRemapStatus.Unchecked"/> にする。</para>
     /// <para>表情トリガーだけの入力源は、表情 id で再生先が決まる（入力源 id を再生に使わない）ため、宣言の有無を判定しない。
     /// ただし除外すると表情 Clip が書き出されないため、件数とともに一覧に含める。</para>
-    /// <para>2 つ以上の入力源（レイヤー）を同じ対応先にすると <see cref="RecRemapStatus.Collision"/>。値チャネルは 1 つの id に
-    /// 2 本のトラックができて再生側が後続を不正扱いし、表情トリガーは別々の入力源のスタックが 1 つに混ざるため。
-    /// 対応先が入力源 id の形式を満たさなければ <see cref="RecRemapStatus.InvalidId"/>。</para>
+    /// <para>値チャネルの入力源（レイヤー）を 2 つ以上同じ対応先にすると <see cref="RecRemapStatus.Collision"/>（1 つの id に 2 本の
+    /// トラックができて再生側が後続を不正扱いするため。書き出せない）。表情トリガーだけの入力源がほかと同じ id にまとまるのは
+    /// <see cref="RecRemapStatus.MergedTriggers"/>（Timeline の出力は変わらないため警告）。対応先を変えた行で、対応先が入力源 id の
+    /// 形式を満たさなければ <see cref="RecRemapStatus.InvalidId"/>。</para>
     /// </remarks>
     public static class RecSourceRemapPlanner
     {
@@ -245,8 +270,7 @@ namespace Hidano.FacialControl.Timeline.Domain.Services
             {
                 for (int i = 0; i < recordedSources.Count; i++)
                 {
-                    if (recordedSources[i].IsValueChannel || recordedSources[i].TriggerCount > 0
-                        || (recordedSources[i].Usage & RecRecordedSourceUsage.Trigger) != 0)
+                    if (recordedSources[i].IsValueChannel || recordedSources[i].HasTriggers)
                     {
                         sources.Add(recordedSources[i]);
                     }
@@ -254,8 +278,12 @@ namespace Hidano.FacialControl.Timeline.Domain.Services
             }
 
             sources.Sort((left, right) => string.CompareOrdinal(left.Id, right.Id));
+            // 対応先ごとに、まとまる入力源の数と、そのうち値チャネルの数を数える。値チャネルが 2 つ以上同じ id になると
+            // 1 つの id に複数のトラックができるため書き出せない（Collision）。表情トリガーだけの入力源がほかと同じ id に
+            // まとまるのは Timeline の出力を変えないため警告（MergedTriggers）にとどめる。
             var targets = new string[sources.Count];
             var countByTarget = new Dictionary<string, int>(StringComparer.Ordinal);
+            var valueCountByTarget = new Dictionary<string, int>(StringComparer.Ordinal);
             for (int i = 0; i < sources.Count; i++)
             {
                 if (remap.TryMapSource(sources[i].Id, out string target))
@@ -263,6 +291,11 @@ namespace Hidano.FacialControl.Timeline.Domain.Services
                     targets[i] = target;
                     countByTarget.TryGetValue(target, out int count);
                     countByTarget[target] = count + 1;
+                    if (sources[i].IsValueChannel)
+                    {
+                        valueCountByTarget.TryGetValue(target, out int valueCount);
+                        valueCountByTarget[target] = valueCount + 1;
+                    }
                 }
             }
 
@@ -271,28 +304,53 @@ namespace Hidano.FacialControl.Timeline.Domain.Services
             {
                 RecRecordedSource source = sources[i];
                 string target = targets[i];
-                RecRemapStatus status = ResolveStatus(target, countByTarget, targetSourceIds);
-                if (status == RecRemapStatus.NotInTarget || status == RecRemapStatus.Mapped)
-                {
-                    if (!InputSourceId.TryParse(target, out _))
-                    {
-                        status = RecRemapStatus.InvalidId;
-                    }
-                    else if (!source.IsValueChannel)
-                    {
-                        // 表情トリガーだけの入力源は入力源 id を再生に使わない。
-                        status = RecRemapStatus.Mapped;
-                    }
-                    else if (status == RecRemapStatus.NotInTarget && (source.Usage & RecRecordedSourceUsage.ValueProvider) == 0)
-                    {
-                        status = RecRemapStatus.Unchecked;
-                    }
-                }
-
-                entries[i] = new RecRemapSourceEntry(source.Id, source.Usage, target, status, source.TriggerCount);
+                entries[i] = new RecRemapSourceEntry(
+                    source.Id,
+                    source.Usage,
+                    target,
+                    ResolveSourceStatus(source, target, countByTarget, valueCountByTarget, targetSourceIds),
+                    source.TriggerCount);
             }
 
             return entries;
+        }
+
+        private static RecRemapStatus ResolveSourceStatus(
+            RecRecordedSource source,
+            string target,
+            Dictionary<string, int> countByTarget,
+            Dictionary<string, int> valueCountByTarget,
+            ICollection<string> targetSourceIds)
+        {
+            if (target == null)
+            {
+                return RecRemapStatus.Excluded;
+            }
+
+            // 形式は対応先を変えた行だけで確かめる（REC の元の id はそのまま通す）。
+            if (!string.Equals(source.Id, target, StringComparison.Ordinal) && !InputSourceId.TryParse(target, out _))
+            {
+                return RecRemapStatus.InvalidId;
+            }
+
+            valueCountByTarget.TryGetValue(target, out int valueCount);
+            if (source.IsValueChannel)
+            {
+                if (valueCount > 1)
+                {
+                    return RecRemapStatus.Collision;
+                }
+
+                if (targetSourceIds != null && targetSourceIds.Contains(target))
+                {
+                    return RecRemapStatus.Mapped;
+                }
+
+                return (source.Usage & RecRecordedSourceUsage.ValueProvider) != 0 ? RecRemapStatus.NotInTarget : RecRemapStatus.Unchecked;
+            }
+
+            // 表情トリガーだけの入力源は入力源 id を再生に使わない。ほかの入力源と同じ id にまとまるときだけ警告する。
+            return countByTarget[target] > 1 ? RecRemapStatus.MergedTriggers : RecRemapStatus.Mapped;
         }
 
         private static RecRemapLayerEntry[] AnalyzeLayers(

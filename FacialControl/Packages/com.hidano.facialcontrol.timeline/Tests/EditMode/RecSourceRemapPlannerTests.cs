@@ -154,8 +154,9 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
         }
 
         [Test]
-        public void Analyze_TwoTriggerSourcesToSameTarget_ReportsCollision()
+        public void Analyze_TwoTriggerSourcesToSameTarget_ReportsMergedTriggersAsWarningNotError()
         {
+            // Timeline の表情トラックはレイヤーごとに 1 つのスタックなので、トリガーだけの入力源がまとまっても出力は変わらない。
             var sources = new[]
             {
                 new RecRecordedSource("keyboard", RecRecordedSourceUsage.Trigger, 1, new[] { "smile" }),
@@ -165,9 +166,33 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
 
             RecRemapReport report = RecSourceRemapPlanner.Analyze(sources, null, ReceiverSources, ReceiverLayers, null, remap);
 
-            Assert.That(StatusOf(report, "keyboard"), Is.EqualTo(RecRemapStatus.Collision));
-            Assert.That(StatusOf(report, "pad"), Is.EqualTo(RecRemapStatus.Collision));
-            Assert.That(report.HasErrors, Is.True);
+            Assert.That(StatusOf(report, "keyboard"), Is.EqualTo(RecRemapStatus.MergedTriggers));
+            Assert.That(StatusOf(report, "pad"), Is.EqualTo(RecRemapStatus.MergedTriggers));
+            Assert.That(report.HasErrors, Is.False);
+        }
+
+        [Test]
+        public void Analyze_TriggerSourceOntoValueSourceId_WarnsOnlyTriggerSource()
+        {
+            var remap = new RecSourceRemap(new[] { Pair("keyboard", "ifm") }, null);
+
+            RecRemapReport report = Analyze(remap);
+
+            Assert.That(StatusOf(report, "keyboard"), Is.EqualTo(RecRemapStatus.MergedTriggers));
+            Assert.That(StatusOf(report, "ifm"), Is.EqualTo(RecRemapStatus.NotInTarget), "値チャネル側の判定は変わらない");
+            Assert.That(report.HasErrors, Is.False);
+        }
+
+        [Test]
+        public void Analyze_UnchangedRecordedIdOutsideIdFormat_IsNotReportedAsInvalid()
+        {
+            // 形式の検査は対応先を変えた行だけ。REC の元の id はそのまま通す。
+            var sources = new[] { new RecRecordedSource("legacy source", RecRecordedSourceUsage.Analog) };
+
+            RecRemapReport report = RecSourceRemapPlanner.Analyze(sources, null, ReceiverSources, ReceiverLayers, null, RecSourceRemap.Identity);
+
+            Assert.That(StatusOf(report, "legacy source"), Is.EqualTo(RecRemapStatus.Unchecked));
+            Assert.That(report.HasErrors, Is.False);
         }
 
         [Test]

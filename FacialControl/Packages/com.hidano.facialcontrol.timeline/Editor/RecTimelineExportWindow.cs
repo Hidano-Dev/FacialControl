@@ -60,8 +60,10 @@ namespace Hidano.FacialControl.Timeline.Editor
         private FacialProfile? _remapProfile;
         private RecRemapReport _remapReport;
 
-        // 対応表の選択を作った REC の識別子（パス + サイズ + 更新時刻）。REC が変わったら選択を引き継がない。
+        // 対応表の選択を作った REC の識別子（読み込んだバイト列の SHA-256）と Profile（instance ID。無しは 0）。
+        // どちらかが変わったら選択を引き継がない。
         private string _remapRecordingKey;
+        private int _remapProfileKey;
         private bool _built;
 
         [MenuItem("Tools/FacialControl/Timeline/REC Export")]
@@ -221,7 +223,7 @@ namespace Hidano.FacialControl.Timeline.Editor
             _listedSourceIds.Clear();
             _detectionList.Clear();
 
-            if (!RecFileReader.TryRead(_recordingPathField.value, out RecBinaryFormat.ReadResult readResult))
+            if (!RecFileReader.TryRead(_recordingPathField.value, out RecBinaryFormat.ReadResult readResult, out byte[] recordingBytes))
             {
                 RebuildRemap(null, null, null);
                 SetStatus("REC load failed. Check Console for details.", HelpBoxMessageType.Error);
@@ -241,7 +243,7 @@ namespace Hidano.FacialControl.Timeline.Editor
                 _detectionList.Add(new Label("値チャネル（Analog / Gaze / ValueProvider）はありません。"));
             }
 
-            RebuildRemap(readResult.Timeline, profile, ComputeRecordingKey(_recordingPathField.value));
+            RebuildRemap(readResult.Timeline, profile, HashRecording(recordingBytes));
 
             string message = $"Loaded {detections.Count} value channel(s) from REC.";
             if (profile == null)
@@ -263,13 +265,16 @@ namespace Hidano.FacialControl.Timeline.Editor
             _sourceStatusLabels.Clear();
             _layerStatusLabels.Clear();
             _remapReport = null;
-            if (!string.Equals(recordingKey, _remapRecordingKey, StringComparison.Ordinal))
+            // REC が変わった・Profile を外した / 変えたときは、見えない選択を持ち越さない。
+            int profileKey = profileAsset != null ? profileAsset.GetInstanceID() : 0;
+            if (!string.Equals(recordingKey, _remapRecordingKey, StringComparison.Ordinal) || profileKey != _remapProfileKey)
             {
                 _sourceChoices.Clear();
                 _layerChoices.Clear();
             }
 
             _remapRecordingKey = recordingKey;
+            _remapProfileKey = profileKey;
             _remapRecording = timeline != null ? RecSourceRemapResolver.CollectRecording(timeline) : null;
             _remapProfile = profileAsset != null ? TimelineProfileSource.Resolve(profileAsset) : (FacialProfile?)null;
             _remapTarget = _remapProfile.HasValue ? RecSourceRemapResolver.CollectTarget(_remapProfile.Value) : null;
@@ -316,7 +321,21 @@ namespace Hidano.FacialControl.Timeline.Editor
             UpdateRemapProblems();
         }
 
-        /// <summary>REC の識別子（絶対パス + サイズ + 更新時刻）。読めなければ null。</summary>
+        /// <summary>REC の識別子（バイト列の SHA-256 の 16 進文字列）。null なら null。</summary>
+        internal static string HashRecording(byte[] bytes)
+        {
+            if (bytes == null)
+            {
+                return null;
+            }
+
+            using (var sha = System.Security.Cryptography.SHA256.Create())
+            {
+                return BitConverter.ToString(sha.ComputeHash(bytes)).Replace("-", string.Empty);
+            }
+        }
+
+        /// <summary>REC 欄のファイルの現在の識別子。読めなければ null。</summary>
         internal static string ComputeRecordingKey(string recordingPath)
         {
             if (string.IsNullOrWhiteSpace(recordingPath))
@@ -326,10 +345,9 @@ namespace Hidano.FacialControl.Timeline.Editor
 
             try
             {
-                var info = new System.IO.FileInfo(recordingPath);
-                return info.Exists ? $"{info.FullName}|{info.Length}|{info.LastWriteTimeUtc.Ticks}" : null;
+                return System.IO.File.Exists(recordingPath) ? HashRecording(System.IO.File.ReadAllBytes(recordingPath)) : null;
             }
-            catch (Exception)
+            catch (Exception ex) when (ex is System.IO.IOException || ex is UnauthorizedAccessException || ex is NotSupportedException)
             {
                 return null;
             }
@@ -518,6 +536,8 @@ namespace Hidano.FacialControl.Timeline.Editor
                     return "対応先が重複";
                 case RecRemapStatus.InvalidId:
                     return "id の形式が不正";
+                case RecRemapStatus.MergedTriggers:
+                    return "OK（表情トリガーがほかの入力源とまとまる）";
                 default:
                     return status.ToString();
             }
@@ -604,8 +624,10 @@ namespace Hidano.FacialControl.Timeline.Editor
                 return false;
             }
 
-            // 対応表の選択は読み込んだ REC に対して作ったもの。REC 欄のパスやファイルの中身が変わっていれば当て直しを求める。
-            if (_remapRecordingKey != null
+            // 対応表の選択は読み込んだ REC に対して作ったもの。REC 欄のファイルの中身が読み込み時と違えば当て直しを求める。
+            // 読み込んでいない（識別子が null）ときも、選択があれば照合する（null と現在の識別子は一致しないので拒否される）。
+            RecSourceRemap remap = BuildSourceRemap();
+            if ((_remapRecordingKey != null || !remap.IsIdentity)
                 && !string.Equals(ComputeRecordingKey(_recordingPathField.value), _remapRecordingKey, StringComparison.Ordinal))
             {
                 SetStatus("REC が読み込み時から変わっています。Reload Sources で読み込み直し、対応表を確認してから Export してください。", HelpBoxMessageType.Error);
@@ -619,7 +641,6 @@ namespace Hidano.FacialControl.Timeline.Editor
             }
 
             // すべて「そのまま」なら付け替えなしの従来の Export と同じにする（未対応はこのウィンドウの一覧で示している）。
-            RecSourceRemap remap = BuildSourceRemap();
             var existingTimeline = _timelineField.value as TimelineAsset;
             bool success = RecToTimelineExporter.TryExportTimelineAsset(
                 _recordingPathField.value,

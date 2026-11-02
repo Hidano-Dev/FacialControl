@@ -149,7 +149,11 @@ namespace Hidano.FacialControl.Timeline.Editor
         /// シーン上の PlayableDirector には触れない（Req 10.5）。再生するには、PlayableDirector に TimelineAsset をセットし、
         /// Facial Character トラックに FacialController を Bind する（HID-408）。
         /// </summary>
-        /// <param name="sourceKindOverrides">チャネル種別の上書き（プログラム・テスト用途。Export ウィンドウは渡さない）。</param>
+        /// <param name="sourceKindOverrides">
+        /// チャネル種別の上書き（プログラム・テスト用途。Export ウィンドウは渡さない）。キーは入力源 id。
+        /// <paramref name="sourceRemap"/> で付け替えた入力源は、REC 上の元の id と付け替え後の id のどちらでも指定でき、両方あれば元の id を優先する。
+        /// </param>
+        /// <param name="sourceRemap">REC の入力源 id / レイヤー名を対象 Profile の id / 名前へ付け替える対応表（HID-412）。null なら付け替えない。</param>
         public static bool TryExportTimelineAsset(
             string recordingPath,
             FacialCharacterProfileSO profileAsset,
@@ -187,8 +191,6 @@ namespace Hidano.FacialControl.Timeline.Editor
 
             var sequence = new RecEventSequenceAdapter(readResult.Timeline, sourceRemap);
             GazeDetectionContext gazeContext = CollectGazeDetectionContext(profileAsset);
-            // チャネル種別の判定（Gaze / Analog）と種別の上書きは REC 上の元の id で行い、付け替えは出力の id にだけ効かせる。
-            gazeContext.RecordedSourceIdOf = sequence.GetRecordedSourceId;
 
             string normalizedPath = NormalizeAssetPath(outputAssetPath);
             TimelineAsset targetTimeline = ResolveOrCreateTimelineAsset(
@@ -507,7 +509,8 @@ namespace Hidano.FacialControl.Timeline.Editor
 
         /// <summary>
         /// <see cref="DetectChannels(RecBinaryFormat.ReadResult, FacialCharacterProfileSO)"/> の記録列版。
-        /// <paramref name="sourceKindOverrides"/> はプログラム・テスト用途の種別上書き。
+        /// <paramref name="sourceKindOverrides"/> はプログラム・テスト用途の種別上書き（キーは入力源 id。対応表で付け替えた列なら、
+        /// REC 上の元の id と付け替え後の id のどちらでも指定でき、元の id を優先する）。
         /// </summary>
         /// <remarks>
         /// Gaze 判定順: (1) 規約 id のチャネル id が GazeChannels にある →
@@ -533,7 +536,7 @@ namespace Hidano.FacialControl.Timeline.Editor
             var detections = new List<ChannelDetection>(sources.Count);
             for (int i = 0; i < sources.Count; i++)
             {
-                detections.Add(Detect(sources[i], context, sourceKindOverrides));
+                detections.Add(Detect(sources[i], context, sourceKindOverrides, sequence as RecEventSequenceAdapter));
             }
 
             BuildValueProviderTracks(sequence, ResolveRecordedBlendShapeNames(sequence), detections, warn: false);
@@ -541,10 +544,14 @@ namespace Hidano.FacialControl.Timeline.Editor
             return detections;
         }
 
+        /// <param name="recSequence">
+        /// REC から読んだ列（それ以外は null）。対応表で付け替えた入力源は、REC 上の元の id と付け替え後の id の両方で判定する（HID-412）。
+        /// </param>
         private static ChannelDetection Detect(
             SourceSamples source,
             GazeDetectionContext context,
-            IReadOnlyDictionary<string, FacialValueChannelKind> sourceKindOverrides)
+            IReadOnlyDictionary<string, FacialValueChannelKind> sourceKindOverrides,
+            RecEventSequenceAdapter recSequence)
         {
             string sourceId = source.SourceId;
             int maxAxisCount = 0;
@@ -556,11 +563,15 @@ namespace Hidano.FacialControl.Timeline.Editor
                 hasNonGazeAxisCount |= axisCount != 2;
             }
 
-            // 種別の判定と上書きは REC 上の元の id で行う（付け替え後の id では Gaze の手がかりが失われるため。HID-412）。
-            string recordedSourceId = context.ResolveRecordedSourceId(sourceId);
+            // 付け替えた入力源は、REC 上の元の id と付け替え後の id のどちらかが手がかりに合えば判定する。元の id の Gaze の手がかり
+            // （規約 id・binding の宣言）も、対象 Profile のヒント（wildcard slug 等）が新しい id にだけ合う場合も拾うため（HID-412）。
+            // 上書きは元の id を優先する。
+            string recordedSourceId = recSequence != null ? recSequence.GetRecordedSourceId(sourceId) : sourceId;
+            bool remapped = !string.Equals(recordedSourceId, sourceId, StringComparison.Ordinal);
             ChannelDetectionReason gazeReason;
             bool wantsGaze;
-            if (TryGetSourceKindOverride(sourceKindOverrides, recordedSourceId, out FacialValueChannelKind overrideKind))
+            if (TryGetSourceKindOverride(sourceKindOverrides, recordedSourceId, out FacialValueChannelKind overrideKind)
+                || (remapped && TryGetSourceKindOverride(sourceKindOverrides, sourceId, out overrideKind)))
             {
                 if (overrideKind != FacialValueChannelKind.Gaze)
                 {
@@ -572,7 +583,8 @@ namespace Hidano.FacialControl.Timeline.Editor
             }
             else
             {
-                wantsGaze = TryDetectGaze(recordedSourceId, context, out gazeReason);
+                wantsGaze = TryDetectGaze(recordedSourceId, context, out gazeReason)
+                    || (remapped && TryDetectGaze(sourceId, context, out gazeReason));
             }
 
             if (!wantsGaze)
@@ -907,7 +919,7 @@ namespace Hidano.FacialControl.Timeline.Editor
             detections = new List<ChannelDetection>(sources.Count);
             for (int i = 0; i < sources.Count; i++)
             {
-                ChannelDetection detection = Detect(sources[i], gazeContext, sourceKindOverrides);
+                ChannelDetection detection = Detect(sources[i], gazeContext, sourceKindOverrides, sequence as RecEventSequenceAdapter);
                 detections.Add(detection);
                 tracks.Add(new AnalogTrackInfo(sources[i].SourceId, detection.Kind, detection.AxisCount, sources[i].Events));
             }
@@ -1139,15 +1151,6 @@ namespace Hidano.FacialControl.Timeline.Editor
             /// <summary>ワイルドカード宣言（チャネル id 空）を持つ binding の slug。</summary>
             public HashSet<string> WildcardSlugs { get; } = new HashSet<string>(StringComparer.Ordinal);
 
-            /// <summary>
-            /// イベント列の入力源 id から REC 上の元の id を返す（対応表で付け替えたとき。HID-412）。判定は元の id で行う。
-            /// </summary>
-            public Func<string, string> RecordedSourceIdOf { get; set; }
-
-            public string ResolveRecordedSourceId(string sourceId)
-            {
-                return RecordedSourceIdOf != null ? RecordedSourceIdOf(sourceId) : sourceId;
-            }
 
             public static GazeDetectionContext Empty()
             {

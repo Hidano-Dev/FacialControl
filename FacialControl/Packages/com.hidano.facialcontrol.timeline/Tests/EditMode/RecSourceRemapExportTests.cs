@@ -216,6 +216,59 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
         }
 
         [Test]
+        public void TryExportTimelineAsset_GazeHintMatchesOnlyRemappedId_ExportsAsGaze()
+        {
+            // 元の id（ifm:head）には Gaze の手がかりが無く、付け替え後の id（osc:gaze）が Profile の Gaze チャネル（既定 "gaze"）の
+            // 規約 id に合う。どちらかが合えば Gaze とする。
+            FacialCharacterProfileSO profile = CreateReceiverProfile();
+            string recordingPath = WriteSenderRecording();
+            var remap = new RecSourceRemap(
+                new[] { Pair("ifm", ReceiverId), Pair("udp-lipsync", null), Pair("ifm:head", "osc:gaze") },
+                new[] { Pair("lipsync", ReceiverId) });
+
+            bool success = RecToTimelineExporter.TryExportTimelineAsset(
+                recordingPath,
+                profile,
+                _folderPath + "/Exported.playable",
+                out RecToTimelineExporter.ExportResult result,
+                sourceRemap: remap);
+
+            Assert.That(success, Is.True);
+            ChannelDetection gaze = FindDetection(result.ChannelDetections, "osc:gaze");
+            Assert.That(gaze.Kind, Is.EqualTo(FacialValueChannelKind.Gaze));
+            Assert.That(gaze.Reason, Is.EqualTo(ChannelDetectionReason.ConventionGazeChannel));
+        }
+
+        [Test]
+        public void DetectChannels_RemappedSequence_UsesRecordedIdFirstForOverridesThenRemappedId()
+        {
+            // DetectChannels / CreateTimelineAsset / PopulateTimeline のどの入口でも、付け替えた列は同じ判定になる。
+            FacialCharacterProfileSO profile = CreateReceiverProfile();
+            RecTimeline recording = ReadSenderRecording();
+            var remap = new RecSourceRemap(new[] { Pair("ifm:head", "osc:head") }, null);
+            var sequence = new RecEventSequenceAdapter(recording, remap);
+
+            ChannelDetection byRemappedId = FindDetection(
+                RecToTimelineExporter.DetectChannels(
+                    sequence, profile, new Dictionary<string, FacialValueChannelKind> { { "osc:head", FacialValueChannelKind.Gaze } }),
+                "osc:head");
+            ChannelDetection recordedIdWins = FindDetection(
+                RecToTimelineExporter.DetectChannels(
+                    sequence,
+                    profile,
+                    new Dictionary<string, FacialValueChannelKind>
+                    {
+                        { "ifm:head", FacialValueChannelKind.Analog },
+                        { "osc:head", FacialValueChannelKind.Gaze },
+                    }),
+                "osc:head");
+
+            Assert.That(byRemappedId.Kind, Is.EqualTo(FacialValueChannelKind.Gaze), "付け替え後の id でも上書きできる");
+            Assert.That(recordedIdWins.Kind, Is.EqualTo(FacialValueChannelKind.Analog), "両方あれば元の id を優先する");
+            Assert.That(recordedIdWins.Reason, Is.EqualTo(ChannelDetectionReason.Overridden));
+        }
+
+        [Test]
         public void TryExportTimelineAsset_RemapEntryForSourceNotInRec_DoesNotChangeKindOfExistingSource()
         {
             // REC に無い id（unused）から実在する ifm:head への対応があっても、ifm:head の種別判定は ifm:head のまま行う。
@@ -267,6 +320,25 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
             _window.RefreshDetections();
 
             Assert.That(_window.BuildSourceRemap().IsIdentity, Is.True, "REC が変わったら前の REC の選択（除外を含む）を引き継がない");
+        }
+
+        [Test]
+        public void RefreshDetections_ProfileChanged_ResetsChoices()
+        {
+            FacialCharacterProfileSO profile = CreateReceiverProfile();
+            string recordingPath = WriteSenderRecording();
+            _window = ScriptableObject.CreateInstance<RecTimelineExportWindow>();
+            _window.EnsureBuilt();
+            _window.SetInputs(recordingPath, profile);
+            _window.RefreshDetections();
+            _window.SetRemapChoice(false, "ifm", null);
+
+            _window.SetInputs(recordingPath, null);
+            _window.RefreshDetections();
+            _window.SetInputs(recordingPath, profile);
+            _window.RefreshDetections();
+
+            Assert.That(_window.BuildSourceRemap().IsIdentity, Is.True, "Profile を外した間の見えない選択を持ち越さない");
         }
 
         [Test]
@@ -433,6 +505,26 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
 
             ids.Sort(StringComparer.Ordinal);
             return ids.ToArray();
+        }
+
+        private RecTimeline ReadSenderRecording()
+        {
+            Assert.That(RecBinaryFormat.TryRead(File.ReadAllBytes(WriteSenderRecording()), out RecBinaryFormat.ReadResult read, out string error), Is.True, error);
+            return read.Timeline;
+        }
+
+        private static ChannelDetection FindDetection(IEnumerable<ChannelDetection> detections, string sourceId)
+        {
+            foreach (ChannelDetection detection in detections)
+            {
+                if (detection.SourceId == sourceId)
+                {
+                    return detection;
+                }
+            }
+
+            Assert.Fail($"No detection for '{sourceId}'.");
+            return default;
         }
 
         private static int ExpressionClipCount(TimelineAsset timeline)

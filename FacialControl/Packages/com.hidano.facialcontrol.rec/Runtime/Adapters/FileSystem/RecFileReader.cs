@@ -12,7 +12,17 @@ namespace Hidano.FacialControl.Rec.Adapters.FileSystem
     {
         public static bool TryRead(string filePath, out RecBinaryFormat.ReadResult result)
         {
+            return TryRead(filePath, out result, out _);
+        }
+
+        /// <summary>
+        /// <see cref="TryRead(string, out RecBinaryFormat.ReadResult)"/> と同じく読み込み、読んだバイト列も返す
+        /// （読み込んだ REC の同一性を内容から判定する用途。読めなかったときは null）。
+        /// </summary>
+        public static bool TryRead(string filePath, out RecBinaryFormat.ReadResult result, out byte[] bytes)
+        {
             result = null;
+            bytes = null;
 
             if (string.IsNullOrWhiteSpace(filePath))
             {
@@ -26,7 +36,6 @@ namespace Hidano.FacialControl.Rec.Adapters.FileSystem
                 return false;
             }
 
-            byte[] bytes;
             try
             {
                 bytes = File.ReadAllBytes(filePath);
@@ -34,12 +43,14 @@ namespace Hidano.FacialControl.Rec.Adapters.FileSystem
             catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException || ex is NotSupportedException)
             {
                 Debug.LogError($"REC load failed while reading '{filePath}': {ex.Message}");
+                bytes = null;
                 return false;
             }
 
             if (!RecBinaryFormat.TryRead(bytes, out result, out string error))
             {
                 Debug.LogError($"REC load failed for '{filePath}': {error}");
+                bytes = null;
                 return false;
             }
 
