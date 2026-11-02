@@ -128,6 +128,7 @@ namespace Hidano.FacialControl.Timeline.Adapters
         private FacialProfile _pooledProfile;
         private bool _hasPooledProfile;
         private TimelineDerivation _pooledDerivation;
+        private int _pooledMuteFingerprint;
 
         /// <summary>任意上書きの Bake（未指定ならトラックの Bake 参照を使う）。</summary>
         public FacialTimelineBakeAsset BakeAsset
@@ -837,11 +838,16 @@ namespace Hidano.FacialControl.Timeline.Adapters
         {
             ExpressionSourceBake[] bakeContent = bake != null ? bake.ExpressionBakes : null;
             string bakeSourceHash = bake != null ? bake.SourceHashHex : null;
+
+            // 走査はミュート中のトラックを除くので、ミュートの切り替えで導出結果が変わる。ミュート状態の指紋もキーに含め、
+            // セッションの間にミュートを変えたら作り直す（HID-408）。
+            int muteFingerprint = ComputeMuteFingerprint(timeline);
             if (_pooledDerivation != null
                 && _pooledTimeline == timeline
                 && _pooledBake == bake
                 && ReferenceEquals(_pooledBakeExpressionBakes, bakeContent)
                 && string.Equals(_pooledBakeSourceHash, bakeSourceHash, StringComparison.Ordinal)
+                && _pooledMuteFingerprint == muteFingerprint
                 && _hasPooledProfile
                 && SameProfileSnapshot(_pooledProfile, profile))
             {
@@ -849,6 +855,7 @@ namespace Hidano.FacialControl.Timeline.Adapters
             }
 
             _pooledDerivation = TimelineChannelDeriver.Derive(TimelineAssetScanner.Scan(timeline).Tracks, profile);
+            _pooledMuteFingerprint = muteFingerprint;
             _pooledTimeline = timeline;
             _pooledBake = bake;
             _pooledBakeExpressionBakes = bakeContent;
@@ -859,8 +866,67 @@ namespace Hidano.FacialControl.Timeline.Adapters
             return _pooledDerivation;
         }
 
+        /// <summary>
+        /// 全トラック（Group・子・Lane を含む）のミュート状態の指紋。セッション開始時だけ呼ぶ（確保しない）。
+        /// </summary>
+        internal static int ComputeMuteFingerprint(TimelineAsset timeline)
+        {
+            if (timeline == null)
+            {
+                return 0;
+            }
+
+            unchecked
+            {
+                return AppendMuteFingerprint(17, timeline.GetRootTracks());
+            }
+        }
+
+        private static int AppendMuteFingerprint(int hash, IEnumerable<TrackAsset> tracks)
+        {
+            unchecked
+            {
+                // Timeline はトラック一覧を List で返すので、添字で辿って列挙子の確保を避ける（再生の再開時に毎回通るため）。
+                if (tracks is IList<TrackAsset> list)
+                {
+                    for (int i = 0; i < list.Count; i++)
+                    {
+                        hash = AppendMuteFingerprint(hash, list[i]);
+                    }
+
+                    return hash;
+                }
+
+                if (tracks != null)
+                {
+                    foreach (TrackAsset track in tracks)
+                    {
+                        hash = AppendMuteFingerprint(hash, track);
+                    }
+                }
+
+                return hash;
+            }
+        }
+
+        private static int AppendMuteFingerprint(int hash, TrackAsset track)
+        {
+            if (track == null)
+            {
+                return hash;
+            }
+
+            unchecked
+            {
+                hash = (hash * 31) + track.GetInstanceID();
+                hash = (hash * 31) + (track.muted ? 1 : 0);
+                return AppendMuteFingerprint(hash, track.GetChildTracks());
+            }
+        }
+
         private void ClearPool()
         {
+            _pooledMuteFingerprint = 0;
             _pooledDerivation = null;
             _pooledTimeline = null;
             _pooledBake = null;

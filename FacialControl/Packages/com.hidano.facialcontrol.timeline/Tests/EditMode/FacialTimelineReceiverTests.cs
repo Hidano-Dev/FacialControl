@@ -452,6 +452,65 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
             Assert.That(s.Receiver.TryGetAnalogSink("osc:lt", out _), Is.False);
         }
 
+        [Test]
+        public void BeginPlaybackSession_TrackUnmutedBetweenSessions_RederivesChannelsAndTakesOver()
+        {
+            // セッションの間にミュートを解除したら、チャネル導出を作り直す（導出キャッシュにミュート状態を含める。HID-408 レビュー指摘）。
+            Scenario s = CreateScenario(withAnalogChannel: true);
+            FacialValueTrack valueTrack = FindValueTrack(s.Timeline, "osc:lt");
+            valueTrack.muted = true;
+            var original = new TestAnalogSource("osc:lt", 1, 0.2f);
+            s.Host.Registry.Register(AdapterSlug.Parse("osc"), "lt", original);
+            s.Host.Attach();
+            s.Begin();
+            Assert.That(s.Receiver.SessionState, Is.EqualTo(TimelineSessionState.Active), Describe(s.Receiver));
+            Assert.That(s.Receiver.TryGetAnalogSink("osc:lt", out _), Is.False, "fixture: ミュート中は乗っ取らない");
+            s.Receiver.ReleaseAll();
+
+            valueTrack.muted = false;
+            s.Begin();
+
+            Assert.That(s.Receiver.SessionState, Is.EqualTo(TimelineSessionState.Active), Describe(s.Receiver));
+            Assert.That(s.Receiver.TryGetAnalogSink("osc:lt", out TimelineAnalogInputSource sink), Is.True,
+                "ミュート解除後のセッションでは値トラックのチャネルを導出し直す");
+            Assert.That(s.Host.Registry.TryResolve("osc:lt", out IInputSource current), Is.True);
+            Assert.That(current, Is.SameAs(sink));
+        }
+
+        [Test]
+        public void BeginPlaybackSession_TrackMutedBetweenSessions_StopsTakingOver()
+        {
+            Scenario s = CreateScenario(withAnalogChannel: true);
+            FacialValueTrack valueTrack = FindValueTrack(s.Timeline, "osc:lt");
+            var original = new TestAnalogSource("osc:lt", 1, 0.2f);
+            s.Host.Registry.Register(AdapterSlug.Parse("osc"), "lt", original);
+            s.Host.Attach();
+            s.Begin();
+            Assert.That(s.Receiver.TryGetAnalogSink("osc:lt", out _), Is.True, "fixture: ミュート前は乗っ取る");
+            s.Receiver.ReleaseAll();
+
+            valueTrack.muted = true;
+            s.Begin();
+
+            Assert.That(s.Receiver.TryGetAnalogSink("osc:lt", out _), Is.False, "ミュートしたトラックのチャネルは導出し直して外す");
+            Assert.That(s.Host.Registry.TryResolve("osc:lt", out IInputSource current), Is.True);
+            Assert.That(current, Is.SameAs(original));
+        }
+
+        private static FacialValueTrack FindValueTrack(TimelineAsset timeline, string channelSubId)
+        {
+            foreach (TrackAsset track in timeline.GetOutputTracks())
+            {
+                if (track is FacialValueTrack value && value.ChannelSubId == channelSubId)
+                {
+                    return value;
+                }
+            }
+
+            Assert.Fail($"fixture: 値トラック {channelSubId} が無い");
+            return null;
+        }
+
         // ================================================================
         // ReleaseAll
         // ================================================================
