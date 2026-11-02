@@ -154,6 +154,35 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
         }
 
         [Test]
+        public void BuildSourceRemap_CustomSourceIdOutsideLayerDeclarations_IsKeptAndAnalogIsUnchecked()
+        {
+            // Analog / 目線は AdapterBinding が registry に直接登録するため（例: iFacialMocap の ifm:head）、
+            // レイヤーの inputSources に無い id へも付け替えられる。
+            FacialCharacterProfileSO profile = CreateReceiverProfile();
+            string recordingPath = WriteSenderRecording();
+            _window = ScriptableObject.CreateInstance<RecTimelineExportWindow>();
+            _window.EnsureBuilt();
+            _window.SetInputs(recordingPath, profile);
+            _window.RefreshDetections();
+
+            _window.SetRemapChoice(false, "ifm:head", "other:head");
+            _window.RefreshDetections();
+
+            Assert.That(_window.BuildSourceRemap().TryMapSource("ifm:head", out string target), Is.True);
+            Assert.That(target, Is.EqualTo("other:head"), "読み込み直しても直接入力した対応先を残す");
+            RecRemapSourceEntry entry = default;
+            foreach (RecRemapSourceEntry candidate in _window.RemapReport.Sources)
+            {
+                if (candidate.RecordedId == "ifm:head")
+                {
+                    entry = candidate;
+                }
+            }
+
+            Assert.That(entry.Status, Is.EqualTo(RecRemapStatus.Unchecked));
+        }
+
+        [Test]
         public void ExportTo_WindowRemapCollision_RefusesExport()
         {
             FacialCharacterProfileSO profile = CreateReceiverProfile();

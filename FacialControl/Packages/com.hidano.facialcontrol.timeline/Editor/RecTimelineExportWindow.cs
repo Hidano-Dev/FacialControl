@@ -280,8 +280,8 @@ namespace Hidano.FacialControl.Timeline.Editor
             layerTargets.AddRange(RecSourceRemapResolver.CollectTargetLayerNames(profile));
             layerTargets.Add(ExcludeChoice);
 
-            RetainOnly(_sourceChoices, initial.Sources, entry => entry.RecordedId, sourceTargets);
-            RetainOnly(_layerChoices, initial.Layers, entry => entry.RecordedName, layerTargets);
+            RetainOnly(_sourceChoices, initial.Sources, entry => entry.RecordedId, sourceTargets, allowCustomId: true);
+            RetainOnly(_layerChoices, initial.Layers, entry => entry.RecordedName, layerTargets, allowCustomId: false);
 
             if (initial.Sources.Count == 0 && initial.Layers.Count == 0)
             {
@@ -291,13 +291,13 @@ namespace Hidano.FacialControl.Timeline.Editor
             for (int i = 0; i < initial.Sources.Count; i++)
             {
                 string recordedId = initial.Sources[i].RecordedId;
-                _remapList.Add(CreateRemapRow("Source", recordedId, sourceTargets, _sourceChoices, _sourceStatusLabels));
+                _remapList.Add(CreateRemapRow("Source", recordedId, sourceTargets, _sourceChoices, _sourceStatusLabels, allowCustomId: true));
             }
 
             for (int i = 0; i < initial.Layers.Count; i++)
             {
                 string recordedName = initial.Layers[i].RecordedName;
-                _remapList.Add(CreateRemapRow("Layer", recordedName, layerTargets, _layerChoices, _layerStatusLabels));
+                _remapList.Add(CreateRemapRow("Layer", recordedName, layerTargets, _layerChoices, _layerStatusLabels, allowCustomId: false));
             }
 
             UpdateRemapProblems();
@@ -307,13 +307,16 @@ namespace Hidano.FacialControl.Timeline.Editor
             Dictionary<string, string> choices,
             IReadOnlyList<T> entries,
             Func<T, string> keyOf,
-            List<string> validChoices)
+            List<string> validChoices,
+            bool allowCustomId)
         {
             var keep = new Dictionary<string, string>(StringComparer.Ordinal);
             for (int i = 0; i < entries.Count; i++)
             {
                 string key = keyOf(entries[i]);
-                keep[key] = choices.TryGetValue(key, out string choice) && validChoices.Contains(choice) ? choice : KeepChoice;
+                keep[key] = choices.TryGetValue(key, out string choice) && (allowCustomId || validChoices.Contains(choice))
+                    ? choice
+                    : KeepChoice;
             }
 
             choices.Clear();
@@ -328,7 +331,8 @@ namespace Hidano.FacialControl.Timeline.Editor
             string recordedId,
             List<string> targets,
             Dictionary<string, string> choices,
-            Dictionary<string, Label> statusLabels)
+            Dictionary<string, Label> statusLabels,
+            bool allowCustomId)
         {
             var row = new VisualElement();
             row.style.flexDirection = FlexDirection.Row;
@@ -340,14 +344,34 @@ namespace Hidano.FacialControl.Timeline.Editor
             label.style.flexBasis = 0f;
             row.Add(label);
 
-            var dropdown = new DropdownField(targets, choices[recordedId]);
+            string current = choices[recordedId];
+            bool isCustom = !targets.Contains(current);
+            var dropdown = new DropdownField(targets, isCustom ? KeepChoice : current);
             dropdown.style.width = 180f;
+            row.Add(dropdown);
+
+            // Analog / 目線の入力源は AdapterBinding が registry に直接登録するため、レイヤーの inputSources にある id だけでは
+            // 対応先を選べない（例: iFacialMocap の ifm:head）。入力源は id を直接入力しても対応付けられるようにする。
+            TextField customField = null;
+            if (allowCustomId)
+            {
+                customField = new TextField { value = isCustom ? current : string.Empty, tooltip = "対応先の入力源 id を直接入力（空ならドロップダウンの選択）" };
+                customField.style.width = 120f;
+                customField.RegisterValueChangedCallback(evt =>
+                {
+                    string typed = evt.newValue != null ? evt.newValue.Trim() : string.Empty;
+                    choices[recordedId] = typed.Length > 0 ? typed : dropdown.value;
+                    UpdateRemapProblems();
+                });
+                row.Add(customField);
+            }
+
             dropdown.RegisterValueChangedCallback(evt =>
             {
                 choices[recordedId] = evt.newValue;
+                customField?.SetValueWithoutNotify(string.Empty);
                 UpdateRemapProblems();
             });
-            row.Add(dropdown);
 
             var status = new Label();
             status.style.width = 160f;
