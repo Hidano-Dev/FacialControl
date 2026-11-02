@@ -141,6 +141,24 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
         }
 
         [Test]
+        public void EvaluateStatic_MutedLegacyTrackAndMutedSecondCharacterTrack_AreNotCounted()
+        {
+            // ミュート中（親階層のミュートを含む）のトラックは再生されないので、構造の Error でセッションを止めない（HID-408 レビュー指摘 2）。
+            Scenario s = CreateScenario();
+            s.Timeline.CreateTrack<FacialValueTrack>(null, "muted-legacy").muted = true;
+            var group = s.Timeline.CreateTrack<GroupTrack>(null, "muted-group");
+            group.muted = true;
+            s.Timeline.CreateTrack<FacialValueTrack>(group, "legacy-in-muted-group");
+            s.Timeline.CreateTrack<FacialCharacterTrack>(null, "muted-character").muted = true;
+            var diagnostics = new FacialTimelineDiagnostics();
+
+            TimelineDiagnosticsEvaluator.EvaluateStatic(s.Receiver, diagnostics, s.BuildContext());
+
+            Assert.That(diagnostics.Contains(TimelineDiagnosticCode.LegacyTrackStructure), Is.False, Describe(diagnostics));
+            Assert.That(diagnostics.Contains(TimelineDiagnosticCode.MultipleCharacterTracks), Is.False, Describe(diagnostics));
+        }
+
+        [Test]
         public void EvaluateTrackStructureArea_AllUnderOneCharacterTrack_ReturnsFalseAndClearsArea()
         {
             Scenario s = CreateScenario();

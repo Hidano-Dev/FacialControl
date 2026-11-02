@@ -514,17 +514,43 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
         // ================================================================
 
         [Test]
-        public void GetOrCreate_ControllerWithoutReceiver_AddsReceiverThatIsNotSaved()
+        public void GetOrCreate_EditControllerWithoutReceiver_UsesHiddenHolderAndLeavesUserObjectUnchanged()
+        {
+            // Edit ではユーザーのシーン / Prefab インスタンスに AddComponent しない（HID-408 レビュー指摘 6）。
+            Scenario s = CreateScenario();
+            UnityEngine.Object.DestroyImmediate(s.Host.Receiver);
+            try
+            {
+                FacialTimelineReceiver created = FacialTimelineReceiver.GetOrCreate(s.Host.Controller);
+
+                Assert.That(created, Is.Not.Null);
+                Assert.That(s.Host.Controller.GetComponent<FacialTimelineReceiver>(), Is.Null, "controller の GameObject は書き換えない");
+                Assert.That(created.gameObject, Is.Not.SameAs(s.Host.Controller.gameObject));
+                Assert.That(created.gameObject.hideFlags, Is.EqualTo(HideFlags.HideAndDontSave), "非表示・非保存の一時 GameObject に持つ");
+                Assert.That(created.Controller, Is.SameAs(s.Host.Controller), "対象の controller を保持する");
+                Assert.That(FacialTimelineReceiver.GetOrCreate(s.Host.Controller), Is.SameAs(created), "2 回目は同じ Receiver を返す");
+                CollectionAssert.Contains(FacialTimelineReceiver.CollectAll(), created, "非保存の Receiver も一覧に含める");
+            }
+            finally
+            {
+                FacialTimelineReceiver.DestroyEditReceivers();
+            }
+
+            Assert.That(FacialTimelineReceiver.EditReceiverCount, Is.EqualTo(0));
+        }
+
+        [Test]
+        public void GetOrCreate_EditControllerDestroyed_PrunesHiddenHolder()
         {
             Scenario s = CreateScenario();
             UnityEngine.Object.DestroyImmediate(s.Host.Receiver);
-
             FacialTimelineReceiver created = FacialTimelineReceiver.GetOrCreate(s.Host.Controller);
+            GameObject holder = created.gameObject;
 
-            Assert.That(created, Is.Not.Null);
-            Assert.That(created.gameObject, Is.SameAs(s.Host.Controller.gameObject), "controller と同じ GameObject に置く");
-            Assert.That((created.hideFlags & HideFlags.DontSave) == HideFlags.DontSave, Is.True, "内部実装なのでシーンに保存しない");
-            Assert.That(FacialTimelineReceiver.GetOrCreate(s.Host.Controller), Is.SameAs(created), "2 回目は同じ Receiver を返す");
+            UnityEngine.Object.DestroyImmediate(s.Host.Controller);
+
+            Assert.That(FacialTimelineReceiver.EditReceiverCount, Is.EqualTo(0), "controller が消えたら一時 Receiver も片付ける");
+            Assert.That(holder == null, Is.True);
         }
 
         [Test]

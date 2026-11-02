@@ -10,6 +10,7 @@ using Hidano.FacialControl.Timeline.Playables;
 using Hidano.FacialControl.Timeline.Tracks;
 using NUnit.Framework;
 using UnityEngine;
+using UnityEngine.Playables;
 using UnityEngine.Timeline;
 
 using Hidano.FacialControl.Testing;
@@ -163,6 +164,112 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
             host.Director.Evaluate();
 
             Assert.That(_previewCalls, Is.EqualTo(0), "旧構造（親トラックの外）のトラックは Receiver を Bind していても再生しない");
+        }
+
+        [Test]
+        public void Graph_CharacterTrack_DoesNotDuplicateDescendantClipPlayables()
+        {
+            // Timeline は親トラックの Mixer にも子孫の Clip をまとめて渡す。親で Clip の Playable を作ると 2 倍になる（HID-408 指摘 7）。
+            FacialTimelinePlayMode.OverrideIsPlaying = false;
+            FacialTimelineEditorPreviewBridge.ApplyPreview = (receiver, timeline, time) => { };
+            using TimelineReceiverTestHost host = CreateHost(timeline => CreateAnalogTimeline(CreateTimeline(timeline)));
+
+            host.Director.RebuildGraph();
+
+            PlayableGraph graph = host.Director.playableGraph;
+            var visited = new System.Collections.Generic.HashSet<PlayableHandle>();
+            int expressionClips = 0;
+            int valueClips = 0;
+            for (int i = 0; i < graph.GetOutputCount(); i++)
+            {
+                CountClipPlayables(graph.GetOutput(i).GetSourcePlayable(), visited, ref expressionClips, ref valueClips);
+            }
+
+            Assert.That(expressionClips, Is.EqualTo(2), "表情 Clip（親の表情トラック 1 + Lane 1）の Playable は 1 つずつ");
+            Assert.That(valueClips, Is.EqualTo(1), "値 Clip の Playable は 1 つ");
+        }
+
+        [Test]
+        public void TrackTime_TimelinePlayableIsNotFirstRoot_StillReadsTimelineTime()
+        {
+            // root playable が複数あるグラフでも TimelinePlayable の時刻を使う（HID-408 指摘 4）。
+            var go = new GameObject("TrackTimeHost");
+            PlayableGraph graph = PlayableGraph.Create("TrackTimeTest");
+            try
+            {
+                Playable other = Playable.Create(graph);
+                ScriptPlayable<TimelinePlayable> timelinePlayable =
+                    TimelinePlayable.Create(graph, System.Array.Empty<TrackAsset>(), go, false, false);
+                Playable mixer = Playable.Create(graph);
+                timelinePlayable.SetInputCount(1);
+                graph.Connect(mixer, 0, timelinePlayable, 0);
+                timelinePlayable.SetTime(2.5d);
+                mixer.SetTime(0.1d);
+
+                Assert.That(other.IsValid(), Is.True, "fixture: TimelinePlayable 以外の root がある");
+                Assert.That(FacialMixerTarget.TrackTime(mixer), Is.EqualTo(2.5d).Within(1e-9d));
+            }
+            finally
+            {
+                graph.Destroy();
+                UnityEngine.Object.DestroyImmediate(go);
+            }
+        }
+
+        [Test]
+        public void ResetWarnings_AfterLegacyTrackWarning_ClearsWarnedTracks()
+        {
+            // PlayMode 突入時（Domain Reload 無しでも）に呼ばれ、Play ごとに知らせ直す（HID-408 指摘 9）。
+            FacialMixerTarget.ResetWarnings();
+            var timeline = ScriptableObject.CreateInstance<TimelineAsset>();
+            var go = new GameObject("WarnHost");
+            try
+            {
+                var director = go.AddComponent<UnityEngine.Playables.PlayableDirector>();
+                var legacy = timeline.CreateTrack<FacialExpressionTrack>(null, "legacy");
+                var target = new FacialMixerTarget();
+                target.SetTrack(legacy);
+                UnityEngine.TestTools.LogAssert.Expect(LogType.Warning, new System.Text.RegularExpressions.Regex("旧構造"));
+
+                Assert.That(target.Resolve(director), Is.Null);
+                Assert.That(FacialMixerTarget.WarnedTrackCount, Is.EqualTo(1));
+
+                FacialMixerTarget.ResetWarnings();
+
+                Assert.That(FacialMixerTarget.WarnedTrackCount, Is.EqualTo(0));
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(go);
+                UnityEngine.Object.DestroyImmediate(timeline);
+            }
+        }
+
+        private static void CountClipPlayables(
+            Playable playable,
+            System.Collections.Generic.HashSet<PlayableHandle> visited,
+            ref int expressionClips,
+            ref int valueClips)
+        {
+            if (!playable.IsValid() || !visited.Add(playable.GetHandle()))
+            {
+                return;
+            }
+
+            System.Type type = playable.GetPlayableType();
+            if (type == typeof(FacialExpressionClipBehaviour))
+            {
+                expressionClips++;
+            }
+            else if (type == typeof(FacialValueClipBehaviour))
+            {
+                valueClips++;
+            }
+
+            for (int i = 0; i < playable.GetInputCount(); i++)
+            {
+                CountClipPlayables(playable.GetInput(i), visited, ref expressionClips, ref valueClips);
+            }
         }
 
         // ================================================================

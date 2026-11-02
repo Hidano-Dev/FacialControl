@@ -53,7 +53,7 @@ namespace Hidano.FacialControl.Timeline.Adapters.Session
                 return overrideDirector;
             }
 
-            FacialController controller = receiver != null ? receiver.GetComponent<FacialController>() : null;
+            FacialController controller = receiver != null ? receiver.Controller : null;
             if (controller == null)
             {
                 status = DirectorResolveStatus.NotFound;

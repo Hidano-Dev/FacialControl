@@ -195,7 +195,9 @@ namespace Hidano.FacialControl.Timeline.Editor.Inspector
             note.style.whiteSpace = WhiteSpace.Normal;
             note.style.opacity = 0.8f;
             section.Add(note);
-            _overrideDiffersLabel = new Label("この Bake はトラックの Bake 参照と異なります（BakeOverrideDiffers）。意図しない場合は空にしてください。");
+            _overrideDiffersLabel = new Label(
+                "スクリプトから BakeAsset に指定した Bake がトラックの Bake 参照と異なります（BakeOverrideDiffers）。"
+                + "意図しない場合は FacialTimelineReceiver.BakeAsset を null に戻してください。");
             _overrideDiffersLabel.style.whiteSpace = WhiteSpace.Normal;
             _overrideDiffersLabel.style.color = new Color(0.95f, 0.75f, 0.2f);
             _overrideDiffersLabel.style.display = DisplayStyle.None;

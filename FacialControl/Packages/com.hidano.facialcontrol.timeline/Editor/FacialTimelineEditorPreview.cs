@@ -452,7 +452,7 @@ namespace Hidano.FacialControl.Timeline.Editor
 
         internal static FacialController ResolveController(FacialTimelineReceiver receiver)
         {
-            return receiver.GetComponent<FacialController>()
+            return receiver.Controller
                    ?? receiver.GetComponentInParent<FacialController>()
                    ?? receiver.GetComponentInChildren<FacialController>();
         }

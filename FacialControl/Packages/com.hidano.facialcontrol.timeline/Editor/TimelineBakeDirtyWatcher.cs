@@ -375,11 +375,10 @@ namespace Hidano.FacialControl.Timeline.Editor
 
         private static void CollectReceiverDiagnosticRequests(IDictionary<string, RebakeRequest> requests)
         {
-            FacialTimelineReceiver[] receivers = UnityEngine.Object.FindObjectsByType<FacialTimelineReceiver>(
-                FindObjectsInactive.Include,
-                FindObjectsSortMode.None);
+            // Edit の一時 Receiver（非保存）は FindObjectsByType で見つからないため、Receiver 側の一覧を使う（HID-408）。
+            List<FacialTimelineReceiver> receivers = FacialTimelineReceiver.CollectAll();
 
-            for (int i = 0; i < receivers.Length; i++)
+            for (int i = 0; i < receivers.Count; i++)
             {
                 FacialTimelineReceiver receiver = receivers[i];
                 FacialTimelineDiagnostics diagnostics = receiver.Diagnostics;
@@ -404,7 +403,7 @@ namespace Hidano.FacialControl.Timeline.Editor
                     continue;
                 }
 
-                FacialController controller = receiver.GetComponent<FacialController>();
+                FacialController controller = receiver.Controller;
                 FacialCharacterProfileSO profileAsset = controller != null ? controller.CharacterSO : null;
                 if (profileAsset == null && !TimelineProfileSource.TryResolveProfileAssetForTimeline(timeline, out profileAsset))
                 {
@@ -557,12 +556,11 @@ namespace Hidano.FacialControl.Timeline.Editor
         /// </summary>
         private static bool UpdateExplicitReceiverOverrides(string timelinePath, FacialTimelineBakeAsset bake)
         {
-            FacialTimelineReceiver[] receivers = UnityEngine.Object.FindObjectsByType<FacialTimelineReceiver>(
-                FindObjectsInactive.Include,
-                FindObjectsSortMode.None);
+            // Edit の一時 Receiver（非保存）は FindObjectsByType で見つからないため、Receiver 側の一覧を使う（HID-408）。
+            List<FacialTimelineReceiver> receivers = FacialTimelineReceiver.CollectAll();
 
             bool changed = false;
-            for (int i = 0; i < receivers.Length; i++)
+            for (int i = 0; i < receivers.Count; i++)
             {
                 FacialTimelineReceiver receiver = receivers[i];
                 FacialTimelineBakeAsset current = receiver.BakeAsset;

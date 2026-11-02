@@ -24,6 +24,19 @@ namespace Hidano.FacialControl.Timeline.Playables
         private static readonly HashSet<int> WarnedLegacyTracks = new HashSet<int>();
         private static readonly HashSet<int> WarnedUnboundTracks = new HashSet<int>();
 
+        /// <summary>
+        /// 警告済みの記録を消す。PlayMode 突入時（Domain Reload を無効にした設定でも）に呼ばれ、Play ごとに 1 回ずつ知らせ直す。
+        /// </summary>
+        [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
+        internal static void ResetWarnings()
+        {
+            WarnedLegacyTracks.Clear();
+            WarnedUnboundTracks.Clear();
+        }
+
+        /// <summary>テスト用: 旧構造 / 未 Bind の警告を記録したトラック数。</summary>
+        internal static int WarnedTrackCount => WarnedLegacyTracks.Count + WarnedUnboundTracks.Count;
+
         private TrackAsset _track;
         private FacialController _controller;
         private FacialTimelineReceiver _receiver;
@@ -39,12 +52,16 @@ namespace Hidano.FacialControl.Timeline.Playables
         public static double TrackTime(Playable playable)
         {
             PlayableGraph graph = playable.GetGraph();
-            if (graph.IsValid() && graph.GetRootPlayableCount() > 0)
+            if (graph.IsValid())
             {
-                Playable root = graph.GetRootPlayable(0);
-                if (root.IsValid() && root.GetPlayableType() == typeof(TimelinePlayable))
+                int rootCount = graph.GetRootPlayableCount();
+                for (int i = 0; i < rootCount; i++)
                 {
-                    return root.GetTime();
+                    Playable root = graph.GetRootPlayable(i);
+                    if (root.IsValid() && root.GetPlayableType() == typeof(TimelinePlayable))
+                    {
+                        return root.GetTime();
+                    }
                 }
             }
 

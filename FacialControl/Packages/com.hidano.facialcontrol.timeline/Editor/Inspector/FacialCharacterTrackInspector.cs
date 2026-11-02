@@ -85,7 +85,7 @@ namespace Hidano.FacialControl.Timeline.Editor.Inspector
                 return;
             }
 
-            receiver.DirectorOverride = director;
+            // Receiver は他の Inspector・Mixer と共有するので書き換えない（Director は binding からシーン走査で解決される）。
             _body.Add(new InspectorElement(receiver));
         }
     }

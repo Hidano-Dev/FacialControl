@@ -60,7 +60,8 @@ namespace Hidano.FacialControl.Timeline.Tracks
         }
 
         /// <summary>Timeline の全階層から親トラックを集める（出現順）。</summary>
-        public static List<FacialCharacterTrack> CollectCharacterTracks(TimelineAsset timeline)
+        /// <param name="includeMuted">false ならミュート中（親階層のミュートを含む）の親トラックを除く（再生されないため）。</param>
+        public static List<FacialCharacterTrack> CollectCharacterTracks(TimelineAsset timeline, bool includeMuted = true)
         {
             var results = new List<FacialCharacterTrack>();
             if (timeline == null)
@@ -70,7 +71,7 @@ namespace Hidano.FacialControl.Timeline.Tracks
 
             foreach (TrackAsset root in timeline.GetRootTracks())
             {
-                CollectCharacterTracks(root, results);
+                CollectCharacterTracks(root, includeMuted, results);
             }
 
             return results;
@@ -78,7 +79,7 @@ namespace Hidano.FacialControl.Timeline.Tracks
 
         /// <summary>
         /// 親トラックの外にある Facial トラック（表情 / 値 / レイヤー weight。親トラック導入前に書き出した旧構造）を集める。
-        /// 旧構造のトラックは再生されない（REC から出し直す）。
+        /// 旧構造のトラックは再生されない（REC から出し直す）。ミュート中（親階層のミュートを含む）のトラックは再生されないので数えない。
         /// </summary>
         public static List<TrackAsset> CollectTracksOutsideCharacter(TimelineAsset timeline)
         {
@@ -130,8 +131,13 @@ namespace Hidano.FacialControl.Timeline.Tracks
                 || trackType == typeof(FacialLayerWeightTrack);
         }
 
-        private static void CollectCharacterTracks(TrackAsset track, List<FacialCharacterTrack> results)
+        private static void CollectCharacterTracks(TrackAsset track, bool includeMuted, List<FacialCharacterTrack> results)
         {
+            if (!includeMuted && track.mutedInHierarchy)
+            {
+                return;
+            }
+
             if (track is FacialCharacterTrack character)
             {
                 results.Add(character);
@@ -139,13 +145,13 @@ namespace Hidano.FacialControl.Timeline.Tracks
 
             foreach (TrackAsset child in track.GetChildTracks())
             {
-                CollectCharacterTracks(child, results);
+                CollectCharacterTracks(child, includeMuted, results);
             }
         }
 
         private static void CollectOutside(TrackAsset track, List<TrackAsset> results)
         {
-            if (track is FacialCharacterTrack)
+            if (track is FacialCharacterTrack || track.mutedInHierarchy)
             {
                 return;
             }

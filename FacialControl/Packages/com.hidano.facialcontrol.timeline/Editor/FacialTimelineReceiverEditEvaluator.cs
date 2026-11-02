@@ -123,7 +123,7 @@ namespace Hidano.FacialControl.Timeline.Editor
 
             PlayableDirector director = TimelineTrackBindingResolver.ResolveDirector(receiver, receiver.DirectorOverride, out _);
             TimelineAsset timeline = director != null ? director.playableAsset as TimelineAsset : null;
-            FacialController controller = receiver.GetComponent<FacialController>();
+            FacialController controller = receiver.Controller;
             FacialCharacterProfileSO profileAsset = controller != null ? controller.CharacterSO : null;
             if (profileAsset == null && timeline != null)
             {

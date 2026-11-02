@@ -92,6 +92,9 @@ namespace Hidano.FacialControl.Timeline.Adapters
         [NonSerialized] private bool _bindingFromController;
         [NonSerialized] private FacialController _subscribedController;
 
+        // GetOrCreate が作った Receiver の対象（Edit の一時 Receiver は controller と別の GameObject にある）。
+        [NonSerialized] private FacialController _boundController;
+
         private readonly FacialTimelineDiagnostics _diagnostics = new FacialTimelineDiagnostics();
         private readonly TimelineOnceWarningGate _warningGate = new TimelineOnceWarningGate();
         private readonly Dictionary<string, ExpressionValuePlayback> _playbackByLayer =
@@ -144,10 +147,17 @@ namespace Hidano.FacialControl.Timeline.Adapters
         }
 
         /// <summary>
-        /// controller の GameObject にある Receiver を返す。無ければ内部実装として追加する（シーンには保存しない）。
-        /// controller が null、またはシーンに無い（Prefab アセット等）なら null。
+        /// controller の Receiver を返す。無ければ内部実装として作る。controller が null、またはシーンに無い（Prefab アセット等）なら null。
         /// </summary>
-        /// <remarks>既にあれば確保しない（Mixer がキャッシュ切れのたびに呼ぶ）。</remarks>
+        /// <remarks>
+        /// <para>controller の GameObject に既に Receiver があればそれを使う（手で置いた旧来の Receiver を含む）。</para>
+        /// <para>Play では controller の GameObject に追加する（実行時の変更はシーンに保存されない）。</para>
+        /// <para>Edit ではユーザーのシーン・Prefab インスタンスを書き換えないよう、controller の GameObject には追加せず、
+        /// 非表示・非保存（<see cref="HideFlags.HideAndDontSave"/>）の一時 GameObject に持つ（controller ごとに 1 つ。
+        /// Play 突入時・アセンブリ再読込時に破棄する）。プレビュー・Inspector・AnimationTrack 変換の副作用で Undo の無い変更や
+        /// Prefab の override を作らないため（HID-408 レビュー指摘 6）。</para>
+        /// <para>既にあれば確保しない（Mixer がキャッシュ切れのたびに呼ぶ）。</para>
+        /// </remarks>
         public static FacialTimelineReceiver GetOrCreate(FacialController controller)
         {
             if (controller == null)
@@ -166,10 +176,145 @@ namespace Hidano.FacialControl.Timeline.Adapters
                 return null;
             }
 
-            var created = host.AddComponent<FacialTimelineReceiver>();
-            created.hideFlags = HideFlags.DontSave;
-            return created;
+            if (UnityEngine.Application.isPlaying)
+            {
+                var created = host.AddComponent<FacialTimelineReceiver>();
+                created._boundController = controller;
+                return created;
+            }
+
+            return GetOrCreateEditReceiver(controller);
         }
+
+        /// <summary>
+        /// この Receiver が再生する FacialController。<see cref="GetOrCreate"/> が作った Receiver は作成時の controller、
+        /// controller の GameObject に置かれた Receiver はその GameObject の controller。
+        /// </summary>
+        public FacialController Controller => _boundController != null ? _boundController : GetComponent<FacialController>();
+
+        /// <summary>
+        /// 生きている Receiver を集める（シーンにあるもの + Edit の一時 Receiver）。Edit の一時 Receiver は非保存のため
+        /// <c>FindObjectsByType</c> では見つからない。シーン走査を伴うため毎フレーム呼ばない。
+        /// </summary>
+        public static List<FacialTimelineReceiver> CollectAll()
+        {
+            var results = new List<FacialTimelineReceiver>(
+                UnityEngine.Object.FindObjectsByType<FacialTimelineReceiver>(FindObjectsInactive.Include, FindObjectsSortMode.None));
+            foreach (FacialTimelineReceiver receiver in EditReceivers.Values)
+            {
+                if (receiver != null && !results.Contains(receiver))
+                {
+                    results.Add(receiver);
+                }
+            }
+
+            return results;
+        }
+
+        /// <summary>Edit の一時 Receiver（controller の instanceID → Receiver）。</summary>
+        private static readonly Dictionary<int, FacialTimelineReceiver> EditReceivers = new Dictionary<int, FacialTimelineReceiver>();
+
+        private static readonly List<int> StaleEditReceiverKeys = new List<int>();
+
+        /// <summary>テスト用: 生きている Edit の一時 Receiver の数。</summary>
+        internal static int EditReceiverCount
+        {
+            get
+            {
+                PruneEditReceivers();
+                return EditReceivers.Count;
+            }
+        }
+
+        private static FacialTimelineReceiver GetOrCreateEditReceiver(FacialController controller)
+        {
+            int key = controller.GetInstanceID();
+            if (EditReceivers.TryGetValue(key, out FacialTimelineReceiver cached) && cached != null && cached._boundController == controller)
+            {
+                return cached;
+            }
+
+            PruneEditReceivers();
+            var holder = new GameObject("FacialTimelineReceiver (" + controller.name + ")")
+            {
+                hideFlags = HideFlags.HideAndDontSave,
+            };
+            var receiver = holder.AddComponent<FacialTimelineReceiver>();
+            receiver.hideFlags = HideFlags.HideAndDontSave;
+            receiver._boundController = controller;
+            EditReceivers[key] = receiver;
+            return receiver;
+        }
+
+        private static void PruneEditReceivers()
+        {
+            StaleEditReceiverKeys.Clear();
+            foreach (KeyValuePair<int, FacialTimelineReceiver> pair in EditReceivers)
+            {
+                if (pair.Value == null || pair.Value._boundController == null)
+                {
+                    StaleEditReceiverKeys.Add(pair.Key);
+                }
+            }
+
+            for (int i = 0; i < StaleEditReceiverKeys.Count; i++)
+            {
+                if (EditReceivers.TryGetValue(StaleEditReceiverKeys[i], out FacialTimelineReceiver stale) && stale != null)
+                {
+                    DestroyHolder(stale);
+                }
+
+                EditReceivers.Remove(StaleEditReceiverKeys[i]);
+            }
+
+            StaleEditReceiverKeys.Clear();
+        }
+
+        /// <summary>Edit の一時 Receiver をすべて破棄する（Play 突入・アセンブリ再読込の前。テストの後始末にも使う）。</summary>
+        internal static void DestroyEditReceivers()
+        {
+            foreach (FacialTimelineReceiver receiver in EditReceivers.Values)
+            {
+                if (receiver != null)
+                {
+                    DestroyHolder(receiver);
+                }
+            }
+
+            EditReceivers.Clear();
+        }
+
+        private static void DestroyHolder(FacialTimelineReceiver receiver)
+        {
+            GameObject holder = receiver.gameObject;
+            if (UnityEngine.Application.isPlaying)
+            {
+                UnityEngine.Object.Destroy(holder);
+            }
+            else
+            {
+                UnityEngine.Object.DestroyImmediate(holder);
+            }
+        }
+
+#if UNITY_EDITOR
+        [UnityEditor.InitializeOnLoadMethod]
+        private static void RegisterEditReceiverCleanup()
+        {
+            UnityEditor.AssemblyReloadEvents.beforeAssemblyReload -= DestroyEditReceivers;
+            UnityEditor.AssemblyReloadEvents.beforeAssemblyReload += DestroyEditReceivers;
+            UnityEditor.EditorApplication.playModeStateChanged -= OnPlayModeStateChanged;
+            UnityEditor.EditorApplication.playModeStateChanged += OnPlayModeStateChanged;
+        }
+
+        private static void OnPlayModeStateChanged(UnityEditor.PlayModeStateChange change)
+        {
+            if (change == UnityEditor.PlayModeStateChange.ExitingEditMode)
+            {
+                DestroyEditReceivers();
+            }
+        }
+#endif
 
         /// <summary>診断状態（Inspector / テストはログ文言ではなくこの値を読む）。</summary>
         public FacialTimelineDiagnostics Diagnostics => _diagnostics;
@@ -297,7 +442,7 @@ namespace Hidano.FacialControl.Timeline.Adapters
             // (1) controller・トラック構造
             FacialController controller = _hasBinding && _binding.Controller != null
                 ? _binding.Controller
-                : GetComponent<FacialController>();
+                : Controller;
             if (controller == null)
             {
                 Fail(TimelineDiagnosticArea.Placement, TimelineDiagnosticCode.ControllerMissing, name, ControllerMissingDetail);
@@ -529,7 +674,7 @@ namespace Hidano.FacialControl.Timeline.Adapters
                 return _binding.Controller;
             }
 
-            return GetComponent<FacialController>();
+            return Controller;
         }
 
         // ================================================================
