@@ -13,6 +13,7 @@ using Hidano.FacialControl.Timeline.Adapters.Session;
 using Hidano.FacialControl.Timeline.Domain.Diagnostics;
 using Hidano.FacialControl.Timeline.Domain.Models;
 using Hidano.FacialControl.Timeline.Domain.Services;
+using Hidano.FacialControl.Timeline.Tracks;
 using UnityEngine;
 using UnityEngine.Playables;
 using UnityEngine.Timeline;
@@ -866,62 +867,9 @@ namespace Hidano.FacialControl.Timeline.Adapters
             return _pooledDerivation;
         }
 
-        /// <summary>
-        /// 全トラック（Group・子・Lane を含む）のミュート状態の指紋。セッション開始時だけ呼ぶ（確保しない）。
-        /// </summary>
-        internal static int ComputeMuteFingerprint(TimelineAsset timeline)
+        private static int ComputeMuteFingerprint(TimelineAsset timeline)
         {
-            if (timeline == null)
-            {
-                return 0;
-            }
-
-            unchecked
-            {
-                return AppendMuteFingerprint(17, timeline.GetRootTracks());
-            }
-        }
-
-        private static int AppendMuteFingerprint(int hash, IEnumerable<TrackAsset> tracks)
-        {
-            unchecked
-            {
-                // Timeline はトラック一覧を List で返すので、添字で辿って列挙子の確保を避ける（再生の再開時に毎回通るため）。
-                if (tracks is IList<TrackAsset> list)
-                {
-                    for (int i = 0; i < list.Count; i++)
-                    {
-                        hash = AppendMuteFingerprint(hash, list[i]);
-                    }
-
-                    return hash;
-                }
-
-                if (tracks != null)
-                {
-                    foreach (TrackAsset track in tracks)
-                    {
-                        hash = AppendMuteFingerprint(hash, track);
-                    }
-                }
-
-                return hash;
-            }
-        }
-
-        private static int AppendMuteFingerprint(int hash, TrackAsset track)
-        {
-            if (track == null)
-            {
-                return hash;
-            }
-
-            unchecked
-            {
-                hash = (hash * 31) + track.GetInstanceID();
-                hash = (hash * 31) + (track.muted ? 1 : 0);
-                return AppendMuteFingerprint(hash, track.GetChildTracks());
-            }
+            return FacialCharacterTrackBinding.ComputeMuteFingerprint(timeline);
         }
 
         private void ClearPool()

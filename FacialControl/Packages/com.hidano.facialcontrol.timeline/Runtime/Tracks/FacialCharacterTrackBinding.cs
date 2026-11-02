@@ -135,6 +135,65 @@ namespace Hidano.FacialControl.Timeline.Tracks
             return false;
         }
 
+        /// <summary>
+        /// 全トラック（Group・子・Lane を含む）のミュート状態の指紋。走査はミュート中のトラックを除くので、導出結果・プレビューの
+        /// キャッシュはこの値もキーにする（ミュートの切り替えで作り直す）。確保しない。
+        /// </summary>
+        public static int ComputeMuteFingerprint(TimelineAsset timeline)
+        {
+            if (timeline == null)
+            {
+                return 0;
+            }
+
+            unchecked
+            {
+                return AppendMuteFingerprint(17, timeline.GetRootTracks());
+            }
+        }
+
+        private static int AppendMuteFingerprint(int hash, IEnumerable<TrackAsset> tracks)
+        {
+            unchecked
+            {
+                // Timeline はトラック一覧を List で返すので、添字で辿って列挙子の確保を避ける（再生の再開時・プレビューの毎フレームに通るため）。
+                if (tracks is IList<TrackAsset> list)
+                {
+                    for (int i = 0; i < list.Count; i++)
+                    {
+                        hash = AppendMuteFingerprint(hash, list[i]);
+                    }
+
+                    return hash;
+                }
+
+                if (tracks != null)
+                {
+                    foreach (TrackAsset track in tracks)
+                    {
+                        hash = AppendMuteFingerprint(hash, track);
+                    }
+                }
+
+                return hash;
+            }
+        }
+
+        private static int AppendMuteFingerprint(int hash, TrackAsset track)
+        {
+            if (track == null)
+            {
+                return hash;
+            }
+
+            unchecked
+            {
+                hash = (hash * 31) + track.GetInstanceID();
+                hash = (hash * 31) + (track.muted ? 1 : 0);
+                return AppendMuteFingerprint(hash, track.GetChildTracks());
+            }
+        }
+
         /// <summary>表情 / 値 / レイヤー weight トラック（親トラックの子になるトラック）か。</summary>
         public static bool IsFacialChildTrack(TrackAsset track)
         {
