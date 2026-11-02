@@ -19,24 +19,24 @@ using GazeChannel = Hidano.FacialControl.Adapters.ScriptableObject.GazeChannel;
 
 namespace Hidano.FacialControl.Timeline.Editor.AnimationTrackConversion
 {
-    /// <summary>1 対象（Receiver）分の変換結果。</summary>
-    internal readonly struct AnimationTrackConversionResult
+    /// <summary>変換で作った AnimationClip 1 本と、それを置いた AnimationTrack（HID-410）。</summary>
+    internal readonly struct AnimationTrackConversionClip
     {
-        public AnimationTrackConversionResult(
-            FacialTimelineReceiver receiver,
-            AnimationTrack track,
-            AnimationClip clip,
-            string clipPath,
-            IReadOnlyList<TrackAsset> mutedTracks)
+        public AnimationTrackConversionClip(FacialAnimationClipPart part, AnimationTrack track, string clipPath)
         {
-            Receiver = receiver;
+            Kind = part.Kind;
+            Name = part.Name;
+            Clip = part.Clip;
+            CurveCount = part.CurveCount;
+            KeyCount = part.KeyCount;
             Track = track;
-            Clip = clip;
             ClipPath = clipPath;
-            MutedTracks = mutedTracks;
         }
 
-        public FacialTimelineReceiver Receiver { get; }
+        public FacialAnimationClipKind Kind { get; }
+
+        /// <summary>レイヤー名 / <see cref="FacialAnimationClipBuilder.BaseClipName"/> / <see cref="FacialAnimationClipBuilder.GazeClipName"/>。</summary>
+        public string Name { get; }
 
         /// <summary>作った AnimationTrack（Animator にバインド済み）。</summary>
         public AnimationTrack Track { get; }
@@ -44,8 +44,34 @@ namespace Hidano.FacialControl.Timeline.Editor.AnimationTrackConversion
         /// <summary>保存した AnimationClip。</summary>
         public AnimationClip Clip { get; }
 
-        /// <summary>AnimationClip の保存先（<c>&lt;Timeline 名&gt;_&lt;対象名&gt;.anim</c>。同名があれば番号付き）。</summary>
+        /// <summary>AnimationClip の保存先（<c>&lt;Timeline 名&gt;_&lt;対象名&gt;_&lt;Name&gt;.anim</c>。同名があれば番号付き）。</summary>
         public string ClipPath { get; }
+
+        public int CurveCount { get; }
+
+        public int KeyCount { get; }
+    }
+
+    /// <summary>1 対象（Receiver）分の変換結果。</summary>
+    internal readonly struct AnimationTrackConversionResult
+    {
+        public AnimationTrackConversionResult(
+            FacialTimelineReceiver receiver,
+            IReadOnlyList<AnimationTrackConversionClip> clips,
+            IReadOnlyList<TrackAsset> mutedTracks)
+        {
+            Receiver = receiver;
+            Clips = clips;
+            MutedTracks = mutedTracks;
+        }
+
+        public FacialTimelineReceiver Receiver { get; }
+
+        /// <summary>
+        /// 作った AnimationClip と AnimationTrack（レイヤー別 → Base → Gaze の順。カーブの無いものは作らない）。
+        /// 各 Clip は互いに別のプロパティだけを持つ。
+        /// </summary>
+        public IReadOnlyList<AnimationTrackConversionClip> Clips { get; }
 
         /// <summary>ミュートした FacialControl の独自 Track。</summary>
         public IReadOnlyList<TrackAsset> MutedTracks { get; }
@@ -56,8 +82,11 @@ namespace Hidano.FacialControl.Timeline.Editor.AnimationTrackConversion
     /// </summary>
     /// <remarks>
     /// <para>独自 Track はレイヤーの priority・weight・overlay の suppress 等で合成されて最終値になるため、トラックごとではなく
-    /// 対象ごとに Edit プレビューと同じ合成（<see cref="TimelinePreviewCompositor"/>）でまとめて評価し、BlendShape と目ボーンの
-    /// カーブを持つ AnimationClip を 1 つ作る。シーンの renderer / ボーンは書き換えず、合成出力を直接読む。</para>
+    /// 対象ごとに Edit プレビューと同じ合成（<see cref="TimelinePreviewCompositor"/>）でまとめて評価する。合成後の最終値を
+    /// BlendShape ごとの担当レイヤーで振り分け、レイヤー別の AnimationClip と目ボーン回転の AnimationClip を作り、
+    /// 1 本ずつ AnimationTrack に置く（HID-410。<see cref="FacialAnimationClipBuilder"/>）。Clip 同士は同じプロパティを触らないので、
+    /// 全トラックを再生した結果は合成結果と一致する。Clip の値は合成後の数値なので、編集してもレイヤー合成は再計算されない。
+    /// シーンの renderer / ボーンは書き換えず、合成出力を直接読む。</para>
     /// <para>キーは Timeline のフレームごとに評価した値から、直線で結んだときのずれが閾値以下の中間キーを消して作る
     /// （<see cref="KeyframeReducer"/>）。Clip 境界・状態イベント・階段カーブのキーの時刻では直前の値も評価し、値が跳ぶ箇所は
     /// 段差（右接線 Constant）にする。</para>
@@ -81,14 +110,6 @@ namespace Hidano.FacialControl.Timeline.Editor.AnimationTrackConversion
         public const string UndoName = "Convert FacialControl Tracks To AnimationTrack";
 
         private const string LogPrefix = "[FacialAnimationTrackConverter] ";
-        private const string BlendShapePropertyPrefix = "blendShape.";
-        private static readonly string[] RotationProperties =
-        {
-            "m_LocalRotation.x",
-            "m_LocalRotation.y",
-            "m_LocalRotation.z",
-            "m_LocalRotation.w",
-        };
 
         public static bool IsFacialTrack(TrackAsset track)
         {
@@ -251,10 +272,10 @@ namespace Hidano.FacialControl.Timeline.Editor.AnimationTrackConversion
             }
 
             Transform root = animator != null ? animator.transform : controller.transform;
-            AnimationClip clip = BuildClip(timeline, controller, profileAsset, compositor, root, animator != null && animator.isHuman ? animator : null);
-            if (AnimationUtility.GetCurveBindings(clip).Length == 0)
+            List<FacialAnimationClipPart> parts = BuildClips(
+                timeline, controller, profileAsset, profile, compositor, root, animator != null && animator.isHuman ? animator : null);
+            if (parts.Count == 0)
             {
-                UnityEngine.Object.DestroyImmediate(clip);
                 Debug.LogError(LogPrefix + $"'{controller.name}' の BlendShape・目ボーンが Animator の階層に無いため、変換するカーブがありません。変換しません。", receiver);
                 return false;
             }
@@ -264,27 +285,38 @@ namespace Hidano.FacialControl.Timeline.Editor.AnimationTrackConversion
                 animator = Undo.AddComponent<Animator>(controller.gameObject);
             }
 
-            clip.name = timeline.name + "_" + controller.name;
-            string clipPath = ResolveClipPath(timeline, controller.name);
-            AssetDatabase.CreateAsset(clip, clipPath);
-
             Undo.RegisterCompleteObjectUndo(timeline, UndoName);
-            var track = timeline.CreateTrack<AnimationTrack>(null, controller.name + " (Animation)");
-            Undo.RegisterCreatedObjectUndo(track, UndoName);
-            TimelineClip timelineClip = track.CreateClip(clip);
-            timelineClip.start = 0d;
-            timelineClip.displayName = clip.name;
-            if (timelineClip.asset != null)
-            {
-                Undo.RegisterCreatedObjectUndo(timelineClip.asset, UndoName);
-            }
-
             Undo.RecordObject(director, UndoName);
-            director.SetGenericBinding(track, animator);
+            var clips = new List<AnimationTrackConversionClip>(parts.Count);
+            var summary = new System.Text.StringBuilder();
+            for (int i = 0; i < parts.Count; i++)
+            {
+                FacialAnimationClipPart part = parts[i];
+                AnimationClip clip = part.Clip;
+                clip.name = timeline.name + "_" + controller.name + "_" + part.Name;
+                string clipPath = ResolveClipPath(timeline, controller.name + "_" + part.Name);
+                AssetDatabase.CreateAsset(clip, clipPath);
+
+                var track = timeline.CreateTrack<AnimationTrack>(null, controller.name + " (" + part.Name + ")");
+                Undo.RegisterCreatedObjectUndo(track, UndoName);
+                TimelineClip timelineClip = track.CreateClip(clip);
+                timelineClip.start = 0d;
+                timelineClip.displayName = clip.name;
+                if (timelineClip.asset != null)
+                {
+                    Undo.RegisterCreatedObjectUndo(timelineClip.asset, UndoName);
+                }
+
+                // Clip 同士は別のプロパティだけを持つので、すべて同じ Animator にバインドしても値は混ざらない。
+                director.SetGenericBinding(track, animator);
+                clips.Add(new AnimationTrackConversionClip(part, track, clipPath));
+                summary.Append(i == 0 ? string.Empty : ", ").Append($"{part.Name}: カーブ {part.CurveCount} / キー {part.KeyCount}");
+            }
 
             List<TrackAsset> muted = MuteSourceTracks(timeline, resolver, receiver);
             EditorUtility.SetDirty(timeline);
-            result = new AnimationTrackConversionResult(receiver, track, clip, clipPath, muted);
+            Debug.Log(LogPrefix + $"'{controller.name}' を {clips.Count} 本の AnimationClip に変換しました（{summary}）。", receiver);
+            result = new AnimationTrackConversionResult(receiver, clips, muted);
             return true;
         }
 
@@ -391,166 +423,18 @@ namespace Hidano.FacialControl.Timeline.Editor.AnimationTrackConversion
             return new string(chars);
         }
 
-        private static AnimationClip BuildClip(
+        private static List<FacialAnimationClipPart> BuildClips(
             TimelineAsset timeline,
             FacialController controller,
             FacialCharacterProfileSO profileAsset,
+            FacialProfile profile,
             TimelinePreviewCompositor compositor,
             Transform root,
             Animator humanoid)
         {
             double frameRate = timeline.editorSettings.frameRate > 0d ? timeline.editorSettings.frameRate : FallbackFrameRate;
             SampleTimeline samples = SampleTimeline.Create(timeline.duration, frameRate, CollectStepCandidateTimes(timeline, compositor.BakeLocate.Bake));
-            var clip = new AnimationClip { frameRate = (float)frameRate };
-
-            var bindings = new List<EditorCurveBinding>();
-            var curves = new List<AnimationCurve>();
-            CollectBlendShapeCurves(controller, compositor, root, samples, bindings, curves);
-            CollectGazeCurves(controller, profileAsset, compositor, root, humanoid, samples, bindings, curves);
-            AnimationUtility.SetEditorCurves(clip, bindings.ToArray(), curves.ToArray());
-            return clip;
-        }
-
-        private static void CollectBlendShapeCurves(
-            FacialController controller,
-            TimelinePreviewCompositor compositor,
-            Transform root,
-            SampleTimeline samples,
-            List<EditorCurveBinding> bindings,
-            List<AnimationCurve> curves)
-        {
-            IReadOnlyList<string> names = compositor.BlendShapeNames;
-            int shapeCount = names.Count;
-            var outputIndexByName = new Dictionary<string, int>(shapeCount, StringComparer.Ordinal);
-            for (int s = 0; s < shapeCount; s++)
-            {
-                outputIndexByName[names[s]] = s;
-            }
-
-            int sampleCount = samples.Times.Count;
-            var values = new float[shapeCount][];
-            for (int s = 0; s < shapeCount; s++)
-            {
-                values[s] = new float[sampleCount];
-            }
-
-            for (int i = 0; i < sampleCount; i++)
-            {
-                if (!compositor.TryEvaluateOutput(samples.Times[i], out ReadOnlySpan<float> output))
-                {
-                    continue;
-                }
-
-                int count = Math.Min(shapeCount, output.Length);
-                for (int s = 0; s < count; s++)
-                {
-                    // renderer へ書く値（SkinnedMeshRendererBlendShapeWriter と同じ 0..100 スケール）。
-                    values[s][i] = output[s] * 100f;
-                }
-            }
-
-            var built = new AnimationCurve[shapeCount];
-            SkinnedMeshRenderer[] renderers = TimelinePreviewCompositor.ResolveRenderers(controller);
-            for (int r = 0; r < renderers.Length; r++)
-            {
-                SkinnedMeshRenderer renderer = renderers[r];
-                Mesh mesh = renderer != null ? renderer.sharedMesh : null;
-                if (mesh == null || !TryGetPath(renderer.transform, root, out string path))
-                {
-                    continue;
-                }
-
-                for (int shapeIndex = 0; shapeIndex < mesh.blendShapeCount; shapeIndex++)
-                {
-                    string shapeName = mesh.GetBlendShapeName(shapeIndex);
-                    if (!outputIndexByName.TryGetValue(shapeName, out int outputIndex))
-                    {
-                        continue;
-                    }
-
-                    built[outputIndex] ??= BuildScalarCurve(samples, values[outputIndex], BlendShapeTolerance);
-                    bindings.Add(EditorCurveBinding.FloatCurve(path, typeof(SkinnedMeshRenderer), BlendShapePropertyPrefix + shapeName));
-                    curves.Add(built[outputIndex]);
-                }
-            }
-        }
-
-        private static void CollectGazeCurves(
-            FacialController controller,
-            FacialCharacterProfileSO profileAsset,
-            TimelinePreviewCompositor compositor,
-            Transform root,
-            Animator humanoid,
-            SampleTimeline samples,
-            List<EditorCurveBinding> bindings,
-            List<AnimationCurve> curves)
-        {
-            IReadOnlyList<GazeChannel> gazeChannels = profileAsset.GazeChannels;
-            if (gazeChannels == null || gazeChannels.Count == 0)
-            {
-                return;
-            }
-
-            GazeEyeBoneResolver resolver = FacialTimelineEditorPreview.GetGazeEyeResolver(controller);
-            var targets = new List<FacialTimelinePreviewEyeTarget>();
-            compositor.ResolveGazeTargets(gazeChannels, resolver, targets);
-            if (targets.Count == 0)
-            {
-                return;
-            }
-
-            // 同じボーンを複数の target が指す場合は、プレビュー（後から書いた方が残る）と同じく最後の target を使う。
-            var bones = new List<Transform>();
-            var lastTargetOfBone = new List<int>();
-            for (int t = 0; t < targets.Count; t++)
-            {
-                int index = bones.IndexOf(targets[t].Bone);
-                if (index < 0)
-                {
-                    bones.Add(targets[t].Bone);
-                    lastTargetOfBone.Add(t);
-                }
-                else
-                {
-                    lastTargetOfBone[index] = t;
-                }
-            }
-
-            Transform leftEye = humanoid != null ? humanoid.GetBoneTransform(HumanBodyBones.LeftEye) : null;
-            Transform rightEye = humanoid != null ? humanoid.GetBoneTransform(HumanBodyBones.RightEye) : null;
-            int sampleCount = samples.Times.Count;
-            for (int b = 0; b < bones.Count; b++)
-            {
-                Transform bone = bones[b];
-                if (bone == null || !TryGetPath(bone, root, out string path))
-                {
-                    continue;
-                }
-
-                if (bone == leftEye || bone == rightEye)
-                {
-                    Debug.LogWarning(LogPrefix + $"目ボーン '{bone.name}' は Humanoid の Avatar にマップされています。Humanoid の Animator ではこのボーンの回転カーブが適用されないことがあります。", bone);
-                }
-
-                FacialTimelinePreviewEyeTarget target = targets[lastTargetOfBone[b]];
-                var components = new float[sampleCount * 4];
-                for (int i = 0; i < sampleCount; i++)
-                {
-                    Quaternion rotation = compositor.ComputeGazeRotation(samples.Times[i], target, gazeChannels);
-                    components[(i * 4) + 0] = rotation.x;
-                    components[(i * 4) + 1] = rotation.y;
-                    components[(i * 4) + 2] = rotation.z;
-                    components[(i * 4) + 3] = rotation.w;
-                }
-
-                QuaternionChannelMetric.AlignHemispheres(components);
-                AnimationCurve[] rotationCurves = BuildQuaternionCurves(samples, components, GazeRotationToleranceDegrees);
-                for (int c = 0; c < 4; c++)
-                {
-                    bindings.Add(EditorCurveBinding.FloatCurve(path, typeof(Transform), RotationProperties[c]));
-                    curves.Add(rotationCurves[c]);
-                }
-            }
+            return FacialAnimationClipBuilder.Build(compositor, controller, profileAsset, profile, root, humanoid, samples, frameRate);
         }
 
         internal static AnimationCurve BuildScalarCurve(SampleTimeline samples, float[] values, float tolerance)
@@ -675,18 +559,6 @@ namespace Hidano.FacialControl.Timeline.Editor.AnimationTrackConversion
             }
         }
 
-        private static bool TryGetPath(Transform target, Transform root, out string path)
-        {
-            if (!target.IsChildOf(root))
-            {
-                Debug.LogWarning(LogPrefix + $"'{target.name}' は Animator（{root.name}）の階層に無いため AnimationClip に含めません。", target);
-                path = null;
-                return false;
-            }
-
-            path = AnimationUtility.CalculateTransformPath(target, root);
-            return true;
-        }
     }
 
     /// <summary>

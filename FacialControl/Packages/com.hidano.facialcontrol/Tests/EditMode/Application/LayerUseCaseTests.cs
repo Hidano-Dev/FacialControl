@@ -1398,6 +1398,76 @@ namespace Hidano.FacialControl.Tests.EditMode.Application
         }
 
         [Test]
+        public void AccumulateBlendedContributions_ValueSourceOnSecondLayer_MarksOnlyThatLayer()
+        {
+            var layers = new[]
+            {
+                new LayerDefinition("emotion", 0, ExclusionMode.LastWins),
+                new LayerDefinition("lipsync", 1, ExclusionMode.Blend),
+            };
+            var profile = new FacialProfile("1.0", layers, Array.Empty<Expression>());
+            var expressionUseCase = new ExpressionUseCase(profile);
+            var blendShapeNames = new[] { "bs_smile", "bs_sad", "bs_blink" };
+            using var useCase = new LayerUseCase(profile, expressionUseCase, blendShapeNames);
+            useCase.BindLateInputSource(1, new FakeValueWritingSource("lip", blendShapeNames.Length, 0.6f), 1.0f);
+            useCase.UpdateWeights(0.001f);
+
+            var contributes = new bool[layers.Length * blendShapeNames.Length];
+            useCase.AccumulateBlendedContributions(contributes);
+
+            Assert.IsTrue(contributes[(1 * 3) + 0], "値を書いた lipsync レイヤーの bs_smile が立つこと");
+            Assert.IsFalse(contributes[0] || contributes[1] || contributes[2], "一度も入力の無い emotion レイヤーは立たないこと");
+        }
+
+        [Test]
+        public void AccumulateBlendedContributions_LayerWeightZero_DoesNotMarkLayer()
+        {
+            var layers = new[] { new LayerDefinition("emotion", 0, ExclusionMode.LastWins) };
+            var profile = new FacialProfile("1.0", layers, Array.Empty<Expression>());
+            var expressionUseCase = new ExpressionUseCase(profile);
+            var blendShapeNames = new[] { "bs_smile", "bs_sad", "bs_blink" };
+            using var useCase = new LayerUseCase(profile, expressionUseCase, blendShapeNames);
+            useCase.BindLateInputSource(0, new FakeValueWritingSource("osc", blendShapeNames.Length, 0.6f), 1.0f);
+            useCase.SetLayerWeight("emotion", 0f);
+            useCase.UpdateWeights(0.001f);
+
+            var contributes = new bool[blendShapeNames.Length];
+            useCase.AccumulateBlendedContributions(contributes);
+
+            CollectionAssert.AreEqual(new[] { false, false, false }, contributes, "weight 0 のレイヤーは最終値に影響しないので立たないこと");
+        }
+
+        [Test]
+        public void AccumulateBlendedContributions_CalledAgainAfterLayerStops_KeepsEarlierMarks()
+        {
+            var layers = new[] { new LayerDefinition("emotion", 0, ExclusionMode.LastWins) };
+            var profile = new FacialProfile("1.0", layers, Array.Empty<Expression>());
+            var expressionUseCase = new ExpressionUseCase(profile);
+            var blendShapeNames = new[] { "bs_smile", "bs_sad", "bs_blink" };
+            using var useCase = new LayerUseCase(profile, expressionUseCase, blendShapeNames);
+            useCase.BindLateInputSource(0, new FakeValueWritingSource("osc", blendShapeNames.Length, 0.6f), 1.0f);
+            var contributes = new bool[blendShapeNames.Length];
+
+            useCase.UpdateWeights(0.001f);
+            useCase.AccumulateBlendedContributions(contributes);
+            useCase.SetLayerWeight("emotion", 0f);
+            useCase.UpdateWeights(0.001f);
+            useCase.AccumulateBlendedContributions(contributes);
+
+            Assert.IsTrue(contributes[0], "積算は false に戻さないこと");
+        }
+
+        [Test]
+        public void AccumulateBlendedContributions_BufferTooShort_DoesNothing()
+        {
+            var contributes = new bool[1];
+            _useCase.UpdateWeights(0.001f);
+
+            Assert.DoesNotThrow(() => _useCase.AccumulateBlendedContributions(contributes));
+            Assert.IsFalse(contributes[0]);
+        }
+
+        [Test]
         public void BindLateInputSource_AppliesDeclaredWeight_ScalesOutput()
         {
             var layers = new[] { new LayerDefinition("emotion", 0, ExclusionMode.LastWins) };
