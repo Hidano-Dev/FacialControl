@@ -105,7 +105,8 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
                 Assert.That(curve.Evaluate(0f), Is.EqualTo(1f).Within(0.0001f), "t=0");
                 Assert.That(curve.Evaluate(0.0083333f), Is.EqualTo(1f).Within(0.0001f), "最初のフレーム");
                 Assert.That(curve.Evaluate(0.30f), Is.EqualTo(1f).Within(0.0001f), "Clip の途中");
-                Assert.That(curve.Evaluate(0.625f), Is.EqualTo(0.5f).Within(0.0001f), "Clip の終端からは通常どおり遷移で抜ける");
+                // 空スタックへの解放は既定の解放時間（Expression.DefaultTransitionDuration = 1/15 s）で抜ける（REC 再生と同じ基底の挙動）。
+                Assert.That(curve.Evaluate(0.5f + 1f / 30f), Is.EqualTo(0.5f).Within(0.001f), "Clip の終端からは通常どおり遷移で抜ける");
                 Assert.That(curve.Evaluate(0.80f), Is.EqualTo(0f).Within(0.0001f));
             }
             finally

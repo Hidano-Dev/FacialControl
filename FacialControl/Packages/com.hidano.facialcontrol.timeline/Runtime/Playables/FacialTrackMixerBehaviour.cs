@@ -92,6 +92,13 @@ namespace Hidano.FacialControl.Timeline.Playables
             }
 
             double evaluatedTime = playable.GetTime();
+            double holdEndTime = FacialValueMixerBehaviour.ResolveHoldEndTime(director);
+            if (evaluatedTime > holdEndTime)
+            {
+                // Hold の Director は終端に留まる（Value / レイヤー weight の Mixer と同じ）。終端まで押していた表情を、
+                // Clip の終わり（= 記録の終わり）から遷移させない。REC 再生は記録の終わりでも最後の値を保持する（HID-298）。
+                evaluatedTime = holdEndTime;
+            }
 
             receiver.SampleExpressionValues(_layerName, evaluatedTime);
 
