@@ -174,6 +174,13 @@ namespace Hidano.FacialControl.Timeline.Domain.Services
                     // Timeline のハッシュを変えないため）。
                     writer.WriteString("starts-active");
                 }
+
+                if (asset != null && asset.EndsActive)
+                {
+                    // 終わりの Off を離した操作として扱わない（Bake に保存する状態イベントが変わる。HID-318）。既定値（false）の
+                    // Clip は書かない（導入前に Bake した Timeline のハッシュを変えないため）。
+                    writer.WriteString("ends-active");
+                }
             }
         }
 
