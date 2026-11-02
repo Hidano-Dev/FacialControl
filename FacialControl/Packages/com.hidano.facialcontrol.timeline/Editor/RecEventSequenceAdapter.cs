@@ -158,12 +158,16 @@ namespace Hidano.FacialControl.Timeline.Editor
                 }
             }
 
-            // 逆引きは REC に実在する入力源（id 表と基準状態）のうち、実際に付け替えたものだけで作る。
-            // 対応表に REC で使われていない id があっても、実在するチャネルの元の id を書き換えないようにするため。
-            AddReverseMapping(remap, timeline.SourceIds);
-            for (int i = 0; i < baselineTriggers.Count; i++)
+            // 種別判定用の逆引きは、値チャネル（Analog / 目線 / 値提供型）を実際に記録していて付け替えた入力源だけで作る。
+            // 対応表に REC で使われていない id があったり、表情トリガーだけの入力源が同じ id にまとまったり（MergedTriggers）しても、
+            // 値チャネルの元の id を書き換えないようにするため。
+            for (int i = 0; i < timeline.Events.Count; i++)
             {
-                AddReverseMapping(remap, baselineTriggers[i].SourceId);
+                RecEvent recEvent = timeline.Events[i];
+                if (recEvent.Kind == RecEventKind.AnalogSample || recEvent.Kind == RecEventKind.ValueProviderSample)
+                {
+                    AddReverseMapping(remap, timeline.SourceIds[recEvent.SourceIdIndex]);
+                }
             }
 
             for (int i = 0; i < baselineAnalogs.Count; i++)
@@ -226,14 +230,6 @@ namespace Hidano.FacialControl.Timeline.Editor
         public string GetRecordedSourceId(string sourceId)
         {
             return sourceId != null && _recordedSourceIdByMapped.TryGetValue(sourceId, out string recorded) ? recorded : sourceId;
-        }
-
-        private void AddReverseMapping(RecSourceRemap remap, IReadOnlyList<string> recordedIds)
-        {
-            for (int i = 0; i < recordedIds.Count; i++)
-            {
-                AddReverseMapping(remap, recordedIds[i]);
-            }
         }
 
         private void AddReverseMapping(RecSourceRemap remap, string recordedId)

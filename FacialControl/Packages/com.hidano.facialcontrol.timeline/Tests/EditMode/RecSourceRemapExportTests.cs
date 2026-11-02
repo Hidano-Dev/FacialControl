@@ -269,6 +269,25 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
         }
 
         [Test]
+        public void DetectChannels_TriggerSourceMergedOntoAnalogTarget_KeepsAnalogRecordedIdForOverrides()
+        {
+            // 表情トリガーだけの keyboard を Analog の ifm:head と同じ osc:head にまとめても（MergedTriggers）、
+            // osc:head の元の id は ifm:head のまま（種別の上書きが効く）。
+            FacialCharacterProfileSO profile = CreateReceiverProfile();
+            RecTimeline recording = ReadSenderRecording();
+            var remap = new RecSourceRemap(new[] { Pair("ifm:head", "osc:head"), Pair("keyboard", "osc:head") }, null);
+            var sequence = new RecEventSequenceAdapter(recording, remap);
+
+            ChannelDetection head = FindDetection(
+                RecToTimelineExporter.DetectChannels(
+                    sequence, profile, new Dictionary<string, FacialValueChannelKind> { { "ifm:head", FacialValueChannelKind.Gaze } }),
+                "osc:head");
+
+            Assert.That(sequence.GetRecordedSourceId("osc:head"), Is.EqualTo("ifm:head"));
+            Assert.That(head.Kind, Is.EqualTo(FacialValueChannelKind.Gaze));
+        }
+
+        [Test]
         public void TryExportTimelineAsset_RemapEntryForSourceNotInRec_DoesNotChangeKindOfExistingSource()
         {
             // REC に無い id（unused）から実在する ifm:head への対応があっても、ifm:head の種別判定は ifm:head のまま行う。
