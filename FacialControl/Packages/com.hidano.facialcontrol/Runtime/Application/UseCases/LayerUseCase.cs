@@ -253,18 +253,7 @@ namespace Hidano.FacialControl.Application.UseCases
             int activeCount = 0;
             for (int l = 0; l < layerSpan.Length; l++)
             {
-                // LayerExpressionSource (sourceIdx=0) の HasBeenActive に加え、
-                // プロファイル由来の追加 IInputSource を持つレイヤーも blend 対象に含める。
-                // これがないと profile.inputSources だけで駆動するレイヤー
-                // (input のみが intra-layer に居る場合など)
-                // が LayerBlender から除外され、実機上で反映されない。
-                bool hasAdditional = _layerHasAdditionalSources != null
-                    && l < _layerHasAdditionalSources.Length
-                    && _layerHasAdditionalSources[l];
-                bool suppressed = _layerSuppressed != null
-                    && l < _layerSuppressed.Length
-                    && _layerSuppressed[l];
-                if ((_layerSources[l].HasBeenActive || hasAdditional) && !suppressed)
+                if (IsBlendedLayer(l))
                 {
                     _filteredLayerInputs[activeCount++] = _layerInputScratch[l];
                 }
@@ -280,6 +269,63 @@ namespace Hidano.FacialControl.Application.UseCases
                     new ReadOnlySpan<LayerBlender.LayerInput>(_filteredLayerInputs, 0, activeCount),
                     new Span<float>(_finalOutput));
             }
+        }
+
+        /// <summary>
+        /// 直近の <see cref="UpdateWeights"/> で最終ブレンドに入ったレイヤーが書いた BlendShape を、
+        /// <paramref name="contributes"/>[layerIndex * BlendShape 数 + BlendShape index] へ true として積む（false には戻さない）。
+        /// layerIndex は Profile のレイヤー宣言順。weight 0 のレイヤーは最終値に影響しないので積まない。
+        /// AnimationClip への書き出しで、BlendShape ごとの担当レイヤーを決めるために使う（HID-410）。
+        /// </summary>
+        /// <param name="contributes">長さ「レイヤー数 × BlendShape 数」以上のバッファ。足りなければ何もしない。</param>
+        public void AccumulateBlendedContributions(Span<bool> contributes)
+        {
+            int bsCount = _blendShapeNames.Length;
+            if (bsCount == 0 || _layerInputScratch == null || _layerSources == null)
+                return;
+
+            int layerCount = Math.Min(_layerInputScratch.Length, _layerSources.Length);
+            if (contributes.Length < layerCount * bsCount)
+                return;
+
+            for (int l = 0; l < layerCount; l++)
+            {
+                if (!IsBlendedLayer(l))
+                    continue;
+
+                LayerBlender.LayerInput input = _layerInputScratch[l];
+                if (!(input.Weight > 0f))
+                    continue;
+
+                BitArray mask = input.ContributeMask;
+                int length = Math.Min(bsCount, input.BlendShapeValues.Length);
+                int offset = l * bsCount;
+                for (int i = 0; i < length; i++)
+                {
+                    if (mask == null || (i < mask.Length && mask[i]))
+                        contributes[offset + i] = true;
+                }
+            }
+        }
+
+        /// <summary>
+        /// レイヤー <paramref name="l"/> が最終ブレンドに入るか。
+        /// LayerExpressionSource (sourceIdx=0) の HasBeenActive に加え、
+        /// プロファイル由来の追加 IInputSource を持つレイヤーも blend 対象に含める。
+        /// これがないと profile.inputSources だけで駆動するレイヤー
+        /// (input のみが intra-layer に居る場合など)
+        /// が LayerBlender から除外され、実機上で反映されない。
+        /// OverrideMask で抑制されたレイヤーは除く。
+        /// </summary>
+        private bool IsBlendedLayer(int l)
+        {
+            bool hasAdditional = _layerHasAdditionalSources != null
+                && l < _layerHasAdditionalSources.Length
+                && _layerHasAdditionalSources[l];
+            bool suppressed = _layerSuppressed != null
+                && l < _layerSuppressed.Length
+                && _layerSuppressed[l];
+            return (_layerSources[l].HasBeenActive || hasAdditional) && !suppressed;
         }
 
         /// <summary>

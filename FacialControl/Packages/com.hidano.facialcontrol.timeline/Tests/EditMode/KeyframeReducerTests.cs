@@ -144,7 +144,7 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
             float[] values = { 0f, 10f, 50f };
             var keys = new List<ReducedKey> { new ReducedKey(0, false), new ReducedKey(1, true), new ReducedKey(2, false) };
 
-            AnimationCurve curve = FacialAnimationTrackConverter.CreateCurve(times, keys, i => values[i]);
+            AnimationCurve curve = FacialAnimationCurveFactory.CreateCurve(times, keys, i => values[i]);
 
             Assert.That(curve.Evaluate(0.5f), Is.EqualTo(5f).Within(1e-4f), "Linear");
             Assert.That(curve.Evaluate(1.99f), Is.EqualTo(10f).Within(1e-4f), "Constant（次のキーまで保持）");
@@ -158,7 +158,7 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
 
             Assert.That(samples.Times.Count, Is.EqualTo(5), "フレーム 0 / 0.05 / 0.1 に段差候補の (t - probe, t) を加える");
             Assert.That(samples.Times[0], Is.EqualTo(0d));
-            Assert.That(samples.Times[1], Is.EqualTo(0.025d - FacialAnimationTrackConverter.StepProbeSeconds).Within(1e-9d));
+            Assert.That(samples.Times[1], Is.EqualTo(0.025d - SampleTimeline.StepProbeSeconds).Within(1e-9d));
             Assert.That(samples.Times[2], Is.EqualTo(0.025d).Within(1e-9d));
             Assert.That(samples.Times[4], Is.EqualTo(0.1d).Within(1e-9d));
         }
@@ -170,7 +170,7 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
             SampleTimeline samples = SampleTimeline.Create(0.1d, 20d, new[] { 0.0502d });
 
             Assert.That(samples.Times.Count, Is.EqualTo(4));
-            Assert.That(samples.Times[1], Is.EqualTo(0.0502d - FacialAnimationTrackConverter.StepProbeSeconds).Within(1e-9d));
+            Assert.That(samples.Times[1], Is.EqualTo(0.0502d - SampleTimeline.StepProbeSeconds).Within(1e-9d));
             Assert.That(samples.Times[2], Is.EqualTo(0.0502d).Within(1e-9d));
         }
 
