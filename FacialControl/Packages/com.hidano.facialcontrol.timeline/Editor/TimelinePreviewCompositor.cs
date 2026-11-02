@@ -186,6 +186,9 @@ namespace Hidano.FacialControl.Timeline.Editor
         /// <summary>合成出力の BlendShape 名（<see cref="TryEvaluateOutput"/> の出力と同じ並び。描画できないときは空）。</summary>
         public IReadOnlyList<string> BlendShapeNames => _blendShapeNames;
 
+        /// <summary>合成（<see cref="LayerUseCase"/>）を組んだ Profile のレイヤー定義（宣言順。<see cref="AccumulateLayerContributions"/> の並び）。</summary>
+        public ReadOnlyMemory<LayerDefinition> Layers => _profile.Layers;
+
         /// <summary>
         /// 指定時刻を合成し、renderer へは書かずに出力（正規化 weight。<see cref="BlendShapeNames"/> と同じ並び）を返す。
         /// AnimationTrack への変換のように、シーンを書き換えずに最終値だけを読みたい呼出側が使う。

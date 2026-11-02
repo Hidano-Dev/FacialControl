@@ -1460,11 +1460,22 @@ namespace Hidano.FacialControl.Tests.EditMode.Application
         [Test]
         public void AccumulateBlendedContributions_BufferTooShort_DoesNothing()
         {
-            var contributes = new bool[1];
-            _useCase.UpdateWeights(0.001f);
+            // 実際に全 BlendShape へ寄与するレイヤーを作る（ガードが無ければ [0] を立てた後に範囲外へ書く）。
+            var layers = new[] { new LayerDefinition("emotion", 0, ExclusionMode.LastWins) };
+            var profile = new FacialProfile("1.0", layers, Array.Empty<Expression>());
+            var expressionUseCase = new ExpressionUseCase(profile);
+            var blendShapeNames = new[] { "bs_smile", "bs_sad", "bs_blink" };
+            using var useCase = new LayerUseCase(profile, expressionUseCase, blendShapeNames);
+            useCase.BindLateInputSource(0, new FakeValueWritingSource("osc", blendShapeNames.Length, 0.6f), 1.0f);
+            useCase.UpdateWeights(0.001f);
+            var full = new bool[blendShapeNames.Length];
+            useCase.AccumulateBlendedContributions(full);
+            Assume.That(full[0], Is.True, "前提: このレイヤーは bs_smile に寄与する");
 
-            Assert.DoesNotThrow(() => _useCase.AccumulateBlendedContributions(contributes));
-            Assert.IsFalse(contributes[0]);
+            var contributes = new bool[blendShapeNames.Length - 1];
+
+            Assert.DoesNotThrow(() => useCase.AccumulateBlendedContributions(contributes));
+            CollectionAssert.AreEqual(new[] { false, false }, contributes, "長さが足りなければ何も書かない");
         }
 
         [Test]

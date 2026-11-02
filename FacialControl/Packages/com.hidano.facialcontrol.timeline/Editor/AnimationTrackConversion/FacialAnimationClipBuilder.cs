@@ -19,6 +19,12 @@ namespace Hidano.FacialControl.Timeline.Editor.AnimationTrackConversion
         /// <summary><see cref="TryEvaluateOutput"/> の出力と同じ並びの BlendShape 名。</summary>
         IReadOnlyList<string> BlendShapeNames { get; }
 
+        /// <summary>
+        /// 合成に使っているレイヤー定義（宣言順）。<see cref="AccumulateLayerContributions"/> のレイヤー index はこの並び。
+        /// 評価器を組んだ Profile から取り、呼び出し側が別に渡した Profile とずれないようにする。
+        /// </summary>
+        ReadOnlyMemory<LayerDefinition> Layers { get; }
+
         /// <summary>指定時刻を合成し、最終出力（正規化 weight。<see cref="BlendShapeNames"/> の並び）を返す。</summary>
         bool TryEvaluateOutput(double timeSeconds, out ReadOnlySpan<float> output);
 
@@ -56,10 +62,18 @@ namespace Hidano.FacialControl.Timeline.Editor.AnimationTrackConversion
     /// </summary>
     internal readonly struct FacialAnimationClipPart
     {
-        public FacialAnimationClipPart(FacialAnimationClipKind kind, string name, int layerIndex, AnimationClip clip, int curveCount, int keyCount)
+        public FacialAnimationClipPart(
+            FacialAnimationClipKind kind,
+            string name,
+            string clipName,
+            int layerIndex,
+            AnimationClip clip,
+            int curveCount,
+            int keyCount)
         {
             Kind = kind;
             Name = name;
+            ClipName = clipName;
             LayerIndex = layerIndex;
             Clip = clip;
             CurveCount = curveCount;
@@ -70,6 +84,12 @@ namespace Hidano.FacialControl.Timeline.Editor.AnimationTrackConversion
 
         /// <summary>レイヤー名（<see cref="FacialAnimationClipKind.Layer"/>）、<see cref="FacialAnimationClipBuilder.BaseClipName"/>、<see cref="FacialAnimationClipBuilder.GazeClipName"/>。</summary>
         public string Name { get; }
+
+        /// <summary>
+        /// トラック名・Clip 名・ファイル名に使う、同じ <see cref="FacialAnimationClipBuilder.Build"/> の結果の中で一意な名前（大文字小文字を区別しない）。
+        /// 通常は <see cref="Name"/> と同じで、予約名（Base / Gaze）や他のレイヤー名と衝突するレイヤーだけ <c>_L&lt;index&gt;</c> を付ける。
+        /// </summary>
+        public string ClipName { get; }
 
         /// <summary>Profile のレイヤー index（<see cref="FacialAnimationClipKind.Layer"/> 以外は -1）。</summary>
         public int LayerIndex { get; }
@@ -119,7 +139,6 @@ namespace Hidano.FacialControl.Timeline.Editor.AnimationTrackConversion
         /// <param name="evaluator">合成結果の評価器。</param>
         /// <param name="controller">書き出し対象（renderer の取得元）。</param>
         /// <param name="profileAsset">GazeChannels の取得元。</param>
-        /// <param name="profile">レイヤー名と優先度の取得元（<paramref name="evaluator"/> を組んだ Profile と同じもの）。</param>
         /// <param name="root">カーブの path の基準（Animator の Transform）。</param>
         /// <param name="humanoid">Humanoid の Animator（目ボーンが Avatar にマップされているかの警告用。無ければ null）。</param>
         /// <param name="samples">評価する時刻列。</param>
@@ -128,7 +147,6 @@ namespace Hidano.FacialControl.Timeline.Editor.AnimationTrackConversion
             IFacialOutputEvaluator evaluator,
             FacialController controller,
             FacialCharacterProfileSO profileAsset,
-            FacialProfile profile,
             Transform root,
             Animator humanoid,
             SampleTimeline samples,
@@ -140,8 +158,10 @@ namespace Hidano.FacialControl.Timeline.Editor.AnimationTrackConversion
             if (root == null) throw new ArgumentNullException(nameof(root));
             if (samples == null) throw new ArgumentNullException(nameof(samples));
 
-            ReadOnlySpan<LayerDefinition> layers = profile.Layers.Span;
+            // レイヤーは評価器自身から取る（寄与の index と必ず同じ並びになる）。
+            ReadOnlySpan<LayerDefinition> layers = evaluator.Layers.Span;
             int layerCount = layers.Length;
+            string[] layerClipNames = AssignLayerClipNames(layers);
             var groups = new CurveGroup[layerCount + 2];
             int baseGroup = layerCount;
             int gazeGroup = layerCount + 1;
@@ -172,13 +192,15 @@ namespace Hidano.FacialControl.Timeline.Editor.AnimationTrackConversion
 
                 if (g < layerCount)
                 {
-                    parts.Add(new FacialAnimationClipPart(FacialAnimationClipKind.Layer, layers[g].Name, g, clip, group.Bindings.Count, keyCount));
+                    parts.Add(new FacialAnimationClipPart(
+                        FacialAnimationClipKind.Layer, layers[g].Name, layerClipNames[g], g, clip, group.Bindings.Count, keyCount));
                 }
                 else
                 {
                     bool isBase = g == baseGroup;
                     parts.Add(new FacialAnimationClipPart(
                         isBase ? FacialAnimationClipKind.Base : FacialAnimationClipKind.Gaze,
+                        isBase ? BaseClipName : GazeClipName,
                         isBase ? BaseClipName : GazeClipName,
                         -1,
                         clip,
@@ -196,16 +218,27 @@ namespace Hidano.FacialControl.Timeline.Editor.AnimationTrackConversion
         /// <param name="contributes">[layerIndex * <paramref name="shapeCount"/> + shapeIndex] が「そのレイヤーが書いた」を表す寄与。</param>
         /// <param name="layers">Profile のレイヤー（宣言順）。</param>
         /// <param name="shapeCount">BlendShape 数。</param>
+        /// <exception cref="ArgumentException"><paramref name="contributes"/> が「レイヤー数 × <paramref name="shapeCount"/>」より短い。</exception>
         public static int[] AssignOwnerLayers(bool[] contributes, ReadOnlySpan<LayerDefinition> layers, int shapeCount)
         {
+            if (contributes == null) throw new ArgumentNullException(nameof(contributes));
+            if (shapeCount < 0) throw new ArgumentOutOfRangeException(nameof(shapeCount));
+
+            // 長さが足りないと「書いていない」と区別できず、担当が無言で Base に落ちるので受け付けない。
+            if (contributes.Length < layers.Length * shapeCount)
+            {
+                throw new ArgumentException(
+                    $"contributes の長さ {contributes.Length} がレイヤー数 {layers.Length} × BlendShape 数 {shapeCount} に足りません。",
+                    nameof(contributes));
+            }
+
             var owners = new int[shapeCount];
             for (int s = 0; s < shapeCount; s++)
             {
                 int owner = NoOwner;
                 for (int l = 0; l < layers.Length; l++)
                 {
-                    int index = (l * shapeCount) + s;
-                    if (index >= contributes.Length || !contributes[index])
+                    if (!contributes[(l * shapeCount) + s])
                     {
                         continue;
                     }
@@ -221,6 +254,50 @@ namespace Hidano.FacialControl.Timeline.Editor.AnimationTrackConversion
             }
 
             return owners;
+        }
+
+        /// <summary>
+        /// レイヤーごとの <see cref="FacialAnimationClipPart.ClipName"/> を決める。予約名（<see cref="BaseClipName"/> /
+        /// <see cref="GazeClipName"/>）と衝突する名前、ほかのレイヤーと重複する名前（大文字小文字を区別しない。Windows の
+        /// ファイル名と同じ規則）には <c>_L&lt;index&gt;</c> を付け、それでも衝突すれば付け足していく。
+        /// </summary>
+        public static string[] AssignLayerClipNames(ReadOnlySpan<LayerDefinition> layers)
+        {
+            var counts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+            for (int l = 0; l < layers.Length; l++)
+            {
+                string name = layers[l].Name ?? string.Empty;
+                counts[name] = counts.TryGetValue(name, out int count) ? count + 1 : 1;
+            }
+
+            var used = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { BaseClipName, GazeClipName };
+            var names = new string[layers.Length];
+            for (int l = 0; l < layers.Length; l++)
+            {
+                string name = layers[l].Name ?? string.Empty;
+                if (name.Length > 0 && counts[name] == 1 && used.Add(name))
+                {
+                    names[l] = name;
+                }
+            }
+
+            for (int l = 0; l < layers.Length; l++)
+            {
+                if (names[l] != null)
+                {
+                    continue;
+                }
+
+                string candidate = (layers[l].Name ?? string.Empty) + "_L" + l;
+                while (!used.Add(candidate))
+                {
+                    candidate += "_L" + l;
+                }
+
+                names[l] = candidate;
+            }
+
+            return names;
         }
 
         private static void CollectBlendShapeCurves(
@@ -285,8 +362,8 @@ namespace Hidano.FacialControl.Timeline.Editor.AnimationTrackConversion
                         continue;
                     }
 
-                    built[outputIndex] ??= FacialAnimationTrackConverter.BuildScalarCurve(
-                        samples, values[outputIndex], FacialAnimationTrackConverter.BlendShapeTolerance);
+                    built[outputIndex] ??= FacialAnimationCurveFactory.BuildScalarCurve(
+                        samples, values[outputIndex], FacialAnimationCurveFactory.BlendShapeTolerance);
                     int owner = owners[outputIndex];
                     CurveGroup group = groups[owner == NoOwner ? baseGroup : owner];
                     group.Bindings.Add(EditorCurveBinding.FloatCurve(path, typeof(SkinnedMeshRenderer), BlendShapePropertyPrefix + shapeName));
@@ -363,8 +440,8 @@ namespace Hidano.FacialControl.Timeline.Editor.AnimationTrackConversion
                 }
 
                 QuaternionChannelMetric.AlignHemispheres(components);
-                AnimationCurve[] rotationCurves = FacialAnimationTrackConverter.BuildQuaternionCurves(
-                    samples, components, FacialAnimationTrackConverter.GazeRotationToleranceDegrees);
+                AnimationCurve[] rotationCurves = FacialAnimationCurveFactory.BuildQuaternionCurves(
+                    samples, components, FacialAnimationCurveFactory.GazeRotationToleranceDegrees);
                 for (int c = 0; c < 4; c++)
                 {
                     group.Bindings.Add(EditorCurveBinding.FloatCurve(path, typeof(Transform), RotationProperties[c]));

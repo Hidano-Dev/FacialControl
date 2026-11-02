@@ -70,6 +70,56 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
             Assert.That(owners, Is.EqualTo(new[] { FacialAnimationClipBuilder.NoOwner }));
         }
 
+        [Test]
+        public void AssignOwnerLayers_ContributesShorterThanLayersTimesShapes_Throws()
+        {
+            // 長さ不足を「書いていない」と扱うと、評価器とレイヤー構成がずれたときに全 BlendShape が無言で Base に落ちる。
+            bool[] contributes = new bool[(Layers.Length * 2) - 1];
+
+            Assert.Throws<System.ArgumentException>(() => FacialAnimationClipBuilder.AssignOwnerLayers(contributes, Layers, 2));
+        }
+
+        [Test]
+        public void AssignLayerClipNames_UniqueNamesNotReserved_KeepsLayerNames()
+        {
+            string[] names = FacialAnimationClipBuilder.AssignLayerClipNames(Layers);
+
+            Assert.That(names, Is.EqualTo(new[] { "emotion", "lipsync", "eye" }));
+        }
+
+        [Test]
+        public void AssignLayerClipNames_ReservedOrDuplicateNames_AddsLayerIndexSuffix()
+        {
+            // 予約名（Base / Gaze）と、大文字小文字だけ違う重複はファイル名・トラック名が衝突するので区別する。
+            var layers = new[]
+            {
+                new LayerDefinition("Base", 0, ExclusionMode.LastWins),
+                new LayerDefinition("emotion", 1, ExclusionMode.LastWins),
+                new LayerDefinition("Emotion", 2, ExclusionMode.LastWins),
+                new LayerDefinition("gaze", 3, ExclusionMode.LastWins),
+                new LayerDefinition("eye", 4, ExclusionMode.LastWins),
+            };
+
+            string[] names = FacialAnimationClipBuilder.AssignLayerClipNames(layers);
+
+            Assert.That(names, Is.EqualTo(new[] { "Base_L0", "emotion_L1", "Emotion_L2", "gaze_L3", "eye" }));
+        }
+
+        [Test]
+        public void AssignLayerClipNames_SuffixedNameTakenByAnotherLayer_StaysUnique()
+        {
+            var layers = new[]
+            {
+                new LayerDefinition("Base", 0, ExclusionMode.LastWins),
+                new LayerDefinition("Base_L0", 1, ExclusionMode.LastWins),
+            };
+
+            string[] names = FacialAnimationClipBuilder.AssignLayerClipNames(layers);
+
+            Assert.That(names[1], Is.EqualTo("Base_L0"));
+            Assert.That(names[0], Is.Not.EqualTo("Base_L0").IgnoreCase.And.Not.EqualTo("Base").IgnoreCase);
+        }
+
         /// <summary>レイヤーごとの寄与（[layer][shape]）を AccumulateBlendedContributions と同じ並び（layer * shapeCount + shape）にする。</summary>
         private static bool[] Contributes(params bool[][] perLayer)
         {
