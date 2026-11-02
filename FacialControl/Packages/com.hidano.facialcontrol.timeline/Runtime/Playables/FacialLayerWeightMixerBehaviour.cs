@@ -24,6 +24,14 @@ namespace Hidano.FacialControl.Timeline.Playables
             _isPlaying = FacialTimelinePlayMode.IsPlaying;
         }
 
+        private readonly FacialMixerTarget _target = new FacialMixerTarget();
+
+        /// <summary>対象（親トラックの binding）を引くためのトラック。<see cref="Tracks.FacialLayerWeightTrack"/> が Mixer 生成時に渡す。</summary>
+        public void SetOwnerTrack(TrackAsset track)
+        {
+            _target.SetTrack(track);
+        }
+
         public void Configure(string layerName, ClipSample[] clips)
         {
             _layerName = layerName ?? string.Empty;
@@ -33,18 +41,18 @@ namespace Hidano.FacialControl.Timeline.Playables
 
         public override void ProcessFrame(Playable playable, FrameData info, object playerData)
         {
-            FacialTimelineReceiver receiver = ResolveReceiver(playerData);
+            PlayableDirector director = playable.GetGraph().GetResolver() as PlayableDirector;
+            FacialTimelineReceiver receiver = _target.Resolve(director);
             if (receiver == null)
             {
                 _receiver = null;
                 return;
             }
 
-            PlayableDirector director = playable.GetGraph().GetResolver() as PlayableDirector;
             TimelineAsset timeline = director != null ? director.playableAsset as TimelineAsset : null;
             if (!_isPlaying)
             {
-                FacialTimelineEditorPreviewBridge.ApplyPreview?.Invoke(receiver, timeline, playable.GetTime());
+                FacialTimelineEditorPreviewBridge.ApplyPreview?.Invoke(receiver, timeline, FacialMixerTarget.TrackTime(playable));
                 return;
             }
 
@@ -55,7 +63,7 @@ namespace Hidano.FacialControl.Timeline.Playables
             }
 
             _receiver = receiver;
-            double evaluatedTrackTime = playable.GetTime();
+            double evaluatedTrackTime = FacialMixerTarget.TrackTime(playable);
             if (info.deltaTime > 0d)
             {
                 evaluatedTrackTime += info.deltaTime;
@@ -122,21 +130,6 @@ namespace Hidano.FacialControl.Timeline.Playables
             }
 
             _receiver = null;
-        }
-
-        private static FacialTimelineReceiver ResolveReceiver(object playerData)
-        {
-            switch (playerData)
-            {
-                case FacialTimelineReceiver receiver:
-                    return receiver;
-                case GameObject gameObject:
-                    return gameObject.GetComponent<FacialTimelineReceiver>();
-                case Component component:
-                    return component.GetComponent<FacialTimelineReceiver>();
-                default:
-                    return null;
-            }
         }
 
         public readonly struct ClipSample

@@ -46,7 +46,6 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
             VisualElement root = inspector.CreateInspectorGUI();
 
             Assert.That(root, Is.Not.Null);
-            Assert.That(root.Q<Button>(FacialTimelineReceiverInspector.AssignBindingsButtonName), Is.Not.Null);
             Assert.That(root.Q<Button>(FacialTimelineReceiverInspector.RebakeButtonName), Is.Not.Null);
             Assert.That(root.Q<Button>(FacialTimelineReceiverInspector.RemoveLegacyButtonName), Is.Not.Null);
             Assert.That(root.Q(FacialTimelineReceiverInspector.DiagnosticsContainerName).childCount, Is.GreaterThan(0));
@@ -135,68 +134,11 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
         }
 
         // ================================================================
-        // Edit の Track binding 自動設定と Undo（9.6 是正レビュー指摘）
+        // トラックの binding は書かない（自動 Bind の廃止。HID-408）
         // ================================================================
 
         [Test]
-        public void UndoAutoAssign_ThenUndoTriggeredReevaluation_KeepsBindingNullAndRedoRestoresIt()
-        {
-            (FacialTimelineReceiver receiver, PlayableDirector director, TrackAsset track) = CreateReceiverWithTimeline();
-            Undo.IncrementCurrentGroup();
-            FacialTimelineReceiverInspector inspector = CreateInspector(receiver);
-            inspector.CreateInspectorGUI();
-            Assert.That(director.GetGenericBinding(track), Is.SameAs(receiver), "fixture: 開いた時点で未設定トラックが自動設定される");
-
-            Undo.PerformUndo();
-            inspector.RefreshNow();
-
-            Assert.That(director.GetGenericBinding(track), Is.Null, "Undo 起点の再評価で binding を書き直さない");
-
-            Undo.PerformRedo();
-            inspector.RefreshNow();
-
-            Assert.That(director.GetGenericBinding(track), Is.SameAs(receiver), "Redo で自動設定が戻る（Redo 履歴が消えていない）");
-        }
-
-        [Test]
-        public void ReevaluatingWhileOpen_AfterAutoAssign_DoesNotWriteDirectorAgain()
-        {
-            (FacialTimelineReceiver receiver, PlayableDirector director, TrackAsset track) = CreateReceiverWithTimeline();
-            FacialTimelineReceiverInspector inspector = CreateInspector(receiver);
-            inspector.CreateInspectorGUI();
-            Assert.That(director.GetGenericBinding(track), Is.SameAs(receiver));
-
-            // 利用者が（Undo を使わずに）binding を外した後、Inspector を開いたまま再評価が何度起きても書き直さない。
-            director.SetGenericBinding(track, null);
-            int dirtyBefore = EditorUtility.GetDirtyCount(director);
-            for (int i = 0; i < 3; i++)
-            {
-                inspector.RequestEvaluation();
-                inspector.RefreshNow();
-            }
-
-            Assert.That(director.GetGenericBinding(track), Is.Null, "自動設定は Inspector × (Director, Timeline) ごとに 1 回だけ");
-            Assert.That(EditorUtility.GetDirtyCount(director), Is.EqualTo(dirtyBefore), "Undo 記録（Director への書き込み）が増えない");
-        }
-
-        [Test]
-        public void ReevaluatingWithDifferentTimeline_AutoAssignsOnceForNewPair()
-        {
-            (FacialTimelineReceiver receiver, PlayableDirector director, TrackAsset _) = CreateReceiverWithTimeline();
-            FacialTimelineReceiverInspector inspector = CreateInspector(receiver);
-            inspector.CreateInspectorGUI();
-
-            var otherTimeline = ScriptableObject.CreateInstance<TimelineAsset>();
-            _created.Add(otherTimeline);
-            TrackAsset otherTrack = otherTimeline.CreateTrack<FacialExpressionTrack>(null, "emotion");
-            director.playableAsset = otherTimeline;
-            inspector.RequestEvaluation();
-            inspector.RefreshNow();
-
-            Assert.That(director.GetGenericBinding(otherTrack), Is.SameAs(receiver), "TimelineAsset が変わったら再び 1 回自動設定する");
-        }
-
-        private (FacialTimelineReceiver receiver, PlayableDirector director, TrackAsset track) CreateReceiverWithTimeline()
+        public void CreateInspectorGUI_UnboundTracks_DoesNotWriteDirectorBinding()
         {
             var host = new GameObject("ReceiverInspectorTimelineHost");
             _created.Add(host);
@@ -205,10 +147,21 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
             var director = host.AddComponent<PlayableDirector>();
             var timeline = ScriptableObject.CreateInstance<TimelineAsset>();
             _created.Add(timeline);
-            TrackAsset track = timeline.CreateTrack<FacialExpressionTrack>(null, "emotion");
+            FacialCharacterTrack character = timeline.CreateTrack<FacialCharacterTrack>(null, "Facial Character");
+            TrackAsset track = character.CreateChildTrack<FacialExpressionTrack>("emotion");
             director.playableAsset = timeline;
             FacialTimelineReceiver receiver = host.AddComponent<FacialTimelineReceiver>();
-            return (receiver, director, track);
+            receiver.DirectorOverride = director;
+            int dirtyBefore = EditorUtility.GetDirtyCount(director);
+
+            FacialTimelineReceiverInspector inspector = CreateInspector(receiver);
+            inspector.CreateInspectorGUI();
+            inspector.RequestEvaluation();
+            inspector.RefreshNow();
+
+            Assert.That(director.GetGenericBinding(character), Is.Null);
+            Assert.That(director.GetGenericBinding(track), Is.Null);
+            Assert.That(EditorUtility.GetDirtyCount(director), Is.EqualTo(dirtyBefore), "表示しただけで Director を書き換えない");
         }
 
         private FacialTimelineReceiver CreateReceiver(bool withDirector)

@@ -220,7 +220,7 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
         }
 
         [Test]
-        public void TryResolveForTimeline_DirectorBindsReceiver_ReturnsControllerProfileAsset()
+        public void TryResolveForTimeline_DirectorBindsCharacterTrackToController_ReturnsControllerProfileAsset()
         {
             TimelineAsset timeline = CreateTimelineAsset();
             var host = new GameObject("TimelineProfileSourceHost");
@@ -228,12 +228,11 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
             host.AddComponent<Animator>();
             var controller = host.AddComponent<FacialController>();
             controller.CharacterSO = _profileAsset;
-            var receiver = host.AddComponent<FacialTimelineReceiver>();
             var director = host.AddComponent<PlayableDirector>();
             director.playableAsset = timeline;
-            foreach (TrackAsset track in timeline.GetOutputTracks())
+            foreach (FacialCharacterTrack character in FacialCharacterTrackBinding.CollectCharacterTracks(timeline))
             {
-                director.SetGenericBinding(track, receiver);
+                director.SetGenericBinding(character, controller);
             }
 
             bool resolved = TimelineProfileSource.TryResolveForTimeline(
@@ -264,7 +263,8 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
         {
             var timeline = ScriptableObject.CreateInstance<TimelineAsset>();
             AssetDatabase.CreateAsset(timeline, _folderPath + "/Timeline.playable");
-            FacialExpressionTrack track = timeline.CreateTrack<FacialExpressionTrack>(null, "emotion");
+            FacialCharacterTrack character = timeline.CreateTrack<FacialCharacterTrack>(null, "Facial Character");
+            FacialExpressionTrack track = character.CreateChildTrack<FacialExpressionTrack>("emotion");
             TimelineClip clip = track.CreateClip<FacialExpressionClip>();
             clip.start = 0d;
             clip.duration = 1d;

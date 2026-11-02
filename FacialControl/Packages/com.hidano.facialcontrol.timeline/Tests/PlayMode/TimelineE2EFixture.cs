@@ -11,7 +11,7 @@ using Hidano.FacialControl.Adapters.ScriptableObject.Serializable;
 using Hidano.FacialControl.Domain.Adapters;
 using Hidano.FacialControl.Domain.Models;
 using Hidano.FacialControl.Timeline.Adapters;
-using Hidano.FacialControl.Timeline.Adapters.AdapterBindings;
+using Hidano.FacialControl.Timeline.Tracks;
 using Hidano.FacialControl.Timeline.Adapters.Assets;
 using Hidano.FacialControl.Timeline.Editor;
 using Hidano.FacialControl.Timeline.Tests.Shared;
@@ -23,18 +23,18 @@ using UnityEngine.Timeline;
 namespace Hidano.FacialControl.Timeline.Tests.PlayMode
 {
     /// <summary>
-    /// e2e のキャラクター配置（4 手順の「Receiver を FacialController と同じ GameObject に置く」と Director の置き場所）。
+    /// e2e の Director の置き場所。対象は Facial Character トラックの binding で決まるため、どこに置いても再生できる（HID-408）。
     /// </summary>
     internal enum TimelineE2EPlacement
     {
-        /// <summary>FacialController / Receiver / Director をすべて同じ GameObject に置く。</summary>
+        /// <summary>FacialController と Director を同じ GameObject に置く。</summary>
         SameObject = 0,
 
-        /// <summary>FacialController と Receiver を同じ GameObject に置き、Director は親 GameObject に置く。</summary>
+        /// <summary>Director を親 GameObject に置く。</summary>
         DirectorOnParent = 1,
 
-        /// <summary>Receiver と Director を FacialController の子 GameObject に置く（配置の誤り）。</summary>
-        ReceiverOnChild = 2,
+        /// <summary>Director を FacialController の子 GameObject に置く。</summary>
+        DirectorOnChild = 2,
     }
 
     /// <summary>
@@ -86,7 +86,6 @@ namespace Hidano.FacialControl.Timeline.Tests.PlayMode
         private TimelineE2EFixture(
             string folderPath,
             FacialCharacterProfileSO profileAsset,
-            TimelineAdapterBinding timelineBinding,
             FakeAnalogAdapterBinding fakeBinding,
             RecFixtureWriter.Recording recording,
             string recordingPath,
@@ -94,7 +93,6 @@ namespace Hidano.FacialControl.Timeline.Tests.PlayMode
         {
             _folderPath = folderPath;
             ProfileAsset = profileAsset;
-            TimelineBinding = timelineBinding;
             FakeBinding = fakeBinding;
             Recording = recording;
             RecordingPath = recordingPath;
@@ -102,9 +100,6 @@ namespace Hidano.FacialControl.Timeline.Tests.PlayMode
         }
 
         public FacialCharacterProfileSO ProfileAsset { get; }
-
-        /// <summary>Profile SO の AdapterBindings に入っている Timeline binding（既定値のまま）。</summary>
-        public TimelineAdapterBinding TimelineBinding { get; }
 
         /// <summary>Profile SO の AdapterBindings に入っている Fake analog binding（slug <c>osc</c>）。</summary>
         public FakeAnalogAdapterBinding FakeBinding { get; }
@@ -140,10 +135,8 @@ namespace Hidano.FacialControl.Timeline.Tests.PlayMode
             profileAsset.name = "TimelineE2EProfile_" + guid;
             ConfigureDefaultProfile(profileAsset);
 
-            var timelineBinding = new TimelineAdapterBinding();
             var fakeBinding = new FakeAnalogAdapterBinding { AnalogExpressionId = SquintExpressionId };
             List<AdapterBindingBase> bindings = GetWritableAdapterBindings(profileAsset);
-            bindings.Add(timelineBinding);
             bindings.Add(fakeBinding);
             if (recording.IncludeValueProvider)
             {
@@ -187,7 +180,6 @@ namespace Hidano.FacialControl.Timeline.Tests.PlayMode
             return new TimelineE2EFixture(
                 folderPath,
                 profileAsset,
-                timelineBinding,
                 fakeBinding,
                 recording,
                 recordingPath,
@@ -370,7 +362,7 @@ namespace Hidano.FacialControl.Timeline.Tests.PlayMode
 
         public FacialController Controller { get; }
 
-        /// <summary>ユーザーが配置した Receiver（配置に応じて Root または子 GameObject 上）。</summary>
+        /// <summary>controller の GameObject に内部実装として置かれた Receiver（診断を読む）。</summary>
         public FacialTimelineReceiver Receiver { get; }
 
         public PlayableDirector Director { get; }
@@ -411,21 +403,17 @@ namespace Hidano.FacialControl.Timeline.Tests.PlayMode
             controller.CharacterSO = profileAsset;
 
             GameObject directorHost;
-            GameObject receiverHost;
             switch (placement)
             {
                 case TimelineE2EPlacement.DirectorOnParent:
                     directorHost = stage;
-                    receiverHost = root;
                     break;
-                case TimelineE2EPlacement.ReceiverOnChild:
+                case TimelineE2EPlacement.DirectorOnChild:
                     directorHost = new GameObject("TimelineHost");
                     directorHost.transform.SetParent(root.transform, false);
-                    receiverHost = directorHost;
                     break;
                 default:
                     directorHost = root;
-                    receiverHost = root;
                     break;
             }
 
@@ -435,13 +423,21 @@ namespace Hidano.FacialControl.Timeline.Tests.PlayMode
             director.extrapolationMode = DirectorWrapMode.Hold;
             director.playableAsset = timeline;
 
-            var receiver = receiverHost.AddComponent<FacialTimelineReceiver>();
+            // ユーザーの手順と同じく、Facial Character トラックに FacialController を Bind する（HID-408）。
+            // Receiver は置かない（Mixer が controller の GameObject に内部実装として置く）。
+            foreach (FacialCharacterTrack characterTrack in FacialCharacterTrackBinding.CollectCharacterTracks(timeline))
+            {
+                director.SetGenericBinding(characterTrack, controller);
+            }
 
             root.SetActive(true);
             if (stage != null)
             {
                 stage.SetActive(true);
             }
+
+            // テストが評価前から診断を読めるよう、Mixer と同じ口で Receiver を取っておく。
+            FacialTimelineReceiver receiver = FacialTimelineReceiver.GetOrCreate(controller);
 
             return new TimelineE2ECharacter(
                 stage != null ? stage : root,

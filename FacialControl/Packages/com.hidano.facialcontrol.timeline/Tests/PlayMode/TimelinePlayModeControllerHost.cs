@@ -6,7 +6,6 @@ using Hidano.FacialControl.Domain.Interfaces;
 using Hidano.FacialControl.Domain.Models;
 using Hidano.FacialControl.Domain.Services;
 using Hidano.FacialControl.Timeline.Adapters;
-using Hidano.FacialControl.Timeline.Adapters.AdapterBindings;
 using Hidano.FacialControl.Timeline.Adapters.Assets;
 using Hidano.FacialControl.Timeline.Adapters.InputSources;
 using Hidano.FacialControl.Timeline.Adapters.Scanning;
@@ -71,8 +70,9 @@ namespace Hidano.FacialControl.Timeline.Tests.PlayMode
     }
 
     /// <summary>
-    /// 既存 PlayMode fixture 共通の再生リグ。FacialController（ホスト）+ Receiver + Timeline binding（controller の実 registry）+
-    /// Manual 更新の Director を組み、Mixer の最初の評価でセッションを開始する。
+    /// 既存 PlayMode fixture 共通の再生リグ。FacialController（ホスト）+ Receiver + Manual 更新の Director を組み、
+    /// Facial Character トラックに controller を Bind する。Mixer の最初の評価で、Receiver が controller の実 registry から
+    /// 接続コンテキストを取ってセッションを開始する（HID-408）。
     /// </summary>
     /// <remarks>
     /// レイヤーは Profile に Timeline 専用の設定を書かず、トラック名から <see cref="TimelineChannelDeriver"/> で自動導出される。
@@ -81,7 +81,6 @@ namespace Hidano.FacialControl.Timeline.Tests.PlayMode
     /// </remarks>
     internal sealed class TimelinePlayModeRig : IDisposable
     {
-        private readonly TimelineAdapterBinding _binding;
         private readonly GameObject _hostObject;
         private readonly GameObject _directorObject;
 
@@ -100,16 +99,6 @@ namespace Hidano.FacialControl.Timeline.Tests.PlayMode
             Controller = _hostObject.GetComponent<FacialController>();
             Receiver = _hostObject.AddComponent<FacialTimelineReceiver>();
             Receiver.BakeAsset = bake;
-
-            _binding = new TimelineAdapterBinding();
-            _binding.OnStart(new AdapterBuildContext(
-                profile,
-                blendShapeNames,
-                Controller.InputSourceRegistry,
-                new FacialOutputBus(),
-                new NoopTimeProvider(),
-                _hostObject,
-                lipSyncProvider: null));
 
             _directorObject = new GameObject(name + "_Director");
             Director = _directorObject.AddComponent<PlayableDirector>();
@@ -190,8 +179,6 @@ namespace Hidano.FacialControl.Timeline.Tests.PlayMode
                 Director.playableGraph.Destroy();
             }
 
-            _binding.Dispose();
-
             if (_directorObject != null)
             {
                 UnityEngine.Object.DestroyImmediate(_directorObject);
@@ -200,21 +187,23 @@ namespace Hidano.FacialControl.Timeline.Tests.PlayMode
             TimelinePlayModeControllerHost.Destroy(_hostObject);
         }
 
-        /// <summary>同じ Receiver を全 Facial トラックに binding する（別 Director で競合を作るときにも使う）。</summary>
-        public static void BindAllFacialTracks(PlayableDirector director, TimelineAsset timeline, FacialTimelineReceiver receiver)
+        /// <summary>Timeline の Facial Character トラック（無ければ root に作る）。再生するトラックはこの子に作る。</summary>
+        public static Tracks.FacialCharacterTrack Character(TimelineAsset timeline)
         {
-            foreach (TrackAsset track in timeline.GetOutputTracks())
-            {
-                if (track is Tracks.FacialExpressionTrack || track is Tracks.FacialValueTrack)
-                {
-                    director.SetGenericBinding(track, receiver);
-                }
-            }
+            List<Tracks.FacialCharacterTrack> existing = Tracks.FacialCharacterTrackBinding.CollectCharacterTracks(timeline);
+            return existing.Count > 0 ? existing[0] : timeline.CreateTrack<Tracks.FacialCharacterTrack>(null, "Facial Character");
         }
 
-        private sealed class NoopTimeProvider : ITimeProvider
+        /// <summary>
+        /// Receiver の FacialController を Timeline の Facial Character トラックに Bind する（別 Director で競合を作るときにも使う。HID-408）。
+        /// </summary>
+        public static void BindAllFacialTracks(PlayableDirector director, TimelineAsset timeline, FacialTimelineReceiver receiver)
         {
-            public double UnscaledTimeSeconds => 0d;
+            FacialController controller = receiver.GetComponent<FacialController>();
+            foreach (Tracks.FacialCharacterTrack character in Tracks.FacialCharacterTrackBinding.CollectCharacterTracks(timeline))
+            {
+                director.SetGenericBinding(character, controller);
+            }
         }
     }
 }

@@ -33,7 +33,7 @@ namespace Hidano.FacialControl.Timeline.Editor
     {
         private const string LogPrefix = "[FacialTimelineEditorPreview] ";
         private const string ControllerMissingMessage =
-            "FacialController が見つからないためプレビューできません。FacialTimelineReceiver と同じ GameObject に FacialController を置いてください。";
+            "FacialController が見つからないためプレビューできません。Facial Character トラックに FacialController を Bind してください。";
         private const string ProfileAssetMissingMessage =
             "FacialController に Character SO（Profile SO）が設定されていないためプレビューできません。";
         private const string TimelineMissingMessage =
@@ -154,13 +154,7 @@ namespace Hidano.FacialControl.Timeline.Editor
                 return;
             }
 
-            FacialTimelineReceiver receiver = ResolveBoundReceiver(director, track);
-            if (receiver == null)
-            {
-                return;
-            }
-
-            FacialController controller = ResolveController(receiver);
+            FacialController controller = FacialCharacterTrackBinding.ResolveController(director, track);
             if (controller == null)
             {
                 return;
@@ -447,22 +441,13 @@ namespace Hidano.FacialControl.Timeline.Editor
             collector.AddFromName<Transform>(target.gameObject, "m_LocalRotation.w");
         }
 
+        /// <summary>
+        /// トラックの対象（祖先の Facial Character トラックに Bind された FacialController）の Receiver。無ければ内部実装として置く。
+        /// 親トラックが無い（旧構造）・Bind されていないときは null（HID-408）。
+        /// </summary>
         internal static FacialTimelineReceiver ResolveBoundReceiver(PlayableDirector director, TrackAsset track)
         {
-            for (TrackAsset current = track; current != null; current = current.parent as TrackAsset)
-            {
-                switch (director.GetGenericBinding(current))
-                {
-                    case FacialTimelineReceiver receiver:
-                        return receiver;
-                    case GameObject gameObject:
-                        return gameObject.GetComponent<FacialTimelineReceiver>();
-                    case Component component:
-                        return component.GetComponent<FacialTimelineReceiver>();
-                }
-            }
-
-            return null;
+            return FacialTimelineReceiver.GetOrCreate(FacialCharacterTrackBinding.ResolveController(director, track));
         }
 
         internal static FacialController ResolveController(FacialTimelineReceiver receiver)

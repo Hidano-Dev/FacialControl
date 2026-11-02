@@ -288,52 +288,43 @@ namespace Hidano.FacialControl.Timeline.Tests.PlayMode
         }
 
         [UnityTest]
-        public IEnumerator ReceiverOnChildObject_Play_ReportsReceiverNotOnControllerObject()
+        public IEnumerator DirectorOnChild_ProfileWithoutTimelineBinding_PlaysBoundCharacter()
         {
-            LogAssert.ignoreFailingMessages = true;
+            // HID-408: Profile に Timeline binding を足さず、Receiver も置かず、Facial Character トラックに FacialController を
+            // Bind するだけで再生できる。Director はどこに置いてもよい。
             _fixture = TimelineE2EFixture.Create();
-            TimelineE2ECharacter character = _fixture.Spawn(TimelineE2EPlacement.ReceiverOnChild);
-            Assert.That(character.Receiver.gameObject, Is.Not.SameAs(character.Controller.gameObject), "前提: Receiver は controller と別 GameObject");
-
-            // Start の静的診断（配置の誤り）が Play 開始時に記録される。
-            yield return null;
-            Assert.That(
-                character.Receiver.Diagnostics.Contains(TimelineDiagnosticCode.ReceiverNotOnControllerObject),
-                Is.True,
-                DescribeDiagnostics(character));
+            TimelineE2ECharacter character = _fixture.Spawn(TimelineE2EPlacement.DirectorOnChild);
+            Assert.That(character.Director.gameObject, Is.Not.SameAs(character.Controller.gameObject), "前提: Director は controller と別 GameObject");
 
             yield return character.EvaluateAt(MidTriggerSeconds);
-            Assert.That(character.Receiver.SessionState, Is.EqualTo(TimelineSessionState.Failed), DescribeDiagnostics(character));
-            Assert.That(
-                character.Receiver.Diagnostics.Contains(TimelineDiagnosticCode.ReceiverNotOnControllerObject),
-                Is.True,
-                DescribeDiagnostics(character));
-            Assert.That(character.GetBlendShapeWeight(TimelineE2EFixture.SmileBlendShape), Is.EqualTo(0f).Within(WeightTolerance));
+
+            Assert.That(character.Receiver.SessionState, Is.EqualTo(TimelineSessionState.Active), DescribeDiagnostics(character));
+            Assert.That(character.Receiver.gameObject, Is.SameAs(character.Controller.gameObject), "Receiver は controller の GameObject に自動で置かれる");
+            Assert.That(character.GetBlendShapeWeight(TimelineE2EFixture.SmileBlendShape), Is.EqualTo(100f).Within(WeightTolerance));
         }
 
         [UnityTest]
-        public IEnumerator BindingDisabled_Play_ReportsBindingDisabled()
+        public IEnumerator CharacterTrackUnbound_Play_DoesNotPlayOrTakeOver()
         {
             LogAssert.ignoreFailingMessages = true;
             _fixture = TimelineE2EFixture.Create();
-            _fixture.TimelineBinding.Enabled = false;
-            _fixture.MarkProfileChanged();
             TimelineE2ECharacter character = _fixture.Spawn(TimelineE2EPlacement.SameObject);
-
-            yield return null;
-            Assert.That(character.Receiver.Diagnostics.Contains(TimelineDiagnosticCode.BindingDisabled), Is.True, DescribeDiagnostics(character));
+            foreach (FacialCharacterTrack characterTrack in FacialCharacterTrackBinding.CollectCharacterTracks(_fixture.Timeline))
+            {
+                character.Director.ClearGenericBinding(characterTrack);
+            }
 
             yield return character.EvaluateAt(MidTriggerSeconds);
-            Assert.That(character.Receiver.SessionState, Is.EqualTo(TimelineSessionState.Failed), DescribeDiagnostics(character));
-            Assert.That(character.Receiver.Diagnostics.Contains(TimelineDiagnosticCode.BindingDisabled), Is.True, DescribeDiagnostics(character));
-            Assert.That(ResolveRegistry(character.Controller, EmotionValueSinkId), Is.Null, "無効時は sink を登録しない");
-            Assert.That(ResolveRegistry(character.Controller, _fixture.FakeBinding.AnalogSourceId), Is.SameAs(_fixture.FakeBinding.AnalogSource), "無効時は乗っ取らない");
+
+            Assert.That(character.Receiver.SessionState, Is.EqualTo(TimelineSessionState.Idle), "Bind されていない親トラックは再生しない（自動 Bind しない）");
+            Assert.That(ResolveRegistry(character.Controller, EmotionValueSinkId), Is.Null, "sink を登録しない");
+            Assert.That(ResolveRegistry(character.Controller, _fixture.FakeBinding.AnalogSourceId), Is.SameAs(_fixture.FakeBinding.AnalogSource), "乗っ取らない");
             Assert.That(character.GetBlendShapeWeight(TimelineE2EFixture.SmileBlendShape), Is.EqualTo(0f).Within(WeightTolerance));
         }
 
         private static TimelineClip FindEmotionClip(TimelineAsset timeline)
         {
-            foreach (TrackAsset track in timeline.GetRootTracks())
+            foreach (TrackAsset track in timeline.GetOutputTracks())
             {
                 if (track is FacialExpressionTrack && track.name == TimelineE2EFixture.EmotionLayer)
                 {
@@ -400,8 +391,11 @@ namespace Hidano.FacialControl.Timeline.Tests.PlayMode
                 }
             }
 
-            Assert.That(fixture.TimelineBinding.HasLegacyFields, Is.False, "前提: Target Layer Names / Channel Definitions を書かない");
-            Assert.That(fixture.TimelineBinding.Enabled, Is.True);
+            foreach (var binding in TimelineE2EFixture.GetWritableAdapterBindings(fixture.ProfileAsset))
+            {
+                Assert.That(binding, Is.Not.InstanceOf<Hidano.FacialControl.Timeline.Adapters.AdapterBindings.TimelineAdapterBinding>(),
+                    "前提: Profile の Adapter Bindings に Timeline binding を足さない（HID-408）");
+            }
         }
 
         private static IInputSource ResolveRegistry(FacialController controller, string id)

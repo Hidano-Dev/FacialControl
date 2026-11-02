@@ -20,7 +20,6 @@ namespace Hidano.FacialControl.Timeline.Domain.Diagnostics
         TrackBinding,
         Bake,
         Profile,
-        ProfileBinding,
         LayerMatch,
         LayerConnection,
         Analog,
@@ -42,9 +41,13 @@ namespace Hidano.FacialControl.Timeline.Domain.Diagnostics
         TimelineNotBound,
         DirectorAmbiguous,
 
-        // TrackBinding
-        TrackBindingAutoAssigned,
-        TrackBindingForeign,
+        // TrackBinding（トラック構造。HID-408）
+
+        /// <summary>Facial Character トラックの外に Facial トラックがある（親トラック導入前の旧構造）。REC から書き出し直す。</summary>
+        LegacyTrackStructure,
+
+        /// <summary>1 つの Timeline に Facial Character トラックが複数ある（合成は Timeline 全体を 1 体として評価するため未対応）。</summary>
+        MultipleCharacterTracks,
 
         // Bake
         BakeFresh,
@@ -59,12 +62,6 @@ namespace Hidano.FacialControl.Timeline.Domain.Diagnostics
         // Profile
         ProfileMatched,
         ProfileMismatch,
-
-        // ProfileBinding
-        BindingMissing,
-        BindingDisabled,
-        BindingLegacyFields,
-        BindingSlugInvalid,
 
         // LayerMatch
         TrackLayerUnmatched,
@@ -88,7 +85,6 @@ namespace Hidano.FacialControl.Timeline.Domain.Diagnostics
         GazeOccupied,
 
         // Placement
-        ReceiverNotOnControllerObject,
         ControllerMissing,
         ControllerNotInitialized,
 

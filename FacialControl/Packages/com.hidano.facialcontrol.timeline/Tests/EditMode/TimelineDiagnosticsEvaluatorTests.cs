@@ -6,7 +6,6 @@ using Hidano.FacialControl.Domain.Adapters;
 using Hidano.FacialControl.Domain.Models;
 using Hidano.FacialControl.Testing;
 using Hidano.FacialControl.Timeline.Adapters;
-using Hidano.FacialControl.Timeline.Adapters.AdapterBindings;
 using Hidano.FacialControl.Timeline.Adapters.Assets;
 using Hidano.FacialControl.Timeline.Adapters.Diagnostics;
 using Hidano.FacialControl.Timeline.Adapters.Scanning;
@@ -95,7 +94,8 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
 
             Assert.That(diagnostics.Contains(TimelineDiagnosticCode.DirectorAmbiguous), Is.True);
             Assert.That(diagnostics.Contains(TimelineDiagnosticCode.DirectorMissing), Is.False);
-            Assert.That(SeverityOf(diagnostics, TimelineDiagnosticCode.DirectorAmbiguous), Is.EqualTo(TimelineDiagnosticSeverity.Error));
+            Assert.That(SeverityOf(diagnostics, TimelineDiagnosticCode.DirectorAmbiguous), Is.EqualTo(TimelineDiagnosticSeverity.Warning),
+                "同じキャラを複数の Director が Bind するのは正当な構成なので Warning（HID-408）");
         }
 
         [Test]
@@ -116,18 +116,45 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
         // ================================================================
 
         [Test]
-        public void EvaluateStatic_TrackBindingReport_ReportsAutoAssignedAndForeign()
+        public void EvaluateStatic_FacialTrackOutsideCharacterTrack_ReportsLegacyTrackStructureError()
         {
             Scenario s = CreateScenario();
-            var report = new TrackBindingReport(assigned: 1, alreadyBound: 0, boundToOther: new TrackAsset[] { s.Track });
+            s.Timeline.CreateTrack<FacialValueTrack>(null, "legacy");
             var diagnostics = new FacialTimelineDiagnostics();
 
-            TimelineDiagnosticsEvaluator.EvaluateStatic(s.Receiver, diagnostics, s.BuildContext(trackBindings: report));
+            TimelineDiagnosticsEvaluator.EvaluateStatic(s.Receiver, diagnostics, s.BuildContext());
 
-            Assert.That(diagnostics.Contains(TimelineDiagnosticCode.TrackBindingAutoAssigned), Is.True);
-            Assert.That(SeverityOf(diagnostics, TimelineDiagnosticCode.TrackBindingAutoAssigned), Is.EqualTo(TimelineDiagnosticSeverity.Info));
-            Assert.That(diagnostics.Contains(TimelineDiagnosticCode.TrackBindingForeign, EmotionLayer), Is.True);
-            Assert.That(SeverityOf(diagnostics, TimelineDiagnosticCode.TrackBindingForeign), Is.EqualTo(TimelineDiagnosticSeverity.Warning));
+            Assert.That(diagnostics.Contains(TimelineDiagnosticCode.LegacyTrackStructure, "legacy"), Is.True, Describe(diagnostics));
+            Assert.That(SeverityOf(diagnostics, TimelineDiagnosticCode.LegacyTrackStructure), Is.EqualTo(TimelineDiagnosticSeverity.Error));
+        }
+
+        [Test]
+        public void EvaluateStatic_TwoCharacterTracks_ReportsMultipleCharacterTracksError()
+        {
+            Scenario s = CreateScenario();
+            s.Timeline.CreateTrack<FacialCharacterTrack>(null, "Second");
+            var diagnostics = new FacialTimelineDiagnostics();
+
+            TimelineDiagnosticsEvaluator.EvaluateStatic(s.Receiver, diagnostics, s.BuildContext());
+
+            Assert.That(diagnostics.Contains(TimelineDiagnosticCode.MultipleCharacterTracks), Is.True, Describe(diagnostics));
+        }
+
+        [Test]
+        public void EvaluateTrackStructureArea_AllUnderOneCharacterTrack_ReturnsFalseAndClearsArea()
+        {
+            Scenario s = CreateScenario();
+            var diagnostics = new FacialTimelineDiagnostics();
+            diagnostics.ReplaceArea(TimelineDiagnosticArea.TrackBinding, new[]
+            {
+                new TimelineDiagnosticItem(TimelineDiagnosticArea.TrackBinding, TimelineDiagnosticCode.LegacyTrackStructure,
+                    TimelineDiagnosticSeverity.Error, "stale", string.Empty),
+            });
+
+            bool hasError = TimelineDiagnosticsEvaluator.EvaluateTrackStructureArea(diagnostics, s.Timeline);
+
+            Assert.That(hasError, Is.False);
+            Assert.That(diagnostics.Contains(TimelineDiagnosticCode.LegacyTrackStructure), Is.False, "再評価で古い項目を消す");
         }
 
         // ================================================================
@@ -151,7 +178,7 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
         public void EvaluateStatic_PartialTrackReference_ReportsReferenceConflictError()
         {
             Scenario s = CreateScenario();
-            var second = s.Timeline.CreateTrack<FacialExpressionTrack>(null, "other");
+            var second = s.Character.CreateChildTrack<FacialExpressionTrack>("other");
             second.Bake = null;
             var diagnostics = new FacialTimelineDiagnostics();
 
@@ -237,11 +264,11 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
         }
 
         // ================================================================
-        // ProfileBinding
+        // Profile の Adapter Bindings（HID-408 で Timeline binding は不要になった）
         // ================================================================
 
         [Test]
-        public void EvaluateStatic_ProfileWithoutTimelineBinding_ReportsBindingMissing()
+        public void EvaluateStatic_ProfileWithoutTimelineBinding_HasNoErrors()
         {
             Scenario s = CreateScenario();
             s.ProfileSO.WritableAdapterBindings.Clear();
@@ -249,90 +276,7 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
 
             TimelineDiagnosticsEvaluator.EvaluateStatic(s.Receiver, diagnostics, s.BuildContext());
 
-            Assert.That(diagnostics.Contains(TimelineDiagnosticCode.BindingMissing), Is.True);
-            Assert.That(SeverityOf(diagnostics, TimelineDiagnosticCode.BindingMissing), Is.EqualTo(TimelineDiagnosticSeverity.Error));
-        }
-
-        [Test]
-        public void EvaluateStatic_NoProfileSource_ReportsBindingMissing()
-        {
-            Scenario s = CreateScenario();
-            var diagnostics = new FacialTimelineDiagnostics();
-
-            TimelineDiagnosticsEvaluator.EvaluateStatic(s.Receiver, diagnostics, s.BuildContext(profileSource: null, useProfileSource: false));
-
-            Assert.That(diagnostics.Contains(TimelineDiagnosticCode.BindingMissing), Is.True);
-        }
-
-        [Test]
-        public void EvaluateStatic_InvalidBindingSlug_ReportsBindingSlugInvalid()
-        {
-            Scenario s = CreateScenario();
-            s.Binding.Slug = "Not A Slug!";
-            var diagnostics = new FacialTimelineDiagnostics();
-
-            TimelineDiagnosticsEvaluator.EvaluateStatic(s.Receiver, diagnostics, s.BuildContext());
-
-            Assert.That(diagnostics.Contains(TimelineDiagnosticCode.BindingSlugInvalid), Is.True);
-            Assert.That(diagnostics.Contains(TimelineDiagnosticCode.BindingMissing), Is.False);
-        }
-
-        [Test]
-        public void EvaluateStatic_BindingDisabled_ReportsBindingDisabledError()
-        {
-            Scenario s = CreateScenario();
-            s.Binding.Enabled = false;
-            var diagnostics = new FacialTimelineDiagnostics();
-
-            TimelineDiagnosticsEvaluator.EvaluateStatic(s.Receiver, diagnostics, s.BuildContext());
-
-            Assert.That(diagnostics.Contains(TimelineDiagnosticCode.BindingDisabled), Is.True, Describe(diagnostics));
-            Assert.That(SeverityOf(diagnostics, TimelineDiagnosticCode.BindingDisabled), Is.EqualTo(TimelineDiagnosticSeverity.Error));
-            Assert.That(diagnostics.Contains(TimelineDiagnosticCode.BindingMissing), Is.False);
-        }
-
-        [Test]
-        public void EvaluateStatic_BindingDisabledByHeaderToggle_ReportsBindingDisabledError()
-        {
-            Scenario s = CreateScenario();
-            s.Binding.Disabled = true;
-            var diagnostics = new FacialTimelineDiagnostics();
-
-            TimelineDiagnosticsEvaluator.EvaluateStatic(s.Receiver, diagnostics, s.BuildContext());
-
-            Assert.That(diagnostics.Contains(TimelineDiagnosticCode.BindingDisabled), Is.True, Describe(diagnostics));
-            Assert.That(diagnostics.Contains(TimelineDiagnosticCode.BindingMissing), Is.False);
-        }
-
-        [Test]
-        public void EvaluateStatic_DisabledBindingFollowedByEnabledBinding_DoesNotReportBindingDisabled()
-        {
-            Scenario s = CreateScenario();
-            s.Binding.Disabled = true;
-            s.ProfileSO.WritableAdapterBindings.Add(new TimelineAdapterBinding { Slug = "timeline2" });
-            var diagnostics = new FacialTimelineDiagnostics();
-
-            TimelineDiagnosticsEvaluator.EvaluateStatic(s.Receiver, diagnostics, s.BuildContext());
-
-            Assert.That(diagnostics.Contains(TimelineDiagnosticCode.BindingDisabled), Is.False,
-                "Play で起動する有効な binding があれば、無効の binding は診断に使わない。" + Describe(diagnostics));
-        }
-
-        [Test]
-        public void EvaluateStatic_BindingWithLegacyFields_ReportsBindingLegacyFieldsWarning()
-        {
-            Scenario s = CreateScenario();
-            var legacy = (List<string>)typeof(TimelineAdapterBinding)
-                .GetField("targetLayerNames", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)
-                .GetValue(s.Binding);
-            legacy.Add(EmotionLayer);
-            var diagnostics = new FacialTimelineDiagnostics();
-
-            TimelineDiagnosticsEvaluator.EvaluateStatic(s.Receiver, diagnostics, s.BuildContext());
-
-            Assert.That(diagnostics.Contains(TimelineDiagnosticCode.BindingLegacyFields), Is.True, Describe(diagnostics));
-            Assert.That(SeverityOf(diagnostics, TimelineDiagnosticCode.BindingLegacyFields), Is.EqualTo(TimelineDiagnosticSeverity.Warning));
-            Assert.That(diagnostics.HasErrors, Is.False, "legacy フィールドは再生を止めない");
+            Assert.That(diagnostics.HasErrors, Is.False, "Timeline binding が無くても再生できる。" + Describe(diagnostics));
         }
 
         // ================================================================
@@ -355,22 +299,6 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
         // ================================================================
         // Placement
         // ================================================================
-
-        [Test]
-        public void EvaluateStatic_ReceiverOnDifferentObject_ReportsReceiverNotOnControllerObject()
-        {
-            Scenario s = CreateScenario();
-            var other = new GameObject("OtherReceiverHost");
-            _created.Add(other);
-            var receiver = other.AddComponent<FacialTimelineReceiver>();
-            var diagnostics = new FacialTimelineDiagnostics();
-
-            TimelineDiagnosticsEvaluator.EvaluateStatic(receiver, diagnostics, s.BuildContext());
-
-            Assert.That(diagnostics.Contains(TimelineDiagnosticCode.ReceiverNotOnControllerObject), Is.True);
-            Assert.That(SeverityOf(diagnostics, TimelineDiagnosticCode.ReceiverNotOnControllerObject),
-                Is.EqualTo(TimelineDiagnosticSeverity.Error));
-        }
 
         [Test]
         public void EvaluateStatic_NoController_ReportsControllerMissing()
@@ -446,7 +374,6 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
             Assert.That(diagnostics.Contains(TimelineDiagnosticCode.ProfileMismatch), Is.True);
             Assert.That(diagnostics.Contains(TimelineDiagnosticCode.ControllerMissing), Is.True, "他領域は触らない");
             Assert.That(diagnostics.Contains(TimelineDiagnosticCode.DirectorMissing), Is.False);
-            Assert.That(diagnostics.Contains(TimelineDiagnosticCode.BindingMissing), Is.False);
         }
 
         [Test]
@@ -471,7 +398,7 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
         {
             Scenario s = CreateScenario();
             SaveTimeline(s);
-            var second = s.Timeline.CreateTrack<FacialExpressionTrack>(null, "other");
+            var second = s.Character.CreateChildTrack<FacialExpressionTrack>("other");
             second.Bake = null;
             TimelineEditChangeWatcher watcher = CreateWatcher();
 
@@ -502,7 +429,7 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
         public void EditEvaluate_ConflictOnUnsavedTimeline_ReportsUnsavedTimelineAndStaysNotPending()
         {
             Scenario s = CreateScenario();
-            var second = s.Timeline.CreateTrack<FacialExpressionTrack>(null, "other");
+            var second = s.Character.CreateChildTrack<FacialExpressionTrack>("other");
             second.Bake = null;
             TimelineEditChangeWatcher watcher = CreateWatcher();
 
@@ -519,7 +446,7 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
         {
             Scenario s = CreateScenario();
             SaveTimeline(s);
-            var second = s.Timeline.CreateTrack<FacialExpressionTrack>(null, "other");
+            var second = s.Character.CreateChildTrack<FacialExpressionTrack>("other");
             second.Bake = null;
             TimelineEditChangeWatcher watcher = CreateWatcher();
             var gate = new AutoRebakeRequestGate();
@@ -589,141 +516,26 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
             Assert.That(result.Director, Is.SameAs(s.Director));
             Assert.That(result.Timeline, Is.SameAs(s.Timeline));
             Assert.That(result.ProfileAsset, Is.SameAs(s.ProfileSO));
-            Assert.That(result.UnboundTrackCount, Is.EqualTo(0), "未設定だった Facial トラックは Edit 評価で自動設定される");
         }
 
         // ================================================================
-        // Edit 側の Track binding 自動設定（Req 1.6 / D7）
+        // Edit 側はトラックの binding を書かない（自動 Bind の廃止。HID-408）
         // ================================================================
 
         [Test]
-        public void EditEvaluate_UnboundTrack_AutoAssignsReceiverAndReportsAutoAssignedWithCount()
+        public void EditEvaluate_UnboundCharacterTrack_DoesNotWriteBindingOrDirtyDirector()
         {
             Scenario s = CreateScenario();
-            s.Timeline.CreateTrack<FacialExpressionTrack>(null, "other").Bake = s.Bake;
-            TimelineEditChangeWatcher watcher = CreateWatcher();
-
-            FacialTimelineReceiverEditEvaluator.Evaluate(s.Receiver, watcher, requestAutoRebake: true);
-
-            Assert.That(s.Director.GetGenericBinding(s.Track), Is.SameAs(s.Receiver), "未設定の Facial トラックに Receiver が設定される");
-            FacialTimelineDiagnostics diagnostics = s.Receiver.Diagnostics;
-            Assert.That(diagnostics.Contains(TimelineDiagnosticCode.TrackBindingAutoAssigned), Is.True, Describe(diagnostics));
-            Assert.That(SeverityOf(diagnostics, TimelineDiagnosticCode.TrackBindingAutoAssigned), Is.EqualTo(TimelineDiagnosticSeverity.Info));
-            Assert.That(SubjectOf(diagnostics, TimelineDiagnosticCode.TrackBindingAutoAssigned), Does.StartWith("2 本"), "件名に設定した本数を出す");
-        }
-
-        [Test]
-        public void EditEvaluate_ReevaluatedAfterAutoAssign_KeepsAutoAssignedForSameDirector()
-        {
-            Scenario s = CreateScenario();
-            TimelineEditChangeWatcher watcher = CreateWatcher();
-            FacialTimelineReceiverEditEvaluator.Evaluate(s.Receiver, watcher, requestAutoRebake: true);
-
-            FacialTimelineReceiverEditEvaluator.Evaluate(s.Receiver, watcher, requestAutoRebake: true);
-
-            Assert.That(s.Receiver.Diagnostics.Contains(TimelineDiagnosticCode.TrackBindingAutoAssigned), Is.True,
-                "直後の再評価（binding 変更の通知による）で表示が消えない");
-        }
-
-        [Test]
-        public void EditEvaluate_AllTracksAlreadyBound_DoesNotWriteDirector()
-        {
-            Scenario s = CreateScenario();
-            s.Director.SetGenericBinding(s.Track, s.Receiver);
+            s.Director.ClearGenericBinding(s.Character);
             int dirtyBefore = UnityEditor.EditorUtility.GetDirtyCount(s.Director);
-            UnityEditor.Undo.IncrementCurrentGroup();
-            int undoGroupBefore = UnityEditor.Undo.GetCurrentGroup();
+            s.Receiver.DirectorOverride = s.Director;
             TimelineEditChangeWatcher watcher = CreateWatcher();
 
             FacialTimelineReceiverEditEvaluator.Evaluate(s.Receiver, watcher, requestAutoRebake: true);
 
-            Assert.That(UnityEditor.EditorUtility.GetDirtyCount(s.Director), Is.EqualTo(dirtyBefore), "表示しただけでは Director を dirty にしない");
-            Assert.That(UnityEditor.Undo.GetCurrentGroup(), Is.EqualTo(undoGroupBefore), "Undo 履歴を積まない");
-            Assert.That(s.Director.GetGenericBinding(s.Track), Is.SameAs(s.Receiver));
-            Assert.That(s.Receiver.Diagnostics.Contains(TimelineDiagnosticCode.TrackBindingAutoAssigned), Is.False);
-        }
-
-        [Test]
-        public void EditEvaluate_TrackBoundToOtherObject_ReportsForeignAndKeepsBinding()
-        {
-            Scenario s = CreateScenario();
-            var other = new GameObject("OtherBindingTarget");
-            _created.Add(other);
-            s.Director.SetGenericBinding(s.Track, other);
-            TimelineEditChangeWatcher watcher = CreateWatcher();
-
-            FacialTimelineReceiverEditEvaluator.Evaluate(s.Receiver, watcher, requestAutoRebake: true);
-
-            Assert.That(s.Director.GetGenericBinding(s.Track), Is.SameAs(other), "他オブジェクトを指す binding は触らない");
-            FacialTimelineDiagnostics diagnostics = s.Receiver.Diagnostics;
-            Assert.That(diagnostics.Contains(TimelineDiagnosticCode.TrackBindingForeign, EmotionLayer), Is.True, Describe(diagnostics));
-            Assert.That(SeverityOf(diagnostics, TimelineDiagnosticCode.TrackBindingForeign), Is.EqualTo(TimelineDiagnosticSeverity.Warning));
-            Assert.That(diagnostics.Contains(TimelineDiagnosticCode.TrackBindingAutoAssigned), Is.False);
-        }
-
-        [Test]
-        public void EditEvaluate_AutoAssign_IsUndoable()
-        {
-            Scenario s = CreateScenario();
-            UnityEditor.Undo.IncrementCurrentGroup();
-            TimelineEditChangeWatcher watcher = CreateWatcher();
-
-            FacialTimelineReceiverEditEvaluator.Evaluate(s.Receiver, watcher, requestAutoRebake: true);
-            Assert.That(s.Director.GetGenericBinding(s.Track), Is.SameAs(s.Receiver));
-
-            UnityEditor.Undo.PerformUndo();
-
-            Assert.That(s.Director.GetGenericBinding(s.Track), Is.Null, "自動設定は Undo で戻る");
-        }
-
-        [Test]
-        public void EditEvaluate_TrackBindingWriteNotAllowed_DoesNotWriteAndDoesNotReportAutoAssigned()
-        {
-            Scenario s = CreateScenario();
-            int dirtyBefore = UnityEditor.EditorUtility.GetDirtyCount(s.Director);
-            TimelineEditChangeWatcher watcher = CreateWatcher();
-
-            ReceiverEditEvaluation result = FacialTimelineReceiverEditEvaluator.Evaluate(
-                s.Receiver, watcher, requestAutoRebake: true, allowTrackBindingWrite: false);
-
-            Assert.That(s.Director.GetGenericBinding(s.Track), Is.Null, "Undo 起点の評価では binding を書かない");
+            Assert.That(s.Director.GetGenericBinding(s.Character), Is.Null, "親トラックの binding を自動で書かない");
+            Assert.That(s.Director.GetGenericBinding(s.Track), Is.Null, "子トラックにも書かない");
             Assert.That(UnityEditor.EditorUtility.GetDirtyCount(s.Director), Is.EqualTo(dirtyBefore));
-            Assert.That(s.Receiver.Diagnostics.Contains(TimelineDiagnosticCode.TrackBindingAutoAssigned), Is.False);
-            Assert.That(result.UnboundTrackCount, Is.EqualTo(1), "未設定数は「トラック binding を今設定」の対象として残る");
-        }
-
-        [Test]
-        public void EditEvaluate_AssignGate_AutoAssignsOncePerDirectorAndTimeline()
-        {
-            Scenario s = CreateScenario();
-            TimelineEditChangeWatcher watcher = CreateWatcher();
-            var gate = new TrackBindingAutoAssignGate();
-
-            FacialTimelineReceiverEditEvaluator.Evaluate(s.Receiver, watcher, true, assignGate: gate);
-            Assert.That(s.Director.GetGenericBinding(s.Track), Is.SameAs(s.Receiver));
-
-            s.Director.SetGenericBinding(s.Track, null);
-            FacialTimelineReceiverEditEvaluator.Evaluate(s.Receiver, watcher, true, assignGate: gate);
-
-            Assert.That(s.Director.GetGenericBinding(s.Track), Is.Null, "同じ (Director, Timeline) では 2 回目を書かない");
-            Assert.That(s.Receiver.Diagnostics.Contains(TimelineDiagnosticCode.TrackBindingAutoAssigned), Is.False,
-                "未設定が残っている間は AutoAssigned を出さない");
-        }
-
-        [Test]
-        public void EditorTrackBindingWriter_SetsBindingWithUndo()
-        {
-            Scenario s = CreateScenario();
-            UnityEditor.Undo.IncrementCurrentGroup();
-
-            TrackBindingReport report = TimelineTrackBindingResolver.EnsureBindings(
-                s.Director, s.Timeline, s.Receiver, EditorTrackBindingWriter.Instance);
-            Assert.That(report.Assigned, Is.EqualTo(1));
-            Assert.That(s.Director.GetGenericBinding(s.Track), Is.SameAs(s.Receiver));
-
-            UnityEditor.Undo.PerformUndo();
-
-            Assert.That(s.Director.GetGenericBinding(s.Track), Is.Null, "Undo で元に戻る");
         }
 
         private string _savedFolder;
@@ -779,7 +591,7 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
             public FacialExpressionTrack Track;
             public FacialTimelineBakeAsset Bake;
             public TestProfileSO ProfileSO;
-            public TimelineAdapterBinding Binding;
+            public FacialCharacterTrack Character;
             public FacialProfile Profile;
             public System.Func<FacialTimelineBakeAsset> BakeFactory;
 
@@ -793,8 +605,7 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
                 bool useController = true,
                 FacialCharacterProfileSO profileSource = null,
                 bool useProfileSource = true,
-                BakeLocateResult? bake = null,
-                TrackBindingReport? trackBindings = null)
+                BakeLocateResult? bake = null)
             {
                 bool directorGiven = director != null || directorStatus != DirectorResolveStatus.SameObject;
                 PlayableDirector resolvedDirector = directorGiven ? director : Director;
@@ -817,8 +628,7 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
                     hasProfile: true,
                     gazeChannels: ProfileSO.GazeChannels,
                     bake: located,
-                    derivation: derivation,
-                    trackBindings: trackBindings);
+                    derivation: derivation);
             }
         }
 
@@ -833,13 +643,13 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
 
             var timeline = UnityEngine.ScriptableObject.CreateInstance<TimelineAsset>();
             _created.Add(timeline);
-            var track = timeline.CreateTrack<FacialExpressionTrack>(null, EmotionLayer);
+            var character = timeline.CreateTrack<FacialCharacterTrack>(null, "Facial Character");
+            var track = character.CreateChildTrack<FacialExpressionTrack>(EmotionLayer);
             director.playableAsset = timeline;
+            director.SetGenericBinding(character, controller);
 
             var profileSO = UnityEngine.ScriptableObject.CreateInstance<TestProfileSO>();
             _created.Add(profileSO);
-            var binding = new TimelineAdapterBinding();
-            profileSO.WritableAdapterBindings.Add(binding);
             controller.CharacterSO = profileSO;
 
             FacialProfile profile = CreateProfile();
@@ -851,7 +661,7 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
                 Timeline = timeline,
                 Track = track,
                 ProfileSO = profileSO,
-                Binding = binding,
+                Character = character,
                 Profile = profile,
             };
             scenario.BakeFactory = () =>

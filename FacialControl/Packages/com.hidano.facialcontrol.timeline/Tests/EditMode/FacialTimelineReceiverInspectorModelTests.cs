@@ -106,15 +106,12 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
             var ready = new ReceiverEditEvaluation(
                 director: null, timeline: null, profileAsset: null,
                 hasDirector: true, hasTimeline: true, timelineSaved: true,
-                unboundTrackCount: 2, hasLegacyStateDeclarations: false, autoRebakePending: false);
+                hasLegacyStateDeclarations: false, autoRebakePending: false);
             var unsaved = new ReceiverEditEvaluation(
                 director: null, timeline: null, profileAsset: null,
                 hasDirector: true, hasTimeline: true, timelineSaved: false,
-                unboundTrackCount: 0, hasLegacyStateDeclarations: false, autoRebakePending: false);
+                hasLegacyStateDeclarations: false, autoRebakePending: false);
 
-            Assert.That(FacialTimelineReceiverInspectorModel.CanAssignTrackBindings(false, ready), Is.True);
-            Assert.That(FacialTimelineReceiverInspectorModel.CanAssignTrackBindings(true, ready), Is.False, "Play 中は Edit の操作をしない");
-            Assert.That(FacialTimelineReceiverInspectorModel.CanAssignTrackBindings(false, unsaved), Is.False, "未設定トラックが無い");
             Assert.That(FacialTimelineReceiverInspectorModel.CanRebake(false, ready), Is.True);
             Assert.That(FacialTimelineReceiverInspectorModel.CanRebake(false, unsaved), Is.False, "未保存 Timeline は再ベイクできない");
             Assert.That(FacialTimelineReceiverInspectorModel.CanRebake(true, ready), Is.False);

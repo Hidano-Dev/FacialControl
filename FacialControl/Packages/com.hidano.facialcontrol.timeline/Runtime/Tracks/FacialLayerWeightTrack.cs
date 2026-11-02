@@ -18,7 +18,6 @@ namespace Hidano.FacialControl.Timeline.Tracks
     /// Bake を持たない（レイヤー weight は Bake 済みのレイヤー値に再生時に掛かる）。Clip の範囲外と、トラックの無いレイヤーは宣言値 1。
     /// </remarks>
     [TrackClipType(typeof(FacialLayerWeightClip))]
-    [TrackBindingType(typeof(FacialTimelineReceiver))]
     [TrackColor(0.85f, 0.55f, 0.2f)]
     public sealed class FacialLayerWeightTrack : TrackAsset, IPropertyPreview
     {
@@ -35,7 +34,9 @@ namespace Hidano.FacialControl.Timeline.Tracks
         {
             ScriptPlayable<FacialLayerWeightMixerBehaviour> playable =
                 ScriptPlayable<FacialLayerWeightMixerBehaviour>.Create(graph, inputCount);
-            playable.GetBehaviour().Configure(layerName, CollectClipSamples(this));
+            FacialLayerWeightMixerBehaviour behaviour = playable.GetBehaviour();
+            behaviour.SetOwnerTrack(this);
+            behaviour.Configure(layerName, CollectClipSamples(this));
             return playable;
         }
 

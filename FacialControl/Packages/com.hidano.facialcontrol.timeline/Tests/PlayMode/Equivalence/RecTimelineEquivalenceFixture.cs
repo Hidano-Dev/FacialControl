@@ -13,7 +13,7 @@ using Hidano.FacialControl.Rec.Adapters.Playable;
 using Hidano.FacialControl.Rec.Adapters.Recording;
 using Hidano.FacialControl.Rec.Application.UseCases;
 using Hidano.FacialControl.Timeline.Adapters;
-using Hidano.FacialControl.Timeline.Adapters.AdapterBindings;
+using Hidano.FacialControl.Timeline.Tracks;
 using Hidano.FacialControl.Timeline.Clips;
 using Hidano.FacialControl.Timeline.Editor;
 using Hidano.FacialControl.Timeline.Tests.Shared;
@@ -364,7 +364,6 @@ namespace Hidano.FacialControl.Timeline.Tests.PlayMode
             gaze.rightEyeBonePath = RecEquivalenceSpec.RightEyeName;
 
             List<AdapterBindingBase> bindings = TimelineE2EFixture.GetWritableAdapterBindings(profileAsset);
-            bindings.Add(new TimelineAdapterBinding());
             bindings.Add(new FakeAnalogAdapterBinding { AnalogExpressionId = RecEquivalenceSpec.SquintExpressionId });
             bindings.Add(new FakeValueProviderAdapterBinding());
             bindings.Add(new FakeTriggerAdapterBinding());
@@ -435,8 +434,8 @@ namespace Hidano.FacialControl.Timeline.Tests.PlayMode
         public PlayableDirector Director { get; }
 
         /// <remarks>
-        /// Profile の Timeline binding は Receiver の無いキャラクターにも Receiver を自動で付け、Director が無いと
-        /// <c>DirectorMissing</c> の Error を出す。REC 再生のキャラクターにも Director を置き、再生はしない。
+        /// Timeline 再生のキャラクターは Facial Character トラックに controller を Bind する（Receiver は Mixer が自動で置く。HID-408）。
+        /// REC 再生のキャラクターにも Director を置くが、Bind しないので再生はしない。
         /// </remarks>
         public static EquivalenceCharacter Create(
             FacialCharacterProfileSO profileAsset,
@@ -472,9 +471,12 @@ namespace Hidano.FacialControl.Timeline.Tests.PlayMode
             director.timeUpdateMode = DirectorUpdateMode.Manual;
             director.extrapolationMode = DirectorWrapMode.Hold;
             director.playableAsset = timeline;
-            if (withTimelineReceiver)
+            if (withTimelineReceiver && timeline != null)
             {
-                root.AddComponent<FacialTimelineReceiver>();
+                foreach (FacialCharacterTrack characterTrack in FacialCharacterTrackBinding.CollectCharacterTracks(timeline))
+                {
+                    director.SetGenericBinding(characterTrack, controller);
+                }
             }
 
             root.SetActive(true);

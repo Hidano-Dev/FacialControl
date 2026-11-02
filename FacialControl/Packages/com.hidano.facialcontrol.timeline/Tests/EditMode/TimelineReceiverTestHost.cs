@@ -11,6 +11,7 @@ using Hidano.FacialControl.Timeline.Adapters.Assets;
 using Hidano.FacialControl.Timeline.Adapters.Scanning;
 using Hidano.FacialControl.Timeline.Adapters.Session;
 using Hidano.FacialControl.Timeline.Domain.Services;
+using Hidano.FacialControl.Timeline.Tracks;
 using UnityEngine;
 using UnityEngine.Playables;
 using UnityEngine.Timeline;
@@ -107,16 +108,22 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
         }
 
         /// <summary>
-        /// Timeline binding を AdapterBindings に持つ Profile SO を controller に設定する（静的診断の ProfileBinding 領域を満たす）。
+        /// Profile SO を controller に設定する（Profile の名前・GazeChannels を診断で使う。Timeline binding は要らない。HID-408）。
         /// Bake のハッシュは SO の GazeChannels を含めて焼き直す必要があるため、<see cref="StampHashes"/> より前に呼ぶ。
         /// </summary>
         public TimelineTestProfileSO AssignProfileSource()
         {
             var so = ScriptableObject.CreateInstance<TimelineTestProfileSO>();
             _created.Add(so);
-            so.WritableAdapterBindings.Add(new Hidano.FacialControl.Timeline.Adapters.AdapterBindings.TimelineAdapterBinding());
             Controller.CharacterSO = so;
             return so;
+        }
+
+        /// <summary>Timeline の Facial Character トラック（無ければ root に作る）。再生するトラックはこの子に作る（HID-408）。</summary>
+        public static FacialCharacterTrack Character(TimelineAsset timeline)
+        {
+            List<FacialCharacterTrack> existing = FacialCharacterTrackBinding.CollectCharacterTracks(timeline);
+            return existing.Count > 0 ? existing[0] : timeline.CreateTrack<FacialCharacterTrack>(null, "Facial Character");
         }
 
         public T Track<T>(UnityEngine.Object obj) where T : UnityEngine.Object
@@ -183,18 +190,16 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
             }
         }
 
+        /// <summary>Director に Timeline をセットし、Facial Character トラックに controller を Bind する。</summary>
         public void BindDirector(TimelineAsset timeline)
         {
             Director.playableAsset = timeline;
             Director.timeUpdateMode = DirectorUpdateMode.Manual;
             Director.extrapolationMode = DirectorWrapMode.None;
-            IReadOnlyList<TrackAsset> tracks = TimelineAssetScanner.Scan(timeline).TrackAssets;
-            for (int i = 0; i < tracks.Count; i++)
+            List<FacialCharacterTrack> characters = FacialCharacterTrackBinding.CollectCharacterTracks(timeline);
+            for (int i = 0; i < characters.Count; i++)
             {
-                if (tracks[i].parent is TimelineAsset)
-                {
-                    Director.SetGenericBinding(tracks[i], Receiver);
-                }
+                Director.SetGenericBinding(characters[i], Controller);
             }
         }
 

@@ -176,46 +176,66 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
         // ================================================================
 
         [Test]
-        public void BeginPlaybackSession_WithoutBinding_FailsWithBindingMissing()
+        public void BeginPlaybackSession_WithoutContextAndControllerRegistry_StaysPendingWithoutLog()
         {
+            // HID-408: 接続コンテキストは controller の registry から取る。EditMode の controller は child scope（registry）を
+            // 作らないため、取れるまで Pending のまま待つ（Adapter Bindings の Timeline binding は要らない）。
             Scenario s = CreateScenario();
             using var logs = new TimelineLogCounter();
 
             s.Begin();
 
+            Assert.That(s.Receiver.SessionState, Is.EqualTo(TimelineSessionState.Pending), Describe(s.Receiver));
+            Assert.That(s.Receiver.Diagnostics.HasErrors, Is.False, Describe(s.Receiver));
+            Assert.That(logs.Errors + logs.Warnings, Is.EqualTo(0));
+        }
+
+        [Test]
+        public void BeginPlaybackSession_FacialTrackOutsideCharacterTrack_FailsWithLegacyTrackStructure()
+        {
+            Scenario s = CreateScenario();
+            var legacy = s.Timeline.CreateTrack<FacialExpressionTrack>(null, "legacy");
+            legacy.Bake = s.Bake;
+            s.Host.Attach();
+            using var logs = new TimelineLogCounter();
+
+            s.Begin();
+
             Assert.That(s.Receiver.SessionState, Is.EqualTo(TimelineSessionState.Failed));
-            Assert.That(s.Receiver.Diagnostics.Contains(TimelineDiagnosticCode.BindingMissing), Is.True);
+            Assert.That(s.Receiver.Diagnostics.Contains(TimelineDiagnosticCode.LegacyTrackStructure, "legacy"), Is.True,
+                Describe(s.Receiver));
+            Assert.That(s.Host.Controller.IsLayerInputSourceBound(EmotionLayer, ValueId), Is.False, "旧構造の Timeline は接続しない");
             Assert.That(logs.Errors, Is.EqualTo(1));
         }
 
         [Test]
-        public void BeginPlaybackSession_BindingDisabled_FailsWithBindingDisabled()
+        public void BeginPlaybackSession_TwoCharacterTracks_FailsWithMultipleCharacterTracks()
         {
             Scenario s = CreateScenario();
-            s.Host.Attach(enabled: false);
+            s.Timeline.CreateTrack<FacialCharacterTrack>(null, "Second Character");
+            s.Host.Attach();
             using var logs = new TimelineLogCounter();
 
             s.Begin();
 
             Assert.That(s.Receiver.SessionState, Is.EqualTo(TimelineSessionState.Failed));
-            Assert.That(s.Receiver.Diagnostics.Contains(TimelineDiagnosticCode.BindingDisabled), Is.True);
-            Assert.That(s.Host.Controller.IsLayerInputSourceBound(EmotionLayer, ValueId), Is.False);
+            Assert.That(s.Receiver.Diagnostics.Contains(TimelineDiagnosticCode.MultipleCharacterTracks), Is.True,
+                Describe(s.Receiver));
         }
 
         [Test]
-        public void BeginPlaybackSession_ReceiverOnOtherGameObject_FailsWithReceiverNotOnControllerObject()
+        public void BeginPlaybackSession_ReceiverWithoutController_FailsWithControllerMissing()
         {
             Scenario s = CreateScenario();
             var other = new GameObject("OtherReceiver");
             _disposables.Add(new DestroyOnDispose(other));
             var receiver = other.AddComponent<FacialTimelineReceiver>();
-            receiver.AttachBinding(s.Host.Context());
             using var logs = new TimelineLogCounter();
 
             receiver.BeginPlaybackSession(s.Timeline, s.Host.Director);
 
             Assert.That(receiver.SessionState, Is.EqualTo(TimelineSessionState.Failed));
-            Assert.That(receiver.Diagnostics.Contains(TimelineDiagnosticCode.ReceiverNotOnControllerObject), Is.True);
+            Assert.That(receiver.Diagnostics.Contains(TimelineDiagnosticCode.ControllerMissing), Is.True);
             Assert.That(logs.Errors, Is.EqualTo(1));
         }
 
@@ -223,7 +243,7 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
         public void BeginPlaybackSession_BakeReferenceConflict_FailsAndDoesNotConnect()
         {
             Scenario s = CreateScenario();
-            var second = s.Timeline.CreateTrack<FacialExpressionTrack>(null, "other");
+            var second = TimelineReceiverTestHost.Character(s.Timeline).CreateChildTrack<FacialExpressionTrack>("other");
             second.Bake = s.Host.CreateBake(s.Timeline, (EmotionLayer, "smile", 0.1f));
             s.Host.Attach();
             using var logs = new TimelineLogCounter();
@@ -268,19 +288,20 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
         }
 
         [Test]
-        public void BeginPlaybackSession_MultipleFailureCauses_ReportsBindingFirstAndLogsOnce()
+        public void BeginPlaybackSession_MultipleFailureCauses_ReportsTrackStructureFirstAndLogsOnce()
         {
-            // (1) binding 無効 + (2) Bake 参照不整合 + (3) 旧 :state 宣言 が同時にある。
+            // (1) 旧構造のトラック + (2) Bake 参照不整合 + (3) 旧 :state 宣言 が同時にある。
             Scenario s = CreateScenario(declarations: new[] { new InputSourceDeclaration(StateId, 1f, null) });
             s.Track.Bake = null;
-            s.Host.Attach(enabled: false);
+            s.Timeline.CreateTrack<FacialExpressionTrack>(null, "legacy");
+            s.Host.Attach();
             using var logs = new TimelineLogCounter();
 
             s.Begin();
             s.Begin();
 
             Assert.That(s.Receiver.SessionState, Is.EqualTo(TimelineSessionState.Failed));
-            Assert.That(s.Receiver.Diagnostics.Contains(TimelineDiagnosticCode.BindingDisabled), Is.True);
+            Assert.That(s.Receiver.Diagnostics.Contains(TimelineDiagnosticCode.LegacyTrackStructure), Is.True);
             Assert.That(s.Receiver.Diagnostics.Contains(TimelineDiagnosticCode.BakeLegacyExport), Is.False);
             Assert.That(s.Receiver.Diagnostics.Contains(TimelineDiagnosticCode.LegacyStateDeclaration), Is.False);
             Assert.That(logs.Errors, Is.EqualTo(1), "Console には最初の Error 1 件のみ");
@@ -470,16 +491,15 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
         }
 
         [Test]
-        public void BeginPlaybackSession_WithoutBindingAndControllerNotInitialized_StaysPendingWithoutLog()
+        public void BeginPlaybackSession_WithoutContextAndControllerNotInitialized_StaysPendingWithoutLog()
         {
-            // 6.1 レビュー F3: binding の OnStart は controller の初期化中に呼ばれるため、未初期化の間は binding 未接続を確定しない。
             Scenario s = CreateScenario(initializeController: false);
             using var logs = new TimelineLogCounter();
 
             s.Begin();
 
             Assert.That(s.Receiver.SessionState, Is.EqualTo(TimelineSessionState.Pending), Describe(s.Receiver));
-            Assert.That(s.Receiver.Diagnostics.Contains(TimelineDiagnosticCode.BindingMissing), Is.False);
+            Assert.That(s.Receiver.Diagnostics.HasErrors, Is.False);
             Assert.That(logs.Errors + logs.Warnings, Is.EqualTo(0));
 
             s.Host.InitializeController();
@@ -494,34 +514,37 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
         // ================================================================
 
         [Test]
-        public void OnEnableInPlay_FacialTracksWithoutBinding_BindsTracksToReceiver()
+        public void GetOrCreate_ControllerWithoutReceiver_AddsReceiverThatIsNotSaved()
         {
             Scenario s = CreateScenario();
-            s.Host.Director.ClearGenericBinding(s.Track);
-            Assert.That(s.Host.Director.GetGenericBinding(s.Track), Is.Null, "fixture: binding 未設定");
+            UnityEngine.Object.DestroyImmediate(s.Host.Receiver);
 
-            s.Receiver.OnEnableInPlay();
+            FacialTimelineReceiver created = FacialTimelineReceiver.GetOrCreate(s.Host.Controller);
 
-            Assert.That(s.Host.Director.GetGenericBinding(s.Track), Is.SameAs(s.Receiver),
-                "Receiver を置くだけで Facial トラックの binding が自分を指す");
+            Assert.That(created, Is.Not.Null);
+            Assert.That(created.gameObject, Is.SameAs(s.Host.Controller.gameObject), "controller と同じ GameObject に置く");
+            Assert.That((created.hideFlags & HideFlags.DontSave) == HideFlags.DontSave, Is.True, "内部実装なのでシーンに保存しない");
+            Assert.That(FacialTimelineReceiver.GetOrCreate(s.Host.Controller), Is.SameAs(created), "2 回目は同じ Receiver を返す");
         }
 
         [Test]
-        public void OnEnableInPlay_TrackBoundToOtherObject_LeavesBindingAndReportsForeignOnStart()
+        public void GetOrCreate_NullController_ReturnsNull()
+        {
+            Assert.That(FacialTimelineReceiver.GetOrCreate(null), Is.Null);
+        }
+
+        [Test]
+        public void StartInPlay_TracksOutsideCharacterTrack_ReportsLegacyTrackStructure()
         {
             Scenario s = CreateScenario(withProfileSource: true);
-            var other = new GameObject("ForeignBindingTarget");
-            _disposables.Add(new DestroyOnDispose(other));
-            s.Host.Director.SetGenericBinding(s.Track, other);
+            s.Timeline.CreateTrack<FacialValueTrack>(null, "legacy-value").Bake = s.Bake;
             using var logs = new TimelineLogCounter();
 
-            s.Receiver.OnEnableInPlay();
             s.Receiver.StartInPlay();
 
-            Assert.That(s.Host.Director.GetGenericBinding(s.Track), Is.SameAs(other), "他者の binding は上書きしない");
-            Assert.That(s.Receiver.Diagnostics.Contains(TimelineDiagnosticCode.TrackBindingForeign, EmotionLayer), Is.True,
+            Assert.That(s.Receiver.Diagnostics.Contains(TimelineDiagnosticCode.LegacyTrackStructure, "legacy-value"), Is.True,
                 Describe(s.Receiver));
-            Assert.That(logs.Warnings, Is.EqualTo(1));
+            Assert.That(logs.Errors, Is.EqualTo(1));
         }
 
         [Test]
@@ -530,7 +553,6 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
             Scenario s = CreateScenario(withProfileSource: true);
             using var logs = new TimelineLogCounter();
 
-            s.Receiver.OnEnableInPlay();
             s.Receiver.StartInPlay();
 
             Assert.That(s.Receiver.Diagnostics.Contains(TimelineDiagnosticCode.BakeFresh), Is.True, Describe(s.Receiver));
@@ -540,31 +562,12 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
         }
 
         [Test]
-        public void StartInPlay_ReceiverOnChildOfControllerObject_ReportsReceiverNotOnControllerObject()
-        {
-            Scenario s = CreateScenario(withProfileSource: true);
-            var child = new GameObject("ChildReceiver");
-            _disposables.Add(new DestroyOnDispose(child));
-            child.transform.SetParent(s.Host.Root.transform, false);
-            var receiver = child.AddComponent<FacialTimelineReceiver>();
-            using var logs = new TimelineLogCounter();
-
-            receiver.OnEnableInPlay();
-            receiver.StartInPlay();
-
-            Assert.That(receiver.Diagnostics.Contains(TimelineDiagnosticCode.ReceiverNotOnControllerObject), Is.True,
-                Describe(receiver));
-            Assert.That(logs.Errors, Is.EqualTo(1));
-        }
-
-        [Test]
-        public void StartInPlay_NoDirector_ReportsDirectorMissing()
+        public void StartInPlay_NoDirectorBindingController_ReportsDirectorMissing()
         {
             Scenario s = CreateScenario(withProfileSource: true);
             UnityEngine.Object.DestroyImmediate(s.Host.Director);
             using var logs = new TimelineLogCounter();
 
-            s.Receiver.OnEnableInPlay();
             s.Receiver.StartInPlay();
 
             Assert.That(s.Receiver.Diagnostics.Contains(TimelineDiagnosticCode.DirectorMissing), Is.True, Describe(s.Receiver));
@@ -664,7 +667,8 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
             }
 
             TimelineAsset timeline = host.CreateTimeline();
-            FacialExpressionTrack track = timeline.CreateTrack<FacialExpressionTrack>(null, EmotionLayer);
+            FacialCharacterTrack character = TimelineReceiverTestHost.Character(timeline);
+            FacialExpressionTrack track = character.CreateChildTrack<FacialExpressionTrack>(EmotionLayer);
             TimelineClip clip = track.CreateClip<FacialExpressionClip>();
             clip.start = 0d;
             clip.duration = 1d;
@@ -672,7 +676,7 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
 
             if (withAnalogChannel)
             {
-                FacialValueTrack valueTrack = timeline.CreateTrack<FacialValueTrack>(null, "lt");
+                FacialValueTrack valueTrack = character.CreateChildTrack<FacialValueTrack>("lt");
                 valueTrack.ChannelSubId = "osc:lt";
                 valueTrack.ChannelKind = FacialValueChannelKind.Analog;
                 TimelineClip valueClip = valueTrack.CreateClip<FacialValueClip>();

@@ -93,13 +93,11 @@ namespace Hidano.FacialControl.Timeline.Editor.Inspector
                 case TimelineDiagnosticArea.Director:
                     return "PlayableDirector";
                 case TimelineDiagnosticArea.TrackBinding:
-                    return "トラック binding";
+                    return "トラック構造";
                 case TimelineDiagnosticArea.Bake:
                     return "Bake";
                 case TimelineDiagnosticArea.Profile:
                     return "Profile 整合";
-                case TimelineDiagnosticArea.ProfileBinding:
-                    return "Timeline binding";
                 case TimelineDiagnosticArea.LayerMatch:
                     return "トラック名とレイヤー名";
                 case TimelineDiagnosticArea.LayerConnection:
@@ -143,12 +141,6 @@ namespace Hidano.FacialControl.Timeline.Editor.Inspector
         public static bool ShowsOverrideDiffers(FacialTimelineDiagnostics diagnostics)
         {
             return diagnostics != null && diagnostics.Contains(TimelineDiagnosticCode.BakeOverrideDiffers);
-        }
-
-        /// <summary>「トラック binding を今設定」を有効にするか（Edit で binding 未設定の Facial トラックがあるとき）。</summary>
-        public static bool CanAssignTrackBindings(bool isPlaying, ReceiverEditEvaluation evaluation)
-        {
-            return !isPlaying && evaluation.HasDirector && evaluation.HasTimeline && evaluation.UnboundTrackCount > 0;
         }
 
         /// <summary>「今再ベイク」を有効にするか（Edit で保存済みの Timeline があるとき）。</summary>

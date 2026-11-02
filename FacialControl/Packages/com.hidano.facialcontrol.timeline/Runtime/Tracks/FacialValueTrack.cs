@@ -11,8 +11,11 @@ using UnityEngine.Timeline;
 
 namespace Hidano.FacialControl.Timeline.Tracks
 {
+    /// <summary>
+    /// 連続値トラック（Analog / Gaze / 値提供型）。<see cref="FacialCharacterTrack"/> の子に置き、対象は親の binding を使う
+    /// （本トラックは Bind を持たない。HID-408）。
+    /// </summary>
     [TrackClipType(typeof(FacialValueClip))]
-    [TrackBindingType(typeof(FacialTimelineReceiver))]
     [TrackColor(0.23f, 0.56f, 0.78f)]
     public sealed class FacialValueTrack : TrackAsset, IPropertyPreview, IFacialTimelineBakeHolder
     {
@@ -66,7 +69,9 @@ namespace Hidano.FacialControl.Timeline.Tracks
         {
             ScriptPlayable<FacialValueMixerBehaviour> playable =
                 ScriptPlayable<FacialValueMixerBehaviour>.Create(graph, inputCount);
-            playable.GetBehaviour().Configure(channelSubId, channelKind, CollectClipSamples(this));
+            FacialValueMixerBehaviour behaviour = playable.GetBehaviour();
+            behaviour.SetOwnerTrack(this);
+            behaviour.Configure(channelSubId, channelKind, CollectClipSamples(this));
             return playable;
         }
 

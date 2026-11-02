@@ -63,6 +63,55 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
         }
 
         [Test]
+        public void TryExportTimelineAsset_PutsAllFacialTracksUnderOneCharacterTrack()
+        {
+            // HID-408: 書き出しは Facial Character トラック 1 本の子にまとめる（ユーザーは親に FacialController を Bind するだけ）。
+            ExportFixture fixture = ExportFixture.Create();
+            try
+            {
+                Assert.That(RecToTimelineExporter.TryExportTimelineAsset(
+                    fixture.RecordingAbsolutePath,
+                    fixture.Profile,
+                    fixture.TimelinePath,
+                    out RecToTimelineExporter.ExportResult result), Is.True);
+
+                var characters = FacialCharacterTrackBinding.CollectCharacterTracks(result.Timeline);
+                Assert.That(characters, Has.Count.EqualTo(1));
+                Assert.That(characters[0].parent, Is.SameAs(result.Timeline), "親トラックは root に置く");
+                Assert.That(FacialCharacterTrackBinding.CollectTracksOutsideCharacter(result.Timeline), Is.Empty,
+                    "親トラックの外に Facial トラックを置かない");
+                Assert.That(TimelineAssetScanner.Scan(result.Timeline).HasFacialTracks, Is.True, "fixture: Facial トラックが書き出される");
+            }
+            finally
+            {
+                fixture.Dispose();
+            }
+        }
+
+        [Test]
+        public void TryExportTimelineAsset_ReexportIntoSameAsset_KeepsSingleCharacterTrack()
+        {
+            ExportFixture fixture = ExportFixture.Create();
+            Func<string, string, string, string, bool> originalDialog = RecToTimelineExporter.ConfirmOverwriteDialog;
+            try
+            {
+                Assert.That(RecToTimelineExporter.TryExportTimelineAsset(
+                    fixture.RecordingAbsolutePath, fixture.Profile, fixture.TimelinePath, out RecToTimelineExporter.ExportResult first), Is.True);
+                RecToTimelineExporter.ConfirmOverwriteDialog = (title, message, ok, cancel) => true;
+                Assert.That(RecToTimelineExporter.TryExportTimelineAsset(
+                    fixture.RecordingAbsolutePath, fixture.Profile, fixture.TimelinePath, out RecToTimelineExporter.ExportResult second, first.Timeline), Is.True);
+
+                Assert.That(FacialCharacterTrackBinding.CollectCharacterTracks(second.Timeline), Has.Count.EqualTo(1),
+                    "上書き Export で親トラックが増えない");
+            }
+            finally
+            {
+                RecToTimelineExporter.ConfirmOverwriteDialog = originalDialog;
+                fixture.Dispose();
+            }
+        }
+
+        [Test]
         public void TryExportTimelineAsset_ReturnsDetectionsAndChannelSubIdsAreValidForPlayback()
         {
             ExportFixture fixture = ExportFixture.Create();
@@ -145,7 +194,7 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
                 Assert.That(FindValueTrack(result.Timeline, "live:gaze"), Is.Null, "目線のキーは作らない");
 
                 var expressionTracks = new List<FacialExpressionTrack>();
-                foreach (TrackAsset track in result.Timeline.GetRootTracks())
+                foreach (TrackAsset track in result.Timeline.GetOutputTracks())
                 {
                     if (track is FacialExpressionTrack expressionTrack)
                     {
@@ -331,7 +380,7 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
 
                 Assert.That(success, Is.True);
                 var rootExpressionTrackNames = new List<string>();
-                foreach (TrackAsset track in result.Timeline.GetRootTracks())
+                foreach (TrackAsset track in result.Timeline.GetOutputTracks())
                 {
                     if (track is FacialExpressionTrack)
                     {
@@ -372,7 +421,7 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
 
                 var expressionTracks = new List<FacialExpressionTrack>();
                 var valueTracks = new List<FacialValueTrack>();
-                foreach (TrackAsset track in result.Timeline.GetRootTracks())
+                foreach (TrackAsset track in result.Timeline.GetOutputTracks())
                 {
                     if (track is FacialExpressionTrack expressionTrack)
                     {
@@ -475,7 +524,7 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
                 Assert.That(detection.AxisCount, Is.EqualTo(2));
 
                 FacialValueTrack track = null;
-                foreach (TrackAsset candidate in result.Timeline.GetRootTracks())
+                foreach (TrackAsset candidate in result.Timeline.GetOutputTracks())
                 {
                     if (candidate is FacialValueTrack valueTrack && valueTrack.ChannelSubId == "ifm")
                     {
@@ -537,7 +586,7 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
 
                 Assert.That(success, Is.True);
                 FacialValueTrack track = null;
-                foreach (TrackAsset candidate in result.Timeline.GetRootTracks())
+                foreach (TrackAsset candidate in result.Timeline.GetOutputTracks())
                 {
                     if (candidate is FacialValueTrack valueTrack && valueTrack.ChannelSubId == "ifm")
                     {

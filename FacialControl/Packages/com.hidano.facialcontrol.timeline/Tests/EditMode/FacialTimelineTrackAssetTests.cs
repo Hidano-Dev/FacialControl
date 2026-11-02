@@ -222,12 +222,46 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
         }
 
         [Test]
-        public void ValueTrack_DeclaresReceiverAsTrackBindingType()
+        public void ChildTracks_HaveNoTrackBindingType()
         {
-            var attribute = typeof(FacialValueTrack).GetCustomAttribute<TrackBindingTypeAttribute>();
+            // 子トラックは Bind を持たず、親の Facial Character トラックの対象を使う（HID-408）。
+            Assert.That(typeof(FacialExpressionTrack).GetCustomAttribute<TrackBindingTypeAttribute>(), Is.Null);
+            Assert.That(typeof(FacialValueTrack).GetCustomAttribute<TrackBindingTypeAttribute>(), Is.Null);
+            Assert.That(typeof(FacialLayerWeightTrack).GetCustomAttribute<TrackBindingTypeAttribute>(), Is.Null);
+        }
+
+        [Test]
+        public void CharacterTrack_DeclaresFacialControllerAsTrackBindingType()
+        {
+            var attribute = typeof(FacialCharacterTrack).GetCustomAttribute<TrackBindingTypeAttribute>();
 
             Assert.That(attribute, Is.Not.Null);
-            Assert.That(attribute.type, Is.EqualTo(typeof(FacialTimelineReceiver)));
+            Assert.That(attribute.type, Is.EqualTo(typeof(Hidano.FacialControl.Adapters.Playable.FacialController)));
+        }
+
+        [Test]
+        public void CreateChildTrack_FacialTrackTypes_AreCreatedUnderCharacterTrack()
+        {
+            var timeline = ScriptableObject.CreateInstance<TimelineAsset>();
+            try
+            {
+                var character = timeline.CreateTrack<FacialCharacterTrack>(null, "Facial Character");
+
+                FacialExpressionTrack expression = character.CreateChildTrack<FacialExpressionTrack>("emotion");
+                FacialValueTrack value = character.CreateChildTrack<FacialValueTrack>("osc:lt");
+                FacialLayerWeightTrack weight = character.CreateChildTrack<FacialLayerWeightTrack>("emotion (weight)");
+
+                Assert.That(expression.parent, Is.SameAs(character));
+                Assert.That(value.parent, Is.SameAs(character));
+                Assert.That(weight.parent, Is.SameAs(character));
+                Assert.That(expression.name, Is.EqualTo("emotion"));
+                Assert.That(() => character.CreateChildTrack<AnimationTrack>("anim"), Throws.InvalidOperationException,
+                    "Facial トラック以外は子にしない");
+            }
+            finally
+            {
+                Object.DestroyImmediate(timeline);
+            }
         }
     }
 }
