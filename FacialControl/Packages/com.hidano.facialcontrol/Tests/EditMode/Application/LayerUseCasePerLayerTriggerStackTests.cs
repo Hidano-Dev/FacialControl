@@ -309,6 +309,25 @@ namespace Hidano.FacialControl.Tests.EditMode.Application
         }
 
         [Test]
+        public void SetProfile_LayerExclusionModeChanged_ReusedLayerStackFollowsNewMode()
+        {
+            var lastWins = BuildProfile();
+            var source = new TriggerSource(lastWins);
+            using var useCase = CreateUseCase(lastWins, source, null);
+            source.TriggerOn("smile");
+            source.TriggerOn("open");
+            useCase.UpdateWeights(0.016f);
+            Assert.AreEqual(0f, useCase.GetBlendedOutput()[MouthSmile], 1e-4f, "LastWins では末尾の open だけ");
+
+            useCase.SetProfile(BuildProfile(emotionMode: ExclusionMode.Blend), BlendShapeNames);
+            useCase.UpdateWeights(0.016f);
+
+            float[] output = useCase.GetBlendedOutput();
+            Assert.AreEqual(1f, output[MouthSmile], 1e-4f, "Blend に変えたら smile も出る");
+            Assert.AreEqual(0.5f, output[MouthOpen], 1e-4f);
+        }
+
+        [Test]
         public void Dispose_ReleasesLayerStacks()
         {
             var profile = BuildProfile();

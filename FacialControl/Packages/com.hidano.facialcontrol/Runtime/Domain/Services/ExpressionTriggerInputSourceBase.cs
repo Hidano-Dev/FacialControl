@@ -60,8 +60,8 @@ namespace Hidano.FacialControl.Domain.Services
         /// <summary>内部スタックの最大深度 (構築時指定)。</summary>
         protected int MaxStackDepth { get; }
 
-        /// <summary>本入力源に適用されるレイヤー排他モード (構築時指定)。</summary>
-        protected ExclusionMode ExclusionMode { get; }
+        /// <summary>本入力源に適用されるレイヤー排他モード (構築時指定。レイヤー別の子スタックだけは接続先レイヤーの変更に追従する)。</summary>
+        protected ExclusionMode ExclusionMode { get; private set; }
 
         private readonly string[] _blendShapeNames;
         private readonly FacialProfile _profile;
@@ -541,6 +541,13 @@ namespace Hidano.FacialControl.Domain.Services
             if (existing != null)
             {
                 existing.ReferenceCount++;
+                if (existing.ExclusionMode != exclusionMode)
+                {
+                    // Profile の差し替えで同名レイヤーの排他モードが変わった。子スタックを使い回しつつ新しいモードで組み直す。
+                    existing.ExclusionMode = exclusionMode;
+                    existing.ResetToExpressionStack(new List<string>(existing.ActiveExpressionIds));
+                }
+
                 return existing;
             }
 
