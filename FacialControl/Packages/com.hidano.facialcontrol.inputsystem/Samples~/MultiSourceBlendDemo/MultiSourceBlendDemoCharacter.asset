@@ -20,7 +20,7 @@ MonoBehaviour:
     inputSources:
     - id: input-system
       weight: 1.0
-      optionsJson: '{"maxStackDepth":4}'
+      optionsJson: ''
     - id: input-system:analog-expression
       weight: 1.0
       optionsJson: ''

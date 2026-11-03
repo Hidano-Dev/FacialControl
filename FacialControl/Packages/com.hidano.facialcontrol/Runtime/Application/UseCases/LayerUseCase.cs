@@ -540,15 +540,21 @@ namespace Hidano.FacialControl.Application.UseCases
 
             string slotId = string.IsNullOrEmpty(declaredId) ? source.Id : declaredId;
             int existingIdx = _registry.FindSourceIndex(layerIdx, slotId);
+            IInputSource slotSource = AcquireLayerSlotSource(layerIdx, source);
             if (existingIdx >= 0)
             {
                 // 同 id は同じスロットへその場置換する。remove + append だと後続スロットの source だけが詰まり
                 // weight 列は詰まらないため、他 source の weight が入れ替わって元に戻らなくなる
                 // （例: [VP=.2, trigger=.8] → 置換後 [trigger=.2, VP=.2]）。
-                if (!_registry.TryReplaceSource(layerIdx, existingIdx, source))
+                IInputSource previousSlotSource = _registry.GetSource(layerIdx, existingIdx);
+                if (!_registry.TryReplaceSource(layerIdx, existingIdx, slotSource))
                 {
+                    ExpressionTriggerInputSourceBase.ReleaseLayerStack(slotSource);
                     return;
                 }
+
+                // 同じ入力源の差し替えなら同じ子スタックを取り直しているので、参照数だけが戻る（遷移状態は保たれる）。
+                ExpressionTriggerInputSourceBase.ReleaseLayerStack(previousSlotSource);
 
                 if (_liveWeightsSuspended)
                     SetDeclaredSlotWeight(layerIdx, existingIdx, weight);
@@ -561,8 +567,9 @@ namespace Hidano.FacialControl.Application.UseCases
             // TryAddSource は末尾スロット（現在の source 数）へ置く。追加前に確定させる。
             int newSourceIdx = _registry.GetSourceCountForLayer(layerIdx);
             int previousMaxSources = _registry.MaxSourcesPerLayer;
-            if (!_registry.TryAddSource(layerIdx, source, slotId))
+            if (!_registry.TryAddSource(layerIdx, slotSource, slotId))
             {
+                ExpressionTriggerInputSourceBase.ReleaseLayerStack(slotSource);
                 return;
             }
 
@@ -617,10 +624,13 @@ namespace Hidano.FacialControl.Application.UseCases
 
             int removedIdx = _registry.FindSourceIndex(layerIdx, id);
             int countBefore = _registry.GetSourceCountForLayer(layerIdx);
+            IInputSource removedSource = removedIdx >= 0 ? _registry.GetSource(layerIdx, removedIdx) : null;
             if (!_registry.TryRemoveSource(layerIdx, Hidano.FacialControl.Domain.Models.InputSourceId.Parse(id)))
             {
                 return;
             }
+
+            ExpressionTriggerInputSourceBase.ReleaseLayerStack(removedSource);
 
             // registry は後続スロットを詰める（compact）ので weight 列も同じだけ詰め、残る source の weight を保つ。
             if (_weightBuffer != null && removedIdx >= 0)
@@ -798,6 +808,7 @@ namespace Hidano.FacialControl.Application.UseCases
             if (_disposed)
                 return;
 
+            ReleaseLayerSlotSources();
             DisposePipeline();
             _disposed = true;
             GC.SuppressFinalize(this);
@@ -807,7 +818,67 @@ namespace Hidano.FacialControl.Application.UseCases
         {
             // Finalizer による保険: NativeArray.Dispose は明示 Dispose を想定しているが、
             // 既存テストが LayerUseCase を Dispose しないため、漏れた NativeArray を回収する。
+            // 子スタックの返却は入力源（別スレッドから触れない管理オブジェクト）を書き換えるため、ここでは行わない。
             DisposePipeline();
+        }
+
+        /// <summary>
+        /// レイヤー <paramref name="layerIdx"/> のスロットへ登録するものを返す。トリガー型入力源は、そのレイヤー専用の
+        /// 子スタックに差し替える（HID-418。表情は Expression.Layer のレイヤーの子スタックにだけ積まれ、
+        /// そのレイヤーの排他モードで合成され、Tick もレイヤーごとに 1 回になる）。
+        /// </summary>
+        private IInputSource AcquireLayerSlotSource(int layerIdx, IInputSource source)
+        {
+            var layerSpan = _profile.Layers.Span;
+            if ((uint)layerIdx >= (uint)layerSpan.Length)
+            {
+                return source;
+            }
+
+            return ExpressionTriggerInputSourceBase.AcquireLayerStack(
+                source,
+                layerSpan[layerIdx].Name,
+                layerSpan[layerIdx].ExclusionMode);
+        }
+
+        /// <summary>
+        /// registry の全スロットで取っている子スタックを入力源へ返却する。パイプラインを捨てる直前に呼ぶ。
+        /// </summary>
+        private void ReleaseLayerSlotSources()
+        {
+            ReleaseLayerSlotSources(CollectLayerSlotSources());
+        }
+
+        private List<IInputSource> CollectLayerSlotSources()
+        {
+            var sources = new List<IInputSource>();
+            if (_registry == null)
+            {
+                return sources;
+            }
+
+            for (int l = 0; l < _registry.LayerCount; l++)
+            {
+                int count = _registry.GetSourceCountForLayer(l);
+                for (int s = 0; s < count; s++)
+                {
+                    IInputSource source = _registry.GetSource(l, s);
+                    if (source != null)
+                    {
+                        sources.Add(source);
+                    }
+                }
+            }
+
+            return sources;
+        }
+
+        private static void ReleaseLayerSlotSources(List<IInputSource> sources)
+        {
+            for (int i = 0; i < sources.Count; i++)
+            {
+                ExpressionTriggerInputSourceBase.ReleaseLayerStack(sources[i]);
+            }
         }
 
         private void DisposePipeline()
@@ -822,6 +893,9 @@ namespace Hidano.FacialControl.Application.UseCases
 
         private void BuildAggregatorPipeline()
         {
+            // 旧スロットの子スタックは、新しいスロットで取り直した後に返却する。先に返すと、作り直しの途中で
+            // 子スタックが一時的に減り、残りへの振り分け直しと深さ制限で表情が失われる。
+            List<IInputSource> previousSlotSources = CollectLayerSlotSources();
             DisposePipeline();
 
             int bsCount = _blendShapeNames.Length;
@@ -873,7 +947,7 @@ namespace Hidano.FacialControl.Application.UseCases
                         continue;
                     }
                     int sourceIdx = nextSourceIdx[entry.layerIdx]++;
-                    bindings.Add((entry.layerIdx, sourceIdx, entry.source));
+                    bindings.Add((entry.layerIdx, sourceIdx, AcquireLayerSlotSource(entry.layerIdx, entry.source)));
                     bindingSlotIds.Add(
                         _additionalInputSourceIds != null && i < _additionalInputSourceIds.Count
                             ? _additionalInputSourceIds[i]
@@ -907,6 +981,7 @@ namespace Hidano.FacialControl.Application.UseCases
             }
             _aggregator = new LayerInputSourceAggregator(_registry, _weightBuffer, bsCount);
             _aggregator.SetSourceValueObserver(_sourceValueObserver);
+            ReleaseLayerSlotSources(previousSlotSources);
 
             _lastNotifiedLayerWeights = layerCount == 0 ? Array.Empty<float>() : new float[layerCount];
             _lastNotifiedSlotWeights = layerCount == 0

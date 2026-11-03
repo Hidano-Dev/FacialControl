@@ -308,7 +308,7 @@ namespace Hidano.FacialControl.Adapters.Json
             {""id"": ""lipsync"", ""weight"": 1.0}
         ]},
         {""name"": ""eye"", ""priority"": 2, ""exclusionMode"": ""lastWins"", ""inputSources"": [
-            {""id"": ""input"", ""weight"": 1.0, ""options"": {""maxStackDepth"": 4}}
+            {""id"": ""input"", ""weight"": 1.0}
         ]}
     ],
     ""expressions"": [

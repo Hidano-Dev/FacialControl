@@ -48,7 +48,7 @@ namespace Hidano.FacialControl.Tests.EditMode.Adapters.Json
             {
                 id = "input",
                 weight = 0.75f,
-                optionsJson = "{\"maxStackDepth\":4}"
+                optionsJson = "{\"stalenessSeconds\":2.5}"
             };
 
             var json = JsonUtility.ToJson(src);
@@ -99,50 +99,6 @@ namespace Hidano.FacialControl.Tests.EditMode.Adapters.Json
         public void OscOptionsDto_IsInputSourceOptionsDto()
         {
             var options = new OscOptionsDto();
-
-            Assert.IsInstanceOf<InputSourceOptionsDto>(options);
-        }
-#endif
-
-#if FACIALCONTROL_HAS_INPUTSYSTEM_MODULE
-        // ================================================================
-        // ExpressionTriggerOptionsDto
-        // ================================================================
-
-        [Test]
-        public void ExpressionTriggerOptionsDto_FromJson_ReturnsCorrectMaxStackDepth()
-        {
-            var json = "{\"maxStackDepth\":4}";
-
-            var options = JsonUtility.FromJson<ExpressionTriggerOptionsDto>(json);
-
-            Assert.IsNotNull(options);
-            Assert.AreEqual(4, options.maxStackDepth);
-        }
-
-        [Test]
-        public void ExpressionTriggerOptionsDto_DefaultMaxStackDepth_IsZero()
-        {
-            var options = new ExpressionTriggerOptionsDto();
-
-            Assert.AreEqual(0, options.maxStackDepth);
-        }
-
-        [Test]
-        public void ExpressionTriggerOptionsDto_RoundTrip_PreservesMaxStackDepth()
-        {
-            var src = new ExpressionTriggerOptionsDto { maxStackDepth = 8 };
-
-            var json = JsonUtility.ToJson(src);
-            var dst = JsonUtility.FromJson<ExpressionTriggerOptionsDto>(json);
-
-            Assert.AreEqual(src.maxStackDepth, dst.maxStackDepth);
-        }
-
-        [Test]
-        public void ExpressionTriggerOptionsDto_IsInputSourceOptionsDto()
-        {
-            var options = new ExpressionTriggerOptionsDto();
 
             Assert.IsInstanceOf<InputSourceOptionsDto>(options);
         }

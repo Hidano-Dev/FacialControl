@@ -11,8 +11,7 @@
             "inputSources": [
                 {
                     "id": "input-system",
-                    "weight": 1.0,
-                    "options":{"maxStackDepth":4}
+                    "weight": 1.0
                 },
                 {
                     "id": "input-system:analog-expression",
