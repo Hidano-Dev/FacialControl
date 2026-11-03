@@ -3,6 +3,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Text.RegularExpressions;
+using Hidano.FacialControl.Adapters.Playable;
 using Hidano.FacialControl.Editor.AutoExport;
 using Hidano.FacialControl.Testing;
 using Hidano.FacialControl.Timeline.Adapters.Assets;
@@ -428,6 +429,178 @@ namespace Hidano.FacialControl.Timeline.Tests.PlayMode
             finally
             {
                 UnityEngine.Object.DestroyImmediate(window);
+            }
+        }
+
+        [Test]
+        public void TryExport_PrefabAsset_CurvesMatchSamePrefabPlacedInScene()
+        {
+            Prepare(new RecFixtureWriter.Recording
+            {
+                IncludeValueProvider = true,
+                IncludeLayerWeights = true,
+            });
+            GameObject prefab = CreateCharacterPrefab();
+            var sceneInstance = (GameObject)PrefabUtility.InstantiatePrefab(prefab);
+            try
+            {
+                bool sceneSuccess = RecAnimationClipExporter.TryExport(
+                    _fixture.RecordingPath, sceneInstance.GetComponent<FacialController>(), null, null, _outputFolder, false,
+                    out RecAnimationClipExportResult expected);
+                Assert.That(sceneSuccess, Is.True, "前提: シーンに置いた prefab から書き出せる: " + expected.Error);
+
+                bool success = RecAnimationClipExporter.TryExport(
+                    _fixture.RecordingPath, prefab.GetComponent<FacialController>(), null, null, _outputFolder, false,
+                    out RecAnimationClipExportResult actual);
+
+                Assert.That(success, Is.True, actual.Error);
+                AssertSameCurves(expected, actual);
+                Assert.That(HasKind(actual, FacialAnimationClipKind.Gaze), Is.True, "目ボーンの Clip も作る（prefab の初期姿勢から）");
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(sceneInstance);
+            }
+        }
+
+        [Test]
+        public void TryExport_PrefabAsset_LeavesPrefabAndScenesUntouched()
+        {
+            Prepare(new RecFixtureWriter.Recording { IncludeValueProvider = true });
+            GameObject prefab = CreateCharacterPrefab();
+            string prefabPath = AssetDatabase.GetAssetPath(prefab);
+            byte[] prefabBytes = File.ReadAllBytes(prefabPath);
+            int previewSceneCount = UnityEditor.SceneManagement.EditorSceneManager.previewSceneCount;
+            int sceneCount = UnityEngine.SceneManagement.SceneManager.sceneCount;
+            int rootCount = UnityEngine.SceneManagement.SceneManager.GetActiveScene().rootCount;
+            int controllerCount = Resources.FindObjectsOfTypeAll<FacialController>().Length;
+            FacialController loaded = null;
+            RecAnimationClipExporter.PrefabInstanceLoadedForTests = instance => loaded = instance;
+            try
+            {
+                bool success = RecAnimationClipExporter.TryExport(
+                    _fixture.RecordingPath, prefab.GetComponent<FacialController>(), null, null, _outputFolder, false,
+                    out RecAnimationClipExportResult result);
+
+                Assert.That(success, Is.True, result.Error);
+            }
+            finally
+            {
+                RecAnimationClipExporter.PrefabInstanceLoadedForTests = null;
+            }
+
+            Assert.That(ReferenceEquals(loaded, null), Is.False, "prefab を一時的に読み込んで評価する");
+            Assert.That(loaded.IsInitialized, Is.False, "一時インスタンスの FacialController は初期化しない（OnEnable を走らせない）");
+            Assert.That(loaded == null, Is.True, "読み込んだ一時インスタンスは破棄する");
+            Assert.That(UnityEditor.SceneManagement.EditorSceneManager.previewSceneCount, Is.EqualTo(previewSceneCount), "隔離シーンを残さない");
+            Assert.That(UnityEngine.SceneManagement.SceneManager.sceneCount, Is.EqualTo(sceneCount), "シーンを開かない");
+            Assert.That(UnityEngine.SceneManagement.SceneManager.GetActiveScene().rootCount, Is.EqualTo(rootCount), "開いているシーンに置かない");
+            Assert.That(Resources.FindObjectsOfTypeAll<FacialController>().Length, Is.EqualTo(controllerCount), "一時インスタンスを残さない");
+            Assert.That(EditorUtility.IsDirty(prefab), Is.False, "prefab アセットを dirty にしない");
+            Assert.That(File.ReadAllBytes(prefabPath), Is.EqualTo(prefabBytes), "prefab アセットを書き換えない");
+        }
+
+        [Test]
+        public void Window_PrefabAsset_AutoFillsProfileAndExports()
+        {
+            Prepare(new RecFixtureWriter.Recording());
+            GameObject prefab = CreateCharacterPrefab();
+            var window = ScriptableObject.CreateInstance<RecAnimationClipExportWindow>();
+            try
+            {
+                window.SetInputs(_fixture.RecordingPath, prefab.GetComponent<FacialController>(), null, _outputFolder);
+
+                Assert.That(window.ProfileValue, Is.SameAs(_fixture.ProfileAsset), "prefab の Character SO を Profile に入れる");
+                Assert.That(window.Export(), Is.True, window.StatusText);
+                Assert.That(window.LastResult.Clips.Count, Is.GreaterThan(0));
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(window);
+            }
+        }
+
+        /// <summary>
+        /// fixture のキャラと同じ構成（Animator・BlendShape 付きメッシュ・目ボーン・FacialController）の prefab を fixture のフォルダに保存して返す。
+        /// メッシュも prefab から参照できるようアセットとして保存する（fixture の後片付けでフォルダごと消える）。
+        /// </summary>
+        private GameObject CreateCharacterPrefab()
+        {
+            string folder = Path.GetDirectoryName(AssetDatabase.GetAssetPath(_fixture.Timeline)).Replace('\\', '/');
+            Mesh mesh = TimelineE2ECharacter.CreateMesh("PrefabCharacter_Mesh");
+            AssetDatabase.CreateAsset(mesh, folder + "/PrefabCharacter_Mesh.asset");
+
+            var root = new GameObject("PrefabCharacter");
+            try
+            {
+                root.SetActive(false);
+                root.AddComponent<Animator>();
+                var face = new GameObject("Face");
+                face.transform.SetParent(root.transform, false);
+                face.AddComponent<SkinnedMeshRenderer>().sharedMesh = mesh;
+                AddChild(root.transform, TimelineE2EFixture.LeftEyeName, new Vector3(-0.03f, 0f, 0f));
+                AddChild(root.transform, TimelineE2EFixture.RightEyeName, new Vector3(0.03f, 0f, 0f));
+                root.AddComponent<FacialController>().CharacterSO = _fixture.ProfileAsset;
+                root.SetActive(true);
+                GameObject prefab = PrefabUtility.SaveAsPrefabAsset(root, folder + "/PrefabCharacter.prefab");
+                Assert.That(prefab, Is.Not.Null, "前提: prefab を保存できる");
+                return prefab;
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(root);
+            }
+        }
+
+        private static void AddChild(Transform parent, string name, Vector3 localPosition)
+        {
+            var child = new GameObject(name).transform;
+            child.SetParent(parent, false);
+            child.localPosition = localPosition;
+        }
+
+        private static bool HasKind(RecAnimationClipExportResult result, FacialAnimationClipKind kind)
+        {
+            for (int i = 0; i < result.Clips.Count; i++)
+            {
+                if (result.Clips[i].Part.Kind == kind)
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        /// <summary>2 つの書き出し結果が、同じ並び・同じプロパティで、Timeline のフレームごとに同じ値になることを確かめる。</summary>
+        private void AssertSameCurves(RecAnimationClipExportResult expected, RecAnimationClipExportResult actual)
+        {
+            Assert.That(actual.Clips.Count, Is.EqualTo(expected.Clips.Count), "同じ数の Clip");
+            double frameRate = _fixture.Timeline.editorSettings.frameRate;
+            double duration = _fixture.Timeline.duration;
+            int frameCount = (int)Math.Ceiling(duration * frameRate);
+            for (int c = 0; c < expected.Clips.Count; c++)
+            {
+                FacialAnimationClipPart e = expected.Clips[c].Part;
+                FacialAnimationClipPart a = actual.Clips[c].Part;
+                Assert.That(a.ClipName, Is.EqualTo(e.ClipName), "同じ並び・名前");
+                Assert.That(a.Kind, Is.EqualTo(e.Kind));
+                EditorCurveBinding[] bindings = AnimationUtility.GetCurveBindings(e.Clip);
+                Assert.That(AnimationUtility.GetCurveBindings(a.Clip), Is.EquivalentTo(bindings), $"{e.ClipName}: 同じプロパティ");
+                float tolerance = e.Kind == FacialAnimationClipKind.Gaze ? RotationComponentTolerance : BlendShapeTolerance;
+                for (int b = 0; b < bindings.Length; b++)
+                {
+                    AnimationCurve expectedCurve = AnimationUtility.GetEditorCurve(e.Clip, bindings[b]);
+                    AnimationCurve actualCurve = AnimationUtility.GetEditorCurve(a.Clip, bindings[b]);
+                    for (int f = 0; f <= frameCount; f++)
+                    {
+                        float time = (float)Math.Min(f / frameRate, duration);
+                        Assert.That(
+                            actualCurve.Evaluate(time),
+                            Is.EqualTo(expectedCurve.Evaluate(time)).Within(tolerance),
+                            $"{e.ClipName} {bindings[b].propertyName} t={time:F4}");
+                    }
+                }
             }
         }
 
