@@ -256,6 +256,8 @@ FacialControl/test-results/
 *_LOCAL_*
 *_REMOTE_*
 *.orig
+# Unity が *.orig に付ける .meta（HID-415）
+*.orig.meta
 
 AkavacheSqliteLinkerOverride.cs
 NuGetBuild
