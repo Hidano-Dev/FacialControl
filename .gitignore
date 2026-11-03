@@ -256,6 +256,8 @@ FacialControl/test-results/
 *_LOCAL_*
 *_REMOTE_*
 *.orig
+# Unity が *.orig に付ける .meta（HID-415）
+*.orig.meta
 
 AkavacheSqliteLinkerOverride.cs
 NuGetBuild
@@ -276,7 +278,3 @@ HANDOVER.md
 FacialControl/Assets/Samples/Debug_Temp
 FacialControl/Assets/Samples/Debug_Temp.meta
 FacialControl/.uloop/outputs/Screenshots
-
-# マージツールが残すバックアップ（*.orig）と、Unity がそれに付ける .meta（HID-415）
-*.orig
-*.orig.meta
