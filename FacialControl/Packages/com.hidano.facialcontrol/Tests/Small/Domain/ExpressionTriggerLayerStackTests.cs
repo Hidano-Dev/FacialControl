@@ -324,6 +324,64 @@ namespace Hidano.FacialControl.Tests.EditMode.Domain
         }
 
         [Test]
+        public void TriggerOn_FallbackDroppedInOneStack_IsDroppedFromAllStacks()
+        {
+            // 深さ 1。未宣言の mouth の open は emotion / eye の両方へ入る。smile で emotion から open が落ちたら、
+            // eye からも外す（1 回の TriggerOn として扱う）。こうしないと親の id 列から状態を復元できない。
+            var source = new TestTriggerSource(BuildProfile(), maxStackDepth: 1);
+            ExpressionTriggerInputSourceBase.AcquireLayerStack(source, Emotion, ExclusionMode.LastWins);
+            ExpressionTriggerInputSourceBase.AcquireLayerStack(source, Eye, ExclusionMode.LastWins);
+
+            source.TriggerOn("open");
+            source.TriggerOn("smile");
+
+            CollectionAssert.AreEqual(new[] { "smile" }, source.GetActiveExpressionIds(Emotion));
+            CollectionAssert.IsEmpty(source.GetActiveExpressionIds(Eye));
+            CollectionAssert.AreEqual(new[] { "smile" }, source.ActiveExpressionIds);
+
+            source.TriggerOff("smile");
+
+            CollectionAssert.IsEmpty(source.GetActiveExpressionIds(Emotion));
+            CollectionAssert.IsEmpty(source.GetActiveExpressionIds(Eye));
+        }
+
+        [Test]
+        public void ResetToExpressionStack_FromCapturedOwnStack_ReproducesEveryLayerStack(
+            [Values(1, 2, 3)] int depth,
+            [Values(11, 23, 37)] int seed)
+        {
+            // REC の基準捕捉は親の ActiveExpressionIds だけを保存し、再生開始時に ResetToExpressionStack で戻す。
+            // 任意の操作列のどの時点でも、それで各子スタックが元どおりになることを確かめる。
+            string[] ids = { "smile", "eyeclose", "open", "missing" };
+            var random = new System.Random(seed);
+            var live = new TestTriggerSource(BuildProfile(), maxStackDepth: depth);
+            ExpressionTriggerInputSourceBase.AcquireLayerStack(live, Emotion, ExclusionMode.LastWins);
+            ExpressionTriggerInputSourceBase.AcquireLayerStack(live, Eye, ExclusionMode.LastWins);
+
+            for (int step = 0; step < 60; step++)
+            {
+                string id = ids[random.Next(ids.Length)];
+                if (random.Next(3) == 0)
+                {
+                    live.TriggerOff(id);
+                }
+                else
+                {
+                    live.TriggerOn(id);
+                }
+
+                var restored = new TestTriggerSource(BuildProfile(), maxStackDepth: depth);
+                ExpressionTriggerInputSourceBase.AcquireLayerStack(restored, Emotion, ExclusionMode.LastWins);
+                ExpressionTriggerInputSourceBase.AcquireLayerStack(restored, Eye, ExclusionMode.LastWins);
+                restored.ResetToExpressionStack(new List<string>(live.ActiveExpressionIds));
+
+                CollectionAssert.AreEqual(live.GetActiveExpressionIds(Emotion), restored.GetActiveExpressionIds(Emotion), $"step {step} emotion");
+                CollectionAssert.AreEqual(live.GetActiveExpressionIds(Eye), restored.GetActiveExpressionIds(Eye), $"step {step} eye");
+                CollectionAssert.AreEqual(live.ActiveExpressionIds, restored.ActiveExpressionIds, $"step {step} own");
+            }
+        }
+
+        [Test]
         public void ResetToExpressionStack_MoreThanDepthAcrossLayers_OwnStackKeepsUnion()
         {
             var source = new TestTriggerSource(BuildProfile(), maxStackDepth: 1);

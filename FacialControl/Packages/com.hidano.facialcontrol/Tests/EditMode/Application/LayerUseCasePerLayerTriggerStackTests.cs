@@ -29,8 +29,8 @@ namespace Hidano.FacialControl.Tests.EditMode.Application
 
         private sealed class TriggerSource : ExpressionTriggerInputSourceBase
         {
-            public TriggerSource(FacialProfile profile, ExclusionMode exclusionMode = ExclusionMode.LastWins)
-                : base(InputSourceId.Parse("input"), BlendShapeNames.Length, 16, exclusionMode, BlendShapeNames, profile)
+            public TriggerSource(FacialProfile profile, ExclusionMode exclusionMode = ExclusionMode.LastWins, int maxStackDepth = 16)
+                : base(InputSourceId.Parse("input"), BlendShapeNames.Length, maxStackDepth, exclusionMode, BlendShapeNames, profile)
             {
             }
         }
@@ -287,6 +287,25 @@ namespace Hidano.FacialControl.Tests.EditMode.Application
 
             Assert.AreEqual(0.75f, useCase.GetBlendedOutput()[MouthSmile], 1e-3f);
             CollectionAssert.AreEqual(new[] { "smile" }, source.GetActiveExpressionIds(Emotion));
+        }
+
+        [Test]
+        public void SetProfile_SameProfile_KeepsActiveExpressionsOnEveryLayer()
+        {
+            // 深さ 1 で emotion / eye に 1 つずつ積んだ状態で作り直しても、一時的な切断で表情を失わない。
+            var profile = BuildProfile();
+            var source = new TriggerSource(profile, maxStackDepth: 1);
+            using var useCase = CreateUseCase(profile, source, source);
+            source.TriggerOn("smile");
+            source.TriggerOn("eyeclose");
+
+            useCase.SetProfile(profile, BlendShapeNames);
+            useCase.UpdateWeights(0.016f);
+
+            CollectionAssert.AreEqual(new[] { "smile", "eyeclose" }, source.ActiveExpressionIds);
+            float[] output = useCase.GetBlendedOutput();
+            Assert.AreEqual(1f, output[MouthSmile], 1e-4f);
+            Assert.AreEqual(1f, output[EyeClose], 1e-4f);
         }
 
         [Test]

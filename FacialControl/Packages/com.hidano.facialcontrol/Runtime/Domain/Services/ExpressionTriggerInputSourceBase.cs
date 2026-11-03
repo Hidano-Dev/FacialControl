@@ -309,9 +309,16 @@ namespace Hidano.FacialControl.Domain.Services
                 throw new ArgumentNullException(nameof(expressionIds));
             }
 
-            ResetLayerStacks(expressionIds);
             ResetOwnStack(expressionIds);
-            PruneOwnStackToLayerStacks();
+            if (!HasLayerStacks)
+            {
+                return;
+            }
+
+            // 子スタックの中身は親のスタックだけから決まる（下の EnforceLayerStackConsistency が保つ不変条件）ので、
+            // 親の id 列（REC の基準捕捉が保存したもの）から子スタックをそのまま再現できる。
+            TrimOwnStackToLayerStackDepths();
+            ApplyOwnStackToLayerStacks(force: true);
         }
 
         private void ResetOwnStack(IReadOnlyList<string> expressionIds)
@@ -440,7 +447,8 @@ namespace Hidano.FacialControl.Domain.Services
 
             _activeExpressionIds.Remove(expressionId);
 
-            // 子スタックがあるときの深さはレイヤーごとに子スタックが数え、子で落ちたものを下の Prune で親からも外す。
+            // 子スタックがあるときの深さはレイヤーごとに子スタックが数える。子で落ちたものは下の
+            // EnforceLayerStackConsistency で親と他の子スタックからも外す。
             while (_activeExpressionIds.Count >= OwnStackLimit)
             {
                 OnStackDepthExceeded();
@@ -451,7 +459,7 @@ namespace Hidano.FacialControl.Domain.Services
             _activeExpressionIds.Add(expressionId);
             StartTransition(outgoingMask);
             RouteTriggerOn(expressionId);
-            PruneOwnStackToLayerStacks();
+            EnforceLayerStackConsistency();
             _triggerEventObserver?.OnTriggerOn(Id, expressionId);
         }
 
@@ -580,8 +588,8 @@ namespace Hidano.FacialControl.Domain.Services
         private int OwnStackLimit => HasLayerStacks ? int.MaxValue : MaxStackDepth;
 
         /// <summary>
-        /// 親のスタックを今の振り分けで各子スタックへ配り直す。中身が変わる子スタックだけを即時に確立し直す
-        /// （遷移中の子スタックをむやみに止めない）。子スタックの増減時だけ呼ぶ。
+        /// 子スタックの増減で振り分けが変わったときに、親のスタックを各子スタックへ配り直す。
+        /// 中身が変わる子スタックだけを即時に確立し直す（遷移中の子スタックをむやみに止めない）。
         /// </summary>
         private void RedistributeToLayerStacks()
         {
@@ -590,24 +598,18 @@ namespace Hidano.FacialControl.Domain.Services
                 return;
             }
 
-            for (int i = 0; i < _layerStacks.Count; i++)
-            {
-                LayerStack stack = _layerStacks[i];
-                List<string> routed = CollectIdsRoutedTo(stack, _activeExpressionIds);
-                if (!HasSameTail(stack.ActiveExpressionIds, routed, stack.MaxStackDepth))
-                {
-                    stack.ResetToExpressionStack(routed);
-                }
-            }
-
-            PruneOwnStackToLayerStacks();
+            TrimOwnStackToLayerStackDepths();
+            ApplyOwnStackToLayerStacks(force: false);
         }
 
         /// <summary>
-        /// どの子スタックにも積まれていない id（子スタックの深さで落ちたもの）を親のスタックから外す。
-        /// 親のスタックを、出力中の表情の和（REC の基準捕捉・OverrideMask が読む）に保つ。
+        /// 不変条件「親のスタックの各 id は、振り分け先の子スタック（フォールバックなら全子スタック）のすべてに積まれている。
+        /// 子スタックには親のスタックにある id だけが、親と同じ順で積まれている」を TriggerOn の後に保つ。
+        /// 子スタックの深さで落ちた id は、親と他の子スタックからも外す（フォールバックで複数の子スタックに入った表情も
+        /// 1 回の TriggerOn として扱う）。これにより子スタックの中身は親の id 列だけで決まり、REC の基準捕捉
+        /// （親の <see cref="ActiveExpressionIds"/>）から正確に復元できる。
         /// </summary>
-        private void PruneOwnStackToLayerStacks()
+        private void EnforceLayerStackConsistency()
         {
             if (!HasLayerStacks)
             {
@@ -617,15 +619,78 @@ namespace Hidano.FacialControl.Domain.Services
             for (int i = _activeExpressionIds.Count - 1; i >= 0; i--)
             {
                 string expressionId = _activeExpressionIds[i];
-                bool held = false;
-                for (int s = 0; s < _layerStacks.Count && !held; s++)
+                if (IsHeldByAllRoutedStacks(expressionId))
                 {
-                    held = ContainsId(_layerStacks[s].ActiveExpressionIds, expressionId);
+                    continue;
                 }
 
-                if (!held)
+                _activeExpressionIds.RemoveAt(i);
+                for (int s = 0; s < _layerStacks.Count; s++)
                 {
-                    _activeExpressionIds.RemoveAt(i);
+                    LayerStack stack = _layerStacks[s];
+                    if (ContainsId(stack.ActiveExpressionIds, expressionId))
+                    {
+                        stack.InjectTriggerOff(expressionId);
+                    }
+                }
+            }
+        }
+
+        private bool IsHeldByAllRoutedStacks(string expressionId)
+        {
+            LayerStack target = ResolveRoutedStack(expressionId, warnWhenUnrouted: false);
+            if (target != null)
+            {
+                return ContainsId(target.ActiveExpressionIds, expressionId);
+            }
+
+            for (int s = 0; s < _layerStacks.Count; s++)
+            {
+                if (!ContainsId(_layerStacks[s].ActiveExpressionIds, expressionId))
+                {
+                    return false;
+                }
+            }
+
+            return true;
+        }
+
+        /// <summary>
+        /// 親のスタックのうち、どれかの子スタックの深さに収まらない分を古い方から外す（全子スタック共通で外す）。
+        /// TriggerOn を 1 つずつ積んだときと同じく、溢れた子スタックの最古の表情が落ちる。
+        /// </summary>
+        private void TrimOwnStackToLayerStackDepths()
+        {
+            bool trimmed = true;
+            while (trimmed)
+            {
+                trimmed = false;
+                for (int s = 0; s < _layerStacks.Count; s++)
+                {
+                    LayerStack stack = _layerStacks[s];
+                    List<string> routed = CollectIdsRoutedTo(stack, _activeExpressionIds);
+                    int excess = routed.Count - stack.MaxStackDepth;
+                    for (int k = 0; k < excess; k++)
+                    {
+                        _activeExpressionIds.Remove(routed[k]);
+                        trimmed = true;
+                    }
+                }
+            }
+        }
+
+        /// <summary>
+        /// 親のスタックを振り分けて各子スタックを即時に確立する。<paramref name="force"/> が false なら中身が同じ子スタックは触らない。
+        /// </summary>
+        private void ApplyOwnStackToLayerStacks(bool force)
+        {
+            for (int s = 0; s < _layerStacks.Count; s++)
+            {
+                LayerStack stack = _layerStacks[s];
+                List<string> routed = CollectIdsRoutedTo(stack, _activeExpressionIds);
+                if (force || !HasSameSequence(stack.ActiveExpressionIds, routed))
+                {
+                    stack.ResetToExpressionStack(routed);
                 }
             }
         }
@@ -643,18 +708,16 @@ namespace Hidano.FacialControl.Domain.Services
             return false;
         }
 
-        // current が「expected を深さ depth で切り詰めたもの」と同じ並びか。
-        private static bool HasSameTail(IReadOnlyList<string> current, List<string> expected, int depth)
+        private static bool HasSameSequence(IReadOnlyList<string> current, List<string> expected)
         {
-            int start = expected.Count > depth ? expected.Count - depth : 0;
-            if (current.Count != expected.Count - start)
+            if (current.Count != expected.Count)
             {
                 return false;
             }
 
             for (int i = 0; i < current.Count; i++)
             {
-                if (!string.Equals(current[i], expected[start + i], StringComparison.Ordinal))
+                if (!string.Equals(current[i], expected[i], StringComparison.Ordinal))
                 {
                     return false;
                 }
@@ -719,20 +782,6 @@ namespace Hidano.FacialControl.Domain.Services
             }
 
             return removed;
-        }
-
-        private void ResetLayerStacks(IReadOnlyList<string> expressionIds)
-        {
-            if (_layerStacks == null || _layerStacks.Count == 0)
-            {
-                return;
-            }
-
-            for (int i = 0; i < _layerStacks.Count; i++)
-            {
-                LayerStack stack = _layerStacks[i];
-                stack.ResetToExpressionStack(CollectIdsRoutedTo(stack, expressionIds));
-            }
         }
 
         private List<string> CollectIdsRoutedTo(LayerStack stack, IReadOnlyList<string> expressionIds)

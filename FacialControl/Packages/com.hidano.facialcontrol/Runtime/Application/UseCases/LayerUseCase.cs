@@ -846,9 +846,15 @@ namespace Hidano.FacialControl.Application.UseCases
         /// </summary>
         private void ReleaseLayerSlotSources()
         {
+            ReleaseLayerSlotSources(CollectLayerSlotSources());
+        }
+
+        private List<IInputSource> CollectLayerSlotSources()
+        {
+            var sources = new List<IInputSource>();
             if (_registry == null)
             {
-                return;
+                return sources;
             }
 
             for (int l = 0; l < _registry.LayerCount; l++)
@@ -856,8 +862,22 @@ namespace Hidano.FacialControl.Application.UseCases
                 int count = _registry.GetSourceCountForLayer(l);
                 for (int s = 0; s < count; s++)
                 {
-                    ExpressionTriggerInputSourceBase.ReleaseLayerStack(_registry.GetSource(l, s));
+                    IInputSource source = _registry.GetSource(l, s);
+                    if (source != null)
+                    {
+                        sources.Add(source);
+                    }
                 }
+            }
+
+            return sources;
+        }
+
+        private static void ReleaseLayerSlotSources(List<IInputSource> sources)
+        {
+            for (int i = 0; i < sources.Count; i++)
+            {
+                ExpressionTriggerInputSourceBase.ReleaseLayerStack(sources[i]);
             }
         }
 
@@ -873,7 +893,9 @@ namespace Hidano.FacialControl.Application.UseCases
 
         private void BuildAggregatorPipeline()
         {
-            ReleaseLayerSlotSources();
+            // 旧スロットの子スタックは、新しいスロットで取り直した後に返却する。先に返すと、作り直しの途中で
+            // 子スタックが一時的に減り、残りへの振り分け直しと深さ制限で表情が失われる。
+            List<IInputSource> previousSlotSources = CollectLayerSlotSources();
             DisposePipeline();
 
             int bsCount = _blendShapeNames.Length;
@@ -959,6 +981,7 @@ namespace Hidano.FacialControl.Application.UseCases
             }
             _aggregator = new LayerInputSourceAggregator(_registry, _weightBuffer, bsCount);
             _aggregator.SetSourceValueObserver(_sourceValueObserver);
+            ReleaseLayerSlotSources(previousSlotSources);
 
             _lastNotifiedLayerWeights = layerCount == 0 ? Array.Empty<float>() : new float[layerCount];
             _lastNotifiedSlotWeights = layerCount == 0
