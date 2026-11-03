@@ -76,6 +76,8 @@ namespace Hidano.FacialControl.Timeline.Editor.AnimationClipExport
     /// 一時オブジェクト（TimelineAsset・トラック・Clip アセット・Bake）はアセットとして保存せず、例外時も含めて必ず破棄する。</para>
     /// <para>シーンの FacialController・renderer・ボーンは書き換えない（Animator も追加しない）。カーブの path は、FacialController の
     /// 親階層（自身を含む）→ 子階層の順に見つかった Animator の Transform、無ければ FacialController の Transform を基準にする。</para>
+    /// <para>prefab アセット上の FacialController を渡した場合は、prefab を隔離シーンへ一時的に読み込んで評価し、終われば破棄する
+    /// （開いているシーンにも prefab アセットにも書き込まない。HID-417）。</para>
     /// <para>保存は 1 回の AssetDatabase 編集にまとめ、途中で失敗したらそれまでに保存したアセットを削除する（中途半端な出力を残さない）。</para>
     /// </remarks>
     internal static class RecAnimationClipExporter
@@ -83,7 +85,7 @@ namespace Hidano.FacialControl.Timeline.Editor.AnimationClipExport
         private const string LogPrefix = "[RecAnimationClipExporter] ";
 
         /// <param name="recordingPath">REC ファイルのパス。</param>
-        /// <param name="controller">書き出し対象（シーン上の FacialController。BlendShape 名・renderer・目ボーンの取得元）。</param>
+        /// <param name="controller">書き出し対象（シーン上の FacialController か prefab アセット上のもの。BlendShape 名・renderer・目ボーンの取得元）。</param>
         /// <param name="profileAsset">合成に使う Profile（null なら <paramref name="controller"/> の Character SO）。</param>
         /// <param name="sourceRemap">REC の入力源・レイヤーの対応表（HID-412。null なら付け替えない）。</param>
         /// <param name="outputFolder">保存先フォルダ（プロジェクト相対。例 <c>Assets/Faces</c>）。</param>
@@ -153,11 +155,6 @@ namespace Hidano.FacialControl.Timeline.Editor.AnimationClipExport
                 return RecAnimationClipExportResult.Failed("FacialController を指定してください。");
             }
 
-            if (EditorUtility.IsPersistent(controller))
-            {
-                return RecAnimationClipExportResult.Failed("prefab アセットではなく、シーン上の FacialController を指定してください。");
-            }
-
             profileAsset = profileAsset != null ? profileAsset : controller.CharacterSO;
             if (profileAsset == null)
             {
@@ -184,7 +181,7 @@ namespace Hidano.FacialControl.Timeline.Editor.AnimationClipExport
             RecToTimelineExporter.WarnSkippedWeightRecords(sequence, recordingPath);
             RecToTimelineExporter.WarnSkippedExpressionRecords(sequence, recordingPath);
 
-            List<FacialAnimationClipPart> parts = BuildParts(sequence, controller, profileAsset, profile, out string buildError);
+            List<FacialAnimationClipPart> parts = BuildPartsForTarget(sequence, controller, profileAsset, profile, out string buildError);
             if (parts == null)
             {
                 return RecAnimationClipExportResult.Failed(buildError, problems);
@@ -200,6 +197,111 @@ namespace Hidano.FacialControl.Timeline.Editor.AnimationClipExport
             List<RecAnimationClipExportClip> clips = SaveAll(parts, folder, baseName, controller.name, createTimeline, out string timelinePath);
             Debug.Log(LogPrefix + $"'{recordingPath}' を {clips.Count} 本の AnimationClip に書き出しました（{Describe(clips)}）。");
             return new RecAnimationClipExportResult(clips, timelinePath, problems, null);
+        }
+
+        /// <summary>テスト用: prefab アセットを評価するために読み込んだ一時インスタンスの FacialController を受け取る。null なら何もしない。</summary>
+        internal static Action<FacialController> PrefabInstanceLoadedForTests;
+
+        /// <summary>
+        /// 対象がシーン上の FacialController ならそのまま、prefab アセット上のものなら prefab を隔離シーンへ一時的に読み込んで評価する（HID-417）。
+        /// </summary>
+        /// <remarks>
+        /// 読み込みは <see cref="PrefabUtility.LoadPrefabContents"/>（開いているシーンに置かず、prefab アセットにも保存しない）。
+        /// 評価が終われば例外時も含めて <see cref="PrefabUtility.UnloadPrefabContents"/> で隔離シーンごと破棄する。
+        /// </remarks>
+        private static List<FacialAnimationClipPart> BuildPartsForTarget(
+            RecEventSequenceAdapter sequence,
+            FacialController controller,
+            FacialCharacterProfileSO profileAsset,
+            FacialProfile profile,
+            out string error)
+        {
+            if (!EditorUtility.IsPersistent(controller))
+            {
+                return BuildParts(sequence, controller, profileAsset, profile, out error);
+            }
+
+            if (!TryLoadPrefabInstance(controller, out GameObject contentsRoot, out FacialController instance, out error))
+            {
+                return null;
+            }
+
+            try
+            {
+                PrefabInstanceLoadedForTests?.Invoke(instance);
+                return BuildParts(sequence, instance, profileAsset, profile, out error);
+            }
+            finally
+            {
+                PrefabUtility.UnloadPrefabContents(contentsRoot);
+            }
+        }
+
+        /// <summary>
+        /// prefab アセット上の FacialController を含む prefab を隔離シーンに読み込み、読み込んだ側の対応する FacialController を返す。
+        /// 対応は、prefab のルートからの子の並び（sibling index）と、同じ GameObject 上の FacialController の並びで取る。
+        /// </summary>
+        private static bool TryLoadPrefabInstance(
+            FacialController assetController,
+            out GameObject contentsRoot,
+            out FacialController instance,
+            out string error)
+        {
+            contentsRoot = null;
+            instance = null;
+            error = null;
+            string assetPath = AssetDatabase.GetAssetPath(assetController);
+            PrefabAssetType assetType = PrefabUtility.GetPrefabAssetType(assetController.gameObject);
+            if (string.IsNullOrEmpty(assetPath) || (assetType != PrefabAssetType.Regular && assetType != PrefabAssetType.Variant))
+            {
+                error = $"'{assetController.name}' は prefab アセット上の FacialController ではないため評価できません。シーン上の FacialController か prefab を指定してください。";
+                return false;
+            }
+
+            Transform assetRoot = assetController.transform.root;
+            var siblingPath = new List<int>();
+            for (Transform t = assetController.transform; t != assetRoot; t = t.parent)
+            {
+                siblingPath.Add(t.GetSiblingIndex());
+            }
+
+            int componentIndex = Array.IndexOf(assetController.GetComponents<FacialController>(), assetController);
+
+            try
+            {
+                contentsRoot = PrefabUtility.LoadPrefabContents(assetPath);
+            }
+            catch (Exception exception)
+            {
+                // 読み込めない prefab（Packages 配下の読み取り専用・壊れた入れ子など）は、例外ではなく書き出さない理由として返す。
+                error = $"prefab '{assetPath}' を読み込めませんでした: {exception.Message}";
+                return false;
+            }
+
+            // ルートを非アクティブで保存し、シーンに置いたインスタンスでだけ有効にする prefab もある。読み込んだ写しは保存しないので、
+            // シーンに置いて有効にした場合と同じ renderer（アクティブな子）で評価できるよう、ルートだけ有効にする。
+            if (!contentsRoot.activeSelf)
+            {
+                contentsRoot.SetActive(true);
+            }
+
+            Transform target = contentsRoot.transform;
+            for (int i = siblingPath.Count - 1; i >= 0 && target != null; i--)
+            {
+                target = siblingPath[i] < target.childCount ? target.GetChild(siblingPath[i]) : null;
+            }
+
+            FacialController[] candidates = target != null ? target.GetComponents<FacialController>() : Array.Empty<FacialController>();
+            if (componentIndex < 0 || componentIndex >= candidates.Length)
+            {
+                PrefabUtility.UnloadPrefabContents(contentsRoot);
+                contentsRoot = null;
+                error = $"prefab '{assetPath}' を読み込みましたが、'{assetController.name}' の FacialController が見つかりませんでした。";
+                return false;
+            }
+
+            instance = candidates[componentIndex];
+            return true;
         }
 
         /// <summary>

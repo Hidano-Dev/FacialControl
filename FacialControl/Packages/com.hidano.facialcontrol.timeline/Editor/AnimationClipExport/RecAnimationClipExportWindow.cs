@@ -17,7 +17,7 @@ namespace Hidano.FacialControl.Timeline.Editor.AnimationClipExport
     /// REC（.fcrec）から AnimationClip（.anim）を直接書き出すウィンドウ（HID-409）。
     /// </summary>
     /// <remarks>
-    /// <para>入力は REC ファイル / 対象キャラ（シーン上の FacialController）/ Profile（既定はキャラの Character SO）/ 入力源・レイヤーの
+    /// <para>入力は REC ファイル / 対象キャラ（シーン上の FacialController か prefab アセット。HID-417）/ Profile（既定はキャラの Character SO）/ 入力源・レイヤーの
     /// 対応表 / 出力フォルダ。TimelineAsset・Bake・PlayableDirector の配線は不要で、シーンも書き換えない
     /// （<see cref="RecAnimationClipExporter"/>）。</para>
     /// <para>出力は AnimationTrack 変換と同じく、BlendShape の担当レイヤーごとの Clip + Base + Gaze（HID-410）。Clip の値は合成後の最終値なので、
@@ -107,7 +107,8 @@ namespace Hidano.FacialControl.Timeline.Editor.AnimationClipExport
             {
                 objectType = typeof(FacialController),
                 allowSceneObjects = true,
-                tooltip = "書き出し対象のシーン上の FacialController（BlendShape 名・renderer・目ボーンの取得元。書き換えない）",
+                tooltip = "書き出し対象の FacialController。シーン上のものか、prefab アセット（Project ウィンドウからドラッグ）を指定する" +
+                    "（BlendShape 名・renderer・目ボーンの取得元。どちらも書き換えない）",
             };
             _controllerField.RegisterValueChangedCallback(evt => OnControllerChanged(evt.newValue as FacialController));
             root.Add(_controllerField);
