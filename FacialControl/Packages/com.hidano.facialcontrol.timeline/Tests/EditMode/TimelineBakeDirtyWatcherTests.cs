@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using Hidano.FacialControl.Adapters.InputSources;
 using Hidano.FacialControl.Adapters.Playable;
 using Hidano.FacialControl.Adapters.ScriptableObject.Serializable;
@@ -88,11 +89,19 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
             // その後、ExportAll がプロジェクト内の他の Profile（取り込んだ Samples 等）について書いた
             // StreamingAssets の profile.json も含めて、テスト前の状態へ戻す。
             IReadOnlyList<string> leftovers = Array.Empty<string>();
-            if (_workingTree != null)
+            WorkingTreeGuard workingTree = _workingTree;
+            _workingTree = null;
+            if (workingTree != null)
             {
-                leftovers = _workingTree.FindOwnedLeftovers();
-                _workingTree.Restore();
-                _workingTree = null;
+                try
+                {
+                    leftovers = workingTree.FindOwnedLeftovers();
+                    workingTree.Restore();
+                }
+                catch (Exception ex)
+                {
+                    firstFailure = firstFailure ?? ex;
+                }
             }
 
             if (firstFailure != null)
@@ -660,7 +669,7 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
         }
 
         /// <summary>
-        /// テストが作業ツリーを汚さないよう、<c>Assets/</c> 直下のエントリと <c>StreamingAssets/FacialControl/</c> 配下のファイルを
+        /// テストが作業ツリーを汚さないよう、<c>Assets/</c> 直下のエントリと <c>StreamingAssets/</c> 配下を
         /// SetUp 時点で記録し、TearDown で元へ戻す（HID-416）。
         /// <para><see cref="FacialCharacterProfileAutoExporter.ExportAll"/> はプロジェクト内の全 Profile SO を書き出すため、
         /// Samples を取り込んだ開発環境では、このテストと無関係な Profile の profile.json（とそのフォルダ）が
@@ -668,173 +677,200 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
         /// </summary>
         private sealed class WorkingTreeGuard
         {
-            private readonly string _ownedPrefix;
-            private readonly string _assetsRoot;
-            private readonly string _exportRoot;
-            private readonly bool _exportRootExisted;
-            private readonly HashSet<string> _assetsEntries;
-            private readonly HashSet<string> _exportDirectories;
-            private readonly Dictionary<string, byte[]> _exportFiles;
+            private const string OwnedProfilePrefix = "DirtyWatcherProfile_";
 
-            private WorkingTreeGuard(string ownedPrefix)
+            private readonly string _ownedFolderPrefix;
+            private readonly string _assetsRoot;
+            private readonly string _streamingRoot;
+            private readonly string _exportRoot;
+            private readonly bool _streamingRootExisted;
+            private readonly HashSet<string> _assetsEntries;
+            private readonly HashSet<string> _streamingDirectories = new HashSet<string>(StringComparer.Ordinal);
+            private readonly Dictionary<string, byte[]> _streamingFiles = new Dictionary<string, byte[]>(StringComparer.Ordinal);
+
+            private WorkingTreeGuard(string ownedFolderPrefix)
             {
-                _ownedPrefix = ownedPrefix;
+                _ownedFolderPrefix = ownedFolderPrefix;
                 _assetsRoot = Path.GetFullPath(UnityEngine.Application.dataPath);
-                _exportRoot = Path.GetFullPath(Path.Combine(
-                    UnityEngine.Application.streamingAssetsPath, FacialCharacterProfileSO.StreamingAssetsRootFolder));
-                _exportRootExisted = Directory.Exists(_exportRoot);
-                _assetsEntries = new HashSet<string>(ListAssetsEntries(), StringComparer.Ordinal);
-                _exportDirectories = new HashSet<string>(StringComparer.Ordinal);
-                _exportFiles = new Dictionary<string, byte[]>(StringComparer.Ordinal);
-                if (_exportRootExisted)
+                _streamingRoot = Path.GetFullPath(UnityEngine.Application.streamingAssetsPath);
+                _exportRoot = Path.Combine(_streamingRoot, FacialCharacterProfileSO.StreamingAssetsRootFolder);
+
+                // 中断した過去の実行が残した一時フォルダは、記録前に消す（記録すると以後ずっと残り、
+                // その中の Profile を ExportAll が書き出して毎回残骸扱いになるため）。
+                if (DeleteNewOwnedAssetsEntries(new HashSet<string>(StringComparer.Ordinal)))
                 {
-                    foreach (string directory in Directory.GetDirectories(_exportRoot, "*", SearchOption.AllDirectories))
+                    AssetDatabase.Refresh();
+                }
+
+                _assetsEntries = new HashSet<string>(ListEntries(_assetsRoot), StringComparer.Ordinal);
+                _streamingRootExisted = Directory.Exists(_streamingRoot);
+                if (_streamingRootExisted)
+                {
+                    foreach (string directory in Directory.GetDirectories(_streamingRoot, "*", SearchOption.AllDirectories))
                     {
-                        _exportDirectories.Add(Path.GetFullPath(directory));
+                        _streamingDirectories.Add(Path.GetFullPath(directory));
                     }
 
-                    foreach (string file in Directory.GetFiles(_exportRoot, "*", SearchOption.AllDirectories))
+                    foreach (string file in Directory.GetFiles(_streamingRoot, "*", SearchOption.AllDirectories))
                     {
-                        _exportFiles[Path.GetFullPath(file)] = File.ReadAllBytes(file);
+                        _streamingFiles[Path.GetFullPath(file)] = File.ReadAllBytes(file);
                     }
                 }
             }
 
-            public static WorkingTreeGuard Capture(string ownedPrefix)
+            public static WorkingTreeGuard Capture(string ownedFolderPrefix)
             {
-                return new WorkingTreeGuard(ownedPrefix);
+                return new WorkingTreeGuard(ownedFolderPrefix);
             }
 
             /// <summary>このテストが作ったもの（<c>Assets/{接頭辞}*</c>、<c>StreamingAssets/FacialControl/DirtyWatcherProfile_*</c>）のうち残っているもの。</summary>
             public IReadOnlyList<string> FindOwnedLeftovers()
             {
                 var leftovers = new List<string>();
-                foreach (string entry in ListAssetsEntries())
+                foreach (string entry in ListEntries(_assetsRoot))
                 {
-                    if (!_assetsEntries.Contains(entry) && Path.GetFileName(entry).StartsWith(_ownedPrefix, StringComparison.Ordinal))
+                    if (IsNewOwnedAssetsEntry(entry, _assetsEntries))
                     {
                         leftovers.Add(entry);
                     }
                 }
 
-                if (Directory.Exists(_exportRoot))
+                foreach (string entry in ListEntries(_exportRoot))
                 {
-                    foreach (string entry in Directory.GetFileSystemEntries(_exportRoot))
+                    if (!_streamingDirectories.Contains(entry)
+                        && !_streamingFiles.ContainsKey(entry)
+                        && Path.GetFileName(entry).StartsWith(OwnedProfilePrefix, StringComparison.Ordinal))
                     {
-                        string fullPath = Path.GetFullPath(entry);
-                        if (!_exportDirectories.Contains(fullPath)
-                            && !_exportFiles.ContainsKey(fullPath)
-                            && Path.GetFileName(fullPath).StartsWith("DirtyWatcherProfile_", StringComparison.Ordinal))
-                        {
-                            leftovers.Add(fullPath);
-                        }
+                        leftovers.Add(entry);
                     }
                 }
 
                 return leftovers;
             }
 
-            /// <summary>記録時から増えた <c>Assets/{接頭辞}*</c> と StreamingAssets/FacialControl 配下の変更を元へ戻す。</summary>
+            /// <summary>記録時から増えた <c>Assets/{接頭辞}*</c> と StreamingAssets 配下の変更を元へ戻す。</summary>
             public void Restore()
             {
-                foreach (string entry in ListAssetsEntries())
+                bool changed = DeleteNewOwnedAssetsEntries(_assetsEntries);
+                changed |= RestoreStreamingRoot();
+                if (changed)
                 {
-                    if (!_assetsEntries.Contains(entry) && Path.GetFileName(entry).StartsWith(_ownedPrefix, StringComparison.Ordinal))
-                    {
-                        DeletePath(entry);
-                    }
+                    AssetDatabase.Refresh();
                 }
-
-                RestoreExportRoot();
-                AssetDatabase.Refresh();
             }
 
-            private void RestoreExportRoot()
+            private bool IsNewOwnedAssetsEntry(string entry, HashSet<string> known)
             {
-                if (!Directory.Exists(_exportRoot))
-                {
-                    return;
-                }
+                return !known.Contains(entry) && Path.GetFileName(entry).StartsWith(_ownedFolderPrefix, StringComparison.Ordinal);
+            }
 
-                if (!_exportRootExisted)
+            private bool DeleteNewOwnedAssetsEntries(HashSet<string> known)
+            {
+                bool changed = false;
+                foreach (string entry in new List<string>(ListEntries(_assetsRoot)))
                 {
-                    DeletePath(_exportRoot);
-                    DeletePath(_exportRoot + ".meta");
-                    return;
-                }
-
-                foreach (string file in Directory.GetFiles(_exportRoot, "*", SearchOption.AllDirectories))
-                {
-                    string fullPath = Path.GetFullPath(file);
-                    if (!_exportFiles.TryGetValue(fullPath, out byte[] original))
+                    if (IsNewOwnedAssetsEntry(entry, known))
                     {
-                        File.Delete(fullPath);
-                    }
-                    else if (!BytesEqual(File.ReadAllBytes(fullPath), original))
-                    {
-                        File.WriteAllBytes(fullPath, original);
+                        DeletePath(entry);
+                        changed = true;
                     }
                 }
 
-                // 深い階層から消す（親を先に消すと子の列挙が失敗する）。
-                string[] directories = Directory.GetDirectories(_exportRoot, "*", SearchOption.AllDirectories);
-                Array.Sort(directories, (a, b) => b.Length.CompareTo(a.Length));
-                for (int i = 0; i < directories.Length; i++)
+                return changed;
+            }
+
+            private bool RestoreStreamingRoot()
+            {
+                bool changed = false;
+                if (!_streamingRootExisted)
                 {
-                    string fullPath = Path.GetFullPath(directories[i]);
-                    if (!_exportDirectories.Contains(fullPath))
+                    // テスト中に StreamingAssets ごと作られた場合は丸ごと消す。
+                    changed |= DeletePath(_streamingRoot);
+                    changed |= DeletePath(_streamingRoot + ".meta");
+                    return changed;
+                }
+
+                if (Directory.Exists(_streamingRoot))
+                {
+                    foreach (string file in Directory.GetFiles(_streamingRoot, "*", SearchOption.AllDirectories))
                     {
-                        DeletePath(fullPath);
+                        string fullPath = Path.GetFullPath(file);
+                        if (!_streamingFiles.TryGetValue(fullPath, out byte[] original))
+                        {
+                            File.Delete(fullPath);
+                            changed = true;
+                        }
+                        else if (!File.ReadAllBytes(fullPath).SequenceEqual(original))
+                        {
+                            File.WriteAllBytes(fullPath, original);
+                            changed = true;
+                        }
+                    }
+
+                    // 深い階層から消す（親を先に消すと子の列挙が失敗する）。
+                    string[] directories = Directory.GetDirectories(_streamingRoot, "*", SearchOption.AllDirectories);
+                    Array.Sort(directories, (a, b) => b.Length.CompareTo(a.Length));
+                    for (int i = 0; i < directories.Length; i++)
+                    {
+                        string fullPath = Path.GetFullPath(directories[i]);
+                        if (!_streamingDirectories.Contains(fullPath))
+                        {
+                            changed |= DeletePath(fullPath);
+                        }
                     }
                 }
 
-                // テスト中に消されたファイル（記録にあるのに無いもの）は書き戻す。
-                foreach (KeyValuePair<string, byte[]> pair in _exportFiles)
+                // テスト中に消されたフォルダ・ファイル（StreamingAssets ごとの削除を含む）は書き戻す。
+                foreach (string directory in _streamingDirectories)
+                {
+                    if (!Directory.Exists(directory))
+                    {
+                        Directory.CreateDirectory(directory);
+                        changed = true;
+                    }
+                }
+
+                foreach (KeyValuePair<string, byte[]> pair in _streamingFiles)
                 {
                     if (!File.Exists(pair.Key))
                     {
                         Directory.CreateDirectory(Path.GetDirectoryName(pair.Key));
                         File.WriteAllBytes(pair.Key, pair.Value);
+                        changed = true;
                     }
                 }
+
+                return changed;
             }
 
-            private IEnumerable<string> ListAssetsEntries()
+            private static IEnumerable<string> ListEntries(string root)
             {
-                foreach (string entry in Directory.GetFileSystemEntries(_assetsRoot))
+                if (!Directory.Exists(root))
+                {
+                    yield break;
+                }
+
+                foreach (string entry in Directory.GetFileSystemEntries(root))
                 {
                     yield return Path.GetFullPath(entry);
                 }
             }
 
-            private static void DeletePath(string path)
+            private static bool DeletePath(string path)
             {
                 if (Directory.Exists(path))
                 {
                     Directory.Delete(path, recursive: true);
+                    return true;
                 }
-                else if (File.Exists(path))
+
+                if (File.Exists(path))
                 {
                     File.Delete(path);
-                }
-            }
-
-            private static bool BytesEqual(byte[] a, byte[] b)
-            {
-                if (a.Length != b.Length)
-                {
-                    return false;
+                    return true;
                 }
 
-                for (int i = 0; i < a.Length; i++)
-                {
-                    if (a[i] != b[i])
-                    {
-                        return false;
-                    }
-                }
-
-                return true;
+                return false;
             }
         }
 
