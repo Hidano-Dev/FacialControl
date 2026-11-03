@@ -146,7 +146,8 @@ namespace Hidano.FacialControl.Application.UseCases
                     continue;
                 }
 
-                var ids = entry.Source.ActiveExpressionIds;
+                // レイヤー別の子スタックがあれば、そのレイヤーに振り分けられた表情だけを見る（HID-418）。
+                var ids = entry.Source.GetActiveExpressionIds(layerName);
                 if (ids != null && ids.Count > 0)
                 {
                     // スタック末尾 = 最新 TriggerOn = top。

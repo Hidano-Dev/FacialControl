@@ -232,6 +232,8 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings.InputSystem
             int blendShapeCount = ctx.BlendShapeNames?.Count ?? 0;
             IReadOnlyList<string> blendShapeNames = ctx.BlendShapeNames ?? Array.Empty<string>();
 
+            // レイヤーへ接続されると、出力は Expression.Layer のレイヤーごとの子スタックが、そのレイヤーの
+            // ExclusionMode で合成する（HID-418）。ここで渡す LastWins はこの入力源自身のスタック（HUD 向け）にだけ効く。
             _triggerSink = new ExpressionTriggerInputSource(
                 id: InputSourceId.Parse(ExpressionTriggerInputSource.InputReservedId),
                 blendShapeCount: blendShapeCount,

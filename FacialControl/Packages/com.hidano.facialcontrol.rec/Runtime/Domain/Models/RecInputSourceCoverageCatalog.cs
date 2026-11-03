@@ -162,6 +162,7 @@ namespace Hidano.FacialControl.Rec.Domain
             new List<RecInputSourceCoverageEntry>
             {
                 Observed("Hidano.FacialControl.Application.UseCases.LayerUseCase+LayerExpressionSource", "Hidano.FacialControl.Application", RecObservationCategory.DirectActivation, "系1の消費アダプタ。"),
+                Observed("Hidano.FacialControl.Domain.Services.ExpressionTriggerInputSourceBase+LayerStack", "Hidano.FacialControl.Domain", RecObservationCategory.Trigger, "トリガー型入力源のレイヤー別スタック（HID-418）。親が観測した TriggerOn / Off だけを受け取り、観測は親が 1 回行う。"),
                 Observed("Hidano.FacialControl.Adapters.InputSources.AnalogBlendShapeInputSource", "Hidano.FacialControl.Adapters", RecObservationCategory.ValueProvider, "IAnalogInputSourceから導出する値提供型。"),
                 Observed("Hidano.FacialControl.Adapters.InputSources.AnalogExpressionInputSource", "Hidano.FacialControl.Adapters", RecObservationCategory.ValueProvider, "入力側analogの直参照を含む値提供型。"),
                 Observed("Hidano.FacialControl.Adapters.InputSources.OverlayInputSource", "Hidano.FacialControl.Adapters", RecObservationCategory.ValueProvider, "レイヤー weight は rec-weight-coverage の遮断面で遮断・注入される。"),

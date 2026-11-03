@@ -24,6 +24,15 @@ namespace Hidano.FacialControl.Domain.Services
     /// 他インスタンスや他レイヤーとの相互作用は <see cref="LayerInputSourceAggregator"/> 側の責務。
     /// </para>
     /// <para>
+    /// レイヤー別スタック (HID-418): レイヤーに接続するときは <see cref="AcquireLayerStack(IInputSource, string, ExclusionMode)"/>
+    /// でレイヤーごとの子スタックを取り、それをレイヤー入力源として登録する。本インスタンスは TriggerOn / TriggerOff の
+    /// 受け口になり、出来事を <see cref="FacialProfile.GetEffectiveLayer"/> が指すレイヤーの子スタックだけへ渡す。
+    /// そのレイヤーが子スタックを持たない（= この入力源を宣言していない）ときは、子スタック全部へ渡す（従来どおり、
+    /// 宣言しているレイヤーに出す）。子スタックはそのレイヤーの <see cref="Models.ExclusionMode"/> で合成し、
+    /// Tick もレイヤーごとに 1 回になる。本インスタンス自身のスタック（<see cref="ActiveExpressionIds"/>）は
+    /// 全レイヤー分の和として従来どおり保つ（REC の基準捕捉・HUD 向け）。
+    /// </para>
+    /// <para>
     /// Invariants:
     /// <list type="bullet">
     ///   <item><see cref="Id"/> / <see cref="Type"/> / <see cref="BlendShapeCount"/> は構築後不変。</item>
@@ -74,6 +83,13 @@ namespace Hidano.FacialControl.Domain.Services
         private bool _hasWarnedStackDepthExceeded;
         private bool _isTriggerInputSuspended;
         private ITriggerEventObserver _triggerEventObserver;
+
+        // レイヤー別の子スタック (HID-418)。レイヤーへ接続されるまで null。
+        private List<LayerStack> _layerStacks;
+        // ResetToExpressionStack で子スタックへ配る id 列の再利用バッファ。
+        private List<string> _layerStackResetScratch;
+        // 宣言の無いレイヤーの表情を宣言レイヤーへ出したときの警告済み Expression id。
+        private HashSet<string> _warnedUnroutedExpressionIds;
 
         /// <summary>
         /// 現在アクティブな Expression の ID リストを読取専用で公開する (診断/HUD/テスト用)。
@@ -282,6 +298,7 @@ namespace Hidano.FacialControl.Domain.Services
         /// <summary>
         /// 指定した Expression スタックで現在状態を即時に確立する。
         /// 遷移は開始せず、観測フックにも通知しない。
+        /// レイヤー別の子スタックには、TriggerOn と同じ振り分けで id 列を配り、同じく即時に確立する。
         /// </summary>
         /// <param name="expressionIds">古い→新しい順の Expression ID 列。空列は全解除。</param>
         /// <exception cref="ArgumentNullException"><paramref name="expressionIds"/> が null の場合。</exception>
@@ -292,6 +309,12 @@ namespace Hidano.FacialControl.Domain.Services
                 throw new ArgumentNullException(nameof(expressionIds));
             }
 
+            ResetLayerStacks(expressionIds);
+            ResetOwnStack(expressionIds);
+        }
+
+        private void ResetOwnStack(IReadOnlyList<string> expressionIds)
+        {
             _activeExpressionIds.Clear();
 
             int startIndex = expressionIds.Count > MaxStackDepth
@@ -424,6 +447,7 @@ namespace Hidano.FacialControl.Domain.Services
 
             _activeExpressionIds.Add(expressionId);
             StartTransition(outgoingMask);
+            RouteTriggerOn(expressionId);
             _triggerEventObserver?.OnTriggerOn(Id, expressionId);
         }
 
@@ -431,11 +455,277 @@ namespace Hidano.FacialControl.Domain.Services
         {
             BitArray outgoingMask = _activeMaskRef;
 
-            if (_activeExpressionIds.Remove(expressionId))
+            bool removed = _activeExpressionIds.Remove(expressionId);
+            if (removed)
             {
                 StartTransition(outgoingMask);
+            }
+
+            // 子スタックは深さをレイヤーごとに数えるため、自身のスタックで既に落ちた id がまだ残っていることがある。
+            // 自身の除去に関係なく子スタックへも off を渡し、どこかで外れたら観測者へ知らせる（REC の再生と一致させる）。
+            if (RouteTriggerOff(expressionId) || removed)
+            {
                 _triggerEventObserver?.OnTriggerOff(Id, expressionId);
             }
+        }
+
+        // ================================================================
+        // レイヤー別スタック (HID-418)
+        // ================================================================
+
+        /// <summary>
+        /// <paramref name="source"/> をレイヤー <paramref name="layerName"/> へ接続するときに、レイヤー入力源として登録するものを返す。
+        /// トリガー型（本基底の派生）ならそのレイヤー専用の子スタックを返し（同じレイヤーで 2 回目以降は同じ子スタックを返す）、
+        /// それ以外（値型・すでに子スタックであるもの）は <paramref name="source"/> をそのまま返す。
+        /// 子スタックは <see cref="ReleaseLayerStack"/> で返却する。
+        /// </summary>
+        /// <param name="source">レイヤーへ接続する入力源。</param>
+        /// <param name="layerName">接続先レイヤー名（<see cref="FacialProfile.Layers"/> の名前）。</param>
+        /// <param name="exclusionMode">接続先レイヤーの排他モード。子スタックの合成に使う。</param>
+        /// <returns>レイヤー入力源として登録するもの。<paramref name="source"/> が null なら null。</returns>
+        public static IInputSource AcquireLayerStack(IInputSource source, string layerName, ExclusionMode exclusionMode)
+        {
+            if (!(source is ExpressionTriggerInputSourceBase trigger)
+                || source is LayerStack
+                || string.IsNullOrEmpty(layerName))
+            {
+                return source;
+            }
+
+            return trigger.AcquireLayerStackCore(layerName, exclusionMode);
+        }
+
+        /// <summary>
+        /// <see cref="AcquireLayerStack(IInputSource, string, ExclusionMode)"/> で取った子スタックを返却する。
+        /// 同じレイヤーで取った回数だけ返却されると、親はそのレイヤーへ出来事を渡さなくなる。
+        /// </summary>
+        /// <param name="layerSource">レイヤー入力源として登録していたもの。子スタック以外は何もしない。</param>
+        /// <returns>子スタックを返却した場合 true。</returns>
+        public static bool ReleaseLayerStack(IInputSource layerSource)
+        {
+            if (!(layerSource is LayerStack stack))
+            {
+                return false;
+            }
+
+            stack.Owner.ReleaseLayerStackCore(stack);
+            return true;
+        }
+
+        /// <summary>
+        /// レイヤー <paramref name="layerName"/> の子スタックに積まれている Expression ID を返す。
+        /// そのレイヤーの子スタックが無ければ、本インスタンス自身のスタック（<see cref="ActiveExpressionIds"/>）を返す。
+        /// </summary>
+        /// <param name="layerName">レイヤー名。</param>
+        public IReadOnlyList<string> GetActiveExpressionIds(string layerName)
+        {
+            LayerStack stack = FindLayerStack(layerName);
+            return stack != null ? stack.ActiveExpressionIds : _activeExpressionIds;
+        }
+
+        private IInputSource AcquireLayerStackCore(string layerName, ExclusionMode exclusionMode)
+        {
+            LayerStack existing = FindLayerStack(layerName);
+            if (existing != null)
+            {
+                existing.ReferenceCount++;
+                return existing;
+            }
+
+            _layerStacks ??= new List<LayerStack>();
+            var stack = new LayerStack(this, layerName, exclusionMode);
+            _layerStacks.Add(stack);
+
+            // 接続より前に積まれていた表情があれば、このレイヤーへ振り分けられる分で即時に確立する。
+            if (_activeExpressionIds.Count > 0)
+            {
+                stack.ResetToExpressionStack(CollectIdsRoutedTo(stack, _activeExpressionIds));
+            }
+
+            return stack;
+        }
+
+        private void ReleaseLayerStackCore(LayerStack stack)
+        {
+            if (_layerStacks == null || !_layerStacks.Contains(stack))
+            {
+                return;
+            }
+
+            stack.ReferenceCount--;
+            if (stack.ReferenceCount <= 0)
+            {
+                _layerStacks.Remove(stack);
+            }
+        }
+
+        private LayerStack FindLayerStack(string layerName)
+        {
+            if (_layerStacks == null || layerName == null)
+            {
+                return null;
+            }
+
+            for (int i = 0; i < _layerStacks.Count; i++)
+            {
+                if (string.Equals(_layerStacks[i].LayerName, layerName, StringComparison.Ordinal))
+                {
+                    return _layerStacks[i];
+                }
+            }
+
+            return null;
+        }
+
+        private void RouteTriggerOn(string expressionId)
+        {
+            if (_layerStacks == null || _layerStacks.Count == 0)
+            {
+                return;
+            }
+
+            LayerStack target = ResolveRoutedStack(expressionId, warnWhenUnrouted: true);
+            if (target != null)
+            {
+                target.InjectTriggerOn(expressionId);
+                return;
+            }
+
+            for (int i = 0; i < _layerStacks.Count; i++)
+            {
+                _layerStacks[i].InjectTriggerOn(expressionId);
+            }
+        }
+
+        private bool RouteTriggerOff(string expressionId)
+        {
+            if (_layerStacks == null || _layerStacks.Count == 0)
+            {
+                return false;
+            }
+
+            // 積んだ先が分からなくても外せるよう、off は全子スタックへ渡す（積まれていない子スタックでは何も起きない）。
+            bool removed = false;
+            for (int i = 0; i < _layerStacks.Count; i++)
+            {
+                LayerStack stack = _layerStacks[i];
+                int before = stack.ActiveExpressionIds.Count;
+                stack.InjectTriggerOff(expressionId);
+                removed |= stack.ActiveExpressionIds.Count != before;
+            }
+
+            return removed;
+        }
+
+        private void ResetLayerStacks(IReadOnlyList<string> expressionIds)
+        {
+            if (_layerStacks == null || _layerStacks.Count == 0)
+            {
+                return;
+            }
+
+            for (int i = 0; i < _layerStacks.Count; i++)
+            {
+                LayerStack stack = _layerStacks[i];
+                stack.ResetToExpressionStack(CollectIdsRoutedTo(stack, expressionIds));
+            }
+        }
+
+        private List<string> CollectIdsRoutedTo(LayerStack stack, IReadOnlyList<string> expressionIds)
+        {
+            _layerStackResetScratch ??= new List<string>(expressionIds.Count);
+            _layerStackResetScratch.Clear();
+            for (int i = 0; i < expressionIds.Count; i++)
+            {
+                string expressionId = expressionIds[i];
+                if (expressionId == null)
+                {
+                    continue;
+                }
+
+                LayerStack target = ResolveRoutedStack(expressionId, warnWhenUnrouted: false);
+                if (target == null || ReferenceEquals(target, stack))
+                {
+                    _layerStackResetScratch.Add(expressionId);
+                }
+            }
+
+            return _layerStackResetScratch;
+        }
+
+        /// <summary>
+        /// 表情 <paramref name="expressionId"/> を積む子スタックを返す。
+        /// <see cref="FacialProfile.GetEffectiveLayer"/> が指すレイヤーの子スタックが無いとき（Profile に無い表情を含む）は
+        /// null を返し、呼び出し側は全子スタックへ渡す。
+        /// </summary>
+        private LayerStack ResolveRoutedStack(string expressionId, bool warnWhenUnrouted)
+        {
+            Expression? expression = _profile.FindExpressionById(expressionId);
+            if (!expression.HasValue)
+            {
+                return null;
+            }
+
+            string layerName = _profile.GetEffectiveLayer(expression.Value);
+            LayerStack stack = FindLayerStack(layerName);
+            if (stack == null && warnWhenUnrouted)
+            {
+                WarnUnroutedOnce(expression.Value, layerName);
+            }
+
+            return stack;
+        }
+
+        private void WarnUnroutedOnce(Expression expression, string layerName)
+        {
+            _warnedUnroutedExpressionIds ??= new HashSet<string>(StringComparer.Ordinal);
+            if (!_warnedUnroutedExpressionIds.Add(expression.Id))
+            {
+                return;
+            }
+
+            var declaredLayers = new string[_layerStacks.Count];
+            for (int i = 0; i < _layerStacks.Count; i++)
+            {
+                declaredLayers[i] = _layerStacks[i].LayerName;
+            }
+
+            UnityEngine.Debug.LogWarning(
+                $"[ExpressionTriggerInputSource] id='{Id}': Expression '{expression.Id}' のレイヤー '{layerName}' は" +
+                $"この入力源を宣言していないため、宣言しているレイヤー ({string.Join(", ", declaredLayers)}) に出します。" +
+                "Expression のレイヤーか、レイヤーの入力源の宣言を見直してください。この警告は Expression ごとに 1 回だけ出ます。");
+        }
+
+        /// <summary>
+        /// 1 レイヤー分の子スタック。親から振り分けられた出来事だけを積み、そのレイヤーの排他モードで値を合成する。
+        /// 観測者は持たない（観測は親が 1 回だけ行う）。
+        /// </summary>
+        private sealed class LayerStack : ExpressionTriggerInputSourceBase
+        {
+            public LayerStack(ExpressionTriggerInputSourceBase owner, string layerName, ExclusionMode exclusionMode)
+                : base(
+                    InputSourceId.Parse(owner.Id),
+                    owner.BlendShapeCount,
+                    owner.MaxStackDepth,
+                    exclusionMode,
+                    owner._blendShapeNames,
+                    owner._profile)
+            {
+                Owner = owner;
+                LayerName = layerName;
+                ReferenceCount = 1;
+            }
+
+            public ExpressionTriggerInputSourceBase Owner { get; }
+
+            public string LayerName { get; }
+
+            public int ReferenceCount { get; set; }
+
+            // 親が独自の ContributeMask を持つ（値を書かない状態 sink など）ときは、その長さ・内容に従う。
+            // BlendShape を 0 個しか持たない親の子スタックが長さ 0 の mask を返すと、Aggregator の Or が長さ不一致になる。
+            public override BitArray ContributeMask =>
+                BlendShapeCount == 0 ? Owner.ContributeMask : base.ContributeMask;
         }
 
         private void WarnStackDepthExceededOnce()
