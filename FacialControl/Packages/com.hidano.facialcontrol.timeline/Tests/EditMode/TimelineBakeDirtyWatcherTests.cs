@@ -28,15 +28,18 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
     public sealed class TimelineBakeDirtyWatcherTests : SizedTestFixture
     {
         private const string LogPrefix = "[TimelineBakeDirtyWatcher]";
+        private const string FolderPrefix = "TimelineBakeDirtyWatcherTests_";
 
         private readonly List<IDisposable> _disposables = new List<IDisposable>();
         private readonly List<UnityEngine.Object> _transient = new List<UnityEngine.Object>();
         private readonly List<FacialCharacterProfileSO> _exported = new List<FacialCharacterProfileSO>();
         private Func<bool> _originalPlayProbe;
+        private WorkingTreeGuard _workingTree;
 
         [SetUp]
         public void SetUp()
         {
+            _workingTree = WorkingTreeGuard.Capture(FolderPrefix);
             _exported.Clear();
             _originalPlayProbe = TimelineBakeDirtyWatcher.IsPlayModeTransition;
             TimelineBakeDirtyWatcher.IsPlayModeTransition = () => false;
@@ -63,14 +66,41 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
 
             _transient.Clear();
 
+            // 1 つの後片付けが例外を投げても残りを必ず走らせ、最初の例外は最後に投げ直す（HID-416）。
+            Exception firstFailure = null;
             for (int i = _disposables.Count - 1; i >= 0; i--)
             {
-                _disposables[i].Dispose();
+                try
+                {
+                    _disposables[i].Dispose();
+                }
+                catch (Exception ex)
+                {
+                    firstFailure = firstFailure ?? ex;
+                }
             }
 
             _disposables.Clear();
             FacialControllerRendererOwnership.Clear();
             TimelineProfileSource.InvalidateAll();
+
+            // fixture の Dispose で消えなかったものは、テスト側の後片付け漏れとして報告する。
+            // その後、ExportAll がプロジェクト内の他の Profile（取り込んだ Samples 等）について書いた
+            // StreamingAssets の profile.json も含めて、テスト前の状態へ戻す。
+            IReadOnlyList<string> leftovers = Array.Empty<string>();
+            if (_workingTree != null)
+            {
+                leftovers = _workingTree.FindOwnedLeftovers();
+                _workingTree.Restore();
+                _workingTree = null;
+            }
+
+            if (firstFailure != null)
+            {
+                throw new InvalidOperationException("TearDown の後片付けに失敗しました: " + firstFailure.Message, firstFailure);
+            }
+
+            Assert.That(leftovers, Is.Empty, "テストの後片付け後に一時ファイルが残っている");
         }
 
         private void OnExported(FacialCharacterProfileSO so)
@@ -472,7 +502,7 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
         private TestAssetFixture CreateFixture(bool withChildAndValueTracks = false)
         {
             string guid = Guid.NewGuid().ToString("N");
-            string folderName = "TimelineBakeDirtyWatcherTests_" + guid;
+            string folderName = FolderPrefix + guid;
             string folderPath = "Assets/" + folderName;
             AssetDatabase.CreateFolder("Assets", folderName);
 
@@ -626,6 +656,185 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
                 }
 
                 AssetDatabase.Refresh();
+            }
+        }
+
+        /// <summary>
+        /// テストが作業ツリーを汚さないよう、<c>Assets/</c> 直下のエントリと <c>StreamingAssets/FacialControl/</c> 配下のファイルを
+        /// SetUp 時点で記録し、TearDown で元へ戻す（HID-416）。
+        /// <para><see cref="FacialCharacterProfileAutoExporter.ExportAll"/> はプロジェクト内の全 Profile SO を書き出すため、
+        /// Samples を取り込んだ開発環境では、このテストと無関係な Profile の profile.json（とそのフォルダ）が
+        /// StreamingAssets に生成・更新される。それらも記録した状態へ戻す。</para>
+        /// </summary>
+        private sealed class WorkingTreeGuard
+        {
+            private readonly string _ownedPrefix;
+            private readonly string _assetsRoot;
+            private readonly string _exportRoot;
+            private readonly bool _exportRootExisted;
+            private readonly HashSet<string> _assetsEntries;
+            private readonly HashSet<string> _exportDirectories;
+            private readonly Dictionary<string, byte[]> _exportFiles;
+
+            private WorkingTreeGuard(string ownedPrefix)
+            {
+                _ownedPrefix = ownedPrefix;
+                _assetsRoot = Path.GetFullPath(UnityEngine.Application.dataPath);
+                _exportRoot = Path.GetFullPath(Path.Combine(
+                    UnityEngine.Application.streamingAssetsPath, FacialCharacterProfileSO.StreamingAssetsRootFolder));
+                _exportRootExisted = Directory.Exists(_exportRoot);
+                _assetsEntries = new HashSet<string>(ListAssetsEntries(), StringComparer.Ordinal);
+                _exportDirectories = new HashSet<string>(StringComparer.Ordinal);
+                _exportFiles = new Dictionary<string, byte[]>(StringComparer.Ordinal);
+                if (_exportRootExisted)
+                {
+                    foreach (string directory in Directory.GetDirectories(_exportRoot, "*", SearchOption.AllDirectories))
+                    {
+                        _exportDirectories.Add(Path.GetFullPath(directory));
+                    }
+
+                    foreach (string file in Directory.GetFiles(_exportRoot, "*", SearchOption.AllDirectories))
+                    {
+                        _exportFiles[Path.GetFullPath(file)] = File.ReadAllBytes(file);
+                    }
+                }
+            }
+
+            public static WorkingTreeGuard Capture(string ownedPrefix)
+            {
+                return new WorkingTreeGuard(ownedPrefix);
+            }
+
+            /// <summary>このテストが作ったもの（<c>Assets/{接頭辞}*</c>、<c>StreamingAssets/FacialControl/DirtyWatcherProfile_*</c>）のうち残っているもの。</summary>
+            public IReadOnlyList<string> FindOwnedLeftovers()
+            {
+                var leftovers = new List<string>();
+                foreach (string entry in ListAssetsEntries())
+                {
+                    if (!_assetsEntries.Contains(entry) && Path.GetFileName(entry).StartsWith(_ownedPrefix, StringComparison.Ordinal))
+                    {
+                        leftovers.Add(entry);
+                    }
+                }
+
+                if (Directory.Exists(_exportRoot))
+                {
+                    foreach (string entry in Directory.GetFileSystemEntries(_exportRoot))
+                    {
+                        string fullPath = Path.GetFullPath(entry);
+                        if (!_exportDirectories.Contains(fullPath)
+                            && !_exportFiles.ContainsKey(fullPath)
+                            && Path.GetFileName(fullPath).StartsWith("DirtyWatcherProfile_", StringComparison.Ordinal))
+                        {
+                            leftovers.Add(fullPath);
+                        }
+                    }
+                }
+
+                return leftovers;
+            }
+
+            /// <summary>記録時から増えた <c>Assets/{接頭辞}*</c> と StreamingAssets/FacialControl 配下の変更を元へ戻す。</summary>
+            public void Restore()
+            {
+                foreach (string entry in ListAssetsEntries())
+                {
+                    if (!_assetsEntries.Contains(entry) && Path.GetFileName(entry).StartsWith(_ownedPrefix, StringComparison.Ordinal))
+                    {
+                        DeletePath(entry);
+                    }
+                }
+
+                RestoreExportRoot();
+                AssetDatabase.Refresh();
+            }
+
+            private void RestoreExportRoot()
+            {
+                if (!Directory.Exists(_exportRoot))
+                {
+                    return;
+                }
+
+                if (!_exportRootExisted)
+                {
+                    DeletePath(_exportRoot);
+                    DeletePath(_exportRoot + ".meta");
+                    return;
+                }
+
+                foreach (string file in Directory.GetFiles(_exportRoot, "*", SearchOption.AllDirectories))
+                {
+                    string fullPath = Path.GetFullPath(file);
+                    if (!_exportFiles.TryGetValue(fullPath, out byte[] original))
+                    {
+                        File.Delete(fullPath);
+                    }
+                    else if (!BytesEqual(File.ReadAllBytes(fullPath), original))
+                    {
+                        File.WriteAllBytes(fullPath, original);
+                    }
+                }
+
+                // 深い階層から消す（親を先に消すと子の列挙が失敗する）。
+                string[] directories = Directory.GetDirectories(_exportRoot, "*", SearchOption.AllDirectories);
+                Array.Sort(directories, (a, b) => b.Length.CompareTo(a.Length));
+                for (int i = 0; i < directories.Length; i++)
+                {
+                    string fullPath = Path.GetFullPath(directories[i]);
+                    if (!_exportDirectories.Contains(fullPath))
+                    {
+                        DeletePath(fullPath);
+                    }
+                }
+
+                // テスト中に消されたファイル（記録にあるのに無いもの）は書き戻す。
+                foreach (KeyValuePair<string, byte[]> pair in _exportFiles)
+                {
+                    if (!File.Exists(pair.Key))
+                    {
+                        Directory.CreateDirectory(Path.GetDirectoryName(pair.Key));
+                        File.WriteAllBytes(pair.Key, pair.Value);
+                    }
+                }
+            }
+
+            private IEnumerable<string> ListAssetsEntries()
+            {
+                foreach (string entry in Directory.GetFileSystemEntries(_assetsRoot))
+                {
+                    yield return Path.GetFullPath(entry);
+                }
+            }
+
+            private static void DeletePath(string path)
+            {
+                if (Directory.Exists(path))
+                {
+                    Directory.Delete(path, recursive: true);
+                }
+                else if (File.Exists(path))
+                {
+                    File.Delete(path);
+                }
+            }
+
+            private static bool BytesEqual(byte[] a, byte[] b)
+            {
+                if (a.Length != b.Length)
+                {
+                    return false;
+                }
+
+                for (int i = 0; i < a.Length; i++)
+                {
+                    if (a[i] != b[i])
+                    {
+                        return false;
+                    }
+                }
+
+                return true;
             }
         }
 
