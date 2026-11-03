@@ -6,6 +6,7 @@ using Hidano.FacialControl.Domain.Interfaces;
 using Hidano.FacialControl.Domain.Models;
 using Hidano.FacialControl.Domain.Services;
 using Hidano.FacialControl.Timeline.Adapters.Assets;
+using Hidano.FacialControl.Timeline.Adapters.Session;
 using Hidano.FacialControl.Timeline.Domain.Models;
 using Hidano.FacialControl.Timeline.Domain.Services;
 using Hidano.FacialControl.Timeline.Tracks;
@@ -57,7 +58,8 @@ namespace Hidano.FacialControl.Timeline.Editor
 
             int layerIndex = ResolveLayerIndex(track.name);
             ExclusionMode exclusionMode = ResolveExclusionMode(track.name, layerIndex);
-            int maxStackDepth = Math.Max(1, events.Length);
+            // 録画時（ランタイムのレイヤー別スタック）と同じ深さで溢れた最古の表情を捨てる（HID-293）。
+            int maxStackDepth = TimelineLayerConnector.DefaultMaxStackDepth;
             var source = new OfflineExpressionSource(
                 InputSourceId.Parse($"timeline:bake-{layerIndex}"),
                 _blendShapeNames,
