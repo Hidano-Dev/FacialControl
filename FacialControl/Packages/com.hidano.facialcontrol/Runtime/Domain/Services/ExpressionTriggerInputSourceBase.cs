@@ -311,14 +311,16 @@ namespace Hidano.FacialControl.Domain.Services
 
             ResetLayerStacks(expressionIds);
             ResetOwnStack(expressionIds);
+            PruneOwnStackToLayerStacks();
         }
 
         private void ResetOwnStack(IReadOnlyList<string> expressionIds)
         {
             _activeExpressionIds.Clear();
 
-            int startIndex = expressionIds.Count > MaxStackDepth
-                ? expressionIds.Count - MaxStackDepth
+            int limit = OwnStackLimit;
+            int startIndex = expressionIds.Count > limit
+                ? expressionIds.Count - limit
                 : 0;
 
             for (int i = startIndex; i < expressionIds.Count; i++)
@@ -438,7 +440,8 @@ namespace Hidano.FacialControl.Domain.Services
 
             _activeExpressionIds.Remove(expressionId);
 
-            while (_activeExpressionIds.Count >= MaxStackDepth)
+            // 子スタックがあるときの深さはレイヤーごとに子スタックが数え、子で落ちたものを下の Prune で親からも外す。
+            while (_activeExpressionIds.Count >= OwnStackLimit)
             {
                 OnStackDepthExceeded();
                 WarnStackDepthExceededOnce();
@@ -448,6 +451,7 @@ namespace Hidano.FacialControl.Domain.Services
             _activeExpressionIds.Add(expressionId);
             StartTransition(outgoingMask);
             RouteTriggerOn(expressionId);
+            PruneOwnStackToLayerStacks();
             _triggerEventObserver?.OnTriggerOn(Id, expressionId);
         }
 
@@ -536,12 +540,9 @@ namespace Hidano.FacialControl.Domain.Services
             var stack = new LayerStack(this, layerName, exclusionMode);
             _layerStacks.Add(stack);
 
-            // 接続より前に積まれていた表情があれば、このレイヤーへ振り分けられる分で即時に確立する。
-            if (_activeExpressionIds.Count > 0)
-            {
-                stack.ResetToExpressionStack(CollectIdsRoutedTo(stack, _activeExpressionIds));
-            }
-
+            // 接続より前に積まれていた表情があれば振り分け直す。新しい子スタックの分を確立するだけでなく、
+            // 既存の子スタックへフォールバックしていた表情（このレイヤーの表情）も新しい子スタックへ移す。
+            RedistributeToLayerStacks();
             return stack;
         }
 
@@ -553,10 +554,113 @@ namespace Hidano.FacialControl.Domain.Services
             }
 
             stack.ReferenceCount--;
-            if (stack.ReferenceCount <= 0)
+            if (stack.ReferenceCount > 0)
             {
-                _layerStacks.Remove(stack);
+                return;
             }
+
+            _layerStacks.Remove(stack);
+            if (_layerStacks.Count > 0)
+            {
+                // 外したレイヤーに積まれていた表情は、残る子スタックへのフォールバックになる。
+                RedistributeToLayerStacks();
+                return;
+            }
+
+            // 子スタックが無くなれば、親は自身の深さを持つ単独のスタックに戻る。
+            if (_activeExpressionIds.Count > MaxStackDepth)
+            {
+                ResetOwnStack(_activeExpressionIds.ToArray());
+            }
+        }
+
+        private bool HasLayerStacks => _layerStacks != null && _layerStacks.Count > 0;
+
+        // 子スタックがあるときの親のスタックは子スタックの和であり、自身の深さでは落とさない。
+        private int OwnStackLimit => HasLayerStacks ? int.MaxValue : MaxStackDepth;
+
+        /// <summary>
+        /// 親のスタックを今の振り分けで各子スタックへ配り直す。中身が変わる子スタックだけを即時に確立し直す
+        /// （遷移中の子スタックをむやみに止めない）。子スタックの増減時だけ呼ぶ。
+        /// </summary>
+        private void RedistributeToLayerStacks()
+        {
+            if (!HasLayerStacks)
+            {
+                return;
+            }
+
+            for (int i = 0; i < _layerStacks.Count; i++)
+            {
+                LayerStack stack = _layerStacks[i];
+                List<string> routed = CollectIdsRoutedTo(stack, _activeExpressionIds);
+                if (!HasSameTail(stack.ActiveExpressionIds, routed, stack.MaxStackDepth))
+                {
+                    stack.ResetToExpressionStack(routed);
+                }
+            }
+
+            PruneOwnStackToLayerStacks();
+        }
+
+        /// <summary>
+        /// どの子スタックにも積まれていない id（子スタックの深さで落ちたもの）を親のスタックから外す。
+        /// 親のスタックを、出力中の表情の和（REC の基準捕捉・OverrideMask が読む）に保つ。
+        /// </summary>
+        private void PruneOwnStackToLayerStacks()
+        {
+            if (!HasLayerStacks)
+            {
+                return;
+            }
+
+            for (int i = _activeExpressionIds.Count - 1; i >= 0; i--)
+            {
+                string expressionId = _activeExpressionIds[i];
+                bool held = false;
+                for (int s = 0; s < _layerStacks.Count && !held; s++)
+                {
+                    held = ContainsId(_layerStacks[s].ActiveExpressionIds, expressionId);
+                }
+
+                if (!held)
+                {
+                    _activeExpressionIds.RemoveAt(i);
+                }
+            }
+        }
+
+        private static bool ContainsId(IReadOnlyList<string> ids, string expressionId)
+        {
+            for (int i = 0; i < ids.Count; i++)
+            {
+                if (string.Equals(ids[i], expressionId, StringComparison.Ordinal))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        // current が「expected を深さ depth で切り詰めたもの」と同じ並びか。
+        private static bool HasSameTail(IReadOnlyList<string> current, List<string> expected, int depth)
+        {
+            int start = expected.Count > depth ? expected.Count - depth : 0;
+            if (current.Count != expected.Count - start)
+            {
+                return false;
+            }
+
+            for (int i = 0; i < current.Count; i++)
+            {
+                if (!string.Equals(current[i], expected[start + i], StringComparison.Ordinal))
+                {
+                    return false;
+                }
+            }
+
+            return true;
         }
 
         private LayerStack FindLayerStack(string layerName)

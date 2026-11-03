@@ -238,6 +238,7 @@ namespace Hidano.FacialControl.Tests.EditMode.Domain
             IInputSource eye = ExpressionTriggerInputSourceBase.AcquireLayerStack(source, Eye, ExclusionMode.LastWins);
 
             CollectionAssert.AreEqual(new[] { "eyeclose" }, source.GetActiveExpressionIds(Eye));
+            CollectionAssert.AreEqual(new[] { "smile" }, source.GetActiveExpressionIds(Emotion));
             var values = new float[BlendShapeNames.Length];
             Assert.IsTrue(eye.TryWriteValues(values));
             CollectionAssert.AreEqual(new[] { 0f, 1f, 0f }, values);
@@ -283,9 +284,10 @@ namespace Hidano.FacialControl.Tests.EditMode.Domain
         }
 
         [Test]
-        public void TriggerOff_DroppedFromOwnStackButStillInLayerStack_RemovesAndNotifies()
+        public void TriggerOn_TotalAcrossLayersExceedsDepth_OwnStackKeepsWhatLayerStacksOutput()
         {
-            // 親の深さは全レイヤー合計、子スタックの深さはレイヤーごとに数えるので、親だけで落ちた id がある。
+            // 深さはレイヤーごとに数える。親のスタックは子スタックの和なので、合計が深さを超えても落とさない
+            // （REC の基準捕捉・OverrideMask が、出力中の表情を取りこぼさない）。
             var source = new TestTriggerSource(BuildProfile(), maxStackDepth: 1);
             ExpressionTriggerInputSourceBase.AcquireLayerStack(source, Emotion, ExclusionMode.LastWins);
             ExpressionTriggerInputSourceBase.AcquireLayerStack(source, Eye, ExclusionMode.LastWins);
@@ -294,11 +296,96 @@ namespace Hidano.FacialControl.Tests.EditMode.Domain
 
             source.TriggerOn("smile");
             source.TriggerOn("eyeclose");
+
+            CollectionAssert.AreEqual(new[] { "smile", "eyeclose" }, source.ActiveExpressionIds);
+
             source.TriggerOff("smile");
 
             CollectionAssert.AreEqual(new[] { "eyeclose" }, source.ActiveExpressionIds);
             CollectionAssert.IsEmpty(source.GetActiveExpressionIds(Emotion));
             CollectionAssert.AreEqual(new[] { "on:smile", "on:eyeclose", "off:smile" }, observer.Events);
+        }
+
+        [Test]
+        public void TriggerOn_LayerStackDropsOldest_OwnStackDropsItToo()
+        {
+            var source = new TestTriggerSource(BuildProfile(), maxStackDepth: 1);
+            ExpressionTriggerInputSourceBase.AcquireLayerStack(source, Emotion, ExclusionMode.LastWins);
+            ExpressionTriggerInputSourceBase.AcquireLayerStack(source, Eye, ExclusionMode.LastWins);
+
+            source.TriggerOn("smile");
+            source.TriggerOn("eyeclose");
+            source.TriggerOn("missing");
+
+            // missing は全子スタックへ入り、深さ 1 の emotion から smile、eye から eyeclose が落ちる。
+            CollectionAssert.AreEqual(new[] { "missing" }, source.GetActiveExpressionIds(Emotion));
+            CollectionAssert.AreEqual(new[] { "missing" }, source.GetActiveExpressionIds(Eye));
+            CollectionAssert.AreEqual(new[] { "missing" }, source.ActiveExpressionIds);
+        }
+
+        [Test]
+        public void ResetToExpressionStack_MoreThanDepthAcrossLayers_OwnStackKeepsUnion()
+        {
+            var source = new TestTriggerSource(BuildProfile(), maxStackDepth: 1);
+            ExpressionTriggerInputSourceBase.AcquireLayerStack(source, Emotion, ExclusionMode.LastWins);
+            ExpressionTriggerInputSourceBase.AcquireLayerStack(source, Eye, ExclusionMode.LastWins);
+
+            source.ResetToExpressionStack(new[] { "smile", "eyeclose" });
+
+            CollectionAssert.AreEqual(new[] { "smile", "eyeclose" }, source.ActiveExpressionIds);
+        }
+
+        [Test]
+        public void AcquireLayerStack_ActiveBeforeConnect_ConnectOrderDoesNotLeaveFallbackInEarlierStack()
+        {
+            var source = new TestTriggerSource(BuildProfile());
+            source.TriggerOn("smile");
+            source.TriggerOn("eyeclose");
+
+            IInputSource emotion = ExpressionTriggerInputSourceBase.AcquireLayerStack(source, Emotion, ExclusionMode.LastWins);
+            CollectionAssert.AreEqual(new[] { "smile", "eyeclose" }, source.GetActiveExpressionIds(Emotion),
+                "eye が無い間は eyeclose も宣言レイヤーへ出る");
+
+            IInputSource eye = ExpressionTriggerInputSourceBase.AcquireLayerStack(source, Eye, ExclusionMode.LastWins);
+
+            // eye ができたので、emotion に残っていた eyeclose は eye へ移る。
+            CollectionAssert.AreEqual(new[] { "smile" }, source.GetActiveExpressionIds(Emotion));
+            CollectionAssert.AreEqual(new[] { "eyeclose" }, source.GetActiveExpressionIds(Eye));
+            var values = new float[BlendShapeNames.Length];
+            Assert.IsTrue(emotion.TryWriteValues(values));
+            CollectionAssert.AreEqual(new[] { 1f, 0f, 0f }, values);
+            Assert.IsTrue(eye.TryWriteValues(values));
+        }
+
+        [Test]
+        public void ReleaseLayerStack_ActiveExpressions_MoveToRemainingLayer()
+        {
+            var source = new TestTriggerSource(BuildProfile());
+            ExpressionTriggerInputSourceBase.AcquireLayerStack(source, Emotion, ExclusionMode.LastWins);
+            IInputSource eye = ExpressionTriggerInputSourceBase.AcquireLayerStack(source, Eye, ExclusionMode.LastWins);
+            source.TriggerOn("smile");
+            source.TriggerOn("eyeclose");
+
+            ExpressionTriggerInputSourceBase.ReleaseLayerStack(eye);
+
+            CollectionAssert.AreEqual(new[] { "smile", "eyeclose" }, source.GetActiveExpressionIds(Emotion));
+            CollectionAssert.AreEqual(new[] { "smile", "eyeclose" }, source.ActiveExpressionIds);
+        }
+
+        [Test]
+        public void ReleaseLayerStack_LastStack_TrimsOwnStackToDepth()
+        {
+            var source = new TestTriggerSource(BuildProfile(), maxStackDepth: 1);
+            IInputSource emotion = ExpressionTriggerInputSourceBase.AcquireLayerStack(source, Emotion, ExclusionMode.LastWins);
+            IInputSource eye = ExpressionTriggerInputSourceBase.AcquireLayerStack(source, Eye, ExclusionMode.LastWins);
+            source.TriggerOn("smile");
+            source.TriggerOn("eyeclose");
+
+            ExpressionTriggerInputSourceBase.ReleaseLayerStack(eye);
+            ExpressionTriggerInputSourceBase.ReleaseLayerStack(emotion);
+
+            // 子スタックが無くなれば、親は自身の深さで単独のスタックに戻る。
+            CollectionAssert.AreEqual(new[] { "eyeclose" }, source.ActiveExpressionIds);
         }
 
         [Test]
