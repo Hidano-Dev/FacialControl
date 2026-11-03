@@ -251,8 +251,8 @@ namespace Hidano.FacialControl.Timeline.Editor.AnimationClipExport
             instance = null;
             error = null;
             string assetPath = AssetDatabase.GetAssetPath(assetController);
-            if (string.IsNullOrEmpty(assetPath) || PrefabUtility.GetPrefabAssetType(assetController.gameObject) == PrefabAssetType.Model
-                || PrefabUtility.GetPrefabAssetType(assetController.gameObject) == PrefabAssetType.NotAPrefab)
+            PrefabAssetType assetType = PrefabUtility.GetPrefabAssetType(assetController.gameObject);
+            if (string.IsNullOrEmpty(assetPath) || (assetType != PrefabAssetType.Regular && assetType != PrefabAssetType.Variant))
             {
                 error = $"'{assetController.name}' は prefab アセット上の FacialController ではないため評価できません。シーン上の FacialController か prefab を指定してください。";
                 return false;
@@ -267,7 +267,24 @@ namespace Hidano.FacialControl.Timeline.Editor.AnimationClipExport
 
             int componentIndex = Array.IndexOf(assetController.GetComponents<FacialController>(), assetController);
 
-            contentsRoot = PrefabUtility.LoadPrefabContents(assetPath);
+            try
+            {
+                contentsRoot = PrefabUtility.LoadPrefabContents(assetPath);
+            }
+            catch (Exception exception)
+            {
+                // 読み込めない prefab（Packages 配下の読み取り専用・壊れた入れ子など）は、例外ではなく書き出さない理由として返す。
+                error = $"prefab '{assetPath}' を読み込めませんでした: {exception.Message}";
+                return false;
+            }
+
+            // ルートを非アクティブで保存し、シーンに置いたインスタンスでだけ有効にする prefab もある。読み込んだ写しは保存しないので、
+            // シーンに置いて有効にした場合と同じ renderer（アクティブな子）で評価できるよう、ルートだけ有効にする。
+            if (!contentsRoot.activeSelf)
+            {
+                contentsRoot.SetActive(true);
+            }
+
             Transform target = contentsRoot.transform;
             for (int i = siblingPath.Count - 1; i >= 0 && target != null; i--)
             {
