@@ -387,6 +387,88 @@ namespace Hidano.FacialControl.Timeline.Tests.PlayMode
         }
 
 
+        [Test]
+        public void Convert_SplitPerBlendShape_OneTrackPerBlendShapeAndPlaybackMatchesSource()
+        {
+            TimelineE2ECharacter character = Prepare(new RecFixtureWriter.Recording
+            {
+                IncludeValueProvider = true,
+                IncludeLayerWeights = true,
+            });
+            List<(double time, float[] weights, Quaternion left, Quaternion right)> expected = EvaluateSource(character);
+
+            Undo.ClearAll();
+            List<AnimationTrackConversionResult> results = FacialAnimationTrackConverter.Convert(
+                character.Director,
+                _fixture.Timeline.GetOutputTracks(),
+                new FacialAnimationClipExportOptions(FacialAnimationClipSplitMode.BlendShape, 0d));
+
+            Assert.That(results.Count, Is.EqualTo(1));
+            IReadOnlyList<AnimationTrackConversionClip> clips = results[0].Clips;
+            var shapeClips = 0;
+            for (int c = 0; c < clips.Count; c++)
+            {
+                Assert.That(clips[c].Part.Kind, Is.EqualTo(FacialAnimationClipKind.BlendShape).Or.EqualTo(FacialAnimationClipKind.Gaze));
+                Assert.That(character.Director.GetGenericBinding(clips[c].Track), Is.Not.Null, "各トラックを Animator に Bind する");
+                shapeClips += clips[c].Part.Kind == FacialAnimationClipKind.BlendShape ? 1 : 0;
+            }
+
+            Assert.That(shapeClips, Is.EqualTo(TimelineE2EFixture.MeshBlendShapes.Length), "BlendShape 1 つにつき 1 トラック");
+            AssertClipPlaybackMatches(character, clips, expected);
+        }
+
+        [Test]
+        public void Dialog_Convert_UsesChosenOptions()
+        {
+            TimelineE2ECharacter character = Prepare(new RecFixtureWriter.Recording { IncludeValueProvider = true });
+            Undo.ClearAll();
+            var dialog = ScriptableObject.CreateInstance<ConvertToAnimationTrackDialog>();
+            try
+            {
+                dialog.Initialize(character.Director, _fixture.Timeline.GetOutputTracks());
+                dialog.OptionsFields.SetOptions(new FacialAnimationClipExportOptions(FacialAnimationClipSplitMode.BlendShape, 30d));
+
+                List<AnimationTrackConversionResult> results = dialog.Convert();
+
+                Assert.That(results.Count, Is.EqualTo(1), "ダイアログで選んだ内容で変換する");
+                Assert.That(results[0].Clips[0].Part.Kind, Is.EqualTo(FacialAnimationClipKind.BlendShape));
+                Assert.That(results[0].Clips[0].Part.Clip.frameRate, Is.EqualTo(30f));
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(dialog);
+            }
+        }
+
+        /// <summary>全 Clip を順にサンプルした結果が、変換元の合成と各時刻で一致することを確かめる。</summary>
+        private void AssertClipPlaybackMatches(
+            TimelineE2ECharacter character,
+            IReadOnlyList<AnimationTrackConversionClip> clips,
+            List<(double time, float[] weights, Quaternion left, Quaternion right)> expected)
+        {
+            string[] names = TimelineE2EFixture.MeshBlendShapes;
+            float maxSmile = 0f;
+            for (int i = 0; i < expected.Count; i++)
+            {
+                (double time, float[] weights, Quaternion left, Quaternion right) = expected[i];
+                for (int c = 0; c < clips.Count; c++)
+                {
+                    clips[c].Part.Clip.SampleAnimation(character.Root, (float)time);
+                }
+
+                for (int s = 0; s < names.Length; s++)
+                {
+                    Assert.That(character.GetBlendShapeWeight(names[s]), Is.EqualTo(weights[s]).Within(BlendShapeTolerance), $"t={time:F4} {names[s]}");
+                }
+
+                Assert.That(Quaternion.Angle(character.LeftEye.localRotation, left), Is.LessThanOrEqualTo(GazeToleranceDegrees), $"t={time:F4} LeftEye");
+                Assert.That(Quaternion.Angle(character.RightEye.localRotation, right), Is.LessThanOrEqualTo(GazeToleranceDegrees), $"t={time:F4} RightEye");
+                maxSmile = Math.Max(maxSmile, weights[0]);
+            }
+
+            Assert.That(maxSmile, Is.GreaterThan(50f), "前提: 比較した時刻に smile が出ている");
+        }
+
         private TimelineE2ECharacter Prepare(
             RecFixtureWriter.Recording recording,
             Action<Hidano.FacialControl.Adapters.ScriptableObject.Serializable.FacialCharacterProfileSO> configureProfile = null)

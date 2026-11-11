@@ -55,6 +55,9 @@ namespace Hidano.FacialControl.Timeline.Editor.AnimationTrackConversion
 
         /// <summary>目ボーン回転。</summary>
         Gaze,
+
+        /// <summary>BlendShape 名 1 つ分（<see cref="FacialAnimationClipSplitMode.BlendShape"/>。HID-422）。</summary>
+        BlendShape,
     }
 
     /// <summary>
@@ -82,12 +85,16 @@ namespace Hidano.FacialControl.Timeline.Editor.AnimationTrackConversion
 
         public FacialAnimationClipKind Kind { get; }
 
-        /// <summary>レイヤー名（<see cref="FacialAnimationClipKind.Layer"/>）、<see cref="FacialAnimationClipBuilder.BaseClipName"/>、<see cref="FacialAnimationClipBuilder.GazeClipName"/>。</summary>
+        /// <summary>
+        /// レイヤー名（<see cref="FacialAnimationClipKind.Layer"/>）、BlendShape 名（<see cref="FacialAnimationClipKind.BlendShape"/>）、
+        /// <see cref="FacialAnimationClipBuilder.BaseClipName"/>、<see cref="FacialAnimationClipBuilder.GazeClipName"/>。
+        /// </summary>
         public string Name { get; }
 
         /// <summary>
         /// トラック名・Clip 名・ファイル名に使う、同じ <see cref="FacialAnimationClipBuilder.Build"/> の結果の中で一意な名前（大文字小文字を区別しない）。
-        /// 通常は <see cref="Name"/> と同じで、予約名（Base / Gaze）や他のレイヤー名と衝突するレイヤーだけ <c>_L&lt;index&gt;</c> を付ける。
+        /// 通常は <see cref="Name"/> と同じで、予約名（Base / Gaze）や他の名前と衝突するものだけ <c>_L&lt;index&gt;</c>（レイヤー）・
+        /// <c>_S&lt;index&gt;</c>（BlendShape）を付ける。
         /// </summary>
         public string ClipName { get; }
 
@@ -111,6 +118,8 @@ namespace Hidano.FacialControl.Timeline.Editor.AnimationTrackConversion
     /// その BlendShape を書いたレイヤーのうち、Profile 上で優先度が最も高いレイヤー（同じ優先度なら後に宣言したレイヤー。
     /// LayerBlender が後に適用する方）。どのレイヤーも書かなかった BlendShape は <see cref="FacialAnimationClipKind.Base"/> の Clip に入れる。
     /// Clip 同士で同じプロパティを触らないので、AnimationTrack を何本並べても Animator 側で値が混ざらず、最終値は FacialControl の合成結果と一致する。</para>
+    /// <para><see cref="FacialAnimationClipSplitMode.BlendShape"/> では担当レイヤーで分けず、BlendShape 名 1 つにつき Clip 1 本にする
+    /// （同じ名前を持つ複数の renderer のカーブは同じ Clip に入る。HID-422）。値はレイヤー単位と同じで、分け方だけが違う。</para>
     /// <para>Clip に入る値は全レイヤーを合成した後の最終値で、担当レイヤー以外の影響も含む。Clip を編集しても FacialControl の
     /// レイヤー合成は再計算されない。</para>
     /// <para>PlayableDirector / TimelineAsset には依存しない。評価する時刻とフレームレートは呼び出し側が渡す。Editor 専用。</para>
@@ -134,7 +143,9 @@ namespace Hidano.FacialControl.Timeline.Editor.AnimationTrackConversion
         };
 
         /// <summary>
-        /// <paramref name="samples"/> の時刻ごとに評価し、レイヤー別（Profile の宣言順）→ Base → Gaze の順に、カーブを持つ Clip だけを返す。
+        /// <paramref name="samples"/> の時刻ごとに評価し、カーブを持つ Clip だけを返す。並びは
+        /// <see cref="FacialAnimationClipSplitMode.Layer"/> ならレイヤー別（Profile の宣言順）→ Base → Gaze、
+        /// <see cref="FacialAnimationClipSplitMode.BlendShape"/> なら BlendShape 別（合成出力の並び）→ Gaze。
         /// </summary>
         /// <param name="evaluator">合成結果の評価器。</param>
         /// <param name="controller">書き出し対象（renderer の取得元）。</param>
@@ -143,6 +154,7 @@ namespace Hidano.FacialControl.Timeline.Editor.AnimationTrackConversion
         /// <param name="humanoid">Humanoid の Animator（目ボーンが Avatar にマップされているかの警告用。無ければ null）。</param>
         /// <param name="samples">評価する時刻列。</param>
         /// <param name="frameRate">Clip のフレームレート。</param>
+        /// <param name="splitMode">Clip の分け方（HID-422）。</param>
         public static List<FacialAnimationClipPart> Build(
             IFacialOutputEvaluator evaluator,
             FacialController controller,
@@ -150,7 +162,8 @@ namespace Hidano.FacialControl.Timeline.Editor.AnimationTrackConversion
             Transform root,
             Animator humanoid,
             SampleTimeline samples,
-            double frameRate)
+            double frameRate,
+            FacialAnimationClipSplitMode splitMode = FacialAnimationClipSplitMode.Layer)
         {
             if (evaluator == null) throw new ArgumentNullException(nameof(evaluator));
             if (controller == null) throw new ArgumentNullException(nameof(controller));
@@ -160,19 +173,22 @@ namespace Hidano.FacialControl.Timeline.Editor.AnimationTrackConversion
 
             // レイヤーは評価器自身から取る（寄与の index と必ず同じ並びになる）。
             ReadOnlySpan<LayerDefinition> layers = evaluator.Layers.Span;
-            int layerCount = layers.Length;
-            string[] layerClipNames = AssignLayerClipNames(layers);
-            var groups = new CurveGroup[layerCount + 2];
-            int baseGroup = layerCount;
-            int gazeGroup = layerCount + 1;
+            IReadOnlyList<string> shapeNames = evaluator.BlendShapeNames;
+            bool perShape = splitMode == FacialAnimationClipSplitMode.BlendShape;
+
+            // BlendShape 単位: [0, shapeCount) が BlendShape 別、最後が Gaze。レイヤー単位: [0, layerCount) がレイヤー別、Base、Gaze。
+            int blendShapeGroupCount = perShape ? shapeNames.Count : layers.Length + 1;
+            var groups = new CurveGroup[blendShapeGroupCount + 1];
+            int gazeGroup = blendShapeGroupCount;
             for (int g = 0; g < groups.Length; g++)
             {
                 groups[g] = new CurveGroup();
             }
 
-            CollectBlendShapeCurves(evaluator, controller, layers, root, samples, groups, baseGroup);
+            CollectBlendShapeCurves(evaluator, controller, layers, root, samples, groups, perShape);
             CollectGazeCurves(evaluator, controller, profileAsset, root, humanoid, samples, groups[gazeGroup]);
 
+            string[] clipNames = perShape ? AssignBlendShapeClipNames(shapeNames) : AssignLayerClipNames(layers);
             var parts = new List<FacialAnimationClipPart>();
             for (int g = 0; g < groups.Length; g++)
             {
@@ -190,22 +206,25 @@ namespace Hidano.FacialControl.Timeline.Editor.AnimationTrackConversion
                     keyCount += group.Curves[c].length;
                 }
 
-                if (g < layerCount)
+                if (g == gazeGroup)
                 {
                     parts.Add(new FacialAnimationClipPart(
-                        FacialAnimationClipKind.Layer, layers[g].Name, layerClipNames[g], g, clip, group.Bindings.Count, keyCount));
+                        FacialAnimationClipKind.Gaze, GazeClipName, GazeClipName, -1, clip, group.Bindings.Count, keyCount));
+                }
+                else if (perShape)
+                {
+                    parts.Add(new FacialAnimationClipPart(
+                        FacialAnimationClipKind.BlendShape, shapeNames[g], clipNames[g], -1, clip, group.Bindings.Count, keyCount));
+                }
+                else if (g < layers.Length)
+                {
+                    parts.Add(new FacialAnimationClipPart(
+                        FacialAnimationClipKind.Layer, layers[g].Name, clipNames[g], g, clip, group.Bindings.Count, keyCount));
                 }
                 else
                 {
-                    bool isBase = g == baseGroup;
                     parts.Add(new FacialAnimationClipPart(
-                        isBase ? FacialAnimationClipKind.Base : FacialAnimationClipKind.Gaze,
-                        isBase ? BaseClipName : GazeClipName,
-                        isBase ? BaseClipName : GazeClipName,
-                        -1,
-                        clip,
-                        group.Bindings.Count,
-                        keyCount));
+                        FacialAnimationClipKind.Base, BaseClipName, BaseClipName, -1, clip, group.Bindings.Count, keyCount));
                 }
             }
 
@@ -263,38 +282,66 @@ namespace Hidano.FacialControl.Timeline.Editor.AnimationTrackConversion
         /// </summary>
         public static string[] AssignLayerClipNames(ReadOnlySpan<LayerDefinition> layers)
         {
-            var counts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+            var sources = new string[layers.Length];
             for (int l = 0; l < layers.Length; l++)
             {
-                string name = layers[l].Name ?? string.Empty;
+                sources[l] = layers[l].Name;
+            }
+
+            return AssignUniqueClipNames(sources, "_L");
+        }
+
+        /// <summary>
+        /// BlendShape ごとの <see cref="FacialAnimationClipPart.ClipName"/> を決める（HID-422）。規則は <see cref="AssignLayerClipNames"/> と同じで、
+        /// 衝突する名前には <c>_S&lt;index&gt;</c>（<paramref name="shapeNames"/> の index）を付ける。
+        /// </summary>
+        public static string[] AssignBlendShapeClipNames(IReadOnlyList<string> shapeNames)
+        {
+            if (shapeNames == null) throw new ArgumentNullException(nameof(shapeNames));
+
+            var sources = new string[shapeNames.Count];
+            for (int s = 0; s < sources.Length; s++)
+            {
+                sources[s] = shapeNames[s];
+            }
+
+            return AssignUniqueClipNames(sources, "_S");
+        }
+
+        private static string[] AssignUniqueClipNames(string[] sources, string suffixPrefix)
+        {
+            var counts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+            for (int i = 0; i < sources.Length; i++)
+            {
+                string name = sources[i] ?? string.Empty;
                 counts[name] = counts.TryGetValue(name, out int count) ? count + 1 : 1;
             }
 
             var used = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { BaseClipName, GazeClipName };
-            var names = new string[layers.Length];
-            for (int l = 0; l < layers.Length; l++)
+            var names = new string[sources.Length];
+            for (int i = 0; i < sources.Length; i++)
             {
-                string name = layers[l].Name ?? string.Empty;
+                string name = sources[i] ?? string.Empty;
                 if (name.Length > 0 && counts[name] == 1 && used.Add(name))
                 {
-                    names[l] = name;
+                    names[i] = name;
                 }
             }
 
-            for (int l = 0; l < layers.Length; l++)
+            for (int i = 0; i < sources.Length; i++)
             {
-                if (names[l] != null)
+                if (names[i] != null)
                 {
                     continue;
                 }
 
-                string candidate = (layers[l].Name ?? string.Empty) + "_L" + l;
+                string candidate = (sources[i] ?? string.Empty) + suffixPrefix + i;
                 while (!used.Add(candidate))
                 {
-                    candidate += "_L" + l;
+                    candidate += suffixPrefix + i;
                 }
 
-                names[l] = candidate;
+                names[i] = candidate;
             }
 
             return names;
@@ -307,8 +354,10 @@ namespace Hidano.FacialControl.Timeline.Editor.AnimationTrackConversion
             Transform root,
             SampleTimeline samples,
             CurveGroup[] groups,
-            int baseGroup)
+            bool perShape)
         {
+            // レイヤー単位では担当レイヤーの Clip（担当なしは layers.Length の Base）、BlendShape 単位では BlendShape 自身の Clip に入れる。
+            int baseGroup = layers.Length;
             IReadOnlyList<string> names = evaluator.BlendShapeNames;
             int shapeCount = names.Count;
             var outputIndexByName = new Dictionary<string, int>(shapeCount, StringComparer.Ordinal);
@@ -365,7 +414,7 @@ namespace Hidano.FacialControl.Timeline.Editor.AnimationTrackConversion
                     built[outputIndex] ??= FacialAnimationCurveFactory.BuildScalarCurve(
                         samples, values[outputIndex], FacialAnimationCurveFactory.BlendShapeTolerance);
                     int owner = owners[outputIndex];
-                    CurveGroup group = groups[owner == NoOwner ? baseGroup : owner];
+                    CurveGroup group = groups[perShape ? outputIndex : owner == NoOwner ? baseGroup : owner];
                     group.Bindings.Add(EditorCurveBinding.FloatCurve(path, typeof(SkinnedMeshRenderer), BlendShapePropertyPrefix + shapeName));
                     group.Curves.Add(built[outputIndex]);
                 }

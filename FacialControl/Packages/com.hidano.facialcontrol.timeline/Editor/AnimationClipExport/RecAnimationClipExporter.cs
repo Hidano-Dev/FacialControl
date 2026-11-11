@@ -31,7 +31,7 @@ namespace Hidano.FacialControl.Timeline.Editor.AnimationClipExport
         public string AssetPath { get; }
     }
 
-    /// <summary><see cref="RecAnimationClipExporter.TryExport(string, FacialController, FacialCharacterProfileSO, RecSourceRemap, string, bool, out RecAnimationClipExportResult)"/> の結果。</summary>
+    /// <summary><see cref="RecAnimationClipExporter.TryExport(string, FacialController, FacialCharacterProfileSO, RecSourceRemap, string, bool, out RecAnimationClipExportResult, FacialAnimationClipExportOptions)"/> の結果。</summary>
     internal sealed class RecAnimationClipExportResult
     {
         public RecAnimationClipExportResult(
@@ -48,7 +48,7 @@ namespace Hidano.FacialControl.Timeline.Editor.AnimationClipExport
 
         public bool Succeeded => Error == null;
 
-        /// <summary>保存した AnimationClip（レイヤー別 → Base → Gaze の順）。</summary>
+        /// <summary>保存した AnimationClip（レイヤー別 → Base → Gaze、BlendShape 単位なら BlendShape 別 → Gaze の順）。</summary>
         public IReadOnlyList<RecAnimationClipExportClip> Clips { get; }
 
         /// <summary>任意で作った TimelineAsset の保存先（作らなければ null）。</summary>
@@ -90,6 +90,7 @@ namespace Hidano.FacialControl.Timeline.Editor.AnimationClipExport
         /// <param name="sourceRemap">REC の入力源・レイヤーの対応表（HID-412。null なら付け替えない）。</param>
         /// <param name="outputFolder">保存先フォルダ（プロジェクト相対。例 <c>Assets/Faces</c>）。</param>
         /// <param name="createTimeline">Clip を並べた AnimationTrack 入りの TimelineAsset も作るか。</param>
+        /// <param name="options">Clip の分け方とフレームレート（HID-422。既定はレイヤー単位・60fps）。</param>
         public static bool TryExport(
             string recordingPath,
             FacialController controller,
@@ -97,14 +98,15 @@ namespace Hidano.FacialControl.Timeline.Editor.AnimationClipExport
             RecSourceRemap sourceRemap,
             string outputFolder,
             bool createTimeline,
-            out RecAnimationClipExportResult result)
+            out RecAnimationClipExportResult result,
+            FacialAnimationClipExportOptions options = default)
         {
             if (!RecFileReader.TryRead(recordingPath, out RecBinaryFormat.ReadResult readResult))
             {
                 return Fail($"REC '{recordingPath}' を読み込めませんでした（詳細は Console）。", out result);
             }
 
-            return TryExport(readResult, recordingPath, controller, profileAsset, sourceRemap, outputFolder, createTimeline, out result);
+            return TryExport(readResult, recordingPath, controller, profileAsset, sourceRemap, outputFolder, createTimeline, out result, options);
         }
 
         /// <summary>読み込み済みの REC から書き出す（ウィンドウが読み込んだ REC を読み直さないため）。</summary>
@@ -117,9 +119,10 @@ namespace Hidano.FacialControl.Timeline.Editor.AnimationClipExport
             RecSourceRemap sourceRemap,
             string outputFolder,
             bool createTimeline,
-            out RecAnimationClipExportResult result)
+            out RecAnimationClipExportResult result,
+            FacialAnimationClipExportOptions options = default)
         {
-            result = TryExportCore(readResult, recordingPath, controller, profileAsset, sourceRemap, outputFolder, createTimeline);
+            result = TryExportCore(readResult, recordingPath, controller, profileAsset, sourceRemap, outputFolder, createTimeline, options);
             if (!result.Succeeded)
             {
                 Debug.LogError(LogPrefix + result.Error);
@@ -143,7 +146,8 @@ namespace Hidano.FacialControl.Timeline.Editor.AnimationClipExport
             FacialCharacterProfileSO profileAsset,
             RecSourceRemap sourceRemap,
             string outputFolder,
-            bool createTimeline)
+            bool createTimeline,
+            FacialAnimationClipExportOptions options)
         {
             if (readResult == null || readResult.Timeline == null)
             {
@@ -181,7 +185,7 @@ namespace Hidano.FacialControl.Timeline.Editor.AnimationClipExport
             RecToTimelineExporter.WarnSkippedWeightRecords(sequence, recordingPath);
             RecToTimelineExporter.WarnSkippedExpressionRecords(sequence, recordingPath);
 
-            List<FacialAnimationClipPart> parts = BuildPartsForTarget(sequence, controller, profileAsset, profile, out string buildError);
+            List<FacialAnimationClipPart> parts = BuildPartsForTarget(sequence, controller, profileAsset, profile, options, out string buildError);
             if (parts == null)
             {
                 return RecAnimationClipExportResult.Failed(buildError, problems);
@@ -214,11 +218,12 @@ namespace Hidano.FacialControl.Timeline.Editor.AnimationClipExport
             FacialController controller,
             FacialCharacterProfileSO profileAsset,
             FacialProfile profile,
+            FacialAnimationClipExportOptions options,
             out string error)
         {
             if (!EditorUtility.IsPersistent(controller))
             {
-                return BuildParts(sequence, controller, profileAsset, profile, out error);
+                return BuildParts(sequence, controller, profileAsset, profile, options, out error);
             }
 
             if (!TryLoadPrefabInstance(controller, out GameObject contentsRoot, out FacialController instance, out error))
@@ -229,7 +234,7 @@ namespace Hidano.FacialControl.Timeline.Editor.AnimationClipExport
             try
             {
                 PrefabInstanceLoadedForTests?.Invoke(instance);
-                return BuildParts(sequence, instance, profileAsset, profile, out error);
+                return BuildParts(sequence, instance, profileAsset, profile, options, out error);
             }
             finally
             {
@@ -313,6 +318,7 @@ namespace Hidano.FacialControl.Timeline.Editor.AnimationClipExport
             FacialController controller,
             FacialCharacterProfileSO profileAsset,
             FacialProfile profile,
+            FacialAnimationClipExportOptions options,
             out string error)
         {
             error = null;
@@ -342,7 +348,8 @@ namespace Hidano.FacialControl.Timeline.Editor.AnimationClipExport
                         compositor,
                         controller,
                         profileAsset,
-                        FacialAnimationTrackConverter.ResolveAnimator(controller));
+                        FacialAnimationTrackConverter.ResolveAnimator(controller),
+                        options);
                 }
             }
             finally

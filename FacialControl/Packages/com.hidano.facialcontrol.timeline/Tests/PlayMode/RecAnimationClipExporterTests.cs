@@ -541,6 +541,154 @@ namespace Hidano.FacialControl.Timeline.Tests.PlayMode
             }
         }
 
+        [Test]
+        public void TryExport_SplitPerBlendShape_OneClipPerBlendShapeWithSameCurvesAsLayerSplit()
+        {
+            TimelineE2ECharacter character = Prepare(new RecFixtureWriter.Recording
+            {
+                IncludeValueProvider = true,
+                IncludeLayerWeights = true,
+            });
+            bool layerSuccess = RecAnimationClipExporter.TryExport(
+                _fixture.RecordingPath, character.Controller, null, null, _outputFolder, false, out RecAnimationClipExportResult layered);
+            Assert.That(layerSuccess, Is.True, "前提: レイヤー単位で書き出せる: " + layered.Error);
+
+            bool success = RecAnimationClipExporter.TryExport(
+                _fixture.RecordingPath, character.Controller, null, null, _outputFolder, false, out RecAnimationClipExportResult result,
+                new FacialAnimationClipExportOptions(FacialAnimationClipSplitMode.BlendShape, 0d));
+
+            Assert.That(success, Is.True, result.Error);
+            var expectedBindings = new List<EditorCurveBinding>();
+            for (int i = 0; i < layered.Clips.Count; i++)
+            {
+                expectedBindings.AddRange(AnimationUtility.GetCurveBindings(layered.Clips[i].Part.Clip));
+            }
+
+            var actualBindings = new List<EditorCurveBinding>();
+            var shapeNames = new HashSet<string>();
+            for (int i = 0; i < result.Clips.Count; i++)
+            {
+                FacialAnimationClipPart part = result.Clips[i].Part;
+                Assert.That(part.Kind, Is.Not.EqualTo(FacialAnimationClipKind.Layer).And.Not.EqualTo(FacialAnimationClipKind.Base), "レイヤー別・Base には分けない");
+                EditorCurveBinding[] bindings = AnimationUtility.GetCurveBindings(part.Clip);
+                actualBindings.AddRange(bindings);
+                if (part.Kind != FacialAnimationClipKind.BlendShape)
+                {
+                    continue;
+                }
+
+                for (int b = 0; b < bindings.Length; b++)
+                {
+                    Assert.That(bindings[b].propertyName, Is.EqualTo("blendShape." + part.Name), $"{part.ClipName}: BlendShape 1 つ分だけを持つ");
+                }
+
+                Assert.That(shapeNames.Add(part.Name), Is.True, $"{part.Name}: BlendShape 1 つにつき Clip は 1 本");
+                AssertSameValues(FindCurveOwner(layered, bindings[0]), part.Clip, bindings, BlendShapeTolerance);
+            }
+
+            Assert.That(actualBindings, Is.EquivalentTo(expectedBindings), "全体として同じプロパティを 1 回ずつ持つ（Clip 同士で重ならない）");
+            Assert.That(shapeNames.Count, Is.GreaterThan(1), "前提: 複数の BlendShape に分かれる");
+            Assert.That(HasKind(result, FacialAnimationClipKind.Gaze), Is.True, "目ボーンは 1 本の Gaze Clip のまま");
+        }
+
+        [Test]
+        public void TryExport_FrameRateOverride_WritesClipsAtThatRateWithSameValues()
+        {
+            TimelineE2ECharacter character = Prepare(new RecFixtureWriter.Recording
+            {
+                IncludeValueProvider = true,
+                IncludeLayerWeights = true,
+            });
+            bool baseSuccess = RecAnimationClipExporter.TryExport(
+                _fixture.RecordingPath, character.Controller, null, null, _outputFolder, false, out RecAnimationClipExportResult full);
+            Assert.That(baseSuccess, Is.True, "前提: 既定のフレームレートで書き出せる: " + full.Error);
+
+            bool success = RecAnimationClipExporter.TryExport(
+                _fixture.RecordingPath, character.Controller, null, null, _outputFolder, false, out RecAnimationClipExportResult result,
+                new FacialAnimationClipExportOptions(FacialAnimationClipSplitMode.Layer, 15d));
+
+            Assert.That(success, Is.True, result.Error);
+            Assert.That(result.Clips.Count, Is.EqualTo(full.Clips.Count), "分割は変わらない");
+            for (int i = 0; i < result.Clips.Count; i++)
+            {
+                Assert.That(result.Clips[i].Part.Clip.frameRate, Is.EqualTo(15f), "Clip のフレームレートを指定値にする");
+            }
+
+            // キー数は比べない（fixture のカーブは折れ線と段差で、既定のフレームレートでも間引きで最小限まで減っている）。
+            // 指定したフレームの時刻では、既定のフレームレートで書き出した値と（間引きの許容誤差 2 回分以内で）一致する。
+            for (int i = 0; i < result.Clips.Count; i++)
+            {
+                if (result.Clips[i].Part.Kind == FacialAnimationClipKind.Gaze)
+                {
+                    continue;
+                }
+
+                AnimationClip clip = result.Clips[i].Part.Clip;
+                AssertSameValues(full.Clips[i].Part.Clip, clip, AnimationUtility.GetCurveBindings(clip),
+                    (FacialAnimationCurveFactory.BlendShapeTolerance * 2f) + 0.01f, 15d);
+            }
+        }
+
+        [Test]
+        public void Window_ExportWithOptions_UsesSplitModeAndFrameRate()
+        {
+            TimelineE2ECharacter character = Prepare(new RecFixtureWriter.Recording { IncludeValueProvider = true });
+            var window = ScriptableObject.CreateInstance<RecAnimationClipExportWindow>();
+            try
+            {
+                window.SetInputs(_fixture.RecordingPath, character.Controller, null, _outputFolder,
+                    options: new FacialAnimationClipExportOptions(FacialAnimationClipSplitMode.BlendShape, 30d));
+
+                Assert.That(window.Export(), Is.True, window.StatusText);
+                Assert.That(HasKind(window.LastResult, FacialAnimationClipKind.BlendShape), Is.True, "BlendShape 単位で書き出す");
+                Assert.That(window.LastResult.Clips[0].Part.Clip.frameRate, Is.EqualTo(30f));
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(window);
+            }
+        }
+
+        /// <summary><paramref name="binding"/> を持つ Clip を <paramref name="result"/> から探す。</summary>
+        private static AnimationClip FindCurveOwner(RecAnimationClipExportResult result, EditorCurveBinding binding)
+        {
+            for (int i = 0; i < result.Clips.Count; i++)
+            {
+                AnimationClip clip = result.Clips[i].Part.Clip;
+                if (Array.IndexOf(AnimationUtility.GetCurveBindings(clip), binding) >= 0)
+                {
+                    return clip;
+                }
+            }
+
+            Assert.Fail($"{binding.propertyName} を持つ Clip がない");
+            return null;
+        }
+
+        /// <summary>
+        /// <paramref name="bindings"/> の各カーブが、<paramref name="frameRate"/>（0 なら fixture の Timeline）のフレームごとに同じ値になることを確かめる。
+        /// </summary>
+        private void AssertSameValues(AnimationClip expected, AnimationClip actual, EditorCurveBinding[] bindings, float tolerance, double frameRate = 0d)
+        {
+            frameRate = frameRate > 0d ? frameRate : _fixture.Timeline.editorSettings.frameRate;
+            double duration = _fixture.Timeline.duration;
+            int frameCount = (int)Math.Ceiling(duration * frameRate);
+            for (int b = 0; b < bindings.Length; b++)
+            {
+                AnimationCurve expectedCurve = AnimationUtility.GetEditorCurve(expected, bindings[b]);
+                AnimationCurve actualCurve = AnimationUtility.GetEditorCurve(actual, bindings[b]);
+                Assert.That(expectedCurve, Is.Not.Null, $"{bindings[b].propertyName}: 比較元にカーブがある");
+                for (int f = 0; f <= frameCount; f++)
+                {
+                    float time = (float)Math.Min(f / frameRate, duration);
+                    Assert.That(
+                        actualCurve.Evaluate(time),
+                        Is.EqualTo(expectedCurve.Evaluate(time)).Within(tolerance),
+                        $"{bindings[b].propertyName} t={time:F4}");
+                }
+            }
+        }
+
         private string FixtureFolder()
         {
             return Path.GetDirectoryName(AssetDatabase.GetAssetPath(_fixture.Timeline)).Replace('\\', '/');

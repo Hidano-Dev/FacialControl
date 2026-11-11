@@ -8,7 +8,8 @@ namespace Hidano.FacialControl.Timeline.Editor.AnimationTrackConversion
 {
     /// <summary>
     /// Timeline ウィンドウのトラック右クリックメニュー「FacialControl/AnimationTrack へ変換」（HID-190）。
-    /// ダイアログは出さず、選択した独自 Track の対象ごとに直ちに変換する（<see cref="FacialAnimationTrackConverter"/>）。
+    /// Clip の分け方とフレームレートを選ぶダイアログ（<see cref="ConvertToAnimationTrackDialog"/>。HID-422）を出し、
+    /// 選択した独自 Track の対象ごとに変換する（<see cref="FacialAnimationTrackConverter"/>）。
     /// </summary>
     [MenuEntry("FacialControl/AnimationTrack へ変換")]
     public sealed class ConvertToAnimationTrackAction : TrackAction
@@ -39,13 +40,8 @@ namespace Hidano.FacialControl.Timeline.Editor.AnimationTrackConversion
                 return false;
             }
 
-            List<AnimationTrackConversionResult> results = FacialAnimationTrackConverter.Convert(director, tracks);
-            if (results.Count == 0)
-            {
-                return false;
-            }
-
-            TimelineEditor.Refresh(RefreshReason.ContentsAddedOrRemoved);
+            // Clip の分け方とフレームレートを選んでから変換する（HID-422。変換と Refresh はダイアログが行う）。
+            ConvertToAnimationTrackDialog.Open(director, tracks);
             return true;
         }
     }
