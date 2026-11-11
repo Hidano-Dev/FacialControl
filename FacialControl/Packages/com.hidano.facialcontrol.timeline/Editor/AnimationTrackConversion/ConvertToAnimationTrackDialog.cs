@@ -14,9 +14,15 @@ namespace Hidano.FacialControl.Timeline.Editor.AnimationTrackConversion
     /// </summary>
     internal sealed class ConvertToAnimationTrackDialog : EditorWindow
     {
+        private const string LogPrefix = "[ConvertToAnimationTrackDialog] ";
+
         private PlayableDirector _director;
+        private PlayableAsset _timeline;
         private List<TrackAsset> _tracks = new List<TrackAsset>();
         private bool _built;
+
+        [SerializeField]
+        private bool _initialized;
 
         /// <summary>オプションの欄（テスト用にも公開）。</summary>
         internal FacialAnimationClipExportOptionsFields OptionsFields { get; private set; }
@@ -35,18 +41,39 @@ namespace Hidano.FacialControl.Timeline.Editor.AnimationTrackConversion
         internal void Initialize(PlayableDirector director, IEnumerable<TrackAsset> tracks)
         {
             _director = director;
+            _timeline = director != null ? director.playableAsset : null;
             _tracks = tracks != null ? new List<TrackAsset>(tracks) : new List<TrackAsset>();
+            _initialized = true;
             EnsureBuilt();
         }
 
-        /// <summary>選んだオプションで変換する（結果が空なら変換しなかった。理由は Console）。</summary>
+        /// <summary>
+        /// 選んだオプションで変換する（結果が空なら変換しなかった。理由は Console）。ダイアログは非モーダルなので、開いた後に
+        /// PlayableDirector・その TimelineAsset・選んだトラックが変わっていれば、選んでいないものを変換しないよう何もしない。
+        /// </summary>
         internal List<AnimationTrackConversionResult> Convert()
         {
             EnsureBuilt();
-            if (_director == null)
+            var empty = new List<AnimationTrackConversionResult>();
+            if (_director == null || _timeline == null)
             {
-                Debug.LogWarning("[ConvertToAnimationTrackDialog] 変換対象の PlayableDirector が無くなったため変換しません。");
-                return new List<AnimationTrackConversionResult>();
+                Debug.LogWarning(LogPrefix + "変換対象の PlayableDirector が無くなったため変換しません。トラックを選び直して実行してください。");
+                return empty;
+            }
+
+            if (_director.playableAsset != _timeline)
+            {
+                Debug.LogWarning(LogPrefix + $"'{_director.name}' の Timeline がダイアログを開いた後に変わったため変換しません。トラックを選び直して実行してください。", _director);
+                return empty;
+            }
+
+            for (int i = 0; i < _tracks.Count; i++)
+            {
+                if (_tracks[i] == null)
+                {
+                    Debug.LogWarning(LogPrefix + "選んだトラックがダイアログを開いた後に削除されたため変換しません。トラックを選び直して実行してください。", _director);
+                    return empty;
+                }
             }
 
             return FacialAnimationTrackConverter.Convert(_director, _tracks, OptionsFields.Options);
@@ -55,6 +82,16 @@ namespace Hidano.FacialControl.Timeline.Editor.AnimationTrackConversion
         private void CreateGUI()
         {
             EnsureBuilt();
+        }
+
+        private void OnEnable()
+        {
+            // ドメインリロードで変換対象（シリアライズしない）を失ったダイアログは使えないので閉じる
+            // （_initialized だけはシリアライズされて残る。開いた直後の OnEnable は Initialize より前なので false）。
+            if (_initialized && _director == null)
+            {
+                EditorApplication.delayCall += Close;
+            }
         }
 
         private void EnsureBuilt()

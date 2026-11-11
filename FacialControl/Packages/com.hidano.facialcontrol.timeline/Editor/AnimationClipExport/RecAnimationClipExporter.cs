@@ -374,6 +374,7 @@ namespace Hidano.FacialControl.Timeline.Editor.AnimationClipExport
             var clips = new List<RecAnimationClipExportClip>(parts.Count);
             var createdPaths = new List<string>(parts.Count + 1);
             bool completed = false;
+            var usedPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             AssetDatabase.StartAssetEditing();
             try
             {
@@ -382,7 +383,7 @@ namespace Hidano.FacialControl.Timeline.Editor.AnimationClipExport
                     FacialAnimationClipPart part = parts[i];
                     string clipName = baseName + "_" + FacialAnimationTrackConverter.SanitizeFileName(part.ClipName);
                     part.Clip.name = clipName;
-                    string assetPath = AssetDatabase.GenerateUniqueAssetPath(folder + "/" + clipName + ".anim");
+                    string assetPath = FacialAnimationTrackConverter.GenerateUniqueClipPath(folder, clipName, usedPaths);
                     AssetDatabase.CreateAsset(part.Clip, assetPath);
                     createdPaths.Add(assetPath);
                     clips.Add(new RecAnimationClipExportClip(part, assetPath));
@@ -452,6 +453,13 @@ namespace Hidano.FacialControl.Timeline.Editor.AnimationClipExport
         {
             BeforeCreateTimelineForTests?.Invoke(path);
             var timeline = ScriptableObject.CreateInstance<TimelineAsset>();
+
+            // Clip と同じフレームレートにする（Frame Rate を指定した書き出しで、Timeline のスナップ・フレーム表示がキーとずれないように。HID-422）。
+            if (clips.Count > 0 && clips[0].Part.Clip.frameRate > 0f)
+            {
+                timeline.editorSettings.frameRate = clips[0].Part.Clip.frameRate;
+            }
+
             AssetDatabase.CreateAsset(timeline, path);
             for (int i = 0; i < clips.Count; i++)
             {

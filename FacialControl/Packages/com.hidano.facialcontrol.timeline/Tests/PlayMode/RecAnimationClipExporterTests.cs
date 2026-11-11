@@ -569,9 +569,19 @@ namespace Hidano.FacialControl.Timeline.Tests.PlayMode
             for (int i = 0; i < result.Clips.Count; i++)
             {
                 FacialAnimationClipPart part = result.Clips[i].Part;
-                Assert.That(part.Kind, Is.Not.EqualTo(FacialAnimationClipKind.Layer).And.Not.EqualTo(FacialAnimationClipKind.Base), "レイヤー別・Base には分けない");
+                Assert.That(part.Kind, Is.Not.EqualTo(FacialAnimationClipKind.Layer), "レイヤー別には分けない");
                 EditorCurveBinding[] bindings = AnimationUtility.GetCurveBindings(part.Clip);
                 actualBindings.AddRange(bindings);
+                if (part.Kind == FacialAnimationClipKind.Base)
+                {
+                    // どのレイヤーも書かなかった BlendShape は、レイヤー単位と同じく Base 1 本にまとめる（BlendShape ごとにトラックを作らない）。
+                    AnimationClip layeredBase = FindKind(layered, FacialAnimationClipKind.Base);
+                    Assert.That(layeredBase, Is.Not.Null, "前提: レイヤー単位にも Base がある");
+                    Assert.That(bindings, Is.EquivalentTo(AnimationUtility.GetCurveBindings(layeredBase)), "Base の中身はレイヤー単位と同じ");
+                    AssertSameValues(layeredBase, part.Clip, bindings, BlendShapeTolerance);
+                    continue;
+                }
+
                 if (part.Kind != FacialAnimationClipKind.BlendShape)
                 {
                     continue;
@@ -636,17 +646,51 @@ namespace Hidano.FacialControl.Timeline.Tests.PlayMode
             var window = ScriptableObject.CreateInstance<RecAnimationClipExportWindow>();
             try
             {
-                window.SetInputs(_fixture.RecordingPath, character.Controller, null, _outputFolder,
+                window.SetInputs(_fixture.RecordingPath, character.Controller, null, _outputFolder, createTimeline: true,
                     options: new FacialAnimationClipExportOptions(FacialAnimationClipSplitMode.BlendShape, 30d));
 
                 Assert.That(window.Export(), Is.True, window.StatusText);
                 Assert.That(HasKind(window.LastResult, FacialAnimationClipKind.BlendShape), Is.True, "BlendShape 単位で書き出す");
                 Assert.That(window.LastResult.Clips[0].Part.Clip.frameRate, Is.EqualTo(30f));
+                var timeline = AssetDatabase.LoadAssetAtPath<TimelineAsset>(window.LastResult.TimelineAssetPath);
+                Assert.That(timeline.editorSettings.frameRate, Is.EqualTo(30d), "作る TimelineAsset も Clip と同じフレームレートにする");
             }
             finally
             {
                 UnityEngine.Object.DestroyImmediate(window);
             }
+        }
+
+        [Test]
+        public void OptionsFields_SetOptionsWithNonPresetFrameRate_ReturnsSameValue()
+        {
+            var fields = new FacialAnimationClipExportOptionsFields();
+
+            // 表示用の書式（小数 3 桁）で丸めた値を読み直さない。
+            fields.SetOptions(new FacialAnimationClipExportOptions(FacialAnimationClipSplitMode.BlendShape, 29.97002997d));
+            FacialAnimationClipExportOptions options = fields.Options;
+
+            Assert.That(options.SplitMode, Is.EqualTo(FacialAnimationClipSplitMode.BlendShape));
+            Assert.That(options.FrameRate, Is.EqualTo(29.97002997d));
+
+            fields.SetOptions(new FacialAnimationClipExportOptions(FacialAnimationClipSplitMode.Layer, 29.97d));
+            Assert.That(fields.Options.FrameRate, Is.EqualTo(29.97d), "表示が近い別の値も区別する");
+
+            fields.SetOptions(new FacialAnimationClipExportOptions(FacialAnimationClipSplitMode.Layer, 0d));
+            Assert.That(fields.Options.HasFrameRate, Is.False, "指定なしは Timeline に従う");
+        }
+
+        private static AnimationClip FindKind(RecAnimationClipExportResult result, FacialAnimationClipKind kind)
+        {
+            for (int i = 0; i < result.Clips.Count; i++)
+            {
+                if (result.Clips[i].Part.Kind == kind)
+                {
+                    return result.Clips[i].Part.Clip;
+                }
+            }
+
+            return null;
         }
 
         /// <summary><paramref name="binding"/> を持つ Clip を <paramref name="result"/> から探す。</summary>

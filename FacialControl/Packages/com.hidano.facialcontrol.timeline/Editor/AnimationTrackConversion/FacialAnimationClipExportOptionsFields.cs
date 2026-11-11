@@ -27,6 +27,9 @@ namespace Hidano.FacialControl.Timeline.Editor.AnimationTrackConversion
         private readonly DropdownField _splitField;
         private readonly DropdownField _frameRateField;
 
+        // _frameRateField.choices と同じ並びのフレームレート（0 は Timeline に従う）。表示文字列から読み直すと丸めで値が変わるため値を持つ。
+        private readonly List<double> _frameRateValues = new List<double>();
+
         public FacialAnimationClipExportOptionsFields()
         {
             _splitField = new DropdownField(
@@ -41,9 +44,11 @@ namespace Hidano.FacialControl.Timeline.Editor.AnimationTrackConversion
             Add(_splitField);
 
             var frameRateChoices = new List<string> { TimelineFrameRateChoice };
+            _frameRateValues.Add(0d);
             for (int i = 0; i < PresetFrameRates.Length; i++)
             {
                 frameRateChoices.Add(FormatFrameRate(PresetFrameRates[i]));
+                _frameRateValues.Add(PresetFrameRates[i]);
             }
 
             _frameRateField = new DropdownField("Frame Rate", frameRateChoices, 0)
@@ -65,9 +70,8 @@ namespace Hidano.FacialControl.Timeline.Editor.AnimationTrackConversion
                 FacialAnimationClipSplitMode splitMode = _splitField.value == SplitByBlendShapeChoice
                     ? FacialAnimationClipSplitMode.BlendShape
                     : FacialAnimationClipSplitMode.Layer;
-                double frameRate = double.TryParse(_frameRateField.value, NumberStyles.Float, CultureInfo.InvariantCulture, out double parsed)
-                    ? parsed
-                    : 0d;
+                int index = _frameRateField.index;
+                double frameRate = index >= 0 && index < _frameRateValues.Count ? _frameRateValues[index] : 0d;
                 return new FacialAnimationClipExportOptions(splitMode, frameRate);
             }
         }
@@ -78,22 +82,33 @@ namespace Hidano.FacialControl.Timeline.Editor.AnimationTrackConversion
             _splitField.SetValueWithoutNotify(
                 options.SplitMode == FacialAnimationClipSplitMode.BlendShape ? SplitByBlendShapeChoice : SplitByLayerChoice);
 
-            string frameRateChoice = options.HasFrameRate ? FormatFrameRate(options.FrameRate) : TimelineFrameRateChoice;
-            if (!_frameRateField.choices.Contains(frameRateChoice))
+            double frameRate = options.HasFrameRate ? options.FrameRate : 0d;
+            int index = _frameRateValues.IndexOf(frameRate);
+            if (index < 0)
             {
+                // 一覧に無い値は選択肢に足す。表示が既存の選択肢と同じになる値（丸めで重なる）でも区別できるよう値を付ける。
+                string label = FormatFrameRate(frameRate);
                 List<string> choices = _frameRateField.choices;
-                choices.Add(frameRateChoice);
+                while (choices.Contains(label))
+                {
+                    label += "*";
+                }
+
+                choices.Add(label);
                 _frameRateField.choices = choices;
+                _frameRateValues.Add(frameRate);
+                index = _frameRateValues.Count - 1;
             }
 
-            _frameRateField.SetValueWithoutNotify(frameRateChoice);
+            _frameRateField.SetValueWithoutNotify(_frameRateField.choices[index]);
         }
 
         private void Save()
         {
             FacialAnimationClipExportOptions options = Options;
             EditorPrefs.SetInt(SplitModePrefsKey, (int)options.SplitMode);
-            EditorPrefs.SetFloat(FrameRatePrefsKey, options.HasFrameRate ? (float)options.FrameRate : 0f);
+            // EditorPrefs は double を持てないので文字列（往復で値が変わらない "R"）で保存する。
+            EditorPrefs.SetString(FrameRatePrefsKey, (options.HasFrameRate ? options.FrameRate : 0d).ToString("R", CultureInfo.InvariantCulture));
         }
 
         private static FacialAnimationClipExportOptions LoadSaved()
@@ -104,7 +119,11 @@ namespace Hidano.FacialControl.Timeline.Editor.AnimationTrackConversion
                 splitMode = FacialAnimationClipSplitMode.Layer;
             }
 
-            return new FacialAnimationClipExportOptions(splitMode, EditorPrefs.GetFloat(FrameRatePrefsKey, 0f));
+            double frameRate = double.TryParse(
+                EditorPrefs.GetString(FrameRatePrefsKey, "0"), NumberStyles.Float, CultureInfo.InvariantCulture, out double parsed)
+                ? parsed
+                : 0d;
+            return new FacialAnimationClipExportOptions(splitMode, frameRate);
         }
 
         private static string FormatFrameRate(double frameRate)

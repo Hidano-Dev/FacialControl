@@ -274,12 +274,44 @@ namespace Hidano.FacialControl.Timeline.Editor.AnimationTrackConversion
             Undo.RecordObject(director, UndoName);
             var clips = new List<AnimationTrackConversionClip>(parts.Count);
             var summary = new System.Text.StringBuilder();
+
+            // BlendShape 単位（HID-422）では Clip が数百本になり得るので、.anim の保存を 1 回の AssetDatabase 編集にまとめる
+            // （Clip ごとのインポートを避ける）。
+            AssetDatabase.StartAssetEditing();
+            try
+            {
+                CreateClipTracks(director, timeline, controller, animator, parts, clips, summary);
+            }
+            finally
+            {
+                AssetDatabase.StopAssetEditing();
+            }
+
+            List<TrackAsset> muted = MuteSourceTracks(timeline, resolver, receiver);
+            EditorUtility.SetDirty(timeline);
+            Debug.Log(LogPrefix + $"'{controller.name}' を {clips.Count} 本の AnimationClip に変換しました（{summary}）。", receiver);
+            result = new AnimationTrackConversionResult(receiver, clips, muted);
+            return true;
+        }
+
+        private static void CreateClipTracks(
+            PlayableDirector director,
+            TimelineAsset timeline,
+            FacialController controller,
+            Animator animator,
+            List<FacialAnimationClipPart> parts,
+            List<AnimationTrackConversionClip> clips,
+            System.Text.StringBuilder summary)
+        {
+            // 一括編集中は、同じ回に作ったファイルを GenerateUniqueAssetPath が見ない可能性があるため、この回で使ったパスを自前でも避ける
+            // （ファイル名に使えない文字の置き換えで、別の Clip 名が同じファイル名になる場合）。
+            var usedPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             for (int i = 0; i < parts.Count; i++)
             {
                 FacialAnimationClipPart part = parts[i];
                 AnimationClip clip = part.Clip;
                 clip.name = timeline.name + "_" + controller.name + "_" + part.ClipName;
-                string clipPath = ResolveClipPath(timeline, controller.name + "_" + part.ClipName);
+                string clipPath = ResolveClipPath(timeline, controller.name + "_" + part.ClipName, usedPaths);
                 AssetDatabase.CreateAsset(clip, clipPath);
 
                 var track = timeline.CreateTrack<AnimationTrack>(null, controller.name + " (" + part.ClipName + ")");
@@ -297,12 +329,6 @@ namespace Hidano.FacialControl.Timeline.Editor.AnimationTrackConversion
                 clips.Add(new AnimationTrackConversionClip(part, track, clipPath));
                 summary.Append(i == 0 ? string.Empty : ", ").Append($"{part.ClipName}: カーブ {part.CurveCount} / キー {part.KeyCount}");
             }
-
-            List<TrackAsset> muted = MuteSourceTracks(timeline, resolver, receiver);
-            EditorUtility.SetDirty(timeline);
-            Debug.Log(LogPrefix + $"'{controller.name}' を {clips.Count} 本の AnimationClip に変換しました（{summary}）。", receiver);
-            result = new AnimationTrackConversionResult(receiver, clips, muted);
-            return true;
         }
 
         /// <summary>
@@ -384,12 +410,27 @@ namespace Hidano.FacialControl.Timeline.Editor.AnimationTrackConversion
             return muted;
         }
 
-        private static string ResolveClipPath(TimelineAsset timeline, string targetName)
+        private static string ResolveClipPath(TimelineAsset timeline, string targetName, HashSet<string> usedPaths)
         {
             string timelinePath = AssetDatabase.GetAssetPath(timeline);
             string folder = string.IsNullOrEmpty(timelinePath) ? "Assets" : Path.GetDirectoryName(timelinePath).Replace('\\', '/');
-            string fileName = SanitizeFileName(timeline.name + "_" + targetName) + ".anim";
-            return AssetDatabase.GenerateUniqueAssetPath(folder + "/" + fileName);
+            return GenerateUniqueClipPath(folder, SanitizeFileName(timeline.name + "_" + targetName), usedPaths);
+        }
+
+        /// <summary>
+        /// <paramref name="folder"/> に <paramref name="baseName"/>.anim を置くパスを、既存のアセットとも <paramref name="usedPaths"/>
+        /// （同じ一括編集で作ったもの）とも重ならないように決め、<paramref name="usedPaths"/> に加える。
+        /// </summary>
+        internal static string GenerateUniqueClipPath(string folder, string baseName, HashSet<string> usedPaths)
+        {
+            string path = AssetDatabase.GenerateUniqueAssetPath(folder + "/" + baseName + ".anim");
+            for (int n = 1; usedPaths.Contains(path); n++)
+            {
+                path = AssetDatabase.GenerateUniqueAssetPath(folder + "/" + baseName + "_" + n + ".anim");
+            }
+
+            usedPaths.Add(path);
+            return path;
         }
 
         internal static string SanitizeFileName(string name)

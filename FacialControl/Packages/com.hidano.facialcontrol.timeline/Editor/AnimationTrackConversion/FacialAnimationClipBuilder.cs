@@ -118,8 +118,9 @@ namespace Hidano.FacialControl.Timeline.Editor.AnimationTrackConversion
     /// その BlendShape を書いたレイヤーのうち、Profile 上で優先度が最も高いレイヤー（同じ優先度なら後に宣言したレイヤー。
     /// LayerBlender が後に適用する方）。どのレイヤーも書かなかった BlendShape は <see cref="FacialAnimationClipKind.Base"/> の Clip に入れる。
     /// Clip 同士で同じプロパティを触らないので、AnimationTrack を何本並べても Animator 側で値が混ざらず、最終値は FacialControl の合成結果と一致する。</para>
-    /// <para><see cref="FacialAnimationClipSplitMode.BlendShape"/> では担当レイヤーで分けず、BlendShape 名 1 つにつき Clip 1 本にする
-    /// （同じ名前を持つ複数の renderer のカーブは同じ Clip に入る。HID-422）。値はレイヤー単位と同じで、分け方だけが違う。</para>
+    /// <para><see cref="FacialAnimationClipSplitMode.BlendShape"/> では担当レイヤーで分けず、いずれかのレイヤーが書いた BlendShape を名前 1 つにつき
+    /// Clip 1 本にする（同じ名前を持つ複数の renderer のカーブは同じ Clip に入る。どのレイヤーも書かなかったものは Base にまとめる。HID-422）。
+    /// 値はレイヤー単位と同じで、分け方だけが違う。</para>
     /// <para>Clip に入る値は全レイヤーを合成した後の最終値で、担当レイヤー以外の影響も含む。Clip を編集しても FacialControl の
     /// レイヤー合成は再計算されない。</para>
     /// <para>PlayableDirector / TimelineAsset には依存しない。評価する時刻とフレームレートは呼び出し側が渡す。Editor 専用。</para>
@@ -145,7 +146,7 @@ namespace Hidano.FacialControl.Timeline.Editor.AnimationTrackConversion
         /// <summary>
         /// <paramref name="samples"/> の時刻ごとに評価し、カーブを持つ Clip だけを返す。並びは
         /// <see cref="FacialAnimationClipSplitMode.Layer"/> ならレイヤー別（Profile の宣言順）→ Base → Gaze、
-        /// <see cref="FacialAnimationClipSplitMode.BlendShape"/> なら BlendShape 別（合成出力の並び）→ Gaze。
+        /// <see cref="FacialAnimationClipSplitMode.BlendShape"/> なら BlendShape 別（合成出力の並び）→ Base → Gaze。
         /// </summary>
         /// <param name="evaluator">合成結果の評価器。</param>
         /// <param name="controller">書き出し対象（renderer の取得元）。</param>
@@ -176,16 +177,16 @@ namespace Hidano.FacialControl.Timeline.Editor.AnimationTrackConversion
             IReadOnlyList<string> shapeNames = evaluator.BlendShapeNames;
             bool perShape = splitMode == FacialAnimationClipSplitMode.BlendShape;
 
-            // BlendShape 単位: [0, shapeCount) が BlendShape 別、最後が Gaze。レイヤー単位: [0, layerCount) がレイヤー別、Base、Gaze。
-            int blendShapeGroupCount = perShape ? shapeNames.Count : layers.Length + 1;
-            var groups = new CurveGroup[blendShapeGroupCount + 1];
-            int gazeGroup = blendShapeGroupCount;
+            // BlendShape 単位: [0, shapeCount) が BlendShape 別、Base、Gaze。レイヤー単位: [0, layerCount) がレイヤー別、Base、Gaze。
+            int baseGroup = perShape ? shapeNames.Count : layers.Length;
+            var groups = new CurveGroup[baseGroup + 2];
+            int gazeGroup = baseGroup + 1;
             for (int g = 0; g < groups.Length; g++)
             {
                 groups[g] = new CurveGroup();
             }
 
-            CollectBlendShapeCurves(evaluator, controller, layers, root, samples, groups, perShape);
+            CollectBlendShapeCurves(evaluator, controller, layers, root, samples, groups, perShape, baseGroup);
             CollectGazeCurves(evaluator, controller, profileAsset, root, humanoid, samples, groups[gazeGroup]);
 
             string[] clipNames = perShape ? AssignBlendShapeClipNames(shapeNames) : AssignLayerClipNames(layers);
@@ -211,20 +212,20 @@ namespace Hidano.FacialControl.Timeline.Editor.AnimationTrackConversion
                     parts.Add(new FacialAnimationClipPart(
                         FacialAnimationClipKind.Gaze, GazeClipName, GazeClipName, -1, clip, group.Bindings.Count, keyCount));
                 }
+                else if (g == baseGroup)
+                {
+                    parts.Add(new FacialAnimationClipPart(
+                        FacialAnimationClipKind.Base, BaseClipName, BaseClipName, -1, clip, group.Bindings.Count, keyCount));
+                }
                 else if (perShape)
                 {
                     parts.Add(new FacialAnimationClipPart(
                         FacialAnimationClipKind.BlendShape, shapeNames[g], clipNames[g], -1, clip, group.Bindings.Count, keyCount));
                 }
-                else if (g < layers.Length)
-                {
-                    parts.Add(new FacialAnimationClipPart(
-                        FacialAnimationClipKind.Layer, layers[g].Name, clipNames[g], g, clip, group.Bindings.Count, keyCount));
-                }
                 else
                 {
                     parts.Add(new FacialAnimationClipPart(
-                        FacialAnimationClipKind.Base, BaseClipName, BaseClipName, -1, clip, group.Bindings.Count, keyCount));
+                        FacialAnimationClipKind.Layer, layers[g].Name, clipNames[g], g, clip, group.Bindings.Count, keyCount));
                 }
             }
 
@@ -354,10 +355,11 @@ namespace Hidano.FacialControl.Timeline.Editor.AnimationTrackConversion
             Transform root,
             SampleTimeline samples,
             CurveGroup[] groups,
-            bool perShape)
+            bool perShape,
+            int baseGroup)
         {
-            // レイヤー単位では担当レイヤーの Clip（担当なしは layers.Length の Base）、BlendShape 単位では BlendShape 自身の Clip に入れる。
-            int baseGroup = layers.Length;
+            // レイヤー単位では担当レイヤーの Clip、BlendShape 単位では BlendShape 自身の Clip に入れる。
+            // どちらも、どのレイヤーも書かなかった BlendShape は Base の Clip 1 本にまとめる（書かれない BlendShape ごとにトラックを作らない）。
             IReadOnlyList<string> names = evaluator.BlendShapeNames;
             int shapeCount = names.Count;
             var outputIndexByName = new Dictionary<string, int>(shapeCount, StringComparer.Ordinal);
@@ -414,7 +416,7 @@ namespace Hidano.FacialControl.Timeline.Editor.AnimationTrackConversion
                     built[outputIndex] ??= FacialAnimationCurveFactory.BuildScalarCurve(
                         samples, values[outputIndex], FacialAnimationCurveFactory.BlendShapeTolerance);
                     int owner = owners[outputIndex];
-                    CurveGroup group = groups[perShape ? outputIndex : owner == NoOwner ? baseGroup : owner];
+                    CurveGroup group = groups[owner == NoOwner ? baseGroup : perShape ? outputIndex : owner];
                     group.Bindings.Add(EditorCurveBinding.FloatCurve(path, typeof(SkinnedMeshRenderer), BlendShapePropertyPrefix + shapeName));
                     group.Curves.Add(built[outputIndex]);
                 }
