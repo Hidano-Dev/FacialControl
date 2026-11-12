@@ -6,6 +6,7 @@ using Hidano.FacialControl.Domain.Models;
 using Hidano.FacialControl.Rec.Adapters.FileSystem;
 using Hidano.FacialControl.Rec.Domain.Services;
 using Hidano.FacialControl.Timeline.Domain.Models;
+using Hidano.FacialControl.Timeline.Editor.AnimationTrackConversion;
 using UnityEditor;
 using UnityEditor.UIElements;
 using UnityEngine;
@@ -20,7 +21,8 @@ namespace Hidano.FacialControl.Timeline.Editor.AnimationClipExport
     /// <para>入力は REC ファイル / 対象キャラ（シーン上の FacialController か prefab アセット。HID-417）/ Profile（既定はキャラの Character SO）/ 入力源・レイヤーの
     /// 対応表 / 出力フォルダ。TimelineAsset・Bake・PlayableDirector の配線は不要で、シーンも書き換えない
     /// （<see cref="RecAnimationClipExporter"/>）。</para>
-    /// <para>出力は AnimationTrack 変換と同じく、BlendShape の担当レイヤーごとの Clip + Base + Gaze（HID-410）。Clip の値は合成後の最終値なので、
+    /// <para>出力は AnimationTrack 変換と同じく、BlendShape の担当レイヤーごとの Clip + Base + Gaze（HID-410）。Split Clips By で
+    /// BlendShape 単位、Frame Rate で書き出しのフレームレートを選べる（HID-422）。Clip の値は合成後の最終値なので、
     /// 編集しても FacialControl のレイヤー合成は再計算されない。</para>
     /// <para>REC は Reload Sources（または REC の選択）で 1 回だけ読み、読み込んだ内容と識別子（ハッシュ）を保持して書き出しに使う。
     /// キャラ・Profile の変更では読み直さない。書き出し前に、REC 欄のパスとファイルが読み込み時から変わっていないかを確かめる。</para>
@@ -34,6 +36,7 @@ namespace Hidano.FacialControl.Timeline.Editor.AnimationClipExport
         private ObjectField _profileField;
         private TextField _outputFolderField;
         private Toggle _createTimelineToggle;
+        private FacialAnimationClipExportOptionsFields _optionsFields;
         private RecSourceRemapPanel _remapPanel;
         private HelpBox _statusBox;
         private bool _built;
@@ -142,6 +145,9 @@ namespace Hidano.FacialControl.Timeline.Editor.AnimationClipExport
             };
             root.Add(_createTimelineToggle);
 
+            _optionsFields = new FacialAnimationClipExportOptionsFields();
+            root.Add(_optionsFields);
+
             _remapPanel = new RecSourceRemapPanel();
             root.Add(_remapPanel);
 
@@ -156,14 +162,16 @@ namespace Hidano.FacialControl.Timeline.Editor.AnimationClipExport
 
         /// <summary>
         /// 入力欄を設定して REC を読み込む（テストとプログラムからの利用向け）。<paramref name="profile"/> が null ならキャラの Character SO を
-        /// 自動で入れる（キャラを変えると差し替わる）。
+        /// 自動で入れる（キャラを変えると差し替わる）。<paramref name="options"/> を省略すると既定（レイヤー単位・Timeline のフレームレート）にする
+        /// （前回 UI で選んだ値は使わない）。
         /// </summary>
         internal void SetInputs(
             string recordingPath,
             FacialController controller,
             FacialCharacterProfileSO profile,
             string outputFolder,
-            bool createTimeline = false)
+            bool createTimeline = false,
+            FacialAnimationClipExportOptions options = default)
         {
             EnsureBuilt();
             _recordingPathField.SetValueWithoutNotify(recordingPath ?? string.Empty);
@@ -180,6 +188,7 @@ namespace Hidano.FacialControl.Timeline.Editor.AnimationClipExport
 
             _outputFolderField.SetValueWithoutNotify(outputFolder ?? DefaultOutputFolder);
             _createTimelineToggle.SetValueWithoutNotify(createTimeline);
+            _optionsFields.SetOptions(options);
             Reload();
         }
 
@@ -269,7 +278,8 @@ namespace Hidano.FacialControl.Timeline.Editor.AnimationClipExport
                     remap.IsIdentity ? null : remap,
                     _outputFolderField.value,
                     _createTimelineToggle.value,
-                    out result);
+                    out result,
+                    _optionsFields.Options);
             }
             catch (Exception ex)
             {

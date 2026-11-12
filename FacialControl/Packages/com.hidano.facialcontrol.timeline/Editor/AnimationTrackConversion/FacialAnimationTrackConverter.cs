@@ -55,7 +55,7 @@ namespace Hidano.FacialControl.Timeline.Editor.AnimationTrackConversion
         public FacialTimelineReceiver Receiver { get; }
 
         /// <summary>
-        /// 作った AnimationClip と AnimationTrack（レイヤー別 → Base → Gaze の順。カーブの無いものは作らない）。
+        /// 作った AnimationClip と AnimationTrack（レイヤー別 → Base → Gaze、BlendShape 単位なら BlendShape 別 → Gaze の順。カーブの無いものは作らない）。
         /// 各 Clip は互いに別のプロパティだけを持つ。
         /// </summary>
         public IReadOnlyList<AnimationTrackConversionClip> Clips { get; }
@@ -102,6 +102,15 @@ namespace Hidano.FacialControl.Timeline.Editor.AnimationTrackConversion
         /// </summary>
         public static List<AnimationTrackConversionResult> Convert(PlayableDirector director, IEnumerable<TrackAsset> selection)
         {
+            return Convert(director, selection, default);
+        }
+
+        /// <summary><see cref="Convert(PlayableDirector, IEnumerable{TrackAsset})"/> を、Clip の分け方とフレームレートを指定して行う（HID-422）。</summary>
+        public static List<AnimationTrackConversionResult> Convert(
+            PlayableDirector director,
+            IEnumerable<TrackAsset> selection,
+            FacialAnimationClipExportOptions options)
+        {
             var results = new List<AnimationTrackConversionResult>();
             TimelineAsset timeline = director != null ? director.playableAsset as TimelineAsset : null;
             if (timeline == null || selection == null)
@@ -135,7 +144,7 @@ namespace Hidano.FacialControl.Timeline.Editor.AnimationTrackConversion
             int undoGroup = Undo.GetCurrentGroup();
             for (int i = 0; i < receivers.Count; i++)
             {
-                if (TryConvertReceiver(director, timeline, resolver, receivers[i], out AnimationTrackConversionResult result))
+                if (TryConvertReceiver(director, timeline, resolver, receivers[i], options, out AnimationTrackConversionResult result))
                 {
                     results.Add(result);
                 }
@@ -214,6 +223,7 @@ namespace Hidano.FacialControl.Timeline.Editor.AnimationTrackConversion
             TimelineAsset timeline,
             ReceiverResolver resolver,
             FacialTimelineReceiver receiver,
+            FacialAnimationClipExportOptions options,
             out AnimationTrackConversionResult result)
         {
             result = default;
@@ -248,7 +258,7 @@ namespace Hidano.FacialControl.Timeline.Editor.AnimationTrackConversion
             // Animator が無ければ変換が成功したときだけ追加する。
             Animator animator = ResolveAnimator(controller);
             List<FacialAnimationClipPart> parts = BuildClips(
-                timeline, compositor.BakeLocate.Bake, compositor, controller, profileAsset, animator);
+                timeline, compositor.BakeLocate.Bake, compositor, controller, profileAsset, animator, options);
             if (parts.Count == 0)
             {
                 Debug.LogError(LogPrefix + $"'{controller.name}' の BlendShape・目ボーンが Animator の階層に無いため、変換するカーブがありません。変換しません。", receiver);
@@ -264,12 +274,44 @@ namespace Hidano.FacialControl.Timeline.Editor.AnimationTrackConversion
             Undo.RecordObject(director, UndoName);
             var clips = new List<AnimationTrackConversionClip>(parts.Count);
             var summary = new System.Text.StringBuilder();
+
+            // BlendShape 単位（HID-422）では Clip が数百本になり得るので、.anim の保存を 1 回の AssetDatabase 編集にまとめる
+            // （Clip ごとのインポートを避ける）。
+            AssetDatabase.StartAssetEditing();
+            try
+            {
+                CreateClipTracks(director, timeline, controller, animator, parts, clips, summary);
+            }
+            finally
+            {
+                AssetDatabase.StopAssetEditing();
+            }
+
+            List<TrackAsset> muted = MuteSourceTracks(timeline, resolver, receiver);
+            EditorUtility.SetDirty(timeline);
+            Debug.Log(LogPrefix + $"'{controller.name}' を {clips.Count} 本の AnimationClip に変換しました（{summary}）。", receiver);
+            result = new AnimationTrackConversionResult(receiver, clips, muted);
+            return true;
+        }
+
+        private static void CreateClipTracks(
+            PlayableDirector director,
+            TimelineAsset timeline,
+            FacialController controller,
+            Animator animator,
+            List<FacialAnimationClipPart> parts,
+            List<AnimationTrackConversionClip> clips,
+            System.Text.StringBuilder summary)
+        {
+            // 一括編集中は、同じ回に作ったファイルを GenerateUniqueAssetPath が見ない可能性があるため、この回で使ったパスを自前でも避ける
+            // （ファイル名に使えない文字の置き換えで、別の Clip 名が同じファイル名になる場合）。
+            var usedPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             for (int i = 0; i < parts.Count; i++)
             {
                 FacialAnimationClipPart part = parts[i];
                 AnimationClip clip = part.Clip;
                 clip.name = timeline.name + "_" + controller.name + "_" + part.ClipName;
-                string clipPath = ResolveClipPath(timeline, controller.name + "_" + part.ClipName);
+                string clipPath = ResolveClipPath(timeline, controller.name + "_" + part.ClipName, usedPaths);
                 AssetDatabase.CreateAsset(clip, clipPath);
 
                 var track = timeline.CreateTrack<AnimationTrack>(null, controller.name + " (" + part.ClipName + ")");
@@ -287,12 +329,6 @@ namespace Hidano.FacialControl.Timeline.Editor.AnimationTrackConversion
                 clips.Add(new AnimationTrackConversionClip(part, track, clipPath));
                 summary.Append(i == 0 ? string.Empty : ", ").Append($"{part.ClipName}: カーブ {part.CurveCount} / キー {part.KeyCount}");
             }
-
-            List<TrackAsset> muted = MuteSourceTracks(timeline, resolver, receiver);
-            EditorUtility.SetDirty(timeline);
-            Debug.Log(LogPrefix + $"'{controller.name}' を {clips.Count} 本の AnimationClip に変換しました（{summary}）。", receiver);
-            result = new AnimationTrackConversionResult(receiver, clips, muted);
-            return true;
         }
 
         /// <summary>
@@ -374,12 +410,27 @@ namespace Hidano.FacialControl.Timeline.Editor.AnimationTrackConversion
             return muted;
         }
 
-        private static string ResolveClipPath(TimelineAsset timeline, string targetName)
+        private static string ResolveClipPath(TimelineAsset timeline, string targetName, HashSet<string> usedPaths)
         {
             string timelinePath = AssetDatabase.GetAssetPath(timeline);
             string folder = string.IsNullOrEmpty(timelinePath) ? "Assets" : Path.GetDirectoryName(timelinePath).Replace('\\', '/');
-            string fileName = SanitizeFileName(timeline.name + "_" + targetName) + ".anim";
-            return AssetDatabase.GenerateUniqueAssetPath(folder + "/" + fileName);
+            return GenerateUniqueClipPath(folder, SanitizeFileName(timeline.name + "_" + targetName), usedPaths);
+        }
+
+        /// <summary>
+        /// <paramref name="folder"/> に <paramref name="baseName"/>.anim を置くパスを、既存のアセットとも <paramref name="usedPaths"/>
+        /// （同じ一括編集で作ったもの）とも重ならないように決め、<paramref name="usedPaths"/> に加える。
+        /// </summary>
+        internal static string GenerateUniqueClipPath(string folder, string baseName, HashSet<string> usedPaths)
+        {
+            string path = AssetDatabase.GenerateUniqueAssetPath(folder + "/" + baseName + ".anim");
+            for (int n = 1; usedPaths.Contains(path); n++)
+            {
+                path = AssetDatabase.GenerateUniqueAssetPath(folder + "/" + baseName + "_" + n + ".anim");
+            }
+
+            usedPaths.Add(path);
+            return path;
         }
 
         internal static string SanitizeFileName(string name)
@@ -406,9 +457,9 @@ namespace Hidano.FacialControl.Timeline.Editor.AnimationTrackConversion
         }
 
         /// <summary>
-        /// <paramref name="timeline"/> の長さとフレームレート（無ければ <see cref="FallbackFrameRate"/>）で時刻列を作り、
-        /// <paramref name="evaluator"/> を評価して Clip を作る。カーブの path は <paramref name="animator"/>（null なら FacialController）の
-        /// Transform を基準にする。AnimationTrack 変換と、REC から直接書き出す経路（HID-409）が共有する。
+        /// <paramref name="timeline"/> の長さと、<paramref name="options"/> のフレームレート（指定が無ければ Timeline のもの、それも無ければ
+        /// <see cref="FallbackFrameRate"/>）で時刻列を作り、<paramref name="evaluator"/> を評価して Clip を作る。カーブの path は
+        /// <paramref name="animator"/>（null なら FacialController）の Transform を基準にする。AnimationTrack 変換と、REC から直接書き出す経路（HID-409）が共有する。
         /// </summary>
         internal static List<FacialAnimationClipPart> BuildClips(
             TimelineAsset timeline,
@@ -416,13 +467,14 @@ namespace Hidano.FacialControl.Timeline.Editor.AnimationTrackConversion
             IFacialOutputEvaluator evaluator,
             FacialController controller,
             FacialCharacterProfileSO profileAsset,
-            Animator animator)
+            Animator animator,
+            FacialAnimationClipExportOptions options = default)
         {
             Transform root = animator != null ? animator.transform : controller.transform;
             Animator humanoid = animator != null && animator.isHuman ? animator : null;
-            double frameRate = timeline.editorSettings.frameRate > 0d ? timeline.editorSettings.frameRate : FallbackFrameRate;
+            double frameRate = options.ResolveFrameRate(timeline.editorSettings.frameRate);
             SampleTimeline samples = SampleTimeline.Create(timeline.duration, frameRate, CollectStepCandidateTimes(timeline, bake));
-            return FacialAnimationClipBuilder.Build(evaluator, controller, profileAsset, root, humanoid, samples, frameRate);
+            return FacialAnimationClipBuilder.Build(evaluator, controller, profileAsset, root, humanoid, samples, frameRate, options.SplitMode);
         }
 
 

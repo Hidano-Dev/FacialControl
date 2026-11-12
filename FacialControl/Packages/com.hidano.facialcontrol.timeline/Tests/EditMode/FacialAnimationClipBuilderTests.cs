@@ -120,6 +120,23 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
             Assert.That(names[0], Is.Not.EqualTo("Base_L0").IgnoreCase.And.Not.EqualTo("Base").IgnoreCase);
         }
 
+        [Test]
+        public void AssignBlendShapeClipNames_UniqueNamesNotReserved_KeepsShapeNames()
+        {
+            string[] names = FacialAnimationClipBuilder.AssignBlendShapeClipNames(new[] { "smile", "eyeBlinkLeft", "あ" });
+
+            Assert.That(names, Is.EqualTo(new[] { "smile", "eyeBlinkLeft", "あ" }));
+        }
+
+        [Test]
+        public void AssignBlendShapeClipNames_ReservedOrDuplicateNames_AddsShapeIndexSuffix()
+        {
+            // BlendShape 単位（HID-422）でも、予約名（Gaze）と大文字小文字だけ違う名前はファイル名・トラック名が衝突するので区別する。
+            string[] names = FacialAnimationClipBuilder.AssignBlendShapeClipNames(new[] { "Gaze", "smile", "Smile", "jaw" });
+
+            Assert.That(names, Is.EqualTo(new[] { "Gaze_S0", "smile_S1", "Smile_S2", "jaw" }));
+        }
+
         /// <summary>レイヤーごとの寄与（[layer][shape]）を AccumulateBlendedContributions と同じ並び（layer * shapeCount + shape）にする。</summary>
         private static bool[] Contributes(params bool[][] perLayer)
         {
