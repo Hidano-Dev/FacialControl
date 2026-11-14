@@ -180,11 +180,14 @@ namespace Hidano.FacialControl.Timeline.Tests.PlayMode
             {
                 window.SetInputs(_fixture.RecordingPath, character.Controller, null, _outputFolder);
                 Assert.That(window.RemapPanel.Report, Is.Not.Null, "前提: REC と Profile から対応表を作る");
+                Assert.That(window.RemapPanel.IsExpanded, Is.False, "誤りが無ければ対応表は畳んでおく");
 
                 window.RemapPanel.SetRemapChoice(false, RecFixtureWriter.ValueProviderSourceId, "not a valid id");
 
                 Assert.That(window.RemapPanel.HasErrors, Is.True, "解釈できない入力源 id はエラー");
                 Assert.That(window.RemapPanel.ProblemText, Is.Not.Empty, "誤りを一覧に出す");
+                Assert.That(window.RemapPanel.IsExpanded, Is.True, "書き出しを止める誤りがあれば対応表を開く");
+                Assert.That(window.RemapPanel.HeaderText, Does.Contain("誤り"), "畳んでいても見出しで分かる");
                 Assert.That(window.Export(), Is.False, "誤りがあれば書き出さない");
                 Assert.That(AssetDatabase.FindAssets("t:AnimationClip", new[] { _outputFolder }), Is.Empty);
             }
@@ -239,7 +242,7 @@ namespace Hidano.FacialControl.Timeline.Tests.PlayMode
         }
 
         [Test]
-        public void Window_RecordingChangedAfterRemap_RefusesToExport()
+        public void Window_RecordingChangedAfterRemap_ReloadsAndStopsBecauseChoicesWereReset()
         {
             TimelineE2ECharacter character = Prepare(new RecFixtureWriter.Recording { IncludeValueProvider = true });
             var window = ScriptableObject.CreateInstance<RecAnimationClipExportWindow>();
@@ -247,13 +250,19 @@ namespace Hidano.FacialControl.Timeline.Tests.PlayMode
             {
                 window.SetInputs(_fixture.RecordingPath, character.Controller, null, _outputFolder);
                 window.RemapPanel.SetRemapChoice(false, RecFixtureWriter.ValueProviderSourceId, null);
+                int loads = window.RecordingLoadCount;
 
                 // 対応表を作った後に REC の中身が変わった（読み込み直していない）。
                 File.Copy(WriteOtherRecording(), _fixture.RecordingPath, true);
 
-                Assert.That(window.Export(), Is.False, "前の REC 用の選択を当てない");
-                Assert.That(window.StatusText, Does.Contain("Reload Sources"));
+                Assert.That(window.Export(), Is.False, "前の REC 用の選択を当てず、選び直してもらう");
+                Assert.That(window.RecordingLoadCount, Is.EqualTo(loads + 1), "変わった REC を読み直す");
+                Assert.That(window.RemapPanel.BuildSourceRemap().IsIdentity, Is.True, "前の REC 用の選択は持ち込まない");
+                Assert.That(window.StatusText, Does.Contain("読み直しました"));
+                Assert.That(window.RemapPanel.IsExpanded, Is.True, "確かめてもらう対応表を開く");
                 Assert.That(AssetDatabase.FindAssets("t:AnimationClip", new[] { _outputFolder }), Is.Empty);
+
+                Assert.That(window.Export(), Is.True, "読み直した後はそのまま書き出せる: " + window.StatusText);
             }
             finally
             {
@@ -262,17 +271,60 @@ namespace Hidano.FacialControl.Timeline.Tests.PlayMode
         }
 
         [Test]
-        public void Window_RecordingChangedWithIdentityRemap_RefusesToExport()
+        public void Window_RecordingChangedWithIdentityRemap_ReloadsAndExports()
         {
             TimelineE2ECharacter character = Prepare(new RecFixtureWriter.Recording { IncludeValueProvider = true });
             var window = ScriptableObject.CreateInstance<RecAnimationClipExportWindow>();
             try
             {
                 window.SetInputs(_fixture.RecordingPath, character.Controller, null, _outputFolder);
+                int loads = window.RecordingLoadCount;
                 File.Copy(WriteOtherRecording(), _fixture.RecordingPath, true);
 
-                Assert.That(window.Export(), Is.False, "対応表が恒等でも、読み込んだ内容と違う REC は書き出さない");
-                Assert.That(window.StatusText, Does.Contain("Reload Sources"));
+                Assert.That(window.Export(), Is.True, "対応表を選んでいなければ、読み直して書き出す: " + window.StatusText);
+                Assert.That(window.RecordingLoadCount, Is.EqualTo(loads + 1), "変わった REC を読み直す");
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(window);
+            }
+        }
+
+        [Test]
+        public void Window_RecordingUnchanged_ExportsWithoutReloading()
+        {
+            TimelineE2ECharacter character = Prepare(new RecFixtureWriter.Recording { IncludeValueProvider = true });
+            var window = ScriptableObject.CreateInstance<RecAnimationClipExportWindow>();
+            try
+            {
+                window.SetInputs(_fixture.RecordingPath, character.Controller, null, _outputFolder);
+                int loads = window.RecordingLoadCount;
+
+                Assert.That(window.Export(), Is.True, window.StatusText);
+                Assert.That(window.RecordingLoadCount, Is.EqualTo(loads), "変わっていない REC は読み直さない");
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(window);
+            }
+        }
+
+        [Test]
+        public void RemapPanel_UnresolvedSource_StaysCollapsedAndShowsInHeader()
+        {
+            TimelineE2ECharacter character = Prepare(new RecFixtureWriter.Recording { IncludeValueProvider = true });
+            var window = ScriptableObject.CreateInstance<RecAnimationClipExportWindow>();
+            try
+            {
+                window.SetInputs(_fixture.RecordingPath, character.Controller, null, _outputFolder);
+                Assert.That(window.RemapPanel.HeaderText, Does.Not.Contain("未対応"), "前提: すべて対応している");
+
+                // 形式は正しいが Profile に宣言の無い id へ付け替える（書き出せるが、その分は再生されない）。
+                window.RemapPanel.SetRemapChoice(false, RecFixtureWriter.ValueProviderSourceId, "osc-custom");
+
+                Assert.That(window.RemapPanel.HasErrors, Is.False, "前提: 書き出しは止めない");
+                Assert.That(window.RemapPanel.IsExpanded, Is.False, "未対応だけなら開かない");
+                Assert.That(window.RemapPanel.HeaderText, Does.Contain("未対応"), "畳んでいても見出しで分かる");
             }
             finally
             {
