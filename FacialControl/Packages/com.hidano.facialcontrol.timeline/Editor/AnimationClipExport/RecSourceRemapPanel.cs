@@ -24,6 +24,8 @@ namespace Hidano.FacialControl.Timeline.Editor.AnimationClipExport
         /// <summary>入力源 id を直接入力している行のドロップダウンの表示。</summary>
         internal const string CustomChoice = "(手入力)";
 
+        private const string HeaderCaption = "Source / Layer Remap";
+
         private readonly Dictionary<string, string> _sourceChoices = new Dictionary<string, string>(StringComparer.Ordinal);
         private readonly Dictionary<string, string> _layerChoices = new Dictionary<string, string>(StringComparer.Ordinal);
         private readonly Dictionary<string, Label> _sourceStatusLabels = new Dictionary<string, Label>(StringComparer.Ordinal);
@@ -31,6 +33,7 @@ namespace Hidano.FacialControl.Timeline.Editor.AnimationClipExport
         private readonly ScrollView _list;
         private readonly HelpBox _problemBox;
         private readonly HelpBox _noticeBox;
+        private readonly Foldout _foldout;
         private string _recordingKey;
         private int _profileKey;
         private RecRemapRecording _recording;
@@ -46,28 +49,42 @@ namespace Hidano.FacialControl.Timeline.Editor.AnimationClipExport
         /// <param name="problemBoxName">未対応・衝突の一覧（HelpBox）の要素名。</param>
         public RecSourceRemapPanel(string listName, string problemBoxName)
         {
-            var header = new Label("Source / Layer Remap（REC の入力源・レイヤー → Profile）");
-            header.style.marginTop = 8f;
-            header.style.unityFontStyleAndWeight = UnityEngine.FontStyle.Bold;
-            Add(header);
-
             _noticeBox = new HelpBox(string.Empty, HelpBoxMessageType.Warning);
             _noticeBox.style.display = DisplayStyle.None;
             Add(_noticeBox);
 
+            // 録ったときと同じ Profile で書き出すなら触らない欄なので、既定では畳む。書き出しを止める誤りがあるときだけ開く。
+            _foldout = new Foldout { value = false };
+            _foldout.style.marginTop = 4f;
+            _foldout.tooltip = "REC に記録された入力源 id・レイヤー名を、書き出しに使う Profile 側へ付け替える表。\n" +
+                "別のキャラで録った REC を使うときや、録った後に Profile の名前を変えたときに使う";
+            Add(_foldout);
+
             _list = new ScrollView(ScrollViewMode.Vertical) { name = listName };
-            _list.style.minHeight = 80f;
             _list.style.marginTop = 4f;
-            Add(_list);
+            _foldout.Add(_list);
 
             _problemBox = new HelpBox(string.Empty, HelpBoxMessageType.Warning) { name = problemBoxName };
             _problemBox.style.display = DisplayStyle.None;
-            Add(_problemBox);
+            _problemBox.style.marginTop = 4f;
+            _foldout.Add(_problemBox);
             Rebuild(null, null, null, 0);
         }
 
         /// <summary>テスト用: 対応表の上に出している注意書き（無ければ空）。</summary>
         public string NoticeText => _noticeBox.style.display.value != DisplayStyle.None ? _noticeBox.text : string.Empty;
+
+        /// <summary>対応表を開いているか。</summary>
+        public bool IsExpanded => _foldout.value;
+
+        /// <summary>見出し（判定結果の要約を含む）。</summary>
+        public string HeaderText => _foldout.text;
+
+        /// <summary>対応表を開く（書き出し前に確かめてもらうとき）。</summary>
+        public void Expand()
+        {
+            _foldout.value = true;
+        }
 
         /// <summary>対応表の上に注意書き（例: キャラと Profile の食い違い）を出す。null / 空なら隠す。</summary>
         public void SetNotice(string message)
@@ -315,12 +332,22 @@ namespace Hidano.FacialControl.Timeline.Editor.AnimationClipExport
             if (_recording == null || _target == null)
             {
                 Report = null;
+                _foldout.text = HeaderCaption;
                 _problemBox.style.display = DisplayStyle.None;
                 _problemBox.text = string.Empty;
                 return;
             }
 
             Report = RecSourceRemapResolver.Analyze(_recording, _target, BuildSourceRemap());
+            _foldout.text = HeaderCaption + (Report.HasErrors
+                ? " — 誤りあり（書き出せません）"
+                : Report.HasUnresolved ? " — 未対応あり（その分は再生されません）" : " — すべて対応");
+            if (Report.HasErrors)
+            {
+                // 自動で開くだけで、誤りが解消しても閉じない（利用者が見ている欄を勝手に畳まない）。
+                _foldout.value = true;
+            }
+
             for (int i = 0; i < Report.Sources.Count; i++)
             {
                 RecRemapSourceEntry entry = Report.Sources[i];
