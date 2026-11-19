@@ -24,8 +24,9 @@ namespace Hidano.FacialControl.Timeline.Editor.AnimationClipExport
     /// <para>出力は AnimationTrack 変換と同じく、BlendShape の担当レイヤーごとの Clip + Base + Gaze（HID-410）。Split Clips By で
     /// BlendShape 単位、Frame Rate で書き出しのフレームレートを選べる（HID-422）。Clip の値は合成後の最終値なので、
     /// 編集しても FacialControl のレイヤー合成は再計算されない。</para>
-    /// <para>REC は Reload Sources（または REC の選択）で 1 回だけ読み、読み込んだ内容と識別子（ハッシュ）を保持して書き出しに使う。
-    /// キャラ・Profile の変更では読み直さない。書き出し前に、REC 欄のパスとファイルが読み込み時から変わっていないかを確かめる。</para>
+    /// <para>REC は選んだとき（Browse、またはパスの入力を確定したとき）に読み、読み込んだ内容と識別子（ハッシュ）を保持して書き出しに使う。
+    /// キャラ・Profile の変更では読み直さない。書き出し時に REC 欄のパスかファイルが読み込み時から変わっていれば読み直し、
+    /// 対応表で選んでいた対応先が読み直しで元に戻ったときは書き出さずに知らせる（HID-423）。</para>
     /// </remarks>
     public sealed class RecAnimationClipExportWindow : EditorWindow
     {
@@ -89,22 +90,23 @@ namespace Hidano.FacialControl.Timeline.Editor.AnimationClipExport
 
             _built = true;
             VisualElement root = rootVisualElement;
-            root.style.paddingLeft = 10f;
-            root.style.paddingRight = 10f;
-            root.style.paddingTop = 10f;
-            root.style.paddingBottom = 10f;
 
-            _recordingPathField = new TextField("REC File");
-            root.Add(_recordingPathField);
+            // 結果や警告が長くなっても見切れないよう、Export ボタン以外はスクロールさせる。
+            var scroll = new ScrollView(ScrollViewMode.Vertical);
+            scroll.style.flexGrow = 1f;
+            scroll.contentContainer.style.paddingLeft = 10f;
+            scroll.contentContainer.style.paddingRight = 10f;
+            scroll.contentContainer.style.paddingTop = 4f;
+            scroll.contentContainer.style.paddingBottom = 10f;
+            root.Add(scroll);
+            VisualElement content = scroll.contentContainer;
 
-            var recordingButtons = new VisualElement();
-            recordingButtons.style.flexDirection = FlexDirection.Row;
-            recordingButtons.style.marginBottom = 6f;
-            root.Add(recordingButtons);
-            recordingButtons.Add(new Button(BrowseRecording) { text = "Browse REC" });
-            var reloadButton = new Button(Reload) { text = "Reload Sources" };
-            reloadButton.style.marginLeft = 6f;
-            recordingButtons.Add(reloadButton);
+            content.Add(CreateSectionHeader("Input"));
+
+            // パスを打ち込んだときは確定（Enter・フォーカス外れ）で読み込む。1 文字ごとには読まない。
+            _recordingPathField = new TextField("REC File") { isDelayed = true };
+            _recordingPathField.RegisterValueChangedCallback(_ => Reload());
+            content.Add(CreatePathRow(_recordingPathField, BrowseRecording));
 
             _controllerField = new ObjectField("Character")
             {
@@ -114,7 +116,7 @@ namespace Hidano.FacialControl.Timeline.Editor.AnimationClipExport
                     "（BlendShape 名・renderer・目ボーンの取得元。どちらも書き換えない）",
             };
             _controllerField.RegisterValueChangedCallback(evt => OnControllerChanged(evt.newValue as FacialController));
-            root.Add(_controllerField);
+            AddField(content, _controllerField);
 
             _profileField = new ObjectField("Profile")
             {
@@ -128,36 +130,78 @@ namespace Hidano.FacialControl.Timeline.Editor.AnimationClipExport
                 _autoProfile = null;
                 RebuildRemap();
             });
-            root.Add(_profileField);
+            AddField(content, _profileField);
 
-            var outputRow = new VisualElement();
-            outputRow.style.flexDirection = FlexDirection.Row;
+            _remapPanel = new RecSourceRemapPanel();
+            content.Add(_remapPanel);
+
+            content.Add(CreateSectionHeader("Output"));
+
             _outputFolderField = new TextField("Output Folder") { value = DefaultOutputFolder };
-            _outputFolderField.style.flexGrow = 1f;
-            outputRow.Add(_outputFolderField);
-            outputRow.Add(new Button(BrowseOutputFolder) { text = "..." });
-            root.Add(outputRow);
+            content.Add(CreatePathRow(_outputFolderField, BrowseOutputFolder));
+
+            _optionsFields = new FacialAnimationClipExportOptionsFields();
+            foreach (VisualElement field in _optionsFields.Children())
+            {
+                field.style.marginBottom = FieldSpacing;
+            }
+
+            content.Add(_optionsFields);
 
             _createTimelineToggle = new Toggle("Also Create TimelineAsset")
             {
                 value = false,
                 tooltip = "書き出した Clip を AnimationTrack に並べた TimelineAsset も作る（Animator の Bind は Timeline で行う）",
             };
-            root.Add(_createTimelineToggle);
-
-            _optionsFields = new FacialAnimationClipExportOptionsFields();
-            root.Add(_optionsFields);
-
-            _remapPanel = new RecSourceRemapPanel();
-            root.Add(_remapPanel);
+            AddField(content, _createTimelineToggle);
 
             _statusBox = new HelpBox("REC ファイルとキャラを選んでください。", HelpBoxMessageType.Info);
-            _statusBox.style.marginTop = 8f;
-            root.Add(_statusBox);
+            _statusBox.style.marginTop = 12f;
+            content.Add(_statusBox);
 
             var exportButton = new Button(() => Export()) { text = "Export AnimationClips" };
-            exportButton.style.marginTop = 8f;
+            exportButton.style.height = 28f;
+            exportButton.style.marginLeft = 10f;
+            exportButton.style.marginRight = 10f;
+            exportButton.style.marginTop = 6f;
+            exportButton.style.marginBottom = 10f;
             root.Add(exportButton);
+        }
+
+        private const float FieldSpacing = 4f;
+
+        private static Label CreateSectionHeader(string text)
+        {
+            var header = new Label(text);
+            header.style.unityFontStyleAndWeight = FontStyle.Bold;
+            header.style.marginTop = 10f;
+            header.style.marginBottom = 4f;
+            header.style.paddingBottom = 2f;
+            header.style.borderBottomWidth = 1f;
+            header.style.borderBottomColor = new Color(0.5f, 0.5f, 0.5f, 0.4f);
+            return header;
+        }
+
+        private static void AddField(VisualElement parent, VisualElement field)
+        {
+            field.style.marginBottom = FieldSpacing;
+            parent.Add(field);
+        }
+
+        /// <summary>パス欄の右に「Browse...」ボタンを並べた行。</summary>
+        private static VisualElement CreatePathRow(TextField field, Action browse)
+        {
+            var row = new VisualElement();
+            row.style.flexDirection = FlexDirection.Row;
+            row.style.alignItems = Align.Center;
+            row.style.marginBottom = FieldSpacing;
+            field.style.flexGrow = 1f;
+            field.style.flexShrink = 1f;
+            row.Add(field);
+            var button = new Button(browse) { text = "Browse..." };
+            button.style.width = 80f;
+            row.Add(button);
+            return row;
         }
 
         /// <summary>
@@ -245,18 +289,27 @@ namespace Hidano.FacialControl.Timeline.Editor.AnimationClipExport
         {
             EnsureBuilt();
             LastResult = null;
-            if (_loadedRecording == null)
-            {
-                SetStatus("REC が読み込まれていません。Reload Sources で読み込んでください。", HelpBoxMessageType.Error);
-                return false;
-            }
 
-            // 対応表は読み込んだ REC に対して作ったもの。REC 欄やファイルの中身が読み込み時と違えば読み込み直しを求める
-            // （対応表が恒等でも、読み込んだ内容と違う REC を書き出さない）。
-            if (!IsLoadedRecordingCurrent())
+            // 対応表は読み込んだ REC に対して作ったもの。REC 欄やファイルの中身が読み込み時と違えば読み直す。
+            // 読み直しで選んでいた対応先が消えたときは、前の REC 用の選択を当てずに止めて選び直してもらう。
+            if (_loadedRecording == null || !IsLoadedRecordingCurrent())
             {
-                SetStatus("REC が読み込み時から変わっています。Reload Sources で読み込み直し、対応表を確認してから書き出してください。", HelpBoxMessageType.Error);
-                return false;
+                bool hadChoices = _loadedRecording != null && !_remapPanel.BuildSourceRemap().IsIdentity;
+                Reload();
+                if (_loadedRecording == null)
+                {
+                    return false;
+                }
+
+                if (hadChoices && _remapPanel.BuildSourceRemap().IsIdentity)
+                {
+                    _remapPanel.Expand();
+                    SetStatus(
+                        "REC が読み込み時から変わっていたので読み直しました。Source / Layer Remap の選択が元に戻ったので、" +
+                        "確認してからもう一度書き出してください。",
+                        HelpBoxMessageType.Warning);
+                    return false;
+                }
             }
 
             if (_remapPanel.HasErrors)
@@ -421,13 +474,19 @@ namespace Hidano.FacialControl.Timeline.Editor.AnimationClipExport
                 return;
             }
 
-            _recordingPathField.value = selected;
+            // 同じパスを選び直したときも読み直す（値が変わらないと変更通知が来ない）。
+            _recordingPathField.SetValueWithoutNotify(selected);
             Reload();
         }
 
         private void BrowseOutputFolder()
         {
-            string selected = EditorUtility.OpenFolderPanel("Select Output Folder", UnityEngine.Application.dataPath, string.Empty);
+            // 今の出力フォルダから開く（無ければ Assets）。
+            string current = RecAnimationClipExporter.NormalizeFolder(_outputFolderField.value);
+            string initialDirectory = current != null && AssetDatabase.IsValidFolder(current)
+                ? Path.GetFullPath(current)
+                : UnityEngine.Application.dataPath;
+            string selected = EditorUtility.OpenFolderPanel("Select Output Folder", initialDirectory, string.Empty);
             if (string.IsNullOrWhiteSpace(selected))
             {
                 return;
