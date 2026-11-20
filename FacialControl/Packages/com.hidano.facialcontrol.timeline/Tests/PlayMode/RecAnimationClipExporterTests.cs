@@ -714,6 +714,194 @@ namespace Hidano.FacialControl.Timeline.Tests.PlayMode
         }
 
         [Test]
+        public void Window_MultipleRecordings_ExportsEachRecordingWithSharedSettings()
+        {
+            TimelineE2ECharacter character = Prepare(new RecFixtureWriter.Recording
+            {
+                IncludeValueProvider = true,
+                IncludeLayerWeights = true,
+            });
+            string other = WriteOtherRecording();
+            var window = ScriptableObject.CreateInstance<RecAnimationClipExportWindow>();
+            try
+            {
+                window.SetInputs(new[] { _fixture.RecordingPath, other }, character.Controller, null, _outputFolder, createTimeline: true);
+                Assert.That(window.CompositionWarningText, Is.Empty, "構成が同じなら警告しない");
+
+                Assert.That(window.Export(), Is.True, window.StatusText);
+
+                Assert.That(window.LastResults.Count, Is.EqualTo(2), "並べた REC ごとに結果を返す");
+                Assert.That(window.LastResults[0].RecordingPath, Is.EqualTo(_fixture.RecordingPath), "並べた順に書き出す");
+                Assert.That(window.LastResults[1].RecordingPath, Is.EqualTo(other));
+                Assert.That(window.LastResults[0].Result.Clips[0].AssetPath, Does.StartWith(_outputFolder + "/recording_"));
+                Assert.That(window.LastResults[1].Result.Clips[0].AssetPath, Does.StartWith(_outputFolder + "/other_"), "REC 名で出力名を分ける");
+                Assert.That(window.LastResults[1].Result.TimelineAssetPath, Is.Not.Null.And.Not.EqualTo(window.LastResults[0].Result.TimelineAssetPath),
+                    "TimelineAsset も REC ごとに作る");
+                Assert.That(window.LastResult, Is.SameAs(window.LastResults[0].Result), "LastResult は先頭の REC の結果");
+                Assert.That(window.StatusText, Does.Contain("recording.fcrec").And.Contain("other.fcrec"), "REC ごとの結果をステータスに出す");
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(window);
+            }
+        }
+
+        [Test]
+        public void Window_MultipleRecordings_AppliesRemapBuiltFromFirstRecordingToAll()
+        {
+            TimelineE2ECharacter character = Prepare(new RecFixtureWriter.Recording
+            {
+                IncludeValueProvider = true,
+                IncludeLayerWeights = true,
+            });
+            string other = WriteOtherRecording();
+            var window = ScriptableObject.CreateInstance<RecAnimationClipExportWindow>();
+            try
+            {
+                window.SetInputs(new[] { _fixture.RecordingPath, other }, character.Controller, null, _outputFolder);
+                window.RemapPanel.SetRemapChoice(false, RecFixtureWriter.ValueProviderSourceId, null);
+
+                Assert.That(window.Export(), Is.True, window.StatusText);
+                for (int r = 0; r < window.LastResults.Count; r++)
+                {
+                    RecAnimationClipExportResult result = window.LastResults[r].Result;
+                    for (int i = 0; i < result.Clips.Count; i++)
+                    {
+                        Assert.That(result.Clips[i].Part.Name, Is.Not.EqualTo(TimelineE2EFixture.FaceLayer),
+                            $"{window.LastResults[r].RecordingPath}: 先頭の REC で選んだ除外を全 REC に当てる");
+                    }
+                }
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(window);
+            }
+        }
+
+        [Test]
+        public void Window_RecordingWithDifferentComposition_WarnsButExports()
+        {
+            TimelineE2ECharacter character = Prepare(new RecFixtureWriter.Recording());
+            string other = WriteOtherRecording();
+            var window = ScriptableObject.CreateInstance<RecAnimationClipExportWindow>();
+            try
+            {
+                window.SetInputs(new[] { _fixture.RecordingPath, other }, character.Controller, null, _outputFolder);
+
+                Assert.That(window.CompositionWarningText, Does.Contain("other.fcrec"), "構成が違う REC を名指しする");
+                Assert.That(window.CompositionWarningText, Does.Contain(RecFixtureWriter.ValueProviderSourceId), "先頭に無い入力源を示す");
+                Assert.That(window.CompositionWarningText, Does.Contain(RecFixtureWriter.LayerWeightLayer), "先頭に無いレイヤーを示す");
+                Assert.That(window.Export(), Is.True, "警告だけで書き出しは止めない: " + window.StatusText);
+                Assert.That(window.LastResults.Count, Is.EqualTo(2));
+
+                window.RemoveRecording(0);
+                Assert.That(window.RecordingPaths, Is.EqualTo(new[] { other }));
+                Assert.That(window.CompositionWarningText, Is.Empty, "比べる相手がいなくなれば警告を消す");
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(window);
+            }
+        }
+
+        [Test]
+        public void Window_OneRecordingThrows_ExportsTheOthersAndReportsFailure()
+        {
+            TimelineE2ECharacter character = Prepare(new RecFixtureWriter.Recording
+            {
+                IncludeValueProvider = true,
+                IncludeLayerWeights = true,
+            });
+            string other = WriteOtherRecording();
+            var window = ScriptableObject.CreateInstance<RecAnimationClipExportWindow>();
+            int calls = 0;
+            try
+            {
+                window.SetInputs(new[] { _fixture.RecordingPath, other }, character.Controller, null, _outputFolder, createTimeline: true);
+                RecAnimationClipExporter.BeforeCreateTimelineForTests = _ =>
+                {
+                    if (++calls == 1)
+                    {
+                        throw new InvalidOperationException("save failed for test");
+                    }
+                };
+                LogAssert.Expect(LogType.Exception, new Regex("save failed for test"));
+
+                Assert.That(window.Export(), Is.False, "1 本でも失敗すれば false");
+
+                Assert.That(window.LastResults.Count, Is.EqualTo(2), "失敗しても残りの REC は書き出す");
+                Assert.That(window.LastResults[0].Succeeded, Is.False);
+                Assert.That(window.LastResults[0].Error, Does.Contain("save failed for test"));
+                Assert.That(window.LastResults[1].Succeeded, Is.True);
+                Assert.That(window.LastResult, Is.Null, "失敗を含むときは LastResult を返さない");
+                Assert.That(window.StatusText, Does.Contain("失敗").And.Contain("save failed for test"));
+                string[] clips = AssetDatabase.FindAssets("t:AnimationClip", new[] { _outputFolder });
+                Assert.That(clips.Length, Is.EqualTo(window.LastResults[1].Result.Clips.Count), "失敗した REC の分は残さない");
+            }
+            finally
+            {
+                RecAnimationClipExporter.BeforeCreateTimelineForTests = null;
+                UnityEngine.Object.DestroyImmediate(window);
+            }
+        }
+
+        [Test]
+        public void Window_AddRecordingFolder_AddsRecordingsByNameAndSkipsDuplicates()
+        {
+            TimelineE2ECharacter character = Prepare(new RecFixtureWriter.Recording { IncludeValueProvider = true });
+            string other = WriteOtherRecording();
+            string folder = Path.GetDirectoryName(_fixture.RecordingPath);
+            File.WriteAllText(Path.Combine(folder, "notes.txt"), "not a recording");
+            var window = ScriptableObject.CreateInstance<RecAnimationClipExportWindow>();
+            try
+            {
+                window.SetInputs((string)null, character.Controller, null, _outputFolder);
+                Assert.That(window.RecordingPaths, Is.Empty);
+
+                int added = window.AddRecordingFolder(folder);
+
+                Assert.That(added, Is.EqualTo(2), ".fcrec だけを追加する");
+                Assert.That(window.RecordingPaths.Count, Is.EqualTo(2));
+                Assert.That(Path.GetFileName(window.RecordingPaths[0]), Is.EqualTo("other.fcrec"), "名前順に並べる");
+                Assert.That(Path.GetFileName(window.RecordingPaths[1]), Is.EqualTo("recording.fcrec"));
+                Assert.That(window.RemapPanel.RecordingKey, Is.Not.Null, "先頭の REC で対応表を作る");
+
+                Assert.That(window.AddRecordings(new[] { _fixture.RecordingPath, other }), Is.EqualTo(0), "同じファイルは重ねて追加しない");
+                Assert.That(window.RecordingPaths.Count, Is.EqualTo(2));
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(window);
+            }
+        }
+
+        [Test]
+        public void Window_UnreadableRecording_RefusesToExport()
+        {
+            TimelineE2ECharacter character = Prepare(new RecFixtureWriter.Recording());
+            string broken = Path.Combine(Path.GetDirectoryName(_fixture.RecordingPath), "broken.fcrec");
+            File.WriteAllBytes(broken, new byte[] { 1, 2, 3 });
+            LogAssert.ignoreFailingMessages = true;
+            var window = ScriptableObject.CreateInstance<RecAnimationClipExportWindow>();
+            try
+            {
+                window.SetInputs(new[] { _fixture.RecordingPath, broken }, character.Controller, null, _outputFolder);
+                Assert.That(window.StatusText, Does.Contain("broken.fcrec"), "読み込めない REC を示す");
+
+                Assert.That(window.Export(), Is.False, "読み込めない REC が並んでいれば書き出さない");
+                Assert.That(window.StatusText, Does.Contain("broken.fcrec"));
+                Assert.That(AssetDatabase.FindAssets("t:AnimationClip", new[] { _outputFolder }), Is.Empty, "他の REC も書き出さない");
+
+                window.RemoveRecording(1);
+                Assert.That(window.Export(), Is.True, "外せば書き出せる: " + window.StatusText);
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(window);
+            }
+        }
+
+        [Test]
         public void OptionsFields_SetOptionsWithNonPresetFrameRate_ReturnsSameValue()
         {
             var fields = new FacialAnimationClipExportOptionsFields();
