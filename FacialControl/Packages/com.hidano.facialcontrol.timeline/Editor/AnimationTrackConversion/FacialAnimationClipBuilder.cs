@@ -50,7 +50,10 @@ namespace Hidano.FacialControl.Timeline.Editor.AnimationTrackConversion
         /// <summary>担当レイヤー 1 つ分の BlendShape。</summary>
         Layer,
 
-        /// <summary>どのレイヤーも値を書かなかった BlendShape（ベース表情の値か 0 のまま）。</summary>
+        /// <summary>
+        /// どのレイヤーも値を書かなかったが、0 でない値を持つ BlendShape。値が 0 のままのものはカーブを作らない
+        /// （<see cref="FacialAnimationClipBuilder.IsZeroThroughout"/>）。
+        /// </summary>
         Base,
 
         /// <summary>目ボーン回転。</summary>
@@ -116,10 +119,13 @@ namespace Hidano.FacialControl.Timeline.Editor.AnimationTrackConversion
     /// <remarks>
     /// <para>各 BlendShape は担当レイヤー 1 つの Clip にだけ入れる。担当レイヤーは、書き出す区間のどこかで最終ブレンドに入って
     /// その BlendShape を書いたレイヤーのうち、Profile 上で優先度が最も高いレイヤー（同じ優先度なら後に宣言したレイヤー。
-    /// LayerBlender が後に適用する方）。どのレイヤーも書かなかった BlendShape は <see cref="FacialAnimationClipKind.Base"/> の Clip に入れる。
-    /// Clip 同士で同じプロパティを触らないので、AnimationTrack を何本並べても Animator 側で値が混ざらず、最終値は FacialControl の合成結果と一致する。</para>
+    /// LayerBlender が後に適用する方）。どのレイヤーも書かなかった BlendShape は、0 でない値を持つものだけを <see cref="FacialAnimationClipKind.Base"/>
+    /// の Clip に入れ、0 のままのものはカーブを作らない（操作していない BlendShape を書き出さない）。
+    /// Clip 同士で同じプロパティを触らないので、AnimationTrack を何本並べても Animator 側で値が混ざらない。</para>
+    /// <para>カーブを作らなかった BlendShape は Animator が触らないため、シーン上の値のまま残る。シーンの値が 0 なら最終値は FacialControl の
+    /// 合成結果と一致する。0 でない値が入っている場合や、AnimatorController のステート遷移で使って前のステートの値が残る場合は一致しない。</para>
     /// <para><see cref="FacialAnimationClipSplitMode.BlendShape"/> では担当レイヤーで分けず、いずれかのレイヤーが書いた BlendShape を名前 1 つにつき
-    /// Clip 1 本にする（同じ名前を持つ複数の renderer のカーブは同じ Clip に入る。どのレイヤーも書かなかったものは Base にまとめる。HID-422）。
+    /// Clip 1 本にする（同じ名前を持つ複数の renderer のカーブは同じ Clip に入る。どのレイヤーも書かなかったものはレイヤー単位と同じ規則で Base にまとめる。HID-422）。
     /// 値はレイヤー単位と同じで、分け方だけが違う。</para>
     /// <para>Clip に入る値は全レイヤーを合成した後の最終値で、担当レイヤー以外の影響も含む。Clip を編集しても FacialControl の
     /// レイヤー合成は再計算されない。</para>
@@ -277,6 +283,25 @@ namespace Hidano.FacialControl.Timeline.Editor.AnimationTrackConversion
         }
 
         /// <summary>
+        /// 全サンプルの値の絶対値が <paramref name="tolerance"/> 以下なら true。どのレイヤーも書かなかった BlendShape のうち、
+        /// これが true のものはカーブを作らない（間引きの閾値以下のずれは見た目に出ないので、0 と同じに扱う）。
+        /// </summary>
+        public static bool IsZeroThroughout(IReadOnlyList<float> values, float tolerance)
+        {
+            if (values == null) throw new ArgumentNullException(nameof(values));
+
+            for (int i = 0; i < values.Count; i++)
+            {
+                if (Math.Abs(values[i]) > tolerance)
+                {
+                    return false;
+                }
+            }
+
+            return true;
+        }
+
+        /// <summary>
         /// レイヤーごとの <see cref="FacialAnimationClipPart.ClipName"/> を決める。予約名（<see cref="BaseClipName"/> /
         /// <see cref="GazeClipName"/>）と衝突する名前、ほかのレイヤーと重複する名前（大文字小文字を区別しない。Windows の
         /// ファイル名と同じ規則）には <c>_L&lt;index&gt;</c> を付け、それでも衝突すれば付け足していく。
@@ -359,7 +384,8 @@ namespace Hidano.FacialControl.Timeline.Editor.AnimationTrackConversion
             int baseGroup)
         {
             // レイヤー単位では担当レイヤーの Clip、BlendShape 単位では BlendShape 自身の Clip に入れる。
-            // どちらも、どのレイヤーも書かなかった BlendShape は Base の Clip 1 本にまとめる（書かれない BlendShape ごとにトラックを作らない）。
+            // どちらも、どのレイヤーも書かなかった BlendShape は、0 でない値を持つものだけを Base の Clip 1 本にまとめ
+            // （書かれない BlendShape ごとにトラックを作らない）、0 のままのものはカーブを作らない。
             IReadOnlyList<string> names = evaluator.BlendShapeNames;
             int shapeCount = names.Count;
             var outputIndexByName = new Dictionary<string, int>(shapeCount, StringComparer.Ordinal);
@@ -394,6 +420,13 @@ namespace Hidano.FacialControl.Timeline.Editor.AnimationTrackConversion
             }
 
             int[] owners = AssignOwnerLayers(contributes, layers, shapeCount);
+            var skipped = new bool[shapeCount];
+            for (int s = 0; s < shapeCount; s++)
+            {
+                skipped[s] = owners[s] == NoOwner
+                    && IsZeroThroughout(values[s], FacialAnimationCurveFactory.BlendShapeTolerance);
+            }
+
             var built = new AnimationCurve[shapeCount];
             SkinnedMeshRenderer[] renderers = TimelinePreviewCompositor.ResolveRenderers(controller);
             for (int r = 0; r < renderers.Length; r++)
@@ -408,7 +441,7 @@ namespace Hidano.FacialControl.Timeline.Editor.AnimationTrackConversion
                 for (int shapeIndex = 0; shapeIndex < mesh.blendShapeCount; shapeIndex++)
                 {
                     string shapeName = mesh.GetBlendShapeName(shapeIndex);
-                    if (!outputIndexByName.TryGetValue(shapeName, out int outputIndex))
+                    if (!outputIndexByName.TryGetValue(shapeName, out int outputIndex) || skipped[outputIndex])
                     {
                         continue;
                     }

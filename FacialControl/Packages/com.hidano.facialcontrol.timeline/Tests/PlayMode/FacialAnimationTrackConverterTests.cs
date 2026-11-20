@@ -225,6 +225,7 @@ namespace Hidano.FacialControl.Timeline.Tests.PlayMode
                 IncludeLayerWeights = true,
             });
 
+            List<(double time, float[] weights, Quaternion left, Quaternion right)> expected = EvaluateSource(character);
             AnimationTrackConversionResult result = Convert(character)[0];
 
             var seen = new HashSet<string>(StringComparer.Ordinal);
@@ -233,10 +234,29 @@ namespace Hidano.FacialControl.Timeline.Tests.PlayMode
                 Assert.That(seen.Add(binding.path + "/" + binding.propertyName), Is.True, $"{binding.propertyName} は 1 つの Clip にだけ入る");
             }
 
-            foreach (string shape in TimelineE2EFixture.MeshBlendShapes)
+            // どの Clip にも入らないのは、どのレイヤーも書かず 0 のままの BlendShape だけ。
+            AssertOmittedShapesStayZero(character, result.Clips, expected);
+        }
+
+        [Test]
+        public void Convert_ShapeWrittenByNoLayerAndStaysZero_HasNoCurve()
+        {
+            // 値提供型の無い REC では EyeWide を書くレイヤーが無く、合成結果も 0 のまま。操作していない BlendShape は書き出さない。
+            TimelineE2ECharacter character = Prepare(new RecFixtureWriter.Recording());
+            List<(double time, float[] weights, Quaternion left, Quaternion right)> expected = EvaluateSource(character);
+
+            AnimationTrackConversionResult result = Convert(character)[0];
+
+            var properties = new HashSet<string>(StringComparer.Ordinal);
+            foreach (EditorCurveBinding binding in AllBindings(result))
             {
-                Assert.That(seen.Contains(RendererPath(character) + "/blendShape." + shape), Is.True, $"{shape} はどれかの Clip に入る");
+                properties.Add(binding.propertyName);
             }
+
+            Assert.That(properties, Does.Not.Contain("blendShape." + TimelineE2EFixture.EyeWideBlendShape), "操作していない BlendShape のカーブは作らない");
+            Assert.That(properties, Does.Contain("blendShape." + TimelineE2EFixture.SmileBlendShape), "表情が書く BlendShape は書き出す");
+            Assert.That(FindClip(result, FacialAnimationClipKind.Base), Is.Null, "0 でない未操作の BlendShape が無ければ Base は作らない");
+            AssertClipPlaybackMatches(character, result.Clips, expected);
         }
 
         [Test]
@@ -424,7 +444,8 @@ namespace Hidano.FacialControl.Timeline.Tests.PlayMode
             }
 
             Assert.That(shapeClips, Is.GreaterThan(1), "前提: 複数の BlendShape に分かれる");
-            Assert.That(shapeClips + shapesInBase, Is.EqualTo(TimelineE2EFixture.MeshBlendShapes.Length), "書かれた BlendShape は 1 つにつき 1 トラック、残りは Base");
+            Assert.That(shapeClips + shapesInBase, Is.LessThanOrEqualTo(TimelineE2EFixture.MeshBlendShapes.Length), "書かれた BlendShape は 1 つにつき 1 トラック、残りは Base か書き出さない");
+            AssertOmittedShapesStayZero(character, clips, expected);
             AssertClipPlaybackMatches(character, clips, expected);
         }
 
@@ -507,6 +528,39 @@ namespace Hidano.FacialControl.Timeline.Tests.PlayMode
             }
 
             Assert.That(maxSmile, Is.GreaterThan(50f), "前提: 比較した時刻に smile が出ている");
+        }
+
+        /// <summary>どの Clip にもカーブが無い BlendShape は、変換元の合成で全時刻 0 のままであることを確かめる。</summary>
+        private static void AssertOmittedShapesStayZero(
+            TimelineE2ECharacter character,
+            IReadOnlyList<AnimationTrackConversionClip> clips,
+            List<(double time, float[] weights, Quaternion left, Quaternion right)> expected)
+        {
+            var bound = new HashSet<string>(StringComparer.Ordinal);
+            for (int c = 0; c < clips.Count; c++)
+            {
+                foreach (EditorCurveBinding binding in AnimationUtility.GetCurveBindings(clips[c].Part.Clip))
+                {
+                    bound.Add(binding.path + "/" + binding.propertyName);
+                }
+            }
+
+            string[] names = TimelineE2EFixture.MeshBlendShapes;
+            for (int s = 0; s < names.Length; s++)
+            {
+                if (bound.Contains(RendererPath(character) + "/blendShape." + names[s]))
+                {
+                    continue;
+                }
+
+                for (int i = 0; i < expected.Count; i++)
+                {
+                    Assert.That(
+                        expected[i].weights[s],
+                        Is.EqualTo(0f).Within(FacialAnimationCurveFactory.BlendShapeTolerance),
+                        $"{names[s]} はカーブが無いので、合成でも 0 のままのはず（t={expected[i].time:F4}）");
+                }
+            }
         }
 
         private TimelineE2ECharacter Prepare(
