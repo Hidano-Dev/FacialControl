@@ -261,7 +261,7 @@ namespace Hidano.FacialControl.Timeline.Editor.AnimationTrackConversion
                 timeline, compositor.BakeLocate.Bake, compositor, controller, profileAsset, animator, options);
             if (parts.Count == 0)
             {
-                Debug.LogError(LogPrefix + $"'{controller.name}' の BlendShape・目ボーンが Animator の階層に無いため、変換するカーブがありません。変換しません。", receiver);
+                Debug.LogError(LogPrefix + $"'{controller.name}' に変換するカーブがありません（BlendShape・目ボーンが Animator の階層に無いか、独自 Track がどの BlendShape も動かしていません）。変換しません。", receiver);
                 return false;
             }
 

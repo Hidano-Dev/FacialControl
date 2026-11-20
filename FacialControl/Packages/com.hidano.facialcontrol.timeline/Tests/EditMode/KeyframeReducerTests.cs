@@ -189,6 +189,46 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
         }
 
         [Test]
+        public void BuildScalarCurve_ZeroOneToggleWithFlatRuns_KeepsOnlyStepKeysAndReproducesEveryFrame()
+        {
+            // ボタン操作で 0 ↔ 100 を切り替える値（0.3〜0.6 秒と 0.8 秒以降が 100）。同じ値が続くフレームのキーは残さず、
+            // 切り替えはランプにせず段差のまま再現する。
+            double[] toggles = { 0.3d, 0.6d, 0.8d };
+            SampleTimeline samples = SampleTimeline.Create(1d, 30d, toggles);
+            var values = new float[samples.Times.Count];
+            for (int i = 0; i < values.Length; i++)
+            {
+                values[i] = ToggleValue(samples.Times[i], toggles);
+            }
+
+            AnimationCurve curve = FacialAnimationCurveFactory.BuildScalarCurve(samples, values, Tolerance);
+
+            Assert.That(curve.length, Is.EqualTo(5), "先頭・3 回の切り替え・末尾だけ");
+            for (int f = 0; f <= 30; f++)
+            {
+                double time = f / 30d;
+                Assert.That(curve.Evaluate((float)time), Is.EqualTo(ToggleValue(time, toggles)).Within(1e-4f), $"frame {f}");
+            }
+
+            Assert.That(curve.Evaluate(0.3f - 1e-3f), Is.EqualTo(0f).Within(1e-4f), "切り替えの直前まで 0（ランプにしない）");
+        }
+
+        [Test]
+        public void IsZeroThroughout_AllWithinTolerance_ReturnsTrue()
+        {
+            Assert.That(FacialAnimationClipBuilder.IsZeroThroughout(new[] { 0f, 0.05f, -0.1f, 0f }, Tolerance), Is.True);
+            Assert.That(FacialAnimationClipBuilder.IsZeroThroughout(new float[0], Tolerance), Is.True);
+        }
+
+        [Test]
+        public void IsZeroThroughout_AnySampleAboveTolerance_ReturnsFalse()
+        {
+            // 一瞬だけ動いた値や、0 でない一定値（ベースの値）はカーブを残す。
+            Assert.That(FacialAnimationClipBuilder.IsZeroThroughout(new[] { 0f, 0f, 0.2f, 0f }, Tolerance), Is.False);
+            Assert.That(FacialAnimationClipBuilder.IsZeroThroughout(new[] { 30f, 30f, 30f }, Tolerance), Is.False);
+        }
+
+        [Test]
         public void SanitizeFileName_InvalidCharacters_ReplacedWithUnderscore()
         {
             Assert.That(FacialAnimationTrackConverter.SanitizeFileName("Take:1/顔?"), Is.EqualTo("Take_1_顔_"));
@@ -198,6 +238,21 @@ namespace Hidano.FacialControl.Timeline.Tests.EditMode
         {
             var metric = new ScalarChannelMetric(Times(values.Length), values);
             return KeyframeReducer.Reduce(steps, values.Length, metric, Tolerance);
+        }
+
+        /// <summary>時刻 0 で 0、<paramref name="toggles"/> の各時刻で 0 と 100 を入れ替える値。</summary>
+        private static float ToggleValue(double time, double[] toggles)
+        {
+            int passed = 0;
+            for (int i = 0; i < toggles.Length; i++)
+            {
+                if (time >= toggles[i] - 1e-9d)
+                {
+                    passed++;
+                }
+            }
+
+            return passed % 2 == 1 ? 100f : 0f;
         }
 
         private static double[] Times(int count)

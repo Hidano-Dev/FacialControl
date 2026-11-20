@@ -193,7 +193,8 @@ namespace Hidano.FacialControl.Timeline.Editor.AnimationClipExport
 
             if (parts.Count == 0)
             {
-                return RecAnimationClipExportResult.Failed($"'{controller.name}' の BlendShape・目ボーンが見つからないため、書き出すカーブがありません。", problems);
+                return RecAnimationClipExportResult.Failed(
+                    $"'{controller.name}' に書き出すカーブがありません（BlendShape・目ボーンが見つからないか、REC がどの BlendShape も動かしていません）。", problems);
             }
 
             string baseName = FacialAnimationTrackConverter.SanitizeFileName(
