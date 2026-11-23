@@ -138,10 +138,10 @@ namespace Hidano.FacialControl.Tests.EditMode.Adapters.Bone
         }
 
         [Test]
-        public void Resolve_PartialMatch_UsesItAndWarnsOnce()
+        public void Resolve_PartialMatchWithoutAvatarEye_UsesItAndWarnsOnce()
         {
             var resolver = new GazeEyeBoneResolver(_root.transform, null, null, null);
-            LogAssert.Expect(LogType.Warning, new Regex("完全一致するボーンが無いため.*'LeftEye'"));
+            LogAssert.Expect(LogType.Warning, new Regex("完全一致するボーンが無く、Avatar の目線ボーンも無いため.*'LeftEye'"));
 
             var first = resolver.Resolve("Left", isLeftEye: true);
             var second = resolver.Resolve("Left", isLeftEye: true);
@@ -149,6 +149,34 @@ namespace Hidano.FacialControl.Tests.EditMode.Adapters.Bone
             Assert.That(first.Bone, Is.SameAs(_leftEye));
             Assert.That(second.Bone, Is.SameAs(_leftEye));
             LogAssert.NoUnexpectedReceived();
+        }
+
+        [Test]
+        public void Resolve_NoExactMatchButPartialMatchAndAvatarEye_PrefersAvatarEyeAndWarnsOnce()
+        {
+            // 別モデル向けの Profile を使い回し、旧データの "LeftEye" がこのモデルでは
+            // 目のハイライト等の無関係なオブジェクトにしか部分一致しないケース。
+            _leftEye.name = "J_Eye_L";
+            var highlight = MakeChild("LeftEyeHighlight", _root.transform);
+            var resolver = new GazeEyeBoneResolver(_root.transform, null, _leftEye, _rightEye);
+            LogAssert.Expect(LogType.Warning, new Regex("'LeftEye' に完全一致するボーンが無いため、Avatar の目線ボーン 'J_Eye_L'"));
+
+            var first = resolver.Resolve("Root/Hip/Head/LeftEye", isLeftEye: true);
+            var second = resolver.Resolve("Root/Hip/Head/LeftEye", isLeftEye: true);
+
+            Assert.That(first.Bone, Is.SameAs(_leftEye), "部分一致の 'LeftEyeHighlight' より Avatar の目線ボーンを優先する");
+            Assert.That(first.Bone, Is.Not.SameAs(highlight));
+            Assert.That(second.Bone, Is.SameAs(_leftEye));
+            LogAssert.NoUnexpectedReceived();
+        }
+
+        [Test]
+        public void Resolve_SameJointNameForBothEyes_ResolvesEachEyeToItsOwnAvatarEye()
+        {
+            var resolver = new GazeEyeBoneResolver(_root.transform, null, _leftEye, _rightEye);
+
+            Assert.That(resolver.Resolve("Missing", isLeftEye: true).Bone, Is.SameAs(_leftEye));
+            Assert.That(resolver.Resolve("Missing", isLeftEye: false).Bone, Is.SameAs(_rightEye));
         }
 
         [Test]

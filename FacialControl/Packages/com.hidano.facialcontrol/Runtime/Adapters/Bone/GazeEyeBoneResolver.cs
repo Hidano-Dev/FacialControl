@@ -16,8 +16,8 @@ namespace Hidano.FacialControl.Adapters.Bone
     /// <item>ジョイント名が <c>/</c> を含むパスなら、末尾のセグメントを名前として扱う (旧データの path の移行)。</item>
     /// <item>キャラクター root 配下 (root 自身を含む、非アクティブを含む、深さ優先の前順) から、名前が完全一致する
     /// 最初の Transform を使う。</item>
-    /// <item>完全一致が無ければ、名前に入力を含む最初の Transform を使い、警告を 1 回出す。</item>
-    /// <item>部分一致も無ければ警告を 1 回出し、Avatar の目線ボーンに戻す。</item>
+    /// <item>完全一致が無ければ警告を 1 回出し、Avatar の目線ボーンを使う (名前の部分一致より優先する。HID-425)。</item>
+    /// <item>Avatar の目線ボーンも無ければ、名前に入力を含む最初の Transform を使い、警告を 1 回出す。</item>
     /// </list>
     /// </para>
     /// <para>
@@ -109,7 +109,7 @@ namespace Hidano.FacialControl.Adapters.Bone
             string name = ToJointName(jointName);
             if (name.Length > 0)
             {
-                Transform joint = FindJointCached(name);
+                Transform joint = FindJointCached(name, isLeftEye);
                 if (joint != null)
                 {
                     return GetPose(joint);
@@ -243,15 +243,30 @@ namespace Hidano.FacialControl.Adapters.Bone
             return null;
         }
 
-        private Transform FindJointCached(string name)
+        /// <summary>
+        /// ジョイント名から目線ボーンを引く。完全一致 → (呼出側が使う) Avatar の目線ボーン → 部分一致の順で、
+        /// Avatar の目線ボーンを使うべきときは null を返す。Avatar の目線ボーンは左右で異なるため、目ごとにキャッシュする。
+        /// </summary>
+        private Transform FindJointCached(string name, bool isLeftEye)
         {
-            if (_jointCache.TryGetValue(name, out Transform cached))
+            string cacheKey = (isLeftEye ? "L:" : "R:") + name;
+            if (_jointCache.TryGetValue(cacheKey, out Transform cached))
             {
                 return cached;
             }
 
             Transform joint = FindJoint(_characterRoot, name, out bool isExactMatch);
-            if (joint == null)
+            Transform avatarEye = isLeftEye ? _avatarLeftEye : _avatarRightEye;
+            if (joint != null && !isExactMatch && avatarEye != null)
+            {
+                // 部分一致 (例: 目のハイライト) より Avatar の目線ボーンを優先する。
+                // 別モデル向けの Profile を使い回したときに、旧データの名前が無関係なオブジェクトに当たるのを避ける。
+                Debug.LogWarning(
+                    $"{LogPrefix}目線のジョイント名 '{name}' に完全一致するボーンが無いため、Avatar の目線ボーン '{avatarEye.name}' を使います"
+                    + $" (名前を含む '{joint.name}' は使いません)。");
+                joint = null;
+            }
+            else if (joint == null)
             {
                 Debug.LogWarning(
                     $"{LogPrefix}目線のジョイント名 '{name}' に一致するボーンが見つかりません。Avatar の目線ボーン (Humanoid の LeftEye / RightEye) があればそれを使います。");
@@ -259,10 +274,10 @@ namespace Hidano.FacialControl.Adapters.Bone
             else if (!isExactMatch)
             {
                 Debug.LogWarning(
-                    $"{LogPrefix}目線のジョイント名 '{name}' に完全一致するボーンが無いため、名前に含む '{joint.name}' を使います。");
+                    $"{LogPrefix}目線のジョイント名 '{name}' に完全一致するボーンが無く、Avatar の目線ボーンも無いため、名前に含む '{joint.name}' を使います。");
             }
 
-            _jointCache[name] = joint;
+            _jointCache[cacheKey] = joint;
             return joint;
         }
 

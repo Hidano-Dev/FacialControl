@@ -1269,7 +1269,8 @@ namespace Hidano.FacialControl.Editor.Inspector
             var leftJoint = AddGazeChannelProperty(container, channel, "leftEyeBonePath", "左目ジョイント名 (任意)", GazeChannelLeftJointNameFieldName);
             var rightJoint = AddGazeChannelProperty(container, channel, "rightEyeBonePath", "右目ジョイント名 (任意)", GazeChannelRightJointNameFieldName);
             const string jointTooltip = "空欄なら Avatar の目線ボーン (Humanoid の LeftEye / RightEye) を使います。"
-                + "名前で GameObject を探し、完全一致を優先します (無ければ名前を含む最初のものを警告付きで使います)。"
+                + "名前で GameObject を探し、完全一致を優先します。完全一致が無ければ Avatar の目線ボーンを使い、"
+                + "それも無いときだけ名前を含む最初のものを警告付きで使います。"
                 + "旧形式の path (Armature/.../LeftEye) は末尾の名前として扱います。";
             if (leftJoint != null) leftJoint.tooltip = jointTooltip;
             if (rightJoint != null) rightJoint.tooltip = jointTooltip;
