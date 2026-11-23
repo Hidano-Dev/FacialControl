@@ -288,6 +288,16 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings.InputSystem
             ApplyOverlayLayerWeights();
         }
 
+        /// <summary>
+        /// Overlay の Action 値をレイヤー weight にする。0..1 にクランプしてから応答カーブを掛け、もう一度 0..1 にクランプする
+        /// （カーブが範囲外へ出ても weight は 0..1 に収める）。
+        /// </summary>
+        internal static float ToOverlayLayerWeight(float raw, AnimationCurve responseCurve)
+        {
+            float weight = Mathf.Clamp01(raw);
+            return Mathf.Clamp01(AnalogResponseCurve.Evaluate(responseCurve, weight));
+        }
+
         // 各 overlay binding について Action の現在値をレイヤー weight に反映させる。
         // 同一 layer に複数 binding が紐付いた場合は後勝ち（最後に書込まれた weight が反映される）。
         private void ApplyOverlayLayerWeights()
@@ -312,10 +322,7 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings.InputSystem
                 {
                     continue;
                 }
-                if (raw < 0f) raw = 0f;
-                else if (raw > 1f) raw = 1f;
-
-                _facialController.SetLayerWeight(b.TargetLayer, raw);
+                _facialController.SetLayerWeight(b.TargetLayer, ToOverlayLayerWeight(raw, b.ResponseCurve));
             }
         }
 
@@ -557,7 +564,8 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings.InputSystem
             return bindings;
         }
 
-        // Analog エントリのみ Domain 値型に変換する。scale は常に 1.0 として扱う。
+        // Analog エントリのみ Domain 値型に変換する。scale は常に 1.0 として扱い、応答カーブはエントリの値を渡す
+        // （null・キー無しの既存データは入力をそのまま使う）。
         private List<AnalogExpressionBinding> CollectAnalogExpressionBindings()
         {
             var bindings = new List<AnalogExpressionBinding>();
@@ -581,7 +589,8 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings.InputSystem
                     sourceId: entry.actionName,
                     sourceAxis: 0,
                     expressionId: entry.expressionId,
-                    scale: 1f));
+                    scale: 1f,
+                    responseCurve: entry.responseCurve));
             }
 
             return bindings;
@@ -711,6 +720,7 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings.InputSystem
                     Slot = entry.overlaySlot,
                     AnalogSource = analogSource,
                     TargetLayer = string.IsNullOrEmpty(entry.overlayTargetLayer) ? "overlay" : entry.overlayTargetLayer,
+                    ResponseCurve = entry.responseCurve,
                 });
             }
         }
@@ -808,6 +818,7 @@ namespace Hidano.FacialControl.Adapters.AdapterBindings.InputSystem
             public string Slot;
             public InputActionAnalogSource AnalogSource;
             public string TargetLayer;
+            public AnimationCurve ResponseCurve;
         }
 
         /// <summary>
