@@ -48,7 +48,7 @@ OSC Receiver / OSC Sender は次の制御アドレスだけを使う。BlendShap
 - **名前つきアドレスは受けない**: 値フレーム以外のアドレスは読み飛ばす。手動 mapping は無い
 - **bundle 解釈**: 既定 `AtomicSwap`（同一 bundle を 1 フレームで一括反映）。`IndividualMessage` で受信順に個別反映
 - **staleness fail-safe**: `stalenessSeconds` を超えて受信が途絶えると `RevertToBase`（ベース表情へ戻す）または `HoldLastValue`（最後の値を保持）
-- **ポート自動繰り上げ**: listen ポートが使用中なら空きポートへ最大 10 回繰り上げ、警告で実際のポートを通知する
+- **ポート使用中の警告**: listen ポートが使用中なら警告を出す。別のポートへの自動繰り上げはしない（送信側が知らないポートで待ち受ける事故を防ぐため）。占有しているものを止めるか、送信側と受信側のポートを変える
 - 受信スレッドは Unity API を呼ばず、メインスレッドの `Update` でパースと反映を行う
 
 登録する入力源 id: BlendShape は `<slug>`、Gaze は `<slug>:<channelId>`（左右共通）。

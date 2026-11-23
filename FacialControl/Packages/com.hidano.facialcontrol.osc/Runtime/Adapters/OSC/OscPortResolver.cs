@@ -4,10 +4,12 @@ using System.Net.Sockets;
 namespace Hidano.FacialControl.Adapters.OSC
 {
     /// <summary>
-    /// UDP 受信ポートの空き判定と、使用中の場合の空きポートへの繰り上げ解決を行う。
+    /// UDP 受信ポートの空き判定を行う。
     /// uOSC は SO_REUSEADDR 付きで bind するためポート衝突が bind エラーにならず、
     /// Windows では後着ソケットへ配信されない事故が無警告で発生する。
-    /// bind 前にここで空きを検知することで、その事故を防ぐ。
+    /// bind 前にここで使用中を検知し、警告を出せるようにする。
+    /// <see cref="OscReceiver"/> は使用中でも繰り上げない (HID-426)。
+    /// <see cref="ResolveAvailablePort(int, int)"/> は空きポートを探したいテスト・ツール向けに残している。
     /// </summary>
     public static class OscPortResolver
     {

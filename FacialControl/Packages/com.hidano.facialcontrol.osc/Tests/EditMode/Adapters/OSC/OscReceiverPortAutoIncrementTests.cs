@@ -12,9 +12,10 @@ using Hidano.FacialControl.Testing;
 namespace Hidano.FacialControl.Tests.EditMode.Adapters
 {
     /// <summary>
-    /// <see cref="OscReceiver.StartReceiving"/> のポート自動繰り上げのテスト。
-    /// 設定ポートが使用中の場合、警告ログを出して次の空きポートで待ち受けることを検証する。
-    /// ビルド済みアプリでポート衝突が発覚するケースを想定し、無警告で受信不能になる事故を防ぐ。
+    /// <see cref="OscReceiver.StartReceiving"/> のポート使用中の扱いのテスト。
+    /// 設定ポートが使用中でも別のポートへ繰り上げず、警告だけ出すことを検証する (HID-426)。
+    /// 黙って別ポートで待ち受けると送信側と食い違う事故になるため、繰り上げはしない。
+    /// クラス名は履歴のため据え置く。
     /// </summary>
     [TestFixture]
     [MediumTest]
@@ -94,34 +95,33 @@ namespace Hidano.FacialControl.Tests.EditMode.Adapters
         }
 
         [Test]
-        public void StartReceiving_PortOccupied_IncrementsPortAndLogsWarning()
+        public void StartReceiving_PortOccupied_KeepsConfiguredPortAndLogsWarningOnce()
         {
             int port = AllocatePortRange();
             OccupyLikeUOsc(port);
             var receiver = CreateReceiver(port);
 
-            LogAssert.Expect(LogType.Warning, new Regex("OSC 受信ポート.*" + port + ".*" + (port + 1)));
+            LogAssert.Expect(LogType.Warning, new Regex("OSC 受信ポート " + port + " は使用中です"));
             receiver.StartReceiving();
 
-            Assert.That(receiver.IsRunning, Is.True);
-            Assert.That(receiver.ActivePort, Is.EqualTo(port + 1),
-                "設定ポートが使用中なら次の空きポートへ繰り上げて待ち受けるべき。");
+            Assert.That(receiver.ActivePort, Is.EqualTo(port),
+                "設定ポートが使用中でも別のポートへ繰り上げない（送信側が知らないポートで待ち受ける事故を防ぐ）。");
+            LogAssert.NoUnexpectedReceived();
         }
 
         [Test]
-        public void StartReceiving_TwoReceiversSamePort_SecondReceiverShiftsToNextPort()
+        public void StartReceiving_TwoReceiversSamePort_SecondReceiverDoesNotShiftAndWarns()
         {
             int port = AllocatePortRange();
             var first = CreateReceiver(port);
             var second = CreateReceiver(port);
 
             first.StartReceiving();
-            LogAssert.Expect(LogType.Warning, new Regex("OSC 受信ポート"));
+            LogAssert.Expect(LogType.Warning, new Regex("OSC 受信ポート " + port + " は使用中です"));
             second.StartReceiving();
 
             Assert.That(first.ActivePort, Is.EqualTo(port));
-            Assert.That(second.ActivePort, Is.EqualTo(port + 1),
-                "同一シーンに同じ設定ポートの受信が 2 つあっても、後発が繰り上がって両方待ち受けられるべき。");
+            Assert.That(second.ActivePort, Is.EqualTo(port), "後発も繰り上がらない。");
         }
 
         [Test]
@@ -136,23 +136,7 @@ namespace Hidano.FacialControl.Tests.EditMode.Adapters
             receiver.StartReceiving();
 
             Assert.That(receiver.ActivePort, Is.EqualTo(port));
-        }
-
-        [Test]
-        public void StartReceiving_AllCandidatePortsOccupied_LogsErrorAndFallsBackToConfiguredPort()
-        {
-            int port = AllocatePortRange();
-            for (int i = 0; i < OscPortResolver.DefaultMaxAttempts; i++)
-            {
-                OccupyLikeUOsc(port + i);
-            }
-            var receiver = CreateReceiver(port);
-
-            LogAssert.Expect(LogType.Error, new Regex("OSC 受信ポート.*" + port));
-            receiver.StartReceiving();
-
-            Assert.That(receiver.ActivePort, Is.EqualTo(port),
-                "空きが見つからない場合は設定ポートのまま待ち受けを試みる（従来挙動の維持）。");
+            LogAssert.NoUnexpectedReceived();
         }
 
         private OscReceiver CreateReceiver(int port)
@@ -167,7 +151,7 @@ namespace Hidano.FacialControl.Tests.EditMode.Adapters
 
         private static int AllocatePortRange()
         {
-            // 繰り上げ走査幅（DefaultMaxAttempts = 10）ぶんの空間をテストごとに確保する。
+            // テストごとに離れたポートを使い、前のテストのソケットと衝突しないようにする。
             return PortBase + System.Threading.Interlocked.Increment(ref s_portCounter) * 20;
         }
 

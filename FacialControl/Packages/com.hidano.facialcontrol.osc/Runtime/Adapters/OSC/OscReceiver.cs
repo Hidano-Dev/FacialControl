@@ -79,9 +79,8 @@ namespace Hidano.FacialControl.Adapters.OSC
         public bool IsRunning => _receiveLoop != null && _receiveLoop.IsRunning;
 
         /// <summary>
-        /// 実際に待ち受けているポート番号。
-        /// <see cref="Port"/> が使用中だった場合は空きポートへ自動繰り上げされるため、
-        /// 設定値と異なることがある。<see cref="StartReceiving"/> 前は -1。
+        /// 実際に待ち受けているポート番号。自動繰り上げはしないので、開始後は <see cref="Port"/> と同じ。
+        /// <see cref="StartReceiving"/> 前は -1。
         /// </summary>
         public int ActivePort => _activePort;
 
@@ -199,8 +198,8 @@ namespace Hidano.FacialControl.Adapters.OSC
 
         /// <summary>
         /// 受信サーバーを開始する。
-        /// 設定ポートが使用中の場合は空きポートへ自動繰り上げし、警告ログで通知する
-        /// （ビルド済みアプリで衝突が発覚しても無警告で受信不能にならないようにするため）。
+        /// 設定ポートが使用中の場合は警告ログで通知し、設定ポートのまま待ち受けを試みる。
+        /// 別のポートへの自動繰り上げはしない（送信側が知らないポートで黙って待ち受ける事故を防ぐため。HID-426）。
         /// </summary>
         public void StartReceiving()
         {
@@ -217,23 +216,15 @@ namespace Hidano.FacialControl.Adapters.OSC
                 return;
             }
 
-            int resolvedPort = OscPortResolver.ResolveAvailablePort(_port);
-            if (resolvedPort < 0)
-            {
-                Debug.LogError(
-                    $"[FacialControl] OSC 受信ポート {_port} から {OscPortResolver.DefaultMaxAttempts} 個連続で空きポートが見つかりませんでした。" +
-                    $"ポート {_port} で待ち受けを試みますが、他プロセスが占有している間は受信できません。");
-                resolvedPort = _port;
-            }
-            else if (resolvedPort != _port)
+            if (!OscPortResolver.IsPortAvailable(_port))
             {
                 Debug.LogWarning(
-                    $"[FacialControl] OSC 受信ポート {_port} は使用中のため {resolvedPort} に繰り上げて待ち受けます。" +
-                    $"送信側の宛先ポートを {resolvedPort} に合わせてください。");
+                    $"[FacialControl] OSC 受信ポート {_port} は使用中です。他のアプリや同じポートを設定した別の受信が" +
+                    $"占有している間は受信できません。占有しているものを止めるか、送信側と受信側のポートを別の番号に変えてください。");
             }
 
-            _activePort = resolvedPort;
-            _receiveLoop.Start(resolvedPort, _receiveOptions);
+            _activePort = _port;
+            _receiveLoop.Start(_port, _receiveOptions);
         }
 
         /// <summary>
