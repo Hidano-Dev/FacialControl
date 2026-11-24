@@ -17,7 +17,8 @@ namespace Hidano.FacialControl.Adapters.ScriptableObject
 
         /// <summary>
         /// 左目のジョイント名 (任意)。空の場合は実行時に Avatar の目線ボーン (Humanoid の <c>LeftEye</c>) を使う。
-        /// 名前で GameObject を探し、完全一致を優先する (無ければ名前に含む最初のものを警告付きで使う)。
+        /// 名前で GameObject を探し、完全一致を優先する。完全一致が無ければ Avatar の目線ボーンを使い、
+        /// それも無いときだけ名前に含む最初のものを警告付きで使う。
         /// 旧データの <c>Armature/.../LeftEye</c> 形式の path は末尾のセグメントを名前として扱う。
         /// </summary>
         public string leftEyeBonePath = string.Empty;
