@@ -127,6 +127,7 @@ namespace Hidano.FacialControl.Adapters.InputSources
                     source: source,
                     sourceAxis: Math.Max(0, b.SourceAxis),
                     scale: b.Scale,
+                    responseCurve: b.ResponseCurve,
                     blendShapeIndices: indexList.ToArray(),
                     blendShapeValues: valueList.ToArray()));
             }
@@ -233,7 +234,9 @@ namespace Hidano.FacialControl.Adapters.InputSources
                 if (!TryReadAxis(source, rb.SourceAxis, out float raw)) continue;
 
                 // analog scalar の負方向は 0 にクランプ (LT/RT は 0..1 を想定)。
+                // 応答カーブは入力値に掛ける (REC / Timeline が差し替えた入力にも同じく掛かる)。
                 float scalar = raw < 0f ? 0f : raw;
+                scalar = AnalogResponseCurve.Evaluate(rb.ResponseCurve, scalar);
                 scalar *= rb.Scale;
                 if (scalar <= 0f) continue;
 
@@ -305,6 +308,7 @@ namespace Hidano.FacialControl.Adapters.InputSources
             public readonly IAnalogInputSource OriginalSource;
             public readonly int SourceAxis;
             public readonly float Scale;
+            public readonly AnimationCurve ResponseCurve;
             public readonly int[] BlendShapeIndices;
             public readonly float[] BlendShapeValues;
 
@@ -315,6 +319,7 @@ namespace Hidano.FacialControl.Adapters.InputSources
                 IAnalogInputSource source,
                 int sourceAxis,
                 float scale,
+                AnimationCurve responseCurve,
                 int[] blendShapeIndices,
                 float[] blendShapeValues)
             {
@@ -323,6 +328,7 @@ namespace Hidano.FacialControl.Adapters.InputSources
                 Source = source;
                 SourceAxis = sourceAxis;
                 Scale = scale;
+                ResponseCurve = responseCurve;
                 BlendShapeIndices = blendShapeIndices;
                 BlendShapeValues = blendShapeValues;
             }
@@ -339,12 +345,29 @@ namespace Hidano.FacialControl.Adapters.InputSources
         public string ExpressionId { get; }
         public float Scale { get; }
 
+        /// <summary>
+        /// 入力値に掛ける応答カーブ (HID-427)。null またはキーが無ければ入力をそのまま使う。
+        /// <see cref="Scale"/> より先に掛ける。
+        /// </summary>
+        public AnimationCurve ResponseCurve { get; }
+
         public AnalogExpressionBinding(string sourceId, int sourceAxis, string expressionId, float scale)
+            : this(sourceId, sourceAxis, expressionId, scale, null)
+        {
+        }
+
+        public AnalogExpressionBinding(
+            string sourceId,
+            int sourceAxis,
+            string expressionId,
+            float scale,
+            AnimationCurve responseCurve)
         {
             SourceId = sourceId ?? string.Empty;
             SourceAxis = sourceAxis;
             ExpressionId = expressionId ?? string.Empty;
             Scale = scale;
+            ResponseCurve = responseCurve;
         }
     }
 }

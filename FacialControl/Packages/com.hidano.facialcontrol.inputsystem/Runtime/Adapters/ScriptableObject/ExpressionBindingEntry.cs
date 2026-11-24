@@ -55,5 +55,10 @@ namespace Hidano.FacialControl.InputSystem.Adapters.ScriptableObject
             + " このレイヤーの weight を Action 値で毎フレーム更新する。"
             + " 通常は emotion レイヤーより priority が大きいレイヤーを指定する（typically \"overlay\"）。")]
         public string overlayTargetLayer = "overlay";
+
+        [Tooltip(
+            "Analog / Overlay モード時のみ有効: Action の値 (0..1, 横軸) を weight (縦軸) に変換するカーブ。"
+            + " 既定は直線 (値をそのまま使う)。下に膨らませると半押しでは弱く、奥まで押すと一気に強くなる。")]
+        public AnimationCurve responseCurve = AnimationCurve.Linear(0f, 0f, 1f, 1f);
     }
 }

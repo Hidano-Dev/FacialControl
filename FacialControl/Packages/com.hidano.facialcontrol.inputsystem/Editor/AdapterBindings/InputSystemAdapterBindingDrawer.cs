@@ -48,6 +48,7 @@ namespace Hidano.FacialControl.InputSystem.Editor.AdapterBindings
         public const string ModeMismatchHelpName = "input-system-binding-mode-mismatch-help";
         public const string OverlaySlotDropdownName = "input-system-binding-overlay-slot-dropdown";
         public const string OverlaySlotHelpName = "input-system-binding-overlay-slot-help";
+        public const string ResponseCurveFieldName = "input-system-binding-response-curve-field";
 
         private const long OverlaySlotRefreshIntervalMs = 500;
 
@@ -426,6 +427,22 @@ namespace Hidano.FacialControl.InputSystem.Editor.AdapterBindings
             };
 
             UpdateOverlayFieldVisibility(overlaySlotField, overlayTargetLayerField, currentMode);
+
+            // 4c) Analog / Overlay モード時のみ表示する応答カーブ (HID-427)。
+            var responseCurveProp = entryProp.FindPropertyRelative("responseCurve");
+            var responseCurveField = new CurveField("応答カーブ")
+            {
+                name = ResponseCurveFieldName,
+                tooltip = "Analog / Overlay モード時のみ有効。横軸が Action の値 (0..1)、縦軸が weight。"
+                    + " 既定の直線は値をそのまま使う。下に膨らませると半押しでは弱く、奥まで押すと一気に強くなる。",
+                ranges = new UnityEngine.Rect(0f, 0f, 1f, 1f),
+            };
+            if (responseCurveProp != null)
+            {
+                responseCurveField.BindProperty(responseCurveProp);
+            }
+            UpdateResponseCurveVisibility(responseCurveField, currentMode);
+
             UpdateGazeActionFieldState(
                 actionDropdown,
                 useDistinctLeftRightToggle,
@@ -443,6 +460,7 @@ namespace Hidano.FacialControl.InputSystem.Editor.AdapterBindings
             element.Add(triggerModeField);
             element.Add(overlaySlotField);
             element.Add(overlayTargetLayerField);
+            element.Add(responseCurveField);
 
             // 5) Mode と Action の expectedControlType の不一致を検知するヒントボックス。
             //    Normal モードで連続値 Action (Axis/Vector2) を選んでいる、
@@ -526,6 +544,7 @@ namespace Hidano.FacialControl.InputSystem.Editor.AdapterBindings
                 {
                     UpdateTriggerModeVisibility(triggerModeField, mode);
                     UpdateOverlayFieldVisibility(overlaySlotField, overlayTargetLayerField, mode);
+                    UpdateResponseCurveVisibility(responseCurveField, mode);
                     UpdateGazeActionFieldState(
                         actionDropdown,
                         useDistinctLeftRightToggle,
@@ -564,6 +583,14 @@ namespace Hidano.FacialControl.InputSystem.Editor.AdapterBindings
                 : DisplayStyle.None;
             if (leftActionField != null) leftActionField.style.display = distinctDisplay;
             if (rightActionField != null) rightActionField.style.display = distinctDisplay;
+        }
+
+        private static void UpdateResponseCurveVisibility(VisualElement responseCurveField, BindingMode mode)
+        {
+            if (responseCurveField == null) return;
+            responseCurveField.style.display = mode == BindingMode.Analog || mode == BindingMode.Overlay
+                ? DisplayStyle.Flex
+                : DisplayStyle.None;
         }
 
         private static void UpdateOverlayFieldVisibility(

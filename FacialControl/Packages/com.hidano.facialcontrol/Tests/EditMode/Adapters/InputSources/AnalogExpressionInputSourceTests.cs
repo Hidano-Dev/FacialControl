@@ -202,7 +202,73 @@ namespace Hidano.FacialControl.Tests.EditMode.Adapters.InputSources
 
         #region ヘルパー / フェイク
 
+        #region 応答カーブ (HID-427)
+
+        [Test]
+        public void TryWriteValues_WithResponseCurve_WritesCurveEvaluatedValue()
+        {
+            // 入力 0.2 を 0.2^2 = 0.04 に落とすカーブ (半押しでは表情をあまり出さない)。
+            var curve = new UnityEngine.AnimationCurve(
+                new UnityEngine.Keyframe(0f, 0f, 0f, 0f),
+                new UnityEngine.Keyframe(1f, 1f, 2f, 2f));
+            AnalogExpressionInputSource sut = Build(curve);
+
+            AssertOutput(sut, curve.Evaluate(OriginalValue));
+            Assert.That(curve.Evaluate(OriginalValue), Is.LessThan(OriginalValue), "前提: カーブで値が下がる");
+        }
+
+        [Test]
+        public void TryWriteValues_NullOrEmptyResponseCurve_WritesRawValue()
+        {
+            AssertOutput(Build(null), OriginalValue);
+            AssertOutput(Build(new UnityEngine.AnimationCurve()), OriginalValue);
+        }
+
+        [Test]
+        public void TryWriteValues_CurveMapsInputToZero_DoesNotContribute()
+        {
+            var flat = UnityEngine.AnimationCurve.Constant(0f, 1f, 0f);
+            AnalogExpressionInputSource sut = Build(flat);
+            Span<float> output = stackalloc float[BlendShapeNames.Length];
+
+            Assert.That(sut.TryWriteValues(output), Is.False, "カーブ適用後が 0 以下なら寄与しない");
+        }
+
+        [Test]
+        public void TryWriteValues_AfterReplace_AppliesCurveToReplacedSource()
+        {
+            // REC / Timeline の乗っ取りは入力値を差し替えるだけで、カーブは消費者側で掛かる。
+            var curve = new UnityEngine.AnimationCurve(
+                new UnityEngine.Keyframe(0f, 0f, 0f, 0f),
+                new UnityEngine.Keyframe(1f, 1f, 2f, 2f));
+            AnalogExpressionInputSource sut = Build(curve);
+            sut.AttachRegistry(_registry, _slug);
+
+            _registry.Replace(_slug, SourceId, new FakeScalarSource("rec-lt", 0.5f));
+
+            AssertOutput(sut, curve.Evaluate(0.5f));
+        }
+
+        [TestCase(-0.5f, -0.5f)]
+        [TestCase(0.3f, 0.3f)]
+        public void AnalogResponseCurve_NullCurve_ReturnsInput(float input, float expected)
+        {
+            Assert.That(AnalogResponseCurve.Evaluate(null, input), Is.EqualTo(expected));
+        }
+
+        #endregion
+
+        private AnalogExpressionInputSource Build(UnityEngine.AnimationCurve responseCurve)
+        {
+            return Build(new AnalogExpressionBinding(SourceId, 0, ExpressionId, 1f, responseCurve));
+        }
+
         private AnalogExpressionInputSource Build()
+        {
+            return Build(new AnalogExpressionBinding(SourceId, 0, ExpressionId, 1f));
+        }
+
+        private AnalogExpressionInputSource Build(AnalogExpressionBinding binding)
         {
             var layers = new[] { new LayerDefinition("emotion", 0, ExclusionMode.LastWins) };
             var smile = new Expression(
@@ -220,10 +286,7 @@ namespace Hidano.FacialControl.Tests.EditMode.Adapters.InputSources
             {
                 { SourceId, _original },
             };
-            var bindings = new[]
-            {
-                new AnalogExpressionBinding(SourceId, 0, ExpressionId, 1f),
-            };
+            var bindings = new[] { binding };
 
             return new AnalogExpressionInputSource(
                 InputSourceId.Parse(AnalogExpressionInputSource.ReservedId),

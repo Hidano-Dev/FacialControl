@@ -115,6 +115,30 @@ namespace Hidano.FacialControl.InputSystem.Tests.EditMode.Adapters.AdapterBindin
         }
 
         // ====================================================================
+        // 応答カーブ (HID-427): Analog / Overlay の行でだけ表示する
+        // ====================================================================
+
+        [TestCase(InputBindingMode.Overlay, DisplayStyle.Flex)]
+        [TestCase(InputBindingMode.Analog, DisplayStyle.Flex)]
+        [TestCase(InputBindingMode.Normal, DisplayStyle.None)]
+        [TestCase(InputBindingMode.Gaze, DisplayStyle.None)]
+        public void BindExpressionBindingRow_ResponseCurveField_ShownOnlyForAnalogAndOverlay(
+            InputBindingMode mode, DisplayStyle expected)
+        {
+            _profileSo = ScriptableObject.CreateInstance<TestProfileSO>();
+            SetSlots(_profileSo, BlinkSlotName);
+            _profileSo.WritableAdapterBindings.Add(CreateBinding(BlinkSlotName, mode));
+            SerializedProperty bindingProperty = CreateProfileBindingProperty(_profileSo);
+
+            var row = new VisualElement();
+            InvokeBindExpressionBindingRow(row, 0, bindingProperty);
+            var curveField = row.Q<UnityEditor.UIElements.CurveField>(InputSystemAdapterBindingDrawer.ResponseCurveFieldName);
+
+            Assert.That(curveField, Is.Not.Null);
+            Assert.That(curveField.style.display.value, Is.EqualTo(expected));
+        }
+
+        // ====================================================================
         // ヘルパー
         // ====================================================================
 
@@ -131,6 +155,11 @@ namespace Hidano.FacialControl.InputSystem.Tests.EditMode.Adapters.AdapterBindin
 
         private static InputSystemAdapterBinding CreateBinding(string overlaySlot)
         {
+            return CreateBinding(overlaySlot, InputBindingMode.Overlay);
+        }
+
+        private static InputSystemAdapterBinding CreateBinding(string overlaySlot, InputBindingMode mode)
+        {
             var binding = new InputSystemAdapterBinding();
             binding.Configure(
                 asset: null,
@@ -139,7 +168,7 @@ namespace Hidano.FacialControl.InputSystem.Tests.EditMode.Adapters.AdapterBindin
                 {
                     new ExpressionBindingEntry
                     {
-                        bindingMode = InputBindingMode.Overlay,
+                        bindingMode = mode,
                         actionName = "RightTrigger",
                         overlaySlot = overlaySlot,
                         overlayTargetLayer = "overlay",
