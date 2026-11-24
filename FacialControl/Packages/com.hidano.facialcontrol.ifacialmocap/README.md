@@ -41,7 +41,7 @@
 - 端末が PC の `49983` へ 60 fps で UDP 送信する。端末側がストリーム未開始の場合は Settings の `sendHandshake` を ON にし、`deviceAddress` に端末 IP を入れると PC からトリガー文字列を周期送信して起動する
 - パケットは `name-value|...|=head#X,Y,Z,posX,posY,posZ|rightEye#X,Y,Z|leftEye#X,Y,Z|`。BlendShape 値域は 0〜100（内部で 0〜1 に正規化）、角度は度
 - v2 形式（`dataVersion = v2`）では name-value の区切りが `-` から `&` になり負値を扱える（Facemotion3d 等）
-- 受信は UDP のみ。TCP 経路は未対応。listen ポートが使用中の場合はエラーを出して起動しない（OSC のような自動繰り上げはない）
+- 受信は UDP のみ。TCP 経路は未対応。listen ポートが使用中の場合はエラーを出して起動しない（別のポートへの自動繰り上げはしない）
 - `stalenessSeconds` を超えて受信が途絶えると `RevertToBase`（BlendShape / 視線 / 頭部を 0 へ）または `HoldLastValue`
 
 参考: <https://www.ifacialmocap.com/for-developer/>
